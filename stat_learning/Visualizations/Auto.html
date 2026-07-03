@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    #vis.vega-embed {
+      width: 100%;
+      display: flex;
+    }
+
+    #vis.vega-embed details,
+    #vis.vega-embed details summary {
+      position: relative;
+    }
+  </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega@6"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-lite@6.4.1"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-embed@7"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    (function(vegaEmbed) {
+      var spec = {"config": {"view": {"continuousWidth": 300, "continuousHeight": 300}}, "hconcat": [{"data": {"name": "data-f96e40cfb6bd2c1834ce1bd58eeae4b2"}, "mark": {"type": "line", "tooltip": true}, "encoding": {"x": {"field": "degree", "type": "quantitative"}, "y": {"field": "mse", "type": "quantitative"}}, "name": "view_653ff902787d00db_0"}, {"data": {"name": "data-50158f58171e49a0a5735a0650f02602"}, "mark": {"type": "line", "tooltip": true}, "encoding": {"x": {"field": "degree", "type": "quantitative"}, "y": {"field": "mse", "type": "quantitative"}}, "name": "view_8727e43539593920_1"}], "params": [{"name": "param_1e9efca18e7a2868", "select": {"type": "interval", "encodings": ["x", "y"]}, "bind": "scales", "views": ["view_653ff902787d00db_0", "view_8727e43539593920_1"]}], "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json", "datasets": {"data-f96e40cfb6bd2c1834ce1bd58eeae4b2": [{"degree": 1, "mse": 55.86116213700776}, {"degree": 2, "mse": 46.088813009211755}, {"degree": 3, "mse": 46.85124066469435}, {"degree": 4, "mse": 46.552929019386525}, {"degree": 5, "mse": 44.81288908057805}, {"degree": 6, "mse": 44.54762664728908}, {"degree": 7, "mse": 44.000719033494406}, {"degree": 8, "mse": 44.03065606569305}, {"degree": 9, "mse": 43.98909856846734}, {"degree": 10, "mse": 43.810255536323055}], "data-50158f58171e49a0a5735a0650f02602": [{"degree": 1, "mse": 24.41730832140331}, {"degree": 2, "mse": 19.433808642348417}, {"degree": 3, "mse": 19.545570092940572}, {"degree": 4, "mse": 19.573455555730295}, {"degree": 5, "mse": 19.14598834453853}, {"degree": 6, "mse": 19.05516816313642}, {"degree": 7, "mse": 18.97064585815614}, {"degree": 8, "mse": 19.111354040152758}, {"degree": 9, "mse": 19.067674091628078}, {"degree": 10, "mse": 19.088346773064707}]}};
+      var embedOpt = {"mode": "vega-lite"};
+
+      function showError(el, error){
+          el.innerHTML = ('<div style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
+      }
+      const el = document.getElementById('vis');
+      vegaEmbed("#vis", spec, embedOpt)
+        .catch(error => showError(el, error));
+    })(vegaEmbed);
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    #vis.vega-embed {
+      width: 100%;
+      display: flex;
+    }
+
+    #vis.vega-embed details,
+    #vis.vega-embed details summary {
+      position: relative;
+    }
+  </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega@6"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-lite@6.4.1"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-embed@7"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    (function(vegaEmbed) {
+      var spec = {"config": {"view": {"continuousWidth": 300, "continuousHeight": 300}}, "data": {"name": "data-673d506e684cb5edb8c1fce812eee0dd"}, "mark": {"type": "line", "tooltip": true}, "encoding": {"x": {"field": "Margin", "type": "quantitative"}, "y": {"field": "Demand", "type": "quantitative"}}, "params": [{"name": "param_1e9efca18e7a2868", "select": {"type": "interval", "encodings": ["x", "y"]}, "bind": "scales"}], "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json", "datasets": {"data-673d506e684cb5edb8c1fce812eee0dd": [{"Product ID": "P0005", "Demand": 408578, "Margin": -4949.8899999999985}, {"Product ID": "P0011", "Demand": 382766, "Margin": -9801.89}, {"Product ID": "P0013", "Demand": 440895, "Margin": -3754.120000000001}, {"Product ID": "P0010", "Demand": 422064, "Margin": -6341.690000000003}, {"Product ID": "P0007", "Demand": 437089, "Margin": -2947.1800000000017}, {"Product ID": "P0015", "Demand": 389468, "Margin": -7019.6799999999985}, {"Product ID": "P0002", "Demand": 425853, "Margin": -3946.629999999999}, {"Product ID": "P0004", "Demand": 438505, "Margin": -4708.239999999999}, {"Product ID": "P0006", "Demand": 409345, "Margin": -4842.390000000004}, {"Product ID": "P0012", "Demand": 347215, "Margin": -8306.400000000003}, {"Product ID": "P0018", "Demand": 377205, "Margin": -7823.739999999998}, {"Product ID": "P0020", "Demand": 320847, "Margin": -9134.590000000006}, {"Product ID": "P0003", "Demand": 395182, "Margin": -7911.350000000009}, {"Product ID": "P0017", "Demand": 350620, "Margin": -5731.979999999998}, {"Product ID": "P0019", "Demand": 371954, "Margin": -8999.529999999999}, {"Product ID": "P0001", "Demand": 416447, "Margin": -3659.9200000000046}, {"Product ID": "P0009", "Demand": 450324, "Margin": -7763.070000000004}, {"Product ID": "P0014", "Demand": 364335, "Margin": -10811.4}, {"Product ID": "P0016", "Demand": 382874, "Margin": -6734.640000000001}, {"Product ID": "P0008", "Demand": 396538, "Margin": -6139.789999999997}]}};
+      var embedOpt = {"mode": "vega-lite"};
+
+      function showError(el, error){
+          el.innerHTML = ('<div style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
+      }
+      const el = document.getElementById('vis');
+      vegaEmbed("#vis", spec, embedOpt)
+        .catch(error => showError(el, error));
+    })(vegaEmbed);
+
+  </script>
+</body>
+</html>
