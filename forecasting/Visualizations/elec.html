@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    #vis.vega-embed {
+      width: 100%;
+      display: flex;
+    }
+
+    #vis.vega-embed details,
+    #vis.vega-embed details summary {
+      position: relative;
+    }
+  </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega@6"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-lite@6.4.1"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-embed@7"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    (function(vegaEmbed) {
+      var spec = {"config": {"view": {"continuousWidth": 300, "continuousHeight": 300}}, "data": {"name": "data-73bc5a8b8ddceebe9683ee411fea5876"}, "mark": {"type": "line", "tooltip": true}, "encoding": {"color": {"field": "year", "type": "nominal"}, "x": {"field": "month", "type": "quantitative"}, "y": {"field": "y", "type": "quantitative"}}, "params": [{"name": "param_1e9efca18e7a2868", "select": {"type": "interval", "encodings": ["x", "y"]}, "bind": "scales"}], "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json", "datasets": {"data-73bc5a8b8ddceebe9683ee411fea5876": [{"year": "1990", "month": 3, "y": 37016.0}, {"year": "1990", "month": 6, "y": 39103.0}, {"year": "1990", "month": 9, "y": 41067.0}, {"year": "1990", "month": 12, "y": 37653.0}, {"year": "1991", "month": 3, "y": 37554.0}, {"year": "1991", "month": 6, "y": 38752.0}, {"year": "1991", "month": 9, "y": 41424.0}, {"year": "1991", "month": 12, "y": 38101.0}, {"year": "1992", "month": 3, "y": 38332.0}, {"year": "1992", "month": 6, "y": 39774.0}, {"year": "1992", "month": 9, "y": 42246.0}, {"year": "1992", "month": 12, "y": 38498.0}, {"year": "1993", "month": 3, "y": 39460.0}, {"year": "1993", "month": 6, "y": 41356.0}, {"year": "1993", "month": 9, "y": 42949.0}, {"year": "1993", "month": 12, "y": 40974.0}, {"year": "1994", "month": 3, "y": 40162.0}, {"year": "1994", "month": 6, "y": 41199.0}, {"year": "1994", "month": 9, "y": 44095.0}, {"year": "1994", "month": 12, "y": 41745.0}, {"year": "1995", "month": 3, "y": 41768.0}, {"year": "1995", "month": 6, "y": 43686.0}, {"year": "1995", "month": 9, "y": 46022.0}, {"year": "1995", "month": 12, "y": 42800.0}, {"year": "1996", "month": 3, "y": 43661.0}, {"year": "1996", "month": 6, "y": 44707.0}, {"year": "1996", "month": 9, "y": 46326.0}, {"year": "1996", "month": 12, "y": 43346.0}, {"year": "1997", "month": 3, "y": 43938.0}, {"year": "1997", "month": 6, "y": 45828.0}, {"year": "1997", "month": 9, "y": 48448.0}, {"year": "1997", "month": 12, "y": 46096.0}, {"year": "1998", "month": 3, "y": 46198.0}, {"year": "1998", "month": 6, "y": 47237.0}, {"year": "1998", "month": 9, "y": 49041.0}, {"year": "1998", "month": 12, "y": 46192.0}, {"year": "1999", "month": 3, "y": 48089.0}, {"year": "1999", "month": 6, "y": 48227.0}, {"year": "1999", "month": 9, "y": 49784.0}, {"year": "1999", "month": 12, "y": 47588.0}, {"year": "2000", "month": 3, "y": 49320.0}, {"year": "2000", "month": 6, "y": 50670.0}, {"year": "2000", "month": 9, "y": 52623.0}, {"year": "2000", "month": 12, "y": 49350.0}, {"year": "2001", "month": 3, "y": 51658.0}, {"year": "2001", "month": 6, "y": 51103.0}, {"year": "2001", "month": 9, "y": 52226.0}, {"year": "2001", "month": 12, "y": 50778.0}, {"year": "2002", "month": 3, "y": 50639.0}, {"year": "2002", "month": 6, "y": 51486.0}, {"year": "2002", "month": 9, "y": 53299.0}, {"year": "2002", "month": 12, "y": 51646.0}, {"year": "2003", "month": 3, "y": 51415.0}, {"year": "2003", "month": 6, "y": 51379.0}, {"year": "2003", "month": 9, "y": 54808.0}, {"year": "2003", "month": 12, "y": 52453.0}, {"year": "2004", "month": 3, "y": 54561.0}, {"year": "2004", "month": 6, "y": 54644.0}, {"year": "2004", "month": 9, "y": 55915.0}, {"year": "2004", "month": 12, "y": 52850.0}, {"year": "2005", "month": 3, "y": 55035.0}, {"year": "2005", "month": 6, "y": 55117.0}, {"year": "2005", "month": 9, "y": 56043.0}, {"year": "2005", "month": 12, "y": 54992.0}, {"year": "2006", "month": 3, "y": 57112.0}, {"year": "2006", "month": 6, "y": 57157.0}, {"year": "2006", "month": 9, "y": 58400.0}, {"year": "2006", "month": 12, "y": 56249.0}, {"year": "2007", "month": 3, "y": 56244.0}, {"year": "2007", "month": 6, "y": 55036.0}, {"year": "2007", "month": 9, "y": 59806.0}, {"year": "2007", "month": 12, "y": 56411.0}, {"year": "2008", "month": 3, "y": 59118.0}, {"year": "2008", "month": 6, "y": 56660.0}, {"year": "2008", "month": 9, "y": 64067.0}, {"year": "2008", "month": 12, "y": 59045.0}, {"year": "2009", "month": 3, "y": 58368.0}, {"year": "2009", "month": 6, "y": 57471.0}, {"year": "2009", "month": 9, "y": 58394.0}, {"year": "2009", "month": 12, "y": 57336.0}, {"year": "2010", "month": 3, "y": 58309.0}, {"year": "2010", "month": 6, "y": 58041.0}]}};
+      var embedOpt = {"mode": "vega-lite"};
+
+      function showError(el, error){
+          el.innerHTML = ('<div style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
+      }
+      const el = document.getElementById('vis');
+      vegaEmbed("#vis", spec, embedOpt)
+        .catch(error => showError(el, error));
+    })(vegaEmbed);
+
+  </script>
+</body>
+</html>
