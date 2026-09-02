@@ -63,6 +63,17 @@ dotnet_diagnostic.CA2007.severity = none    # ConfigureAwait: noisy, no sync con
 dotnet_diagnostic.CA1848.severity = none    # LoggerMessage delegates: premature
 
 # ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+[src/tests/**/*.cs]
+# Test names are sentences: Sync_must_not_reference_Pseudonymisation. A test
+# that fails should read like the rule it broke, in the runner output, without
+# anyone opening the file. CA1707 is right everywhere else and wrong here.
+dotnet_diagnostic.CA1707.severity = none
+# Assertion helpers and fixtures are not a public API surface.
+dotnet_diagnostic.CA1515.severity = none
+
+# ---------------------------------------------------------------------------
 # Generated code
 # ---------------------------------------------------------------------------
 [src/**/Migrations/*.cs]

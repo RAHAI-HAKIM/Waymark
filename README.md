@@ -67,7 +67,8 @@ dotnet build src/Waymark.sln
 dotnet test src/Waymark.sln
 ```
 
-Requires the .NET 10 SDK (current LTS). Node and the Python engine environment
+Requires the .NET 10 SDK (current LTS). Verified against 10.0.400: twelve
+projects, zero warnings, six architecture tests green. Node and the Python engine environment
 arrive with Phases 1 and 2 respectively.
 
 ---
