@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Where most tests live. Money rounding, quantity arithmetic, expiry
+    windows, markdown ladders, stock-movement validity. No database, ever —
+    if a test here needs one, the logic is in the wrong project.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Waymark.Domain\Waymark.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

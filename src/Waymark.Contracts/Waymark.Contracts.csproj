@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The recommendation envelope, intent shapes, sync message shapes and DTOs.
+    Shared with the TypeScript clients through generated types, so everything
+    here must be serialisable and free of behaviour.
+  -->
+
+</Project>

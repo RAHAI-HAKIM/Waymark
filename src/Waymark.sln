@@ -1,0 +1,97 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35506.116
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Domain", "Waymark.Domain\Waymark.Domain.csproj", "{B112C21E-9126-478B-A32A-777198E908F4}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Contracts", "Waymark.Contracts\Waymark.Contracts.csproj", "{3C60C3DC-868E-4BA1-88F5-50985DC68963}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Application", "Waymark.Application\Waymark.Application.csproj", "{9E296493-0CA9-44CF-AC9E-D4200DC07CE5}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Persistence", "Waymark.Persistence\Waymark.Persistence.csproj", "{E0D49A98-59B8-4510-B636-5531C38C05A6}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Hardware", "Waymark.Hardware\Waymark.Hardware.csproj", "{BCDB2F57-76C3-413B-A788-363FB24BA004}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Pseudonymisation", "Waymark.Pseudonymisation\Waymark.Pseudonymisation.csproj", "{6FCCEF7D-168E-4656-B5A7-706008E2028C}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Sync", "Waymark.Sync\Waymark.Sync.csproj", "{6006B822-0F11-4922-BBDB-85F36AFAD2A0}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.StoreServer", "Waymark.StoreServer\Waymark.StoreServer.csproj", "{C444C8EC-7EE7-47B9-A039-1F400EA0E6BC}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Pos", "Waymark.Pos\Waymark.Pos.csproj", "{1B9F7304-425E-4B55-96E0-198EB145BE03}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{D03889F4-3212-4952-B9BC-11273FEA38DA}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Domain.Tests", "tests\Waymark.Domain.Tests\Waymark.Domain.Tests.csproj", "{9B296C39-87DA-488C-B020-A4BBEA405FAA}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Application.Tests", "tests\Waymark.Application.Tests\Waymark.Application.Tests.csproj", "{5A52FEA3-B43A-47C6-BFC2-9EAB388A8D91}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Integration.Tests", "tests\Waymark.Integration.Tests\Waymark.Integration.Tests.csproj", "{F4090A9A-31CE-470D-95CF-EC437040CD07}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B112C21E-9126-478B-A32A-777198E908F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B112C21E-9126-478B-A32A-777198E908F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B112C21E-9126-478B-A32A-777198E908F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B112C21E-9126-478B-A32A-777198E908F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3C60C3DC-868E-4BA1-88F5-50985DC68963}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3C60C3DC-868E-4BA1-88F5-50985DC68963}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3C60C3DC-868E-4BA1-88F5-50985DC68963}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3C60C3DC-868E-4BA1-88F5-50985DC68963}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E296493-0CA9-44CF-AC9E-D4200DC07CE5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E296493-0CA9-44CF-AC9E-D4200DC07CE5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E296493-0CA9-44CF-AC9E-D4200DC07CE5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E296493-0CA9-44CF-AC9E-D4200DC07CE5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E0D49A98-59B8-4510-B636-5531C38C05A6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E0D49A98-59B8-4510-B636-5531C38C05A6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E0D49A98-59B8-4510-B636-5531C38C05A6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E0D49A98-59B8-4510-B636-5531C38C05A6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BCDB2F57-76C3-413B-A788-363FB24BA004}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BCDB2F57-76C3-413B-A788-363FB24BA004}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BCDB2F57-76C3-413B-A788-363FB24BA004}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BCDB2F57-76C3-413B-A788-363FB24BA004}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6FCCEF7D-168E-4656-B5A7-706008E2028C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6FCCEF7D-168E-4656-B5A7-706008E2028C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6FCCEF7D-168E-4656-B5A7-706008E2028C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6FCCEF7D-168E-4656-B5A7-706008E2028C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6006B822-0F11-4922-BBDB-85F36AFAD2A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6006B822-0F11-4922-BBDB-85F36AFAD2A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6006B822-0F11-4922-BBDB-85F36AFAD2A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6006B822-0F11-4922-BBDB-85F36AFAD2A0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C444C8EC-7EE7-47B9-A039-1F400EA0E6BC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C444C8EC-7EE7-47B9-A039-1F400EA0E6BC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C444C8EC-7EE7-47B9-A039-1F400EA0E6BC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C444C8EC-7EE7-47B9-A039-1F400EA0E6BC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1B9F7304-425E-4B55-96E0-198EB145BE03}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1B9F7304-425E-4B55-96E0-198EB145BE03}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1B9F7304-425E-4B55-96E0-198EB145BE03}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1B9F7304-425E-4B55-96E0-198EB145BE03}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B296C39-87DA-488C-B020-A4BBEA405FAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B296C39-87DA-488C-B020-A4BBEA405FAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B296C39-87DA-488C-B020-A4BBEA405FAA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B296C39-87DA-488C-B020-A4BBEA405FAA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5A52FEA3-B43A-47C6-BFC2-9EAB388A8D91}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5A52FEA3-B43A-47C6-BFC2-9EAB388A8D91}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5A52FEA3-B43A-47C6-BFC2-9EAB388A8D91}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5A52FEA3-B43A-47C6-BFC2-9EAB388A8D91}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F4090A9A-31CE-470D-95CF-EC437040CD07}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F4090A9A-31CE-470D-95CF-EC437040CD07}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F4090A9A-31CE-470D-95CF-EC437040CD07}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F4090A9A-31CE-470D-95CF-EC437040CD07}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9B296C39-87DA-488C-B020-A4BBEA405FAA} = {D03889F4-3212-4952-B9BC-11273FEA38DA}
+		{5A52FEA3-B43A-47C6-BFC2-9EAB388A8D91} = {D03889F4-3212-4952-B9BC-11273FEA38DA}
+		{F4090A9A-31CE-470D-95CF-EC437040CD07} = {D03889F4-3212-4952-B9BC-11273FEA38DA}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7D1E3A64-2C88-4F30-9E51-0B4C6A2D8F17}
+	EndGlobalSection
+EndGlobal

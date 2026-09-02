@@ -1,0 +1,48 @@
+<Project>
+
+  <!--
+    Central package management. Versions live here; projects name packages
+    without versions, so two projects can never disagree about a dependency.
+    Versions are pinned deliberately and bumped as a reviewed change.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup Label="Identity">
+    <!-- ULIDs, not autoincrement, not UUIDv4 (CLAUDE.md 3.2). -->
+    <PackageVersion Include="Ulid" Version="1.3.4" />
+  </ItemGroup>
+
+  <ItemGroup Label="Persistence">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="10.0.0" />
+    <!-- The identity database is encrypted with its own key (CLAUDE.md 3.4). -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
+  </ItemGroup>
+
+  <ItemGroup Label="Hosting">
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="POS">
+    <PackageVersion Include="Avalonia" Version="11.2.3" />
+    <PackageVersion Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="11.2.3" />
+    <PackageVersion Include="Avalonia.Diagnostics" Version="11.2.3" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageVersion Include="FluentAssertions" Version="6.12.2" />
+    <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+  </ItemGroup>
+
+</Project>

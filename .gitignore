@@ -1,2 +1,87 @@
+# ---------------------------------------------------------------------------
+# Waymark — repository ignores
+# ---------------------------------------------------------------------------
+
+# --- Databases -------------------------------------------------------------
+# No .db file is ever committed. The operational store, the identity store and
+# the POS cache are all generated, and waymark-identity.db must never leave the
+# machine that created it (CLAUDE.md 3.4).
 *.db
-*.csv
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Secrets ---------------------------------------------------------------
+*.pfx
+*.p12
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+
+# --- .NET ------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+*.userprefs
+.vs/
+TestResults/
+*.trx
+*.coverage
+coverage*.json
+coverage*.xml
+BenchmarkDotNet.Artifacts/
+
+# --- Node / waymark-admin --------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Python / waymark-engine -----------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Generated data --------------------------------------------------------
+# Learning-stage datasets are large and externally sourced; the notebooks that
+# read them document where they came from.
+learning/**/*.csv
+learning/**/*.parquet
+tempCodeRunnerFile.py
+
+# --- OS --------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Editor ----------------------------------------------------------------
+# .vscode is shared deliberately (solution path, formatting), but personal and
+# machine-specific files inside it are not.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp

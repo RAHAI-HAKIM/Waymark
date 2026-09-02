@@ -1,0 +1,17 @@
+# Normalise line endings so a Windows till and a Linux CI agent see the same file.
+* text=auto eol=lf
+
+# Windows-only tooling keeps CRLF.
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.sln   text eol=crlf
+
+# Binary — never diffed, never normalised.
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.pptx  binary
+*.pdf   binary
+*.db    binary
+*.woff2 binary

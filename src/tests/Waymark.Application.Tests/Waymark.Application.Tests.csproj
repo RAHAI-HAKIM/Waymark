@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Use-case tests against in-memory repository fakes. Includes the
+    processing_log assertions: a handler that reads customer data and writes
+    no log entry is a failing test, not a code-review comment.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Waymark.Application\Waymark.Application.csproj" />
+    <ProjectReference Include="..\..\Waymark.Domain\Waymark.Domain.csproj" />
+    <ProjectReference Include="..\..\Waymark.Contracts\Waymark.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

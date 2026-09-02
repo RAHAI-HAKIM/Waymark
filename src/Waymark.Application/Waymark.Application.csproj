@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Use cases as commands and handlers. Also the only place processing_log
+    writes belong, so auditing is structural rather than remembered
+    (CLAUDE.md 4).
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
+    <ProjectReference Include="..\Waymark.Contracts\Waymark.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

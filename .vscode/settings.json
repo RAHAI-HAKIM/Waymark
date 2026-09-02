@@ -1,11 +1,26 @@
 {
-    "python.defaultInterpreterPath": "c:\\Users\\HAKIM\\anaconda3\\envs\\Project01\\python.exe",
-    "editor.quickSuggestions": {
-        "other": true,
-        "comments": false,
-        "strings": false
-    },
-    "editor.suggestOnTriggerCharacters": true,
-    "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda"
+  // Shared editor settings. Machine-specific paths do not belong here — set
+  // the Python interpreter through the command palette, which writes to your
+  // own workspace state rather than this file.
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "editor.formatOnSave": true,
+  "editor.quickSuggestions": {
+    "other": true,
+    "comments": false,
+    "strings": false
+  },
+  "editor.suggestOnTriggerCharacters": true,
+  "dotnet.defaultSolution": "src/Waymark.sln",
+  "omnisharp.enableEditorConfigSupport": true,
+  "[csharp]": {
+    "editor.tabSize": 4
+  },
+  "[typescript]": {
+    "editor.tabSize": 2
+  },
+  "[typescriptreact]": {
+    "editor.tabSize": 2
+  }
 }

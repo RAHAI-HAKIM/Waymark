@@ -1,0 +1,70 @@
+# Waymark — editor and analyser configuration.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,jsonc,yml,yaml,ts,tsx,js,jsx,css,html,md}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{csproj,props,targets,axaml,xaml,xml}]
+indent_size = 2
+
+[*.sln]
+indent_style = tab
+
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+# ---------------------------------------------------------------------------
+# C#
+# ---------------------------------------------------------------------------
+[*.cs]
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+csharp_using_directive_placement = outside_namespace:warning
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:warning
+csharp_style_var_when_type_is_apparent = true:suggestion
+dotnet_style_prefer_conditional_expression_over_return = false:silent
+
+# Naming
+dotnet_naming_rule.interfaces_start_with_i.severity = warning
+dotnet_naming_rule.interfaces_start_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_start_with_i.style = prefixed_with_i
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_style.prefixed_with_i.required_prefix = I
+dotnet_naming_style.prefixed_with_i.capitalization = pascal_case
+
+dotnet_naming_rule.private_fields_are_underscore_camel.severity = warning
+dotnet_naming_rule.private_fields_are_underscore_camel.symbols = private_fields
+dotnet_naming_rule.private_fields_are_underscore_camel.style = underscore_camel
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.required_prefix = _
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+
+# Analysers worth failing a build over. Note what is NOT here: no analyser can
+# see that a decimal should not have been a double in the first place. The
+# money rule (CLAUDE.md §3.1) is carried by the Money value object and by
+# review, not by tooling.
+dotnet_diagnostic.CA1305.severity = error   # specify IFormatProvider
+dotnet_diagnostic.CA1307.severity = error   # specify StringComparison
+dotnet_diagnostic.CA2007.severity = none    # ConfigureAwait: noisy, no sync context here
+dotnet_diagnostic.CA1848.severity = none    # LoggerMessage delegates: premature
+
+# ---------------------------------------------------------------------------
+# Generated code
+# ---------------------------------------------------------------------------
+[src/**/Migrations/*.cs]
+generated_code = true
+dotnet_diagnostic.CA1305.severity = none

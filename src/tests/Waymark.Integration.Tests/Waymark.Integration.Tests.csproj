@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Two jobs.
+
+    1. Integration tests against a real temporary SQLite file, never an
+       in-memory substitute (CLAUDE.md 8). Migrations, the two-file write
+       ordering, sync replay.
+    2. Architecture tests (NetArchTest) enforcing CLAUDE.md 2.1. They must
+       fail when a forbidden reference is added — that is the point of them.
+
+    This is the one project that references everything, because the
+    architecture tests have to load every assembly to inspect it.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Waymark.Domain\Waymark.Domain.csproj" />
+    <ProjectReference Include="..\..\Waymark.Contracts\Waymark.Contracts.csproj" />
+    <ProjectReference Include="..\..\Waymark.Application\Waymark.Application.csproj" />
+    <ProjectReference Include="..\..\Waymark.Persistence\Waymark.Persistence.csproj" />
+    <ProjectReference Include="..\..\Waymark.Hardware\Waymark.Hardware.csproj" />
+    <ProjectReference Include="..\..\Waymark.Pseudonymisation\Waymark.Pseudonymisation.csproj" />
+    <ProjectReference Include="..\..\Waymark.Sync\Waymark.Sync.csproj" />
+    <ProjectReference Include="..\..\Waymark.StoreServer\Waymark.StoreServer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+</Project>

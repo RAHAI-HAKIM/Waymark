@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Owns the SQLite files, serves Local Admin, exposes the API the POS calls,
+    runs sync and the scheduled jobs. Authoritative for all operational data.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Waymark.Application\Waymark.Application.csproj" />
+    <ProjectReference Include="..\Waymark.Persistence\Waymark.Persistence.csproj" />
+    <ProjectReference Include="..\Waymark.Pseudonymisation\Waymark.Pseudonymisation.csproj" />
+    <ProjectReference Include="..\Waymark.Sync\Waymark.Sync.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Outbound queue, inbound application, conflict rules.
+
+    DO NOT add a reference to Waymark.Pseudonymisation. What reaches the
+    outbox is already tier-2 shaped; sync must be structurally incapable of
+    reaching the mapping (CLAUDE.md 2.1, 4).
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
+    <ProjectReference Include="..\Waymark.Contracts\Waymark.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
