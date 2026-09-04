@@ -23,12 +23,15 @@
 
   <ItemGroup Label="Persistence">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <!-- Sqlite.Core, not Sqlite: the latter hard-depends on
+         SQLitePCLRaw.bundle_e_sqlite3, and only one bundle may provide the
+         native library in a process. See decisions.md D-015. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="10.0.11" />
-    <!-- The identity database is encrypted with its own key (CLAUDE.md 3.4).
-         See decisions.md O-2: this bundle and EF Core's own e_sqlite3 bundle
-         cannot both provide the native provider in one process. -->
+    <!-- The single native provider for the whole process. SQLCipher opens
+         unencrypted files as ordinary SQLite, so waymark-store.db stays a
+         normal database and only waymark-identity.db is keyed. -->
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
   </ItemGroup>
 

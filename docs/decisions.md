@@ -286,6 +286,62 @@ design-time dependency into every consumer including the test projects.
 
 ---
 
+## D-015 — One SQLite provider for the process, and it is SQLCipher [Phase 0]
+
+**Resolves O-2.**
+
+**What.** `Waymark.Persistence` now references
+`Microsoft.EntityFrameworkCore.Sqlite.Core` plus
+`SQLitePCLRaw.bundle_e_sqlcipher`, rather than
+`Microsoft.EntityFrameworkCore.Sqlite`. The plain package hard-depends on
+`bundle_e_sqlite3`, and only one bundle may supply the native library in a
+process. Verified after the change: `Waymark.StoreServer` output carries
+`provider.e_sqlcipher.dll` and `e_sqlcipher.dll` alone.
+
+`waymark-store.db` is opened **without** a key and is therefore an ordinary
+unencrypted SQLite file — confirmed by reading its first sixteen bytes, which
+are the literal string `SQLite format 3`. It stays readable by the stock CLI
+and any SQLite tool. Only `Waymark.Pseudonymisation` supplies a key, and only
+for `waymark-identity.db`, whose header is encrypted noise and which refuses to
+open without the key.
+
+**Why.** Two SQLite bundles in one process is not a configuration that fails
+loudly. It links, it builds, it starts; whichever `Batteries_V2.Init()` runs
+first wins, and the failure surfaces when a file is opened against the wrong
+provider. Making the provider singular and explicit removes the ambiguity
+rather than relying on load order.
+
+**The cost, measured rather than assumed.** SQLCipher 4.5.2 community is built
+on **SQLite 3.39.2**, against 3.53.3 for the stock bundle — about fourteen
+releases behind. Probed directly:
+
+| Available at 3.39.2 | Not available |
+| :---- | :---- |
+| STRICT tables, and they do reject a REAL into an INTEGER column | JSONB (3.45) — the binary JSON representation |
+| `RETURNING`, generated columns, `ALTER TABLE DROP COLUMN` | |
+| `->` and `->>` JSON operators, `json_extract`, `json_group_array` | |
+| UPSERT, window functions, partial indexes, deferred foreign keys | |
+| `unixepoch()`, `ceil`/`floor` and the rest of the math functions | |
+| FTS3/4/5, RTREE, `ENABLE_COLUMN_METADATA`, `THREADSAFE=1` | |
+
+So the schema loses exactly one thing worth naming: JSONB. Text `json` plus the
+`->>` operator covers every use this project has, and the parameter registry and
+recommendation envelope are small documents where the binary form would save
+nothing measurable.
+
+**Rejected.** `bundle_zetetic` (the commercially licensed SQLCipher build —
+revisit if the community build's version lag becomes a problem, since it is a
+package swap and not a schema change). Two processes, one per database — real
+isolation, absurd for a single till. Keeping both bundles and hoping the right
+`Init()` wins.
+
+**Consequence for the schema.** Write against a **3.39.2** floor. Declare money
+and stock tables `STRICT` so `INTEGER`/`TEXT` is enforced by the engine rather
+than by review — this is CLAUDE.md §3.1 made mechanical, and it is the single
+most valuable thing this version still gives us.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -294,7 +350,7 @@ during scaffolding.
 | # | Question | Why it cannot be defaulted |
 | :---- | :---- | :---- |
 | O-1 | Does `Waymark.Domain` take the `Ulid` NuGet package, or define its own ULID type? | "Zero dependencies" is written about project references. A leaf package is arguably fine, but the rule's value comes from being absolute. `Ulid` is declared in `Directory.Packages.props` and referenced by nobody, pending this. |
-| O-2 | **Two SQLite native providers currently land in one process.** `Waymark.StoreServer` output contains both `SQLitePCLRaw.provider.e_sqlcipher.dll` (from Pseudonymisation) and `provider.e_sqlite3.dll` (from EF Core), plus both native libraries. `SQLitePCLRaw` installs **one** provider per process, so whichever `Batteries_V2.Init()` wins serves both databases. It builds and links fine; it fails when a file is opened with the wrong provider — a runtime failure, not a compile one. Likeliest fix is using the SQLCipher build for both files, since it opens unencrypted databases too. Key custody is a separate DPIA §5.4 question. |
+| O-2 | ~~Two SQLite providers in one process~~ — **resolved by D-015.** One bundle, SQLCipher, for the whole process. Key custody for `waymark-identity.db` remains open under DPIA §5.4. |
 | O-3 | Schema — every table, and the tier 1 → tier 2 mapping | The whole of Phase 0's middle. Nothing was scaffolded here. |
 | O-4 | `Money` and `Quantity` — rounding mode, currency handling, negative quantity rules | Money arithmetic is explicitly Hakim's. |
 | O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
