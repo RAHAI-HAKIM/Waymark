@@ -126,7 +126,7 @@ Phase 1 introduces `.axaml` when there are actual screens.
 
 **Why.** `waymark-identity.db` holds the `customer_id ↔ pseudonym_key` mapping
 and must never leave the machine that created it (CLAUDE.md §3.4). A per-file
-ignore would work until someone named a file slightly differently at 2 a.m.; a
+ignore would work until someone named a file slightly differently; a
 blanket pattern cannot be got round by accident. Every database in this project
 is generated — from migrations or from the synthetic store generator — so
 nothing is lost.
@@ -207,6 +207,85 @@ been seen to fail is not yet a rule.
 
 ---
 
+## D-013 — The databases live in `C:\ProgramData\Waymark`, never beside the executable [Phase 0]
+
+**What.** Proposed layout on a store machine, pending Hakim's confirmation of
+the `identity\` half:
+
+```
+C:\ProgramData\Waymark\
+├─ data\        waymark-store.db (+ -wal, -shm)
+├─ identity\    waymark-identity.db — own ACL, never leaves the machine
+├─ pos-cache\   POS Level-2 cache
+├─ backups\     nightly local backup staging
+├─ logs\
+└─ config\
+```
+
+Resolved from `Environment.SpecialFolder.CommonApplicationData` and overridable
+through `Waymark:Storage:DataDirectory`, so development does not write to
+`ProgramData`. The identity directory is **not** in that shared options class —
+only `Waymark.Pseudonymisation` binds it (CLAUDE.md §3.4).
+
+**Why.** Five reasons, each a way a till loses a shop's history:
+
+1. *It survives an update.* A self-contained publish is a folder replaced
+   wholesale during onboarding or an upgrade. Data inside that folder dies with
+   it, and the deployment model here — in person, alone, on unfamiliar
+   hardware — is exactly when nobody notices until it is too late.
+2. *`Program Files` is read-only to non-admin accounts*, so "beside the exe"
+   does not work there even before the update problem.
+3. *It is machine-scoped, not user-scoped.* StoreServer runs as a service;
+   under LocalSystem `%LOCALAPPDATA%` resolves to
+   `C:\Windows\System32\config\systemprofile\AppData\Local`, which is writable
+   but invisible to a shopkeeper doing a restore. Multiple cashier logins would
+   each get a separate database.
+4. *It is never OneDrive-redirected.* `Documents` and `Desktop` frequently are
+   on retail Windows machines, and OneDrive syncing an open SQLite file is one
+   of the most reliable ways to corrupt a WAL database.
+5. *WAL needs a writable directory, not just a writable file.* SQLite creates
+   and deletes `-wal` and `-shm` beside the database, so the directory ACL is
+   what matters. For the same reason the database must never sit on a mapped
+   drive or SMB share — WAL does not work over network filesystems, which rules
+   out writing directly to the backup NAS.
+
+`identity\` is a separate directory rather than a sibling file so the cloud
+backup job can exclude a *directory*. Same reasoning as D-008: a rule that
+cannot be got round by accident beats one that depends on matching a filename.
+
+**Installer consequence, verified on this machine.** `C:\ProgramData` grants
+`BUILTIN\Users` only `Write` with `ContainerInherit` — an account can create
+files there but gets `ReadAndExecute` on files created by another account. The
+installer must explicitly grant Modify on `C:\ProgramData\Waymark\data`, or the
+second Windows account to open the till gets a read-only database and an
+unhelpful error.
+
+**Rejected.** Beside the executable (dies on update); `%LOCALAPPDATA%`
+(user-scoped, invisible under a service account); `Documents` (OneDrive); a
+network share (WAL does not work there).
+
+**Portability note.** `CommonApplicationData` maps to `/usr/share` on Linux,
+which is root-owned. Development on a non-Windows machine needs the override,
+not a fallback path baked into the code.
+
+---
+
+## D-014 — `Microsoft.EntityFrameworkCore.Design` is referenced twice [Phase 0]
+
+**What.** The package is referenced by `Waymark.Persistence` *and* by
+`Waymark.StoreServer`, both with `PrivateAssets="all"`.
+
+**Why.** The EF tools resolve against the **startup** project, not the project
+holding the `DbContext`. Persistence marks the package `PrivateAssets="all"`,
+which is correct — it must not flow to anything that references Persistence —
+but that is exactly why StoreServer could not see it and `dotnet ef` refused to
+run. Both references are design-time only and neither reaches a published build.
+
+**Rejected.** Dropping `PrivateAssets` in Persistence, which would leak a
+design-time dependency into every consumer including the test projects.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -218,5 +297,4 @@ during scaffolding.
 | O-2 | **Two SQLite native providers currently land in one process.** `Waymark.StoreServer` output contains both `SQLitePCLRaw.provider.e_sqlcipher.dll` (from Pseudonymisation) and `provider.e_sqlite3.dll` (from EF Core), plus both native libraries. `SQLitePCLRaw` installs **one** provider per process, so whichever `Batteries_V2.Init()` wins serves both databases. It builds and links fine; it fails when a file is opened with the wrong provider — a runtime failure, not a compile one. Likeliest fix is using the SQLCipher build for both files, since it opens unencrypted databases too. Key custody is a separate DPIA §5.4 question. |
 | O-3 | Schema — every table, and the tier 1 → tier 2 mapping | The whole of Phase 0's middle. Nothing was scaffolded here. |
 | O-4 | `Money` and `Quantity` — rounding mode, currency handling, negative quantity rules | Money arithmetic is explicitly Hakim's. |
-| O-5 | ~~Remote repository~~ — **resolved.** Renamed `RAHAI-HAKIM/QRetail` to `RAHAI-HAKIM/Waymark`; history continuous, GitHub redirects the old URL. | |
-| O-6 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
+| O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |

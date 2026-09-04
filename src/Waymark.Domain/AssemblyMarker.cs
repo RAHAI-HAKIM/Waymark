@@ -6,3 +6,5 @@ namespace Waymark.Domain;
 /// project, which is the one failure mode an architecture test must not have.
 /// </summary>
 public sealed class AssemblyMarker;
+
+

@@ -16,7 +16,7 @@ public sealed class App : Application
 {
     // Violet #5A3AA8 is the operator colour — every button, action and active
     // state (CLAUDE.md §6). Cyan belongs to Almanac and never appears here.
-    private static readonly Color Violet = Color.FromRgb(0x5A, 0x3A, 0xA8);
+    private static readonly Color _violet = Color.FromRgb(0x5A, 0x3A, 0xA8);
 
     public override void Initialize() => Styles.Add(new FluentTheme());
 
@@ -35,7 +35,7 @@ public sealed class App : Application
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     TextAlignment = TextAlignment.Center,
-                    Foreground = new SolidColorBrush(Violet),
+                    Foreground = new SolidColorBrush(_violet),
                     FontSize = 20
                 }
             };
