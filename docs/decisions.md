@@ -442,6 +442,45 @@ and should be revisited toward B.
 
 ---
 
+## D-017 — CI runs on `windows-latest` [Phase 0]
+
+**What.** The GitHub Actions workflow builds and tests on Windows, not Ubuntu.
+
+**Why.** The till is a Windows 10 machine, `Waymark.Pos` is a `WinExe` with an
+application manifest, and the databases live under `%ProgramData%`. CI should
+fail the way a store fails, not the way a Linux container does. Ubuntu would be
+faster and cheaper per minute and would catch cross-platform mistakes, but
+those are not mistakes this product can make.
+
+**Rejected.** `ubuntu-latest`, and a matrix of both — the second runner would
+double the minutes to test a platform nothing ships to.
+
+**Note.** `dotnet test` over the solution prints "No test is available" for
+`Waymark.Domain.Tests` and `Waymark.Application.Tests`, which are still empty.
+Verified that the run still exits 0, so CI is green. When those projects gain
+their first tests the message goes away on its own.
+
+---
+
+## D-018 — Tests use plain xUnit `Assert` until O-6 is settled [Phase 0]
+
+**What.** No assertion library. Failure messages are written by hand, as the
+second argument to `Assert.True`.
+
+**Why.** O-6 is open: FluentAssertions 8.x is commercially licensed and Waymark
+is a commercial product, and the alternatives have not been picked. Writing 40
+tests against a library that then gets swapped is work done twice. Plain
+`Assert` commits to nothing.
+
+**Consequence, and it turned out to be a feature.** Hand-written messages
+forced each assertion to say what rule was broken and why it matters — "STRICT
+is what makes the decimal rule mechanical", "an EF table rebuild drops triggers
+it does not know about". A fluent assertion would have produced a diff of two
+lists. When one of these fails at 2 a.m. months from now, the message is the
+explanation.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at

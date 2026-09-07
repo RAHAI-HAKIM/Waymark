@@ -1,0 +1,61 @@
+name: CI
+
+# The architecture tests are the only thing enforcing that Waymark.Sync cannot
+# reach Waymark.Pseudonymisation, and the schema tests are the only thing
+# enforcing that money columns stay INTEGER. A guard that runs when someone
+# remembers is not a guard, so they run here on every push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  build-and-test:
+    # windows-latest, not ubuntu: the till is a Windows 10 machine, Waymark.Pos
+    # is a WinExe with an application manifest, and CI should fail the way a
+    # store would rather than the way a Linux container would.
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('src/Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # Restore is its own step so a vulnerable transitive package (NU1903,
+      # promoted to an error by TreatWarningsAsErrors) is reported as a
+      # dependency problem rather than buried in compiler output.
+      - name: Restore
+        run: dotnet restore src/Waymark.sln
+
+      - name: Build
+        run: dotnet build src/Waymark.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test src/Waymark.sln --configuration Release --no-build --logger "trx;LogFileName=results.trx" --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results
+          if-no-files-found: ignore
