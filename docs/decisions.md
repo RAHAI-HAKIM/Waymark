@@ -342,6 +342,106 @@ most valuable thing this version still gives us.
 
 ---
 
+## D-016 — `schema_v7_1.sql` creates v1; EF migrations evolve it from a baseline [Phase 0]
+
+**Decision: option C of three.** The hand-written schema stays canonical for
+database creation. An initial migration generated with `--ignore-changes`
+stamps `__EFMigrationsHistory` without emitting DDL, and every change after
+that is an EF migration.
+
+**Why not the other two.** Option A — the `.sql` stays canonical forever and
+every upgrade is hand-written — means writing SQLite's twelve-step table
+rebuild by hand for most column changes, repeatedly, alone, for years. Option
+B — EF becomes canonical and the `.sql` becomes history — means re-expressing
+11 triggers and 139 indexes that are already written, reviewed and validated on
+3.39.2, and replacing one readable artifact with 58 configuration classes that
+nobody can read as a whole. C keeps the reviewed v1 and buys automation for
+everything after it.
+
+### The costs, and what pays for each
+
+Every one of these was reproduced rather than predicted.
+
+**Cost 1 — the two-step bootstrap is fragile.** A new install must run the
+`.sql` *and* stamp the baseline row. Get the migration id wrong by one
+character and EF tries to create tables that already exist; the install fails.
+This happened on the first attempt at reproducing it.
+
+*Paid by:* one code path, not a documented procedure. A bootstrapper in
+`Waymark.Persistence` that, on a missing database file, executes the schema
+from an **embedded resource**, writes the baseline row, then calls `Migrate()`;
+on an existing file, calls `Migrate()` alone. The `.sql` ships inside the
+assembly so it cannot be missing or stale. Phase 0's definition of done already
+requires a test that both databases are created from empty — that test is this
+mitigation.
+
+**Cost 2 — `--ignore-changes` asserts that the model matches the database; it
+does not check.** If an entity configuration differs from the `.sql` by one
+column, nothing complains until a query fails in a shop.
+
+*Paid by:* the schema-fidelity test below.
+
+**Cost 3 — tables created by later migrations would not be STRICT**, leaving a
+database where the original 58 tables enforce types and newer ones silently do
+not.
+
+*Paid by:* `StrictSqliteMigrationsSqlGenerator`, a ~30-line override of
+`SqliteMigrationsSqlGenerator.Generate(CreateTableOperation, …)`. Verified to
+emit `STRICT` on plain creation **and** on the table-rebuild path EF uses for
+`ALTER`. Registered with `ReplaceService<IMigrationsSqlGenerator, …>`.
+
+**Cost 4 — the override also stamps EF's own `__EFMigrationsHistory`.**
+Harmless today, since both its columns are `TEXT`, but it is EF's table and its
+shape is not ours to change.
+
+*Paid by:* excluding that table by name in the override, and exempting it from
+the all-tables-STRICT assertion.
+
+**Cost 5 — the dangerous one. An EF table rebuild silently drops every index
+and trigger EF does not know about.** SQLite's `DROP TABLE` takes the table's
+triggers with it, and EF's rebuild recreates only what is in its model.
+Reproduced directly: a table created from `.sql` with `ix_cash_store` and an
+append-only `trg_cash_no_delete` went through one rebuild migration and came
+out with both **gone**. EF printed `Done.` and reported no warning. An
+append-only guard on cash movements disappearing without a message is precisely
+the silent-failure class this project is built to avoid.
+
+*Paid by three things together:*
+
+1. **Every index declared in the EF model**, so EF recreates them itself. This
+   is mechanical and the scaffolder supplies them.
+2. **Triggers extracted into their own `triggers.sql`**, re-applied
+   idempotently (`DROP TRIGGER IF EXISTS` then `CREATE TRIGGER`) after every
+   `Migrate()`. Triggers are pure DDL, so re-application is safe and cheap, and
+   it makes trigger loss structurally impossible rather than remembered.
+3. **The schema-fidelity test**, below, which fails if the inventory changes.
+
+### The schema-fidelity test — the load-bearing mitigation
+
+One test pays for costs 2 and 5 and catches the case nobody thought of. It
+builds two databases in a temporary directory: one created by
+`schema_v7_1.sql`, one created by running every migration forward from empty.
+It then compares them and fails on any difference in:
+
+- table names, and the `strict` flag on each
+- column names, declared types, nullability, default values
+- index names and their columns
+- trigger names
+- foreign key definitions
+
+Green means the two paths agree. Red means the model and the schema have
+drifted, or a rebuild dropped something — reported at build time rather than
+discovered in a shop.
+
+**Recorded risk.** C is two mechanisms where B is one, and two mechanisms is
+how a tired solo developer gets confused. The mitigation for that is not
+technical: it is that the bootstrapper is the only supported way to create a
+database, and the fidelity test is the only thing that decides whether the two
+mechanisms still agree. If either is bypassed, this decision stops being safe
+and should be revisited toward B.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
