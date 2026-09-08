@@ -83,6 +83,16 @@ dotnet_diagnostic.CA2007.severity = none    # ConfigureAwait: noisy, no sync con
 dotnet_diagnostic.CA1848.severity = none    # LoggerMessage delegates: premature
 
 # ---------------------------------------------------------------------------
+# Domain enums
+# ---------------------------------------------------------------------------
+[src/Waymark.Domain/Enums/*.cs]
+# These members mirror the vocabulary in the schema's CHECK constraints, so a
+# data type really is called Integer and a channel really is called Text.
+# Renaming them to satisfy the analyser would make the enum harder to check
+# against the database, which is the only thing it has to agree with.
+dotnet_diagnostic.CA1720.severity = none
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 [src/tests/**/*.cs]

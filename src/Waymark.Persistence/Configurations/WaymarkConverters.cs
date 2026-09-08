@@ -28,4 +28,14 @@ internal static class WaymarkConverters
             DateTime.SpecifyKind(
                 DateTime.ParseExact(text, TimestampFormat, CultureInfo.InvariantCulture),
                 DateTimeKind.Utc)));
+
+    /// <summary>
+    /// Dates are TEXT, <c>YYYY-MM-DD</c> — an expiry or a joining date, where
+    /// the time of day would be invented rather than recorded.
+    /// </summary>
+    public const string DateFormat = "yyyy-MM-dd";
+
+    public static readonly ValueConverter<DateOnly, string> Date = new(
+        value => value.ToString(DateFormat, CultureInfo.InvariantCulture),
+        text => DateOnly.ParseExact(text, DateFormat, CultureInfo.InvariantCulture));
 }

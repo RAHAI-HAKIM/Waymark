@@ -1,94 +1,76 @@
+// Bootstrapped from schema_v7_1.sql by tools/generate-model.
+//
+// Hand-maintained from here on. The generator was a one-shot; re-running it
+// would overwrite anything edited since. It deliberately carries no generated-
+// code marker: that marker switches off the nullable context and the analysers
+// on exactly the code that most needs them.
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using Waymark.Domain.Catalogue;
+using Waymark.Domain.Enums;
+using Waymark.Domain.Reference;
 
 namespace Waymark.Persistence.Configurations;
 
 /// <summary>
-/// Everything SQLite needs to know about <see cref="UnitOfMeasure"/>, kept out
-/// of the entity so Domain stays free of EF Core.
-///
-/// <para>
-/// One file per entity rather than a single <c>OnModelCreating</c>. With 58
-/// tables that method reaches about 1,100 lines, which is the readability
-/// problem that made option B unattractive in D-016.
-/// </para>
+/// Maps <see cref="UnitOfMeasure"/> to <c>units_of_measure</c>.
 /// </summary>
 internal sealed class UnitOfMeasureConfiguration : IEntityTypeConfiguration<UnitOfMeasure>
 {
-    /// <summary>
-    /// The database spelling of <see cref="UnitDimension"/>. Written explicitly
-    /// rather than with <c>HasConversion&lt;string&gt;()</c>, which would use
-    /// the C# member names and put "Count" in a column whose CHECK constraint
-    /// only allows "count".
-    /// </summary>
-    private static readonly ValueConverter<UnitDimension, string> DimensionConverter = new(
-        dimension => dimension == UnitDimension.Count ? "count"
-            : dimension == UnitDimension.Weight ? "weight"
-            : dimension == UnitDimension.Volume ? "volume"
-            : "length",
-        text => text == "count" ? UnitDimension.Count
-            : text == "weight" ? UnitDimension.Weight
-            : text == "volume" ? UnitDimension.Volume
-            : UnitDimension.Length);
-
     public void Configure(EntityTypeBuilder<UnitOfMeasure> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.ToTable("units_of_measure", table =>
         {
-            // CHECK constraints belong in the model for the same reason indexes
-            // do: an EF table rebuild recreates the table from the model alone,
-            // and anything not declared here is silently dropped. Verified —
-            // a rebuild took CHECK (amount > 0) off a table and a negative
-            // amount was accepted afterwards with no error.
+            // Declared here as well as in the schema: an EF table rebuild
+            // recreates the table from the model alone and drops every CHECK
+            // it does not know about (decisions.md D-022).
             table.HasCheckConstraint(
                 "ck_units_of_measure_dimension",
-                "dimension IN ('count','weight','volume','length')");
-            table.HasCheckConstraint("ck_units_of_measure_factor_to_base", "factor_to_base > 0");
-            table.HasCheckConstraint("ck_units_of_measure_decimal_places", "decimal_places BETWEEN 0 AND 3");
-            table.HasCheckConstraint("ck_units_of_measure_is_active", "is_active IN (0,1)");
+                @"dimension IN ('count','weight','volume','length')");
+            table.HasCheckConstraint(
+                "ck_units_of_measure_factor_to_base",
+                @"factor_to_base > 0");
+            table.HasCheckConstraint(
+                "ck_units_of_measure_decimal_places",
+                @"decimal_places BETWEEN 0 AND 3");
+            table.HasCheckConstraint(
+                "ck_units_of_measure_is_active",
+                @"is_active IN (0,1)");
         });
 
-        builder.HasKey(unit => unit.UnitCode);
+        builder.HasKey(x => x.UnitCode);
 
-        builder.Property(unit => unit.UnitCode).HasColumnName("unit_code");
-        builder.Property(unit => unit.NameAr).HasColumnName("name_ar");
-        builder.Property(unit => unit.NameFr).HasColumnName("name_fr");
-
-        builder.Property(unit => unit.Dimension)
+        builder.Property(x => x.UnitCode)
+            .HasColumnName("unit_code");
+        builder.Property(x => x.NameAr)
+            .HasColumnName("name_ar");
+        builder.Property(x => x.NameFr)
+            .HasColumnName("name_fr");
+        builder.Property(x => x.Dimension)
             .HasColumnName("dimension")
-            .HasConversion(DimensionConverter);
-
-        builder.Property(unit => unit.BaseUnitCode).HasColumnName("base_unit_code");
-
-        builder.Property(unit => unit.FactorToBase)
+            .HasConversion(EnumConverters.DimensionConverter);
+        builder.Property(x => x.BaseUnitCode)
+            .HasColumnName("base_unit_code");
+        builder.Property(x => x.FactorToBase)
             .HasColumnName("factor_to_base")
-            .HasDefaultValue(1_000_000L);
-
-        builder.Property(unit => unit.DecimalPlaces)
+            .HasDefaultValue(1000000L);
+        builder.Property(x => x.DecimalPlaces)
             .HasColumnName("decimal_places")
-            .HasDefaultValue(0);
-
-        // bool maps to INTEGER 0/1 on SQLite without help, which is the
-        // schema's convention already.
-        builder.Property(unit => unit.IsActive)
+            .HasDefaultValue(0L);
+        builder.Property(x => x.IsActive)
             .HasColumnName("is_active")
             .HasDefaultValue(true);
-
-        builder.Property(unit => unit.CreatedAt)
+        builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);
 
-        // Self-referencing: grams reduce to kilograms. No navigation property —
-        // nothing needs to walk it yet, and an unused navigation is a lazy-load
-        // surprise waiting to happen.
+        // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<UnitOfMeasure>()
             .WithMany()
-            .HasForeignKey(unit => unit.BaseUnitCode)
-            .HasPrincipalKey(unit => unit.UnitCode)
-            .OnDelete(DeleteBehavior.Restrict);
+            .HasForeignKey(x => x.BaseUnitCode)
+            .HasPrincipalKey(x => x.UnitCode)
+            .OnDelete(DeleteBehavior.NoAction);
     }
 }

@@ -1,7 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Waymark.Domain.Cash;
-using Waymark.Domain.Catalogue;
+using Waymark.Domain.Enums;
+using Waymark.Domain.Organisation;
+using Waymark.Domain.Reference;
 using Waymark.Persistence;
 
 namespace Waymark.Integration.Tests;
@@ -31,7 +32,7 @@ public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
         // reason_codes and staff, and seeding those to test a column mapping
         // would mean seeding half the catalogue.
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseSqlite($"Data Source={_schema.DatabasePath};Foreign Keys=False")
+            .UseWaymarkSqlite(_schema.DatabasePath, enforceForeignKeys: false)
             .Options;
 
         return new WaymarkDbContext(options);
@@ -47,7 +48,7 @@ public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
                 UnitCode = "g",
                 NameAr = "غرام",
                 NameFr = "gramme",
-                Dimension = UnitDimension.Weight,
+                Dimension = Dimension.Weight,
                 BaseUnitCode = null,
                 FactorToBase = 1_000_000_000,
                 DecimalPlaces = 3,
@@ -62,9 +63,9 @@ public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
             var unit = context.UnitsOfMeasure.Single(u => u.UnitCode == "g");
 
             Assert.Equal("gramme", unit.NameFr);
-            Assert.Equal(UnitDimension.Weight, unit.Dimension);
+            Assert.Equal(Dimension.Weight, unit.Dimension);
             Assert.Equal(1_000_000_000L, unit.FactorToBase);
-            Assert.Equal(3, unit.DecimalPlaces);
+            Assert.Equal(3L, unit.DecimalPlaces);
             Assert.True(unit.IsActive);
             Assert.Equal(new DateTimeOffset(2026, 1, 1, 9, 30, 0, TimeSpan.Zero), unit.CreatedAt);
         }
@@ -80,7 +81,7 @@ public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
                 MovementId = "01ROUNDTRIP",
                 SessionId = "session-1",
                 MovementType = CashMovementType.PaidOut,
-                AmountCentimes = 1250,
+                Amount = 1250,
                 ReasonCode = "supplier-cash",
                 Note = null,
                 StaffId = "staff-1",
@@ -95,7 +96,7 @@ public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
             var movement = context.CashMovements.Single(m => m.MovementId == "01ROUNDTRIP");
 
             Assert.Equal(CashMovementType.PaidOut, movement.MovementType);
-            Assert.Equal(1250L, movement.AmountCentimes);
+            Assert.Equal(1250L, movement.Amount);
             Assert.Null(movement.Note);
             Assert.Equal("manager-1", movement.AuthorisedBy);
             Assert.Equal(new DateTimeOffset(2026, 3, 4, 17, 45, 12, TimeSpan.Zero), movement.OccurredAt);
@@ -112,7 +113,7 @@ public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
                 MovementId = "01ONDISK",
                 SessionId = "session-1",
                 MovementType = CashMovementType.FloatAdd,
-                AmountCentimes = 50_000,
+                Amount = 50_000,
                 ReasonCode = "opening-float",
                 StaffId = "staff-1",
                 OccurredAt = new DateTimeOffset(2026, 3, 4, 8, 0, 0, TimeSpan.Zero)
@@ -156,7 +157,7 @@ public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
             MovementId = "01NEGATIVE",
             SessionId = "session-1",
             MovementType = CashMovementType.PaidIn,
-            AmountCentimes = -1,
+            Amount = -1,
             ReasonCode = "oops",
             StaffId = "staff-1",
             OccurredAt = DateTimeOffset.UnixEpoch

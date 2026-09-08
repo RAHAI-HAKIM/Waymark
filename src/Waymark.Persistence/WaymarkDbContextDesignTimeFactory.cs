@@ -26,13 +26,7 @@ public sealed class WaymarkDbContextDesignTimeFactory : IDesignTimeDbContextFact
         var scratch = Path.Combine(Path.GetTempPath(), "waymark-design-time", "waymark-store.db");
 
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseSqlite($"Data Source={scratch}")
-            // New tables must be STRICT. EF emits none of its own accord, and
-            // registering this at design time is what puts STRICT into the
-            // migrations the tools generate (D-016 cost 3).
-            .ReplaceService<
-                Microsoft.EntityFrameworkCore.Migrations.IMigrationsSqlGenerator,
-                StrictSqliteMigrationsSqlGenerator>()
+            .UseWaymarkSqlite(scratch)
             .Options;
 
         return new WaymarkDbContext(options);

@@ -652,6 +652,70 @@ suppress them — should be made once and deliberately rather than 40 times.
 
 ---
 
+## D-023 — The 58 entities were generated, not typed [Phase 0]
+
+**What.** `tools/generate-model` read the database built from
+`schema_v7_1.sql` and wrote 58 entities, 70 enums, 58 configurations and the
+`DbContext`. It is a one-shot: the schema is evolved by migrations from here
+(D-019), so the generator is kept for provenance and never re-run.
+
+**Why generate rather than write.** 625 columns, 137 foreign keys, 68 indexes
+and about 150 CHECK constraints. Typing that is not craft, it is a transcription
+exercise with roughly six hundred chances to make an error that compiles. The
+generator applies one rule per decision and applies it everywhere; the diff
+below then proves the result matches the schema. Neither half is available
+to hand-written files.
+
+**The rules, each of which is a decision applied 58 times.**
+
+*Every `INTEGER` column becomes `long`, with no exceptions* — including counts
+and display orders where `int` would be perfectly safe. Uniformity is the point:
+"is this column scaled or summed?" is a judgment call, and a judgment call made
+625 times will be wrong somewhere. The scaffolder's `int` default overflows a
+money column at 21,474,836.47 DZD, which is what the rule exists to prevent.
+
+*Enums get explicit converters, never `HasConversion<string>()`.* The shorthand
+stores the C# member name — `"Standard"` into a column whose CHECK allows only
+`"standard"` — and fails on the first insert. The sync channels settle the
+question anyway: their values are `A_statistics` and `D_intents`, which no
+mechanical rule produces.
+
+*Every CHECK, index and foreign key is declared in the configuration*, per
+D-022.
+
+*`required` marks only what a caller must supply* — not nullable, and no
+database default.
+
+**The result, measured.** A database built from the model's own create script
+was diffed structurally against one built from the schema: 58 tables, 625
+columns, types, nullability, primary keys, 137 foreign keys and the STRICT flag
+on all 58. **No differences.** That comparison now runs permanently as
+`ModelMatchesSchemaTests` — verified to fail by mistyping one column name.
+
+**Naming decisions worth knowing about.**
+
+| | |
+| :---- | :---- |
+| `returns` → `SalesReturn` | CA1716: `Return` is a reserved word in VB |
+| `category_attributes` → `CategoryAttributeLink` | CA1711 forbids a type name ending in `Attribute` |
+| `consent_events.action` → `ConsentEventAction` | `Action` collides with `System.Action` |
+| `promotion_*.value_type` → `Promotion*ValueType` | collides with `System.ValueType` |
+| `cash_movements.movement_type` → `CashMovementType` | not `CashMovementMovementType`; the stutter is stripped |
+
+Enum members mirror the database vocabulary, so a data type really is called
+`Integer`. CA1720 is disabled for `Domain/Enums` rather than renaming them,
+because the enum's only job is to agree with the schema.
+
+**Open, and worth a deliberate answer: EF adds 85 indexes the schema does not
+have.** It indexes every foreign key of its own accord — 68 declared indexes
+become 153. They are usually useful for join and lookup performance and usually
+harmless, but they are not free on write, and 85 unasked-for indexes on a till
+is a real decision rather than a rounding error. Accept them, or suppress them
+in the configurations. It wants deciding once, before the baseline migration
+freezes the answer into v1.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -666,3 +730,4 @@ during scaffolding.
 | O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
 | O-6 | ~~Entity topology~~ — **resolved by D-021.** One set: entities in `Waymark.Domain`, configurations in `Waymark.Persistence`. |
 | O-7 | **`HasPendingModelChanges()` cannot see the v1 schema.** Under D-019 the initial migration's `Up()` is hand-written SQL while the model snapshot is generated from the entity configurations. That check compares model to snapshot, so the configurations and the pasted schema can disagree and nothing reports it. Confined to v1, since every later change flows from the model — and the one-time diff in D-019 is the mitigation, which makes that diff load-bearing rather than advisory. Flagged 08/09/2026 to investigate before the baseline is generated. |
+| O-8 | **The 85 foreign-key indexes EF adds on its own.** The schema declares 68 indexes; the model produces 153, because EF indexes every foreign key. Useful for lookups, not free on write, and 85 of them is a decision rather than a rounding error. Accept or suppress — before the baseline migration freezes the answer into v1 (D-023). |
