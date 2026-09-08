@@ -5,6 +5,7 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 using Waymark.Domain.Catalogue;
 using Waymark.Domain.Customers;
 using Waymark.Domain.Engine;
@@ -116,6 +117,26 @@ public sealed class WaymarkDbContext(DbContextOptions<WaymarkDbContext> options)
     public DbSet<Intent> Intents => Set<Intent>();
     public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
     public DbSet<SyncState> SyncState => Set<SyncState>();
+
+    /// <summary>
+    /// EF indexes every foreign key by convention. Left on, that adds 85
+    /// indexes the schema never asked for — useful for lookups, but not free on
+    /// write, and this database lives on a single till (decisions.md O-8).
+    ///
+    /// <para>
+    /// Removing the convention also makes the rule uniform: every index in this
+    /// database is declared, and none appears by itself. If a foreign key turns
+    /// out to need one, it is added with <c>HasIndex</c> like any other.
+    /// </para>
+    /// </summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        ArgumentNullException.ThrowIfNull(configurationBuilder);
+
+        configurationBuilder.Conventions.Remove<ForeignKeyIndexConvention>();
+
+        base.ConfigureConventions(configurationBuilder);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

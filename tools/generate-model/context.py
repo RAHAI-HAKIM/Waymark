@@ -17,6 +17,7 @@ def context_file(dbsets) -> str:
 
     body = "\n".join(blocks).rstrip()
     return f'''{emit.HEADER}using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 {usings}
 
 namespace Waymark.Persistence;
@@ -40,6 +41,26 @@ public sealed class WaymarkDbContext(DbContextOptions<WaymarkDbContext> options)
     : DbContext(options)
 {{
 {body}
+
+    /// <summary>
+    /// EF indexes every foreign key by convention. Left on, that adds 85
+    /// indexes the schema never asked for — useful for lookups, but not free on
+    /// write, and this database lives on a single till (decisions.md O-8).
+    ///
+    /// <para>
+    /// Removing the convention also makes the rule uniform: every index in this
+    /// database is declared, and none appears by itself. If a foreign key turns
+    /// out to need one, it is added with <c>HasIndex</c> like any other.
+    /// </para>
+    /// </summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {{
+        ArgumentNullException.ThrowIfNull(configurationBuilder);
+
+        configurationBuilder.Conventions.Remove<ForeignKeyIndexConvention>();
+
+        base.ConfigureConventions(configurationBuilder);
+    }}
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {{

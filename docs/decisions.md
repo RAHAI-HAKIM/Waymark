@@ -706,13 +706,24 @@ Enum members mirror the database vocabulary, so a data type really is called
 `Integer`. CA1720 is disabled for `Domain/Enums` rather than renaming them,
 because the enum's only job is to agree with the schema.
 
-**Open, and worth a deliberate answer: EF adds 85 indexes the schema does not
-have.** It indexes every foreign key of its own accord — 68 declared indexes
-become 153. They are usually useful for join and lookup performance and usually
-harmless, but they are not free on write, and 85 unasked-for indexes on a till
-is a real decision rather than a rounding error. Accept them, or suppress them
-in the configurations. It wants deciding once, before the baseline migration
-freezes the answer into v1.
+**EF added 85 indexes the schema does not have, and they were suppressed.** It
+indexes every foreign key of its own accord, turning 68 declared indexes into
+153. Removing `ForeignKeyIndexConvention` in `ConfigureConventions` brings that
+back to 82: the schema's 68 named indexes plus the 14 UNIQUE constraints, with
+nothing appearing by itself. Every remaining difference between the model and
+the schema is accounted for.
+
+The rule is now uniform, which is the part that matters more than the index
+count: every index in this database is declared somewhere a person chose to
+declare it. A foreign key that turns out to need one gets `HasIndex` like
+anything else.
+
+**One difference that cannot be removed.** A UNIQUE constraint written inline in
+the schema produces an implicit `sqlite_autoindex_*`, while EF emits a named
+`IX_table_column`. Same constraint, same enforcement, different name. EF has no
+way to write an inline UNIQUE, so this is a permanent and harmless cosmetic
+difference — worth knowing before it appears in the D-019 diff and looks like a
+problem.
 
 ---
 
@@ -730,4 +741,4 @@ during scaffolding.
 | O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
 | O-6 | ~~Entity topology~~ — **resolved by D-021.** One set: entities in `Waymark.Domain`, configurations in `Waymark.Persistence`. |
 | O-7 | **`HasPendingModelChanges()` cannot see the v1 schema.** Under D-019 the initial migration's `Up()` is hand-written SQL while the model snapshot is generated from the entity configurations. That check compares model to snapshot, so the configurations and the pasted schema can disagree and nothing reports it. Confined to v1, since every later change flows from the model — and the one-time diff in D-019 is the mitigation, which makes that diff load-bearing rather than advisory. Flagged 08/09/2026 to investigate before the baseline is generated. |
-| O-8 | **The 85 foreign-key indexes EF adds on its own.** The schema declares 68 indexes; the model produces 153, because EF indexes every foreign key. Useful for lookups, not free on write, and 85 of them is a decision rather than a rounding error. Accept or suppress — before the baseline migration freezes the answer into v1 (D-023). |
+| O-8 | ~~The 85 foreign-key indexes EF adds on its own~~ — **resolved 08/09/2026: suppressed.** `ForeignKeyIndexConvention` is removed in `ConfigureConventions`, so the model declares 82 indexes against the schema's 68 named plus 14 UNIQUE constraints, and nothing appears by itself. Hakim works with foreign keys directly and does not want indexes the schema never asked for; they are not free on write, and this database lives on one till. If a foreign key later needs an index it is added with `HasIndex`, like every other. |
