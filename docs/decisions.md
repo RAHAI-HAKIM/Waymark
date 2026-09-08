@@ -573,6 +573,85 @@ artifact, and they will keep passing while doing it. Repointing them at
 
 ---
 
+## D-021 — One set of entity classes: Domain owns them, Persistence maps them [Phase 0]
+
+**Resolves O-6.** Decided 08/09/2026.
+
+**What.** Entities live in `Waymark.Domain`, as plain classes with no
+attributes, no EF Core reference and no knowledge of how they are stored.
+`Waymark.Persistence` holds one `IEntityTypeConfiguration<T>` per entity,
+discovered by `ApplyConfigurationsFromAssembly`. There is no second set of
+persistence models.
+
+**Why.** Two sets would be 116 classes and a mapping layer between them, for
+one developer, against a nine-project structure already recorded as a risk in
+diagram 05. The property the separation is supposed to buy — Domain not knowing
+about the database — is bought here by the configuration living in Persistence
+instead. The reference graph enforces it: `Waymark.Domain` has zero
+dependencies, so an entity *cannot* acquire a `[Table]` attribute without the
+architecture tests failing.
+
+**Rejected.** Separate domain and persistence models, and entities in
+Persistence with EF attributes (which would cross §2.1 outright).
+
+**Also settled.** The context is `WaymarkDbContext` in namespace
+`Waymark.Persistence` — not `AppDbContext` in `Persistence`. Options arrive
+through the constructor rather than `OnConfiguring`, because the database path
+is configuration (D-013) and a context that builds its own connection string
+cannot be pointed at a test directory.
+
+`WaymarkDbContextDesignTimeFactory` exists because the EF tools construct a
+context from the startup project's DI container, and `Waymark.StoreServer`
+registers nothing yet. Without it every `dotnet ef` command fails. It points at
+a scratch path, never the real one, so a mistyped command cannot reach a
+store's database — and it registers the STRICT generator, which is what puts
+`STRICT` into the migrations the tools generate.
+
+---
+
+## D-022 — An EF table rebuild also drops CHECK constraints [Phase 0]
+
+**Extends D-016 cost 5, which named only triggers and indexes.**
+
+**What was found.** A table created with `CHECK (amount > 0)` was put through
+one EF rebuild migration. Afterwards the constraint was gone from the DDL, and
+`INSERT ... amount = -5` succeeded. EF reported success and warned about
+nothing.
+
+The mechanism is the one already recorded for indexes and triggers: EF rebuilds
+the table from its model, and whatever the model does not declare does not come
+back. Triggers can be re-applied afterwards from `triggers.sql`. A CHECK cannot
+— altering one in SQLite means rebuilding the table again — so **CHECK
+constraints must be declared in the entity configurations**, not only in the
+schema.
+
+This is not a small surface. The schema uses CHECK constraints for every enum,
+every boolean, and money columns that must stay positive. Losing them silently
+would leave a database that accepts a negative `paid_in` and an unrecognised
+`movement_type`.
+
+**Foreign keys are in the same position** and must be declared for the same
+reason. At v1 they arrive with the pasted SQL, so nothing is broken today, but
+every relationship has to be configured as its entities land or the first
+rebuild of a table quietly loses its references.
+
+**Suggested addition to CLAUDE.md §3.7**, for Hakim to make or reject:
+
+> Every index, CHECK constraint and foreign key must be declared in the EF
+> model. A table rebuild recreates the table from the model alone, and anything
+> not declared is dropped without a warning. Triggers are the exception: they
+> live in `triggers.sql` and are re-applied after `Migrate()`.
+
+**One more thing the worked example surfaced.** EF creates an index for every
+foreign key of its own accord. `units_of_measure.base_unit_code` gained
+`IX_units_of_measure_base_unit_code`, which the hand-written schema does not
+have. Across 58 tables that will be dozens of indexes the schema never asked
+for. They are usually harmless and often useful, but they are a real difference
+that will show up in the D-019 one-time diff, and the choice — accept them or
+suppress them — should be made once and deliberately rather than 40 times.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -585,5 +664,5 @@ during scaffolding.
 | O-3 | Schema — every table, and the tier 1 → tier 2 mapping | The whole of Phase 0's middle. Nothing was scaffolded here. |
 | O-4 | `Money` and `Quantity` — rounding mode, currency handling, negative quantity rules | Money arithmetic is explicitly Hakim's. |
 | O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
-| O-6 | **Entity topology.** One set of classes (entities in `Waymark.Domain`, persistence-ignorant, mapped by `IEntityTypeConfiguration` in `Waymark.Persistence`) or two separate domain and persistence models? It affects 58 files, so it is worth settling before the first one is written. Recommendation on file: one set — 116 classes for one developer is not defensible against the nine-project risk already recorded in diagram 05. Also settles the namespace: `Waymark.Persistence`, not `Persistence`. |
+| O-6 | ~~Entity topology~~ — **resolved by D-021.** One set: entities in `Waymark.Domain`, configurations in `Waymark.Persistence`. |
 | O-7 | **`HasPendingModelChanges()` cannot see the v1 schema.** Under D-019 the initial migration's `Up()` is hand-written SQL while the model snapshot is generated from the entity configurations. That check compares model to snapshot, so the configurations and the pasted schema can disagree and nothing reports it. Confined to v1, since every later change flows from the model — and the one-time diff in D-019 is the mitigation, which makes that diff load-bearing rather than advisory. Flagged 08/09/2026 to investigate before the baseline is generated. |
