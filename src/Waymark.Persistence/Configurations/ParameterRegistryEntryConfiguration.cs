@@ -83,7 +83,9 @@ internal sealed class ParameterRegistryEntryConfiguration : IEntityTypeConfigura
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => new { x.ParameterCode, x.ScopeType, x.ScopeId })
-            .HasDatabaseName("ux_parameter_current").IsUnique();
+            .HasDatabaseName("ux_parameter_current")
+            .IsUnique()
+            .HasFilter(@"is_current = 1");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<UnitOfMeasure>()

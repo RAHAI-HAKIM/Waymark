@@ -25,6 +25,10 @@ public sealed class WaymarkDbContextDesignTimeFactory : IDesignTimeDbContextFact
     {
         var scratch = Path.Combine(Path.GetTempPath(), "waymark-design-time", "waymark-store.db");
 
+        // SQLite will not create a missing directory, and "unable to open
+        // database file" does not say so.
+        Directory.CreateDirectory(Path.GetDirectoryName(scratch)!);
+
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
             .UseWaymarkSqlite(scratch)
             .Options;

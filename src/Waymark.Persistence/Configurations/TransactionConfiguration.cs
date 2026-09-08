@@ -108,11 +108,14 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         builder.HasIndex(x => x.CashSessionId)
             .HasDatabaseName("ix_transactions_session");
         builder.HasIndex(x => x.CustomerId)
-            .HasDatabaseName("ix_transactions_customer");
+            .HasDatabaseName("ix_transactions_customer")
+            .HasFilter(@"customer_id IS NOT NULL");
         builder.HasIndex(x => new { x.StoreId, x.OccurredAt })
             .HasDatabaseName("ix_transactions_store_date");
         builder.HasIndex(x => new { x.StoreId, x.InvoiceNumber })
-            .HasDatabaseName("ux_transactions_invoice").IsUnique();
+            .HasDatabaseName("ux_transactions_invoice")
+            .IsUnique()
+            .HasFilter(@"invoice_number IS NOT NULL");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<ReasonCode>()

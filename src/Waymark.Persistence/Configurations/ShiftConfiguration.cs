@@ -61,7 +61,8 @@ internal sealed class ShiftConfiguration : IEntityTypeConfiguration<Shift>
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.StoreId)
-            .HasDatabaseName("ix_shifts_store_open");
+            .HasDatabaseName("ix_shifts_store_open")
+            .HasFilter(@"status = 'open'");
         builder.HasIndex(x => new { x.StaffId, x.StartTime })
             .HasDatabaseName("ix_shifts_staff");
 

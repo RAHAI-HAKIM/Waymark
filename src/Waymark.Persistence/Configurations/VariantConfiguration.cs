@@ -84,9 +84,9 @@ internal sealed class VariantConfiguration : IEntityTypeConfiguration<Variant>
             .HasConversion(WaymarkConverters.Timestamp);
 
         // A rebuild recreates only the indexes the model declares.
-        builder.HasIndex(x => x.Barcode).IsUnique();
-        builder.HasIndex(x => x.Plu).IsUnique();
         builder.HasIndex(x => x.Sku).IsUnique();
+        builder.HasIndex(x => x.Plu).IsUnique();
+        builder.HasIndex(x => x.Barcode).IsUnique();
         builder.HasIndex(x => x.Status)
             .HasDatabaseName("ix_variants_status");
         builder.HasIndex(x => x.ProductId)

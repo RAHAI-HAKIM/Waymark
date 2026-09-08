@@ -75,7 +75,8 @@ internal sealed class BatchConfiguration : IEntityTypeConfiguration<Batch>
         builder.HasIndex(x => x.ProductId)
             .HasDatabaseName("ix_batches_product");
         builder.HasIndex(x => new { x.StoreId, x.ExpirationDate })
-            .HasDatabaseName("ix_batches_expiry");
+            .HasDatabaseName("ix_batches_expiry")
+            .HasFilter(@"expiration_date IS NOT NULL AND status = 'active'");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<Staff>()

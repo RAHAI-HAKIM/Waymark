@@ -84,6 +84,69 @@ public sealed class ModelMatchesSchemaTests : IClassFixture<SchemaFixture>
         return strict;
     }
 
+
+    private sealed record IndexShape(string Table, string Columns, bool Unique, string? Filter);
+
+    /// <summary>
+    /// Indexes, compared by what they constrain rather than by name.
+    ///
+    /// <para>
+    /// Uniqueness and the WHERE clause of a partial index are the constraint,
+    /// not decoration. An earlier version of this comparison looked only at
+    /// names and columns, and let two real defects through: a composite
+    /// UNIQUE(a, b, c) flattened into three single-column constraints, and
+    /// twelve partial indexes that lost their filter. Without its filter,
+    /// ux_parameter_current forbids the registry holding two versions of a
+    /// parameter, which is the only thing the registry is for.
+    /// </para>
+    /// </summary>
+    private static HashSet<IndexShape> Indexes(SqliteConnection connection)
+    {
+        var shapes = new HashSet<IndexShape>();
+        var names = new List<(string Name, string Table)>();
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT name, tbl_name FROM sqlite_schema
+                WHERE type = 'index' AND tbl_name <> '__EFMigrationsHistory'
+                ORDER BY name
+                """;
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                names.Add((reader.GetString(0), reader.GetString(1)));
+            }
+        }
+
+        foreach (var (name, table) in names)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                SELECT (SELECT group_concat(name, ',') FROM (
+                            SELECT name FROM pragma_index_info('{name}') ORDER BY seqno)),
+                       (SELECT "unique" FROM pragma_index_list('{table}') WHERE name = '{name}'),
+                       (SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = '{name}')
+                """;
+            using var reader = command.ExecuteReader();
+            if (!reader.Read() || reader.IsDBNull(0))
+            {
+                continue;
+            }
+
+            var sql = reader.IsDBNull(2) ? "" : reader.GetString(2);
+            var where = sql.IndexOf(" WHERE ", StringComparison.OrdinalIgnoreCase);
+            var filter = where < 0
+                ? null
+                : string.Join(' ', sql[(where + 7)..].Replace("\"", "", StringComparison.Ordinal)
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
+
+            shapes.Add(new IndexShape(table, reader.GetString(0), reader.GetInt64(1) == 1, filter));
+        }
+
+        return shapes;
+    }
+
     /// <summary>A database built from the model rather than from the schema.</summary>
     private static SqliteConnection BuildFromModel(string path)
     {
@@ -152,6 +215,26 @@ public sealed class ModelMatchesSchemaTests : IClassFixture<SchemaFixture>
                         differences.Add($"{table}.{column}: schema {left[column]} vs model {right[column]}");
                     }
                 }
+            }
+
+            // Indexes are compared by shape, not name: EF cannot write an
+            // inline UNIQUE, so its equivalent of one is always named
+            // differently.
+            var indexesInSchema = Indexes(fromSchema);
+            var indexesInModel = Indexes(fromModel);
+
+            foreach (var index in indexesInSchema.Except(indexesInModel).OrderBy(i => i.Table + i.Columns, StringComparer.Ordinal))
+            {
+                differences.Add(
+                    $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
+                    + "constrained by the schema, not by the model");
+            }
+
+            foreach (var index in indexesInModel.Except(indexesInSchema).OrderBy(i => i.Table + i.Columns, StringComparer.Ordinal))
+            {
+                differences.Add(
+                    $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
+                    + "constrained by the model, not by the schema");
             }
 
             var strictInSchema = StrictTables(fromSchema);

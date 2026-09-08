@@ -119,17 +119,30 @@ def configuration_file(table, entity, folder, props, checks, keys, fks, entity_o
         lines.append("\n".join(call) + ";")
 
     index_lines = []
-    for column in sorted(set(table.unique_columns)):
-        prop = next(p for p in props if p.column == column)
-        index_lines.append(
-            f"        builder.HasIndex(x => x.{prop.name}).IsUnique();")
+    for columns in table.unique_constraints:
+        names = [next(p for p in props if p.column == c).name for c in columns]
+        target = (f"x.{names[0]}" if len(names) == 1
+                  else "new { " + ", ".join(f"x.{n}" for n in names) + " }")
+        # As a group. UNIQUE(a, b) allows a to repeat, and splitting it into two
+        # single-column constraints would forbid that.
+        index_lines.append(f"        builder.HasIndex(x => {target}).IsUnique();")
+
     for index in table.indexes:
         names = [next(p for p in props if p.column == c).name for c in index["columns"]]
-        target = f"x.{names[0]}" if len(names) == 1 else "new { " + ", ".join(f"x.{n}" for n in names) + " }"
-        unique = ".IsUnique()" if index["unique"] else ""
-        index_lines.append(
-            f"        builder.HasIndex(x => {target})\n"
-            f"            .HasDatabaseName(\"{index['name']}\"){unique};")
+        target = (f"x.{names[0]}" if len(names) == 1
+                  else "new { " + ", ".join(f"x.{n}" for n in names) + " }")
+        parts = [f"        builder.HasIndex(x => {target})",
+                 f"            .HasDatabaseName(\"{index['name']}\")"]
+        if index["unique"]:
+            parts.append("            .IsUnique()")
+        if index["filter"]:
+            # The WHERE clause is part of the constraint. Without it
+            # ux_parameter_current stops the registry holding two versions of a
+            # parameter, which is the only thing it is for.
+            escaped = index["filter"].replace('"', '""')
+            parts.append(f"            .HasFilter(@\"{escaped}\")")
+        index_lines.append(chr(10).join(parts) + ";")
+
     if index_lines:
         lines += ["", "        // A rebuild recreates only the indexes the model declares.", *index_lines]
 

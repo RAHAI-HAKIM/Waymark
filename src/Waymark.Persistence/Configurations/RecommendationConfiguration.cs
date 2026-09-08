@@ -102,7 +102,8 @@ internal sealed class RecommendationConfiguration : IEntityTypeConfiguration<Rec
         builder.HasIndex(x => new { x.SubjectType, x.SubjectId })
             .HasDatabaseName("ix_recs_subject");
         builder.HasIndex(x => new { x.StoreId, x.Status, x.Urgency })
-            .HasDatabaseName("ix_recs_pending");
+            .HasDatabaseName("ix_recs_pending")
+            .HasFilter(@"status IN ('pending','delivered')");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<Role>()

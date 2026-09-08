@@ -47,7 +47,9 @@ internal sealed class ProductCategoryConfiguration : IEntityTypeConfiguration<Pr
         builder.HasIndex(x => x.CategoryId)
             .HasDatabaseName("ix_product_category_cat");
         builder.HasIndex(x => x.ProductId)
-            .HasDatabaseName("ux_product_category_primary").IsUnique();
+            .HasDatabaseName("ux_product_category_primary")
+            .IsUnique()
+            .HasFilter(@"is_primary = 1");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<Category>()

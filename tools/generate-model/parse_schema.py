@@ -27,7 +27,7 @@ class Table:
     table_checks: list[str]
     foreign_keys: list[dict]
     indexes: list[dict]
-    unique_columns: list[str]
+    unique_constraints: list[list[str]]
 
 
 def _split_top_level(body: str) -> list[str]:
@@ -116,18 +116,34 @@ def load(db_path: str, schema_path: str) -> list[Table]:
             for r in db.execute(f"PRAGMA foreign_key_list('{name}')")
         ]
 
-        indexes, unique_columns = [], []
+        indexes, unique_constraints = [], []
         for r in db.execute(f"PRAGMA index_list('{name}')"):
-            index_name, is_unique, origin = r[1], bool(r[2]), r[3]
+            index_name, is_unique, origin, partial = r[1], bool(r[2]), r[3], bool(r[4])
             cols = [c[2] for c in db.execute(f"PRAGMA index_info('{index_name}')")]
-            if origin == "u":                       # UNIQUE on the column
-                unique_columns.extend(cols)
-            elif origin == "c":                     # an explicit CREATE INDEX
-                indexes.append({"name": index_name, "columns": cols, "unique": is_unique})
+            if origin == "u":
+                # An inline UNIQUE. Kept as a group: UNIQUE(a, b) permits a
+                # repeated a, and flattening it to two constraints would
+                # forbid one.
+                unique_constraints.append(cols)
+            elif origin == "c":
+                # An explicit CREATE INDEX. The WHERE clause of a partial index
+                # is part of the constraint, not decoration: without it
+                # ux_parameter_current forbids a parameter having two versions.
+                index_sql = db.execute(
+                    "SELECT sql FROM sqlite_schema WHERE type='index' AND name=?",
+                    (index_name,)).fetchone()
+                where = None
+                if partial and index_sql and index_sql[0]:
+                    m = re.search('\\bWHERE\\b(.+)$', index_sql[0], re.I | re.S)
+                    if m:
+                        where = " ".join(m.group(1).split())
+                indexes.append({"name": index_name, "columns": cols,
+                                "unique": is_unique, "filter": where})
 
         tables.append(Table(
             name=name, section=table_section.get(name, "REFERENCE AND CONFIGURATION"),
             columns=columns, table_checks=table_checks,
-            foreign_keys=foreign_keys, indexes=indexes, unique_columns=unique_columns,
+            foreign_keys=foreign_keys, indexes=indexes,
+            unique_constraints=unique_constraints,
         ))
     return tables

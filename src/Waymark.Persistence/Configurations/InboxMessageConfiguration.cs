@@ -65,6 +65,7 @@ internal sealed class InboxMessageConfiguration : IEntityTypeConfiguration<Inbox
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.MessageId).IsUnique();
         builder.HasIndex(x => new { x.Status, x.CloudSequence })
-            .HasDatabaseName("ix_inbox_pending");
+            .HasDatabaseName("ix_inbox_pending")
+            .HasFilter(@"status = 'pending'");
     }
 }

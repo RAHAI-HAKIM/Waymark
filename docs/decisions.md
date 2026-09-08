@@ -727,6 +727,57 @@ problem.
 
 ---
 
+## D-024 — Two generator defects, and the verification that let them through [Phase 0]
+
+**Found by Hakim while running the baseline migration**, not by any test here,
+which is the part worth recording.
+
+**Defect 1 — composite UNIQUE constraints were flattened.** The parser collected
+unique columns into a flat list, so `UNIQUE(count_id, variant_id, batch_id)`
+became three separate single-column constraints. That is far stricter than the
+schema: it would have forbidden a variant appearing in two different stock
+counts. Three constraints were affected — `stock_count_items`,
+`recommendation_options` and `transaction_payments`.
+
+**Defect 2 — partial indexes lost their WHERE clause.** All 12 of them. The
+filter is not decoration; on the three that are also UNIQUE it *is* the
+constraint:
+
+| Index | Unfiltered, it would |
+| :---- | :---- |
+| `ux_parameter_current` | forbid the registry holding two versions of a parameter — the only thing the registry is for |
+| `ux_product_category_primary` | forbid a product belonging to more than one category |
+| `ux_transactions_invoice` | over-constrain invoice numbers |
+
+Each would have rejected legitimate data at the first insert that mattered.
+
+**Why the verification missed both, which is the real lesson.** `compare.py`
+and `ModelMatchesSchemaTests` compared indexes by *name and columns*. Neither
+looked at uniqueness or at the filter. So a flattened composite and twelve
+dropped WHERE clauses both compared equal, and D-023 could report "no
+structural differences" in good faith while two real defects sat in the model.
+
+A comparison is only worth what it compares. Both now check index columns,
+uniqueness, partial-index filters, and unique constraints as *groups* — and the
+test was verified by reintroducing both defects, which it named precisely.
+
+**Fixed at the source, not in the migration.** Hakim's corrections were made by
+hand in the generated migration file, which leaves the configurations still
+wrong — the drift O-7 describes. Correcting the generator and regenerating
+produced a migration that reproduces every one of those corrections, plus three
+things the hand edit had lost: `ix_count_items_count`,
+`ix_payments_transaction` and `ix_rec_options_rec`, all real indexes in the
+schema. The hand edit had also reversed the column order of the
+`stock_count_items` unique constraint to `(batch_id, variant_id, count_id)`;
+the schema's order is `(count_id, variant_id, batch_id)`, and order decides
+which queries an index can serve.
+
+**Also fixed:** the design-time factory did not create its own directory, so
+every `dotnet ef database update` failed with "unable to open database file",
+which does not say so.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -741,4 +792,5 @@ during scaffolding.
 | O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
 | O-6 | ~~Entity topology~~ — **resolved by D-021.** One set: entities in `Waymark.Domain`, configurations in `Waymark.Persistence`. |
 | O-7 | **`HasPendingModelChanges()` cannot see the v1 schema.** Under D-019 the initial migration's `Up()` is hand-written SQL while the model snapshot is generated from the entity configurations. That check compares model to snapshot, so the configurations and the pasted schema can disagree and nothing reports it. Confined to v1, since every later change flows from the model — and the one-time diff in D-019 is the mitigation, which makes that diff load-bearing rather than advisory. Flagged 08/09/2026 to investigate before the baseline is generated. |
+| O-9 | **Does the baseline `Up()` still need the schema SQL pasted into it?** D-019 requires it as insurance against the generated `CreateTable` calls not matching the reviewed schema. That has now been checked mechanically: a database built by the migration matches the schema on all 58 tables, 625 columns, types, nullability, keys, 137 foreign keys, unique constraints (as groups), index columns, index uniqueness, partial-index filters, all 167 CHECK constraints and all 102 defaults. Only the 11 triggers are absent, and those are `triggers.sql`'s job by design. Pasting still buys the reviewed text verbatim; keeping the generated `Up()` buys a working `Down()` and one consistent migration style. |
 | O-8 | ~~The 85 foreign-key indexes EF adds on its own~~ — **resolved 08/09/2026: suppressed.** `ForeignKeyIndexConvention` is removed in `ConfigureConventions`, so the model declares 82 indexes against the schema's 68 named plus 14 UNIQUE constraints, and nothing appears by itself. Hakim works with foreign keys directly and does not want indexes the schema never asked for; they are not free on write, and this database lives on one till. If a foreign key later needs an index it is added with `HasIndex`, like every other. |

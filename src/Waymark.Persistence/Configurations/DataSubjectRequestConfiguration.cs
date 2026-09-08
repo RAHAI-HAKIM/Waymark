@@ -73,7 +73,8 @@ internal sealed class DataSubjectRequestConfiguration : IEntityTypeConfiguration
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.DueAt)
-            .HasDatabaseName("ix_dsr_open");
+            .HasDatabaseName("ix_dsr_open")
+            .HasFilter(@"status IN ('open','in_progress')");
         builder.HasIndex(x => x.CustomerId)
             .HasDatabaseName("ix_dsr_customer");
 

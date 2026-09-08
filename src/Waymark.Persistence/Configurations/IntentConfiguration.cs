@@ -76,9 +76,11 @@ internal sealed class IntentConfiguration : IEntityTypeConfiguration<Intent>
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.ExpiresAt)
-            .HasDatabaseName("ix_intents_expiry");
+            .HasDatabaseName("ix_intents_expiry")
+            .HasFilter(@"status = 'pending'");
         builder.HasIndex(x => new { x.StoreId, x.Status })
-            .HasDatabaseName("ix_intents_pending");
+            .HasDatabaseName("ix_intents_pending")
+            .HasFilter(@"status = 'pending'");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<Recommendation>()

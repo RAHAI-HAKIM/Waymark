@@ -39,8 +39,7 @@ internal sealed class RecommendationOptionConfiguration : IEntityTypeConfigurati
             .HasColumnName("projected_value");
 
         // A rebuild recreates only the indexes the model declares.
-        builder.HasIndex(x => x.DisplayOrder).IsUnique();
-        builder.HasIndex(x => x.RecommendationId).IsUnique();
+        builder.HasIndex(x => new { x.RecommendationId, x.DisplayOrder }).IsUnique();
         builder.HasIndex(x => x.RecommendationId)
             .HasDatabaseName("ix_rec_options_rec");
 

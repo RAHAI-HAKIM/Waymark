@@ -4,6 +4,7 @@ This is the D-019 one-time comparison, run mechanically: the only moment the
 58 configurations can be checked against the reviewed schema for free.
 """
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -14,17 +15,32 @@ def describe(path: str) -> dict:
     out = {"tables": {}, "indexes": {}, "strict": {}}
     for (name,) in db.execute(
             "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' "
-            "AND name <> '__EFMigrationsHistory' ORDER BY name"):
+            "AND name NOT LIKE '__EF%' ORDER BY name"):
         cols = {}
         for r in db.execute(f"PRAGMA table_info('{name}')"):
             cols[r[1]] = {"type": r[2].upper(), "notnull": bool(r[3]), "pk": r[5]}
         fks = sorted(
             (r[3], r[2], r[4]) for r in db.execute(f"PRAGMA foreign_key_list('{name}')"))
         out["tables"][name] = {"columns": cols, "fks": fks}
-    for r in db.execute("SELECT name, tbl_name FROM sqlite_schema WHERE type='index' "
+    for r in db.execute("SELECT name, tbl_name, sql FROM sqlite_schema WHERE type='index' "
                         "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
         cols = tuple(c[2] for c in db.execute(f"PRAGMA index_info('{r[0]}')"))
-        out["indexes"][r[0]] = (r[1], cols)
+        sql = r[2] or ""
+        unique = " UNIQUE " in sql.upper()
+        m = re.search(r"WHERE(.+)$", sql, re.I | re.S)
+        # Identifier quoting differs between the schema and EF, so compare the
+        # filter with quotes stripped and whitespace collapsed.
+        where = " ".join(m.group(1).replace('"', "").split()).lower() if m else None
+        out["indexes"][r[0]] = (r[1], cols, unique, where)
+
+    # Inline UNIQUE(a, b) makes an implicit index. Compare it as a set of
+    # column groups, since EF must name its equivalent differently.
+    out["unique_groups"] = set()
+    for name in out["tables"]:
+        for r in db.execute(f"PRAGMA index_list('{name}')"):
+            if r[3] in ("u", "c") and r[2]:
+                cols = tuple(c[2] for c in db.execute(f"PRAGMA index_info('{r[1]}')"))
+                out["unique_groups"].add((name, cols))
     for r in db.execute("SELECT name, strict FROM pragma_table_list WHERE schema='main' "
                         "AND type='table' AND name NOT LIKE 'sqlite_%'"):
         out["strict"][r[0]] = bool(r[1])
@@ -72,14 +88,26 @@ def main(schema_db: str, ef_sql: str) -> int:
         if a["strict"].get(name) and not b["strict"].get(name):
             problems.append(f"{name}: STRICT in the schema, not in the model")
 
-    for name, (table, cols) in sorted(a["indexes"].items()):
+    for name, (table, cols, unique, where) in sorted(a["indexes"].items()):
         if name not in b["indexes"]:
             problems.append(f"index {name} on {table}{cols}: missing from the model")
-        elif b["indexes"][name][1] != cols:
-            problems.append(f"index {name}: columns {cols} vs {b['indexes'][name][1]}")
-    for name, (table, cols) in sorted(b["indexes"].items()):
+            continue
+        _, bcols, bunique, bwhere = b["indexes"][name]
+        if bcols != cols:
+            problems.append(f"index {name}: columns {cols} vs {bcols}")
+        if bunique != unique:
+            problems.append(f"index {name}: unique {unique} vs {bunique}")
+        if bwhere != where:
+            problems.append(f"index {name}: filter {where!r} vs {bwhere!r}")
+    for name, (table, cols, _, _) in sorted(b["indexes"].items()):
         if name not in a["indexes"]:
             notes.append(f"index {name} on {table}{cols}: added by EF, not in the schema")
+
+    for entry in sorted(a["unique_groups"] - b["unique_groups"]):
+        problems.append(f"unique constraint {entry[0]}{entry[1]}: missing from the model")
+    for entry in sorted(b["unique_groups"] - a["unique_groups"]):
+        problems.append(f"unique constraint {entry[0]}{entry[1]}: only in the model "
+                        f"(over-constrains the data)")
 
     print(f"schema tables: {len(a['tables'])}   model tables: {len(b['tables'])}")
     print(f"schema indexes: {len(a['indexes'])}  model indexes: {len(b['indexes'])}")

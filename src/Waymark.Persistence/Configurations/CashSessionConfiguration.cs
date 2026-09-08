@@ -81,7 +81,8 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.StoreId)
-            .HasDatabaseName("ix_cash_sessions_open");
+            .HasDatabaseName("ix_cash_sessions_open")
+            .HasFilter(@"status = 'open'");
         builder.HasIndex(x => new { x.TerminalId, x.OpenedAt })
             .HasDatabaseName("ix_cash_sessions_terminal");
 

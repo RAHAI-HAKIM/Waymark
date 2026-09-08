@@ -64,9 +64,7 @@ internal sealed class StockCountItemConfiguration : IEntityTypeConfiguration<Sto
             .HasColumnName("note");
 
         // A rebuild recreates only the indexes the model declares.
-        builder.HasIndex(x => x.BatchId).IsUnique();
-        builder.HasIndex(x => x.CountId).IsUnique();
-        builder.HasIndex(x => x.VariantId).IsUnique();
+        builder.HasIndex(x => new { x.CountId, x.VariantId, x.BatchId }).IsUnique();
         builder.HasIndex(x => x.CountId)
             .HasDatabaseName("ix_count_items_count");
 

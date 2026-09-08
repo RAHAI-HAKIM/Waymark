@@ -57,8 +57,7 @@ internal sealed class TransactionPaymentConfiguration : IEntityTypeConfiguration
             .HasConversion(WaymarkConverters.Timestamp);
 
         // A rebuild recreates only the indexes the model declares.
-        builder.HasIndex(x => x.Sequence).IsUnique();
-        builder.HasIndex(x => x.TransactionId).IsUnique();
+        builder.HasIndex(x => new { x.TransactionId, x.Sequence }).IsUnique();
         builder.HasIndex(x => new { x.PaymentMethod, x.CreatedAt })
             .HasDatabaseName("ix_payments_method");
         builder.HasIndex(x => x.TransactionId)
