@@ -344,10 +344,10 @@ most valuable thing this version still gives us.
 
 ## D-016 — `schema_v7_1.sql` creates v1; EF migrations evolve it from a baseline [Phase 0]
 
-**Decision: option C of three.** The hand-written schema stays canonical for
-database creation. An initial migration generated with `--ignore-changes`
-stamps `__EFMigrationsHistory` without emitting DDL, and every change after
-that is an EF migration.
+**Superseded in part by D-019 (08/09/2026).** The cost analysis below stands and
+was reproduced; only the *mechanism* was wrong. `--ignore-changes` does not
+exist in EF Core — it is an EF6 parameter. Costs 3, 4 and 5 and the
+schema-fidelity test carry forward unchanged into D-019.
 
 **Why not the other two.** Option A — the `.sql` stays canonical forever and
 every upgrade is hand-written — means writing SQLite's twelve-step table
@@ -462,12 +462,12 @@ their first tests the message goes away on its own.
 
 ---
 
-## D-018 — Tests use plain xUnit `Assert` until O-6 is settled [Phase 0]
+## D-018 — Tests use plain xUnit `Assert` until O-5 is settled [Phase 0]
 
 **What.** No assertion library. Failure messages are written by hand, as the
 second argument to `Assert.True`.
 
-**Why.** O-6 is open: FluentAssertions 8.x is commercially licensed and Waymark
+**Why.** O-5 is open: FluentAssertions 8.x is commercially licensed and Waymark
 is a commercial product, and the alternatives have not been picked. Writing 40
 tests against a library that then gets swapped is work done twice. Plain
 `Assert` commits to nothing.
@@ -478,6 +478,98 @@ is what makes the decimal rule mechanical", "an EF table rebuild drops triggers
 it does not know about". A fluent assertion would have produced a diff of two
 lists. When one of these fails at 2 a.m. months from now, the message is the
 explanation.
+
+---
+
+## D-019 — The initial migration is the schema; `Migrate()` is the only creation path [Phase 0]
+
+Supersedes the mechanism of D-016. Dated 08/09/2026.
+
+**What.** schema_v7_1.sql is pasted inline into the Up() of the initial migration as migrationBuilder.Sql(...). Migrate() therefore creates a complete v1 database from empty. There is no separate bootstrap step and no baseline row to stamp by hand.
+
+Triggers are not in that SQL. They live in triggers.sql, applied idempotently after every Migrate() — see cost 5 of D-016, which is unchanged.
+
+**Why** the mechanism changed. D-016 assumed dotnet ef migrations add --ignore-changes produced an empty migration with a populated model snapshot. That parameter is EF6 only; EF Core has never had it. The real procedure is to generate the migration and hand-empty its Up(), and once the file has to be hand-edited anyway, pasting the schema into it costs nothing extra and removes an entire mechanism.
+
+**What it buys,** against D-016's own recorded costs.
+
+Cost 1 — the two-step bootstrap is fragile — disappears. There is no second step. No baseline id to get wrong, no branch on whether the file exists. D-016 recorded that this failed on the first attempt at reproducing it; the failure mode no longer exists.
+
+The recorded risk of D-016 — "C is two mechanisms where B is one, and two mechanisms is how a tired solo developer gets confused" — is retired. Creation and evolution are now the same call.
+
+**What it costs.**
+
+The schema exists in two artifacts: schema_v7_1.sql and the pasted copy inside the migration. They are identical at v1 and must never both be edited. schema_v7_1.sql is frozen at the moment the baseline is generated and becomes historical. Every change after that is a migration.
+
+The initial migration file is roughly 1,200 lines of SQL held in a string. Ugly, and honest about what it does.
+
+Rejected. Reading schema_v7_1.sql from an embedded resource inside Up() rather than pasting it. A historical migration whose meaning changes when a file changes is the classic migration trap: replaying migration 1 two years from now would produce a different database than it did on the day it ran.
+
+Two runtime details that are not optional.
+
+`Migrate()` must not run inside an ambient transaction. From EF Core 9, Migrate starts its own transaction and uses an ExecutionStrategy; an external transaction raises MigrationsUserTransactionWarning and throws.
+dotnet ef database update is still not a creation path for developers who have edited a migration by hand. Under C′ it happens to work, because Up() is populated — but the supported path remains the application's own startup call, so that ApplyTriggers() runs with it. A database created by the CLI alone has no triggers.
+
+Readable current state. Because schema_v7_1.sql freezes, a schema_current.sql is regenerated from a migrated database after every migration and committed. It is never executed — it exists so the whole schema stays readable in one file, which was the point of rejecting option B in D-016.
+
+The fidelity test changes shape. It no longer compares two creation paths, since there is only one. It now builds a database via Migrate() + ApplyTriggers() and asserts:
+
+every table is STRICT, except __EFMigrationsHistory
+the trigger inventory matches the names parsed from triggers.sql
+sqlite_master, sorted and normalised, matches the committed schema_current.sql
+context.Database.HasPendingModelChanges() is false
+
+The third is the load-bearing one: it is a golden-file test, so an unintended change fails the build and an intended change appears as a diff to approve.
+
+One-time step, and it is worth doing carefully. When the baseline migration is first generated, EF emits CreateTable operations for all 58 tables before the body is replaced. Diff that generated code against schema_v7_1.sql before deleting it. It is a free, complete, one-shot comparison of the 58 entity configurations against the reviewed schema, at the only moment it comes for nothing.
+
+---
+
+## D-020 — `schema_current.sql` and the invariant tests answer different questions [Phase 0]
+
+**The question.** D-019 regenerates and commits `schema_current.sql` after every
+migration. If that file always describes the current database, can the schema
+tests read it instead of building a database with `Migrate()`?
+
+**Answer: no, and both are kept.** They are not two ways of doing one job.
+
+**`schema_current.sql` is a change detector.** It answers *"did the schema
+change without anyone noticing?"* Compared as a golden file, an unintended
+change fails the build and an intended one appears as a diff to approve. That
+is genuinely valuable and it is why D-019 introduced it.
+
+**The invariant tests answer a different question** — *"is this rule still
+true?"* — and there are three things the file cannot tell them.
+
+**1. Declaration is not behaviour.** Demonstrated: a trigger named
+`trg_consent_events_no_delete`, on the right table, with `RAISE(ABORT)` and the
+right message, but carrying a `WHEN OLD.action = 'granted'` clause picked up in
+a refactor. Any check that the text contains that trigger passes. A withdrawn
+consent row then deletes silently, with no error, and the append-only promise
+in the DPIA is broken. Only executing the `DELETE` finds it.
+
+The same applies to a trigger attached to the wrong table by copy-paste, or one
+whose body drifts. The name and the text look right in every case.
+
+**2. A generated file can be stale; a live database cannot.** Regenerating
+`schema_current.sql` is a manual step after every migration. Skip it once and
+the file describes the previous version while the tests stay green — the museum
+piece problem, moved one step along rather than solved.
+
+**3. It can bake in an absence.** D-019 records that `dotnet ef database update`
+alone produces a database with no triggers, because `ApplyTriggers()` did not
+run. Regenerate the file from *that* database and the committed documentation
+records zero triggers as correct. Every later text check then agrees, forever.
+
+**Decision.** The invariant and append-only suites build a real database with
+`Migrate()` + `ApplyTriggers()` and assert against it. The golden-file
+comparison against `schema_current.sql` stays as D-019 specified. Keeping both
+costs one `Migrate()` per test class.
+
+**Consequence.** The 29 tests written under D-016 currently load
+`schema_v7_1.sql`. Once that file freezes they are testing a historical
+artifact, and they will keep passing while doing it. Repointing them at
+`Migrate()` is not optional tidying — it is what stops them becoming decorative.
 
 ---
 
@@ -493,3 +585,5 @@ during scaffolding.
 | O-3 | Schema — every table, and the tier 1 → tier 2 mapping | The whole of Phase 0's middle. Nothing was scaffolded here. |
 | O-4 | `Money` and `Quantity` — rounding mode, currency handling, negative quantity rules | Money arithmetic is explicitly Hakim's. |
 | O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
+| O-6 | **Entity topology.** One set of classes (entities in `Waymark.Domain`, persistence-ignorant, mapped by `IEntityTypeConfiguration` in `Waymark.Persistence`) or two separate domain and persistence models? It affects 58 files, so it is worth settling before the first one is written. Recommendation on file: one set — 116 classes for one developer is not defensible against the nine-project risk already recorded in diagram 05. Also settles the namespace: `Waymark.Persistence`, not `Persistence`. |
+| O-7 | **`HasPendingModelChanges()` cannot see the v1 schema.** Under D-019 the initial migration's `Up()` is hand-written SQL while the model snapshot is generated from the entity configurations. That check compares model to snapshot, so the configurations and the pasted schema can disagree and nothing reports it. Confined to v1, since every later change flows from the model — and the one-time diff in D-019 is the mitigation, which makes that diff load-bearing rather than advisory. Flagged 08/09/2026 to investigate before the baseline is generated. |

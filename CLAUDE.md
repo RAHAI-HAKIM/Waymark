@@ -103,6 +103,20 @@ General rule: **order writes so failure leaves garbage, not a gap.**
 
 Both or neither. This is the outbox pattern and the whole sync design rests on it.
 
+### 3.7 Schema and migrations
+
+- The initial migration contains the whole of `schema_v7_1.sql`, pasted inline. `Migrate()` creates a complete database from empty and evolves an existing one. There is no other creation path.
+- Never run `dotnet ef migrations add` without reading the generated file. EF cannot see triggers, and a table rebuild silently drops every trigger and index EF does not know about.
+- Every index must be declared in the EF model, so EF recreates it after a rebuild.
+- Triggers live in `triggers.sql`, never in the EF model. They are re-applied idempotently (`DROP TRIGGER IF EXISTS, then CREATE`) after every `Migrate()`. A migration that runs without `ApplyTriggers()` leaves the database without its append-only guards.
+- `schema_v7_1.sql` is frozen. It is historical. Changing the schema means adding a migration, never editing that file.
+- `schema_current.sql` is regenerated and committed after every migration. It is documentation, never executed.
+- `Migrate()` must not be called inside a transaction. EF Core 9+ manages its own; an ambient one throws.
+- New tables must be `STRICT`. `StrictSqliteMigrationsSqlGenerator` handles this on both plain creation and the rebuild path. If it is ever removed, the decimal rule stops being mechanical.
+- A table rebuild on a store with two years of data is a real pause. SQLite copies the whole table. Schema changes touching transactions, transaction_items or stock_movements need to be planned as an operational event, not slipped into a routine update.
+
+EF Core version: 10, with .NET 10 LTS. Not 11 — it is STS, and the till needs long support.
+
 ---
 
 ## 4. Privacy rules
