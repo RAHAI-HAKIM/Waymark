@@ -8,6 +8,7 @@
     reaching the mapping (CLAUDE.md 2.1, 4).
   -->
 
+
   <ItemGroup>
     <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
     <ProjectReference Include="..\Waymark.Contracts\Waymark.Contracts.csproj" />

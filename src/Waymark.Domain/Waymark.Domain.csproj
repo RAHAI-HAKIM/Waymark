@@ -1,6 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <!--
+<Project Sdk="Microsoft.NET.Sdk"><!--
     ZERO DEPENDENCIES. Not Persistence, not Contracts, not EF Core, not a
     NuGet package. Every reference added here is an architecture change and
     needs a decision-log entry (CLAUDE.md 2.1).
@@ -8,5 +6,10 @@
     Domain declares the interfaces; infrastructure implements them.
   -->
 
+
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+  </ItemGroup>
 </Project>
 

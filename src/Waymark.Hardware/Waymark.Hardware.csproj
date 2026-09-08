@@ -6,6 +6,7 @@
     in: a fake printer writes to a file, the drawer kick is a log line.
   -->
 
+
   <ItemGroup>
     <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
   </ItemGroup>

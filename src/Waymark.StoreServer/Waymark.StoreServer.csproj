@@ -5,6 +5,7 @@
     runs sync and the scheduled jobs. Authoritative for all operational data.
   -->
 
+
   <ItemGroup>
     <ProjectReference Include="..\Waymark.Application\Waymark.Application.csproj" />
     <ProjectReference Include="..\Waymark.Persistence\Waymark.Persistence.csproj" />
@@ -14,9 +15,9 @@
 
   <ItemGroup>
     <!-- Design-time only, and here rather than only in Persistence because the
-         EF tools resolve against the STARTUP project. Persistence marks it
-         PrivateAssets="all", so it does not flow through the project
-         reference. Never shipped: nothing here reaches a published build. -->
+          EF tools resolve against the STARTUP project. Persistence marks it
+          PrivateAssets="all", so it does not flow through the project
+          reference. Never shipped: nothing here reaches a published build. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

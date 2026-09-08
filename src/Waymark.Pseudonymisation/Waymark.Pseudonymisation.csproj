@@ -9,13 +9,14 @@
     (CLAUDE.md 2.1, 3.4).
   -->
 
+
   <ItemGroup>
     <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- The identity file is encrypted with its own key, separate from the
-         operational database. -->
+        operational database. -->
     <PackageReference Include="Microsoft.Data.Sqlite.Core" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
   </ItemGroup>
