@@ -32,7 +32,8 @@ internal sealed class RecommendationOptionConfiguration : IEntityTypeConfigurati
             .HasColumnName("label");
         builder.Property(x => x.DisplayOrder)
             .HasColumnName("display_order")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.PayloadJson)
             .HasColumnName("payload_json");
         builder.Property(x => x.ProjectedValue)

@@ -51,17 +51,20 @@ internal sealed class SupplierVariantConfiguration : IEntityTypeConfiguration<Su
             .HasColumnName("purchase_unit_code");
         builder.Property(x => x.UnitsPerPurchaseUnit)
             .HasColumnName("units_per_purchase_unit")
-            .HasDefaultValue(1000L);
+            .HasDefaultValue(1000L)
+            .HasSentinel(1000L);
         builder.Property(x => x.MinimumOrderQuantity)
             .HasColumnName("minimum_order_quantity")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.StatedLeadTimeDays)
             .HasColumnName("stated_lead_time_days");
         builder.Property(x => x.PurchasePrice)
             .HasColumnName("purchase_price");
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.NetDays)
             .HasColumnName("net_days");
         builder.Property(x => x.LastPriceAt)
@@ -69,7 +72,8 @@ internal sealed class SupplierVariantConfiguration : IEntityTypeConfiguration<Su
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.IsActive)
             .HasColumnName("is_active")
-            .HasDefaultValue(true);
+            .HasDefaultValue(true)
+            .HasSentinel(true);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

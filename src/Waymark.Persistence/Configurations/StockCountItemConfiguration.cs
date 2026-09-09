@@ -59,7 +59,8 @@ internal sealed class StockCountItemConfiguration : IEntityTypeConfiguration<Sto
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.RecountFlag)
             .HasColumnName("recount_flag")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.Note)
             .HasColumnName("note");
 

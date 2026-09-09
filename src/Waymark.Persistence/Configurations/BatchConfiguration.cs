@@ -64,7 +64,8 @@ internal sealed class BatchConfiguration : IEntityTypeConfiguration<Batch>
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.BatchStatusConverter)
-            .HasDefaultValue(BatchStatus.Active);
+            .HasDefaultValue(BatchStatus.Active)
+            .HasSentinel(BatchStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

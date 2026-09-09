@@ -61,13 +61,15 @@ internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
             .HasColumnName("tax_rate");
         builder.Property(x => x.SensitiveFlag)
             .HasColumnName("sensitive_flag")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.SensitiveReason)
             .HasColumnName("sensitive_reason");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.CategoryStatusConverter)
-            .HasDefaultValue(CategoryStatus.Active);
+            .HasDefaultValue(CategoryStatus.Active)
+            .HasSentinel(CategoryStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

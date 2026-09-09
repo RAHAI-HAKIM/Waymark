@@ -41,13 +41,16 @@ internal sealed class CategoryAttributeLinkConfiguration : IEntityTypeConfigurat
             .HasColumnName("attribute_code");
         builder.Property(x => x.IsRequired)
             .HasColumnName("is_required")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.DisplayOrder)
             .HasColumnName("display_order")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.InheritsToChildren)
             .HasColumnName("inherits_to_children")
-            .HasDefaultValue(true);
+            .HasDefaultValue(true)
+            .HasSentinel(true);
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.AttributeCode)

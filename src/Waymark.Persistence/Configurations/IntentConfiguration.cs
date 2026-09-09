@@ -66,7 +66,8 @@ internal sealed class IntentConfiguration : IEntityTypeConfiguration<Intent>
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.IntentStatusConverter)
-            .HasDefaultValue(IntentStatus.Pending);
+            .HasDefaultValue(IntentStatus.Pending)
+            .HasSentinel(IntentStatus.Pending);
         builder.Property(x => x.RejectionReason)
             .HasColumnName("rejection_reason");
         builder.Property(x => x.FreshRequestId)

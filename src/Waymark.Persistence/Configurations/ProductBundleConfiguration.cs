@@ -48,7 +48,8 @@ internal sealed class ProductBundleConfiguration : IEntityTypeConfiguration<Prod
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.ProductBundleStatusConverter)
-            .HasDefaultValue(ProductBundleStatus.Active);
+            .HasDefaultValue(ProductBundleStatus.Active)
+            .HasSentinel(ProductBundleStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

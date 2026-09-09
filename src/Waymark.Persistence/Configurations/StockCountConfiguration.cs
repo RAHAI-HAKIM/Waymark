@@ -68,7 +68,8 @@ internal sealed class StockCountConfiguration : IEntityTypeConfiguration<StockCo
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.StockCountStatusConverter)
-            .HasDefaultValue(StockCountStatus.Draft);
+            .HasDefaultValue(StockCountStatus.Draft)
+            .HasSentinel(StockCountStatus.Draft);
         builder.Property(x => x.Notes)
             .HasColumnName("notes");
         builder.Property(x => x.CreatedAt)

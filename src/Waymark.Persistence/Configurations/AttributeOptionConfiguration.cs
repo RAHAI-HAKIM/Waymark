@@ -42,10 +42,12 @@ internal sealed class AttributeOptionConfiguration : IEntityTypeConfiguration<At
             .HasColumnName("label_fr");
         builder.Property(x => x.DisplayOrder)
             .HasColumnName("display_order")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.IsActive)
             .HasColumnName("is_active")
-            .HasDefaultValue(true);
+            .HasDefaultValue(true)
+            .HasSentinel(true);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

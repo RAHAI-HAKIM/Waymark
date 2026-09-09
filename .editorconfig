@@ -81,6 +81,11 @@ dotnet_diagnostic.CA1305.severity = error   # specify IFormatProvider
 dotnet_diagnostic.CA1307.severity = error   # specify StringComparison
 dotnet_diagnostic.CA2007.severity = none    # ConfigureAwait: noisy, no sync context here
 dotnet_diagnostic.CA1848.severity = none    # LoggerMessage delegates: premature
+# CA1873 is CA1848's companion: it objects to computing a log argument that
+# might be discarded. Both are about high-performance logging, and this
+# codebase has no hot logging path yet — the calls that exist run once at
+# startup. Revisit together if one ever appears in a loop.
+dotnet_diagnostic.CA1873.severity = none
 
 # ---------------------------------------------------------------------------
 # Domain enums

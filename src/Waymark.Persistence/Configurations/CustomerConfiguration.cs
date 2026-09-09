@@ -72,7 +72,8 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(x => x.PreferredLanguage)
             .HasColumnName("preferred_language")
             .HasConversion(EnumConverters.PreferredLanguageConverter)
-            .HasDefaultValue(PreferredLanguage.Ar);
+            .HasDefaultValue(PreferredLanguage.Ar)
+            .HasSentinel(PreferredLanguage.Ar);
         builder.Property(x => x.JoinDate)
             .HasColumnName("join_date")
             .HasConversion(WaymarkConverters.Date);
@@ -81,25 +82,31 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasConversion(WaymarkConverters.Date);
         builder.Property(x => x.Points)
             .HasColumnName("points")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.Credit)
             .HasColumnName("credit")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.Discount)
             .HasColumnName("discount")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.TierRanking)
             .HasColumnName("tier_ranking");
         builder.Property(x => x.EcommerceFlag)
             .HasColumnName("ecommerce_flag")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.LegalBasis)
             .HasColumnName("legal_basis")
             .HasConversion(EnumConverters.LegalBasisConverter)
-            .HasDefaultValue(LegalBasis.Contract);
+            .HasDefaultValue(LegalBasis.Contract)
+            .HasSentinel(LegalBasis.Contract);
         builder.Property(x => x.ConsentProfiling)
             .HasColumnName("consent_profiling")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.ConsentProfilingAt)
             .HasColumnName("consent_profiling_at")
             .HasConversion(WaymarkConverters.Timestamp);
@@ -107,7 +114,8 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasColumnName("consent_profiling_notice_version");
         builder.Property(x => x.ConsentMarketing)
             .HasColumnName("consent_marketing")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.ConsentMarketingAt)
             .HasColumnName("consent_marketing_at")
             .HasConversion(WaymarkConverters.Timestamp);
@@ -115,14 +123,16 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasColumnName("consent_marketing_notice_version");
         builder.Property(x => x.ObjectionFlag)
             .HasColumnName("objection_flag")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.DeletionRequestedAt)
             .HasColumnName("deletion_requested_at")
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.CustomerStatusConverter)
-            .HasDefaultValue(CustomerStatus.Active);
+            .HasDefaultValue(CustomerStatus.Active)
+            .HasSentinel(CustomerStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

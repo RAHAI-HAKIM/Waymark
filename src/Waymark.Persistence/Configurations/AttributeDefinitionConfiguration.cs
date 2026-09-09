@@ -67,16 +67,19 @@ internal sealed class AttributeDefinitionConfiguration : IEntityTypeConfiguratio
             .HasConversion(EnumConverters.AttributeDefinitionAppliesToConverter);
         builder.Property(x => x.IsGroupable)
             .HasColumnName("is_groupable")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.IsFilterable)
             .HasColumnName("is_filterable")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.HelpText)
             .HasColumnName("help_text");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.AttributeDefinitionStatusConverter)
-            .HasDefaultValue(AttributeDefinitionStatus.Active);
+            .HasDefaultValue(AttributeDefinitionStatus.Active)
+            .HasSentinel(AttributeDefinitionStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

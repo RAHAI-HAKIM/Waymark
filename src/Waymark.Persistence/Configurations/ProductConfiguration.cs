@@ -42,7 +42,8 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.ProductStatusConverter)
-            .HasDefaultValue(ProductStatus.Active);
+            .HasDefaultValue(ProductStatus.Active)
+            .HasSentinel(ProductStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

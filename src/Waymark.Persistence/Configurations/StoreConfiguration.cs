@@ -53,21 +53,25 @@ internal sealed class StoreConfiguration : IEntityTypeConfiguration<Store>
             .HasColumnName("store_type");
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.Timezone)
             .HasColumnName("timezone")
-            .HasDefaultValue("Africa/Algiers");
+            .HasDefaultValue("Africa/Algiers")
+            .HasSentinel("Africa/Algiers");
         builder.Property(x => x.TaxRegistrationNumber)
             .HasColumnName("tax_registration_number");
         builder.Property(x => x.FiscalYearStart)
             .HasColumnName("fiscal_year_start")
-            .HasDefaultValue("01-01");
+            .HasDefaultValue("01-01")
+            .HasSentinel("01-01");
         builder.Property(x => x.ManagerId)
             .HasColumnName("manager_id");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.StoreStatusConverter)
-            .HasDefaultValue(StoreStatus.Active);
+            .HasDefaultValue(StoreStatus.Active)
+            .HasSentinel(StoreStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

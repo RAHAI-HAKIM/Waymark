@@ -40,7 +40,8 @@ internal sealed class StoreEntitlementConfiguration : IEntityTypeConfiguration<S
             .HasColumnName("entitlement_code");
         builder.Property(x => x.IsEnabled)
             .HasColumnName("is_enabled")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.Tier)
             .HasColumnName("tier")
             .HasConversion(EnumConverters.TierConverter);

@@ -57,11 +57,13 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
             .HasColumnName("total_amount");
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.Source)
             .HasColumnName("source")
             .HasConversion(EnumConverters.PurchaseOrderSourceConverter)
-            .HasDefaultValue(PurchaseOrderSource.Manual);
+            .HasDefaultValue(PurchaseOrderSource.Manual)
+            .HasSentinel(PurchaseOrderSource.Manual);
         builder.Property(x => x.SourceRecommendationId)
             .HasColumnName("source_recommendation_id");
         builder.Property(x => x.CreatedBy)
@@ -69,7 +71,8 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.PurchaseOrderStatusConverter)
-            .HasDefaultValue(PurchaseOrderStatus.Draft);
+            .HasDefaultValue(PurchaseOrderStatus.Draft)
+            .HasSentinel(PurchaseOrderStatus.Draft);
         builder.Property(x => x.Notes)
             .HasColumnName("notes");
         builder.Property(x => x.CreatedAt)

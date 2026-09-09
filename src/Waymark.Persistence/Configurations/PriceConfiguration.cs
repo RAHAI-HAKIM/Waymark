@@ -53,15 +53,18 @@ internal sealed class PriceConfiguration : IEntityTypeConfiguration<Price>
         builder.Property(x => x.PriceType)
             .HasColumnName("price_type")
             .HasConversion(EnumConverters.PriceTypeConverter)
-            .HasDefaultValue(PriceType.Retail);
+            .HasDefaultValue(PriceType.Retail)
+            .HasSentinel(PriceType.Retail);
         builder.Property(x => x.PriceValue)
             .HasColumnName("price");
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.IsTaxInclusive)
             .HasColumnName("is_tax_inclusive")
-            .HasDefaultValue(true);
+            .HasDefaultValue(true)
+            .HasSentinel(true);
         builder.Property(x => x.ValidTo)
             .HasColumnName("valid_to");
         builder.Property(x => x.CreatedBy)

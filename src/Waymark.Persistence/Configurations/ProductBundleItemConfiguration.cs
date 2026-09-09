@@ -57,7 +57,8 @@ internal sealed class ProductBundleItemConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.ProductBundleItemStatusConverter)
-            .HasDefaultValue(ProductBundleItemStatus.Active);
+            .HasDefaultValue(ProductBundleItemStatus.Active)
+            .HasSentinel(ProductBundleItemStatus.Active);
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.VariantId)

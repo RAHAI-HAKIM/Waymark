@@ -65,7 +65,8 @@ internal sealed class ErasureLedgerEntryConfiguration : IEntityTypeConfiguration
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.ErasureLedgerEntryStatusConverter)
-            .HasDefaultValue(ErasureLedgerEntryStatus.Pending);
+            .HasDefaultValue(ErasureLedgerEntryStatus.Pending)
+            .HasSentinel(ErasureLedgerEntryStatus.Pending);
         builder.Property(x => x.BlockedReason)
             .HasColumnName("blocked_reason");
         builder.Property(x => x.CloudConfirmedAt)

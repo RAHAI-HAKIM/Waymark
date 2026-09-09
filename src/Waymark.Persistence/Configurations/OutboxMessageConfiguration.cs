@@ -53,10 +53,12 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
             .HasColumnName("payload_json");
         builder.Property(x => x.IsPriority)
             .HasColumnName("is_priority")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.Attempts)
             .HasColumnName("attempts")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.LastAttemptAt)
             .HasColumnName("last_attempt_at")
             .HasConversion(WaymarkConverters.Timestamp);

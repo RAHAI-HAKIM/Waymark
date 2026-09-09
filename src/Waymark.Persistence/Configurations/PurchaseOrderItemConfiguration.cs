@@ -54,17 +54,20 @@ internal sealed class PurchaseOrderItemConfiguration : IEntityTypeConfiguration<
             .HasColumnName("quantity_ordered");
         builder.Property(x => x.QuantityReceived)
             .HasColumnName("quantity_received")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.PurchaseUnitCode)
             .HasColumnName("purchase_unit_code");
         builder.Property(x => x.UnitsPerPurchaseUnit)
             .HasColumnName("units_per_purchase_unit")
-            .HasDefaultValue(1000L);
+            .HasDefaultValue(1000L)
+            .HasSentinel(1000L);
         builder.Property(x => x.UnitCost)
             .HasColumnName("unit_cost");
         builder.Property(x => x.Discount)
             .HasColumnName("discount")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.LineTotal)
             .HasColumnName("line_total");
 

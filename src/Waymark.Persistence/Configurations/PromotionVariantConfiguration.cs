@@ -64,24 +64,29 @@ internal sealed class PromotionVariantConfiguration : IEntityTypeConfiguration<P
             .HasColumnName("promotion_value");
         builder.Property(x => x.MinQuantity)
             .HasColumnName("min_quantity")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.MaxRedemptions)
             .HasColumnName("max_redemptions");
         builder.Property(x => x.RedemptionCount)
             .HasColumnName("redemption_count")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.Priority)
             .HasColumnName("priority")
-            .HasDefaultValue(100L);
+            .HasDefaultValue(100L)
+            .HasSentinel(100L);
         builder.Property(x => x.IsStackable)
             .HasColumnName("is_stackable")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.Description)
             .HasColumnName("description");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.PromotionVariantStatusConverter)
-            .HasDefaultValue(PromotionVariantStatus.Active);
+            .HasDefaultValue(PromotionVariantStatus.Active)
+            .HasSentinel(PromotionVariantStatus.Active);
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.VariantId)

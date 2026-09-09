@@ -38,7 +38,8 @@ internal sealed class ProductCategoryConfiguration : IEntityTypeConfiguration<Pr
             .HasColumnName("category_id");
         builder.Property(x => x.IsPrimary)
             .HasColumnName("is_primary")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.AddedAt)
             .HasColumnName("added_at")
             .HasConversion(WaymarkConverters.Timestamp);

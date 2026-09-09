@@ -54,16 +54,19 @@ internal sealed class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
             .HasColumnName("shipping_address");
         builder.Property(x => x.NetDays)
             .HasColumnName("net_days")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.CreditLimit)
             .HasColumnName("credit_limit");
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.SupplierStatusConverter)
-            .HasDefaultValue(SupplierStatus.Active);
+            .HasDefaultValue(SupplierStatus.Active)
+            .HasSentinel(SupplierStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

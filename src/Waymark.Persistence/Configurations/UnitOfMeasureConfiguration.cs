@@ -55,13 +55,16 @@ internal sealed class UnitOfMeasureConfiguration : IEntityTypeConfiguration<Unit
             .HasColumnName("base_unit_code");
         builder.Property(x => x.FactorToBase)
             .HasColumnName("factor_to_base")
-            .HasDefaultValue(1000000L);
+            .HasDefaultValue(1000000L)
+            .HasSentinel(1000000L);
         builder.Property(x => x.DecimalPlaces)
             .HasColumnName("decimal_places")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.IsActive)
             .HasColumnName("is_active")
-            .HasDefaultValue(true);
+            .HasDefaultValue(true)
+            .HasSentinel(true);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

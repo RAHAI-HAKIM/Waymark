@@ -44,7 +44,8 @@ internal sealed class TerminalConfiguration : IEntityTypeConfiguration<Terminal>
             .HasColumnName("terminal_name");
         builder.Property(x => x.IsReplica)
             .HasColumnName("is_replica")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.PrinterPort)
             .HasColumnName("printer_port");
         builder.Property(x => x.HardwareNotes)
@@ -55,7 +56,8 @@ internal sealed class TerminalConfiguration : IEntityTypeConfiguration<Terminal>
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.TerminalStatusConverter)
-            .HasDefaultValue(TerminalStatus.Active);
+            .HasDefaultValue(TerminalStatus.Active)
+            .HasSentinel(TerminalStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

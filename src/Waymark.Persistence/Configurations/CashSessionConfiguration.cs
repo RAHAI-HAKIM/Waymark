@@ -52,7 +52,8 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.OpeningFloat)
             .HasColumnName("opening_float")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.ClosedBy)
             .HasColumnName("closed_by");
         builder.Property(x => x.ClosedAt)
@@ -69,7 +70,8 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.CashSessionStatusConverter)
-            .HasDefaultValue(CashSessionStatus.Open);
+            .HasDefaultValue(CashSessionStatus.Open)
+            .HasSentinel(CashSessionStatus.Open);
         builder.Property(x => x.Notes)
             .HasColumnName("notes");
         builder.Property(x => x.CreatedAt)

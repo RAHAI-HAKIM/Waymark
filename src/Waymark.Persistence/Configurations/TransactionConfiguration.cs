@@ -64,28 +64,35 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.Subtotal)
             .HasColumnName("subtotal")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.DiscountTotal)
             .HasColumnName("discount_total")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.TaxTotal)
             .HasColumnName("tax_total")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.TotalAmount)
             .HasColumnName("total_amount")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.EcommerceFlag)
             .HasColumnName("ecommerce_flag")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.OriginalTransactionId)
             .HasColumnName("original_transaction_id");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.TransactionStatusConverter)
-            .HasDefaultValue(TransactionStatus.Open);
+            .HasDefaultValue(TransactionStatus.Open)
+            .HasSentinel(TransactionStatus.Open);
         builder.Property(x => x.VoidedAt)
             .HasColumnName("voided_at")
             .HasConversion(WaymarkConverters.Timestamp);

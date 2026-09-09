@@ -49,7 +49,8 @@ internal sealed class BatchItemConfiguration : IEntityTypeConfiguration<BatchIte
             .HasColumnName("unit_cost");
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

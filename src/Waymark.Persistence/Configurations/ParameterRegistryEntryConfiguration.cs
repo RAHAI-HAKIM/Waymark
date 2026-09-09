@@ -53,7 +53,8 @@ internal sealed class ParameterRegistryEntryConfiguration : IEntityTypeConfigura
             .HasConversion(EnumConverters.ScopeTypeConverter);
         builder.Property(x => x.ScopeId)
             .HasColumnName("scope_id")
-            .HasDefaultValue("");
+            .HasDefaultValue("")
+            .HasSentinel("");
         builder.Property(x => x.Version)
             .HasColumnName("version");
         builder.Property(x => x.ValueNumber)
@@ -73,13 +74,15 @@ internal sealed class ParameterRegistryEntryConfiguration : IEntityTypeConfigura
             .HasConversion(EnumConverters.ParameterRegistryEntrySourceConverter);
         builder.Property(x => x.ObservationCount)
             .HasColumnName("observation_count")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.ComputedAt)
             .HasColumnName("computed_at")
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.IsCurrent)
             .HasColumnName("is_current")
-            .HasDefaultValue(true);
+            .HasDefaultValue(true)
+            .HasSentinel(true);
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => new { x.ParameterCode, x.ScopeType, x.ScopeId })

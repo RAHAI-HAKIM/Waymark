@@ -42,10 +42,12 @@ internal sealed class InventoryConfiguration : IEntityTypeConfiguration<Inventor
             .HasColumnName("batch_id");
         builder.Property(x => x.Quantity)
             .HasColumnName("quantity")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.ReservedQuantity)
             .HasColumnName("reserved_quantity")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.UpdatedAt)
             .HasColumnName("updated_at")
             .HasConversion(WaymarkConverters.Timestamp);

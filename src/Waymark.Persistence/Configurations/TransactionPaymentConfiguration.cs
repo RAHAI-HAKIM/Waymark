@@ -49,7 +49,8 @@ internal sealed class TransactionPaymentConfiguration : IEntityTypeConfiguration
             .HasColumnName("amount");
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
-            .HasDefaultValue("DZD");
+            .HasDefaultValue("DZD")
+            .HasSentinel("DZD");
         builder.Property(x => x.Reference)
             .HasColumnName("reference");
         builder.Property(x => x.CreatedAt)

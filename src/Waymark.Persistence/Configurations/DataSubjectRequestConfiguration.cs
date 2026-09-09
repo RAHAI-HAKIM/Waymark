@@ -58,7 +58,8 @@ internal sealed class DataSubjectRequestConfiguration : IEntityTypeConfiguration
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.DataSubjectRequestStatusConverter)
-            .HasDefaultValue(DataSubjectRequestStatus.Open);
+            .HasDefaultValue(DataSubjectRequestStatus.Open)
+            .HasSentinel(DataSubjectRequestStatus.Open);
         builder.Property(x => x.ResolutionNote)
             .HasColumnName("resolution_note");
         builder.Property(x => x.ResolvedAt)

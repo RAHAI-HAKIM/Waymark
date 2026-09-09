@@ -1,78 +1,135 @@
-# Changing the database
+# Working with the schema
 
-How a schema change is made, from the model that exists today to a migration on
-a shop's till. The rules behind it are CLAUDE.md §3.7; the reasoning is
-decisions.md D-016, D-019 and D-022.
-
-> **Where this stands.** The model exists, the baseline migration exists,
-> `triggers.sql` and `ApplyTriggers()` exist. Still missing: `schema_current.sql`
-> and its regeneration script, and the startup call in `Waymark.StoreServer`.
-> Step 0 below is done and is kept as a record of how.
+Everything about how the database is defined, created, changed and checked. The
+short rules are CLAUDE.md §3.7; the reasoning is decisions.md D-016, D-019,
+D-021 to D-028.
 
 ---
 
-## Step 0 — the baseline, done 08–09/09/2026
+## 1. The pieces, and what each is for
 
-Kept as a record, not as instructions; it happens once and it has happened.
+| File | Role |
+| :---- | :---- |
+| `src/Waymark.Persistence/schema_v7_1.sql` | **Frozen.** The hand-written schema, reviewed once. Never edited, never executed on a store. It is the reference side of the fidelity comparison |
+| `src/Waymark.Persistence/triggers.sql` | The 11 append-only triggers. Not in the EF model and cannot be. Idempotent — every statement drops before it creates |
+| `src/Waymark.Persistence/schema_current.sql` | **Generated documentation.** What the database looks like now. Committed, read, never executed |
+| `src/Waymark.Persistence/Migrations/` | EF migrations. `InitialSchema` is the baseline; everything after is a change |
+| `src/Waymark.Domain/**` | 58 entities and 70 enums. Plain classes, no EF, no attributes |
+| `src/Waymark.Persistence/Configurations/` | One `IEntityTypeConfiguration` per entity — column names, converters, defaults, sentinels, CHECKs, indexes, keys |
+| `tools/generate-model/` | The one-shot generator that produced the model. Kept for provenance. **Do not re-run** |
 
-```bash
-dotnet ef migrations add InitialSchema --project src/Waymark.Persistence
+Three of these are not obvious and are worth knowing about.
+
+**`schema_v7_1.sql` is frozen.** Changing the schema means adding a migration.
+Editing that file changes nothing about any database and breaks the comparison
+that proves the model is right.
+
+**Triggers are not in the EF model.** EF does not know triggers exist, and its
+table rebuild issues `DROP TABLE`, which takes them along. Reproduced during the
+D-016 work: a table went through one rebuild and came out with its trigger gone,
+while EF reported success. So they live in `triggers.sql` and are re-applied
+after every migration.
+
+**`schema_current.sql` is never executed.** It exists so the whole schema stays
+readable in one file, which `schema_v7_1.sql` stopped being the moment it froze.
+
+---
+
+## 2. How a database is created
+
+One way, and it is the same on a till, in a test and on your machine:
+
+```csharp
+context.MigrateAndApplyTriggers();
 ```
 
-EF wrote an `Up()` containing `CreateTable` for all 58 tables, generated from
-the configurations. That generated `Up()` is what stands — D-019 originally
-called for replacing it with `schema_v7_1.sql` pasted inline, and O-9 records
-why that turned out to be unnecessary: the two were compared mechanically and
-agree on every table, column, column order, type, nullability, key, foreign
-key, unique constraint, index filter, CHECK expression and default.
+`Waymark.StoreServer` calls it at startup, before serving anything. If a trigger
+is missing afterwards it throws and the server does not start — a till that will
+not start is a phone call, a till that has quietly stopped enforcing consent
+history is a finding.
 
-The comparison that established it now runs on every build as
-`ModelMatchesSchemaTests`, so the agreement is not a one-off finding.
+**`Database.Migrate()` on its own is not a creation path.** It applies migrations
+and stops, leaving a database with no append-only guards, and says nothing.
+`Migrate_alone_leaves_the_database_unprotected` pins that down as a test rather
+than folklore.
 
-From here:
+**Neither is `dotnet ef database update`**, for the same reason. It is fine for
+inspecting what a migration produces; it is not how a usable database is made.
 
-- `schema_v7_1.sql` is **frozen**. It is history and the reference side of that
-  comparison. Never edit it.
-- `MigrateAndApplyTriggers()` is the only way a database is created or updated.
-- The 11 triggers live in `triggers.sql` and are re-applied after every
-  migration.
+### Where the file lives
+
+`%ProgramData%\Waymark\data\waymark-store.db`, overridable with
+`Waymark:Storage:DataDirectory` (D-013). Not beside the executable — a
+self-contained publish is a folder replaced wholesale on upgrade, and data
+inside it dies with the update. Not under the user profile, which is frequently
+OneDrive-redirected, and OneDrive syncing an open SQLite file corrupts it.
+
+```powershell
+$env:Waymark__Storage__DataDirectory = "$env:TEMP\waymark-dev\data"
+dotnet run --project src/Waymark.StoreServer
+```
 
 ---
 
-## Every change after that
+## 3. Changing the schema
 
-### 1. Change the entity
+### 3.1 Change the entity
 
 ```csharp
 // src/Waymark.Domain/Catalogue/Variant.cs
 public long ReorderPoint { get; init; }
 ```
 
-`long`, not `int` — every INTEGER column is `long` in this codebase, with no
-exceptions. No `required`, because the column has a database default.
+`long`, not `int` — every INTEGER column is `long` here, no exceptions. No
+`required`, because the column has a database default.
 
-### 2. Change the configuration
+### 3.2 Change the configuration
 
 ```csharp
 // src/Waymark.Persistence/Configurations/VariantConfiguration.cs
 builder.Property(x => x.ReorderPoint)
     .HasColumnName("reorder_point")
-    .HasDefaultValue(0L);
+    .HasDefaultValue(0L)
+    .HasSentinel(0L);
 ```
 
-If the change adds a CHECK, an index or a foreign key, **declare it here too**.
-A rebuild recreates the table from the model alone and drops anything the model
-does not know about (D-022).
+**`HasDefaultValue` is always paired with `HasSentinel`, with the same value.**
+The sentinel is what EF reads as "not set" and omits from the INSERT, letting the
+database default apply. It defaults to the CLR default of the type, so without
+this, setting `IsActive = false` on a column declared `DEFAULT 1` is dropped and
+the row comes back active. Setting the sentinel to the database default makes
+omission harmless: the value EF omits and the value the database writes become
+the same thing (D-027).
 
-### 3. Generate the migration
+**Anything the table constrains has to be declared here**: CHECK constraints,
+indexes with their filters, unique constraints as groups, foreign keys. A
+rebuild recreates the table from the model alone.
+
+```csharp
+builder.ToTable("variants", table =>
+{
+    table.HasCheckConstraint("ck_variants_tare_weight", @"tare_weight >= 0");
+});
+
+// A group, not three constraints: UNIQUE(a, b) allows a to repeat.
+builder.HasIndex(x => new { x.CountId, x.VariantId, x.BatchId }).IsUnique();
+
+// The WHERE clause is part of the constraint, not decoration.
+builder.HasIndex(x => new { x.ParameterCode, x.ScopeType, x.ScopeId })
+    .HasDatabaseName("ux_parameter_current")
+    .IsUnique()
+    .HasFilter(@"is_current = 1");
+```
+
+### 3.3 Generate the migration
 
 ```bash
 dotnet ef migrations add AddVariantReorderPoint --project src/Waymark.Persistence
 ```
 
-### 4. Read the generated file — always
+### 3.4 Read the generated file — always
 
-CLAUDE.md §3.7 requires it, and this is why. A safe change looks like this:
+CLAUDE.md §3.7 requires it, and §4 below is why. A safe change is one statement:
 
 ```csharp
 protected override void Up(MigrationBuilder migrationBuilder)
@@ -86,10 +143,34 @@ protected override void Up(MigrationBuilder migrationBuilder)
 }
 ```
 
-One statement, no table touched beyond adding a column. Fine.
+### 3.5 Regenerate `schema_current.sql`
 
-**A rebuild looks completely different**, and the word to search for is
-`ef_temp`:
+```powershell
+$env:WAYMARK_UPDATE_SCHEMA_CURRENT = "1"
+dotnet test src/Waymark.sln --filter FullyQualifiedName~SchemaCurrent
+```
+
+Then **read the diff**. It is the human-readable summary of what your migration
+actually did, and it is the cheapest review you will get.
+
+### 3.6 Run the tests, then commit the migration and the model together
+
+```bash
+dotnet test src/Waymark.sln -maxcpucount:1
+```
+
+A migration without its configuration change, or the other way round, leaves the
+repository in a state that builds and is wrong.
+
+---
+
+## 4. The table rebuild
+
+SQLite cannot `ALTER` most things, so EF creates a replacement table, copies
+every row, drops the original and renames. **Changing nullability, changing a
+type, dropping a column or adding a CHECK all do this.**
+
+Search the generated migration for `ef_temp`:
 
 ```csharp
 migrationBuilder.Sql("CREATE TABLE \"ef_temp_variants\" ( ... ) STRICT;");
@@ -98,91 +179,116 @@ migrationBuilder.Sql("DROP TABLE \"variants\";");
 migrationBuilder.Sql("ALTER TABLE \"ef_temp_variants\" RENAME TO \"variants\";");
 ```
 
-SQLite cannot `ALTER` most things, so EF creates a replacement table, copies
-every row, drops the original and renames. Changing nullability, changing a
-type, dropping a column or adding a CHECK all do this.
+When you see it, three things are true.
 
-When you see `ef_temp`, three things are true:
+**Every trigger on that table is gone.** `DROP TABLE` takes them.
+`ApplyTriggers()` puts them back, which is why it and `Migrate()` are one call.
 
-1. **Every trigger on that table is gone.** `DROP TABLE` takes them with it.
-   `ApplyTriggers()` puts them back, which is why `MigrateAndApplyTriggers()`
-   is one call and why it throws if a trigger is still missing afterwards.
-2. **Only what the model declares comes back** — indexes, CHECK constraints and
-   foreign keys. Anything you forgot to configure is now permanently absent, and
-   nothing will tell you.
-3. **It copies the whole table.** On a shop with two years of `transactions` or
-   `stock_movements`, that is a real pause. A change touching those tables is an
-   operational event to be planned, not something slipped into a routine update.
+**Only what the model declares comes back** — indexes, CHECK constraints, foreign
+keys. Anything you forgot to configure is now permanently absent, and nothing
+reports it. This was verified, not assumed: a rebuild took `CHECK (amount > 0)`
+off a table and a negative amount was accepted afterwards, with EF printing
+`Done.`
 
-### 5. Regenerate `schema_current.sql` and commit it with the migration
-
-`schema_v7_1.sql` is frozen, so `schema_current.sql` is what keeps the whole
-schema readable in one file. It is documentation and is never executed. It must
-be regenerated from a database that has had `ApplyTriggers()` run on it —
-regenerate it from one created by `dotnet ef database update` alone and it will
-record *zero triggers as correct*, forever.
-
-### 6. Run the tests
-
-```bash
-dotnet test src/Waymark.sln -maxcpucount:1
-```
-
-The ones that matter here:
-
-| Test | Catches |
-| :---- | :---- |
-| `ModelMatchesSchemaTests` | the shipped database drifting from the reviewed schema, triggers included |
-| `SchemaInvariantTests` | a table that is not STRICT, a REAL column, a rowid-alias key |
-| `AppendOnlyTests` | a trigger dropped by a rebuild — asserted by attempting the write |
-| `TriggerApplicationTests` | `triggers.sql` drifting, or `ApplyTriggers()` not restoring |
-| `StrictSqliteMigrationsSqlGeneratorTests` | new tables losing STRICT |
-
-### 7. Commit the migration and the model together
-
-A migration without its configuration change, or the other way round, leaves the
-repository in a state that builds and is wrong.
+**It copies the whole table.** On a shop with two years of `transactions` or
+`stock_movements` that is a real pause. A change touching those tables is an
+operational event to be planned, not slipped into a routine update.
 
 ---
 
-## Things that will bite
+## 5. What the tests catch
 
-**Never call `Migrate()` inside a transaction.** From EF Core 9 it starts its
-own and uses an execution strategy; an ambient transaction raises
-`MigrationsUserTransactionWarning` and throws.
+57 tests. These are the ones that exist because the failure they catch is
+silent.
 
-**`dotnet ef database update` is not a creation path.** It applies migrations
-and stops — no `ApplyTriggers()`, so the database has no append-only guards.
-This is pinned down by a test (`Migrate_alone_leaves_the_database_unprotected`)
-rather than left as folklore. Use `MigrateAndApplyTriggers()`.
+| Suite | Catches |
+| :---- | :---- |
+| `ModelMatchesSchemaTests` | the shipped database drifting from the reviewed schema — columns, order, types, nullability, keys, STRICT, index columns, index uniqueness, partial-index filters, triggers |
+| `SchemaCurrentTests` | `schema_current.sql` no longer describing the database |
+| `TriggerApplicationTests` | `triggers.sql` drifting, `ApplyTriggers()` not restoring, `Migrate()` alone leaving the database unprotected |
+| `AppendOnlyTests` | an audit table accepting an UPDATE or DELETE — asserted by attempting the write, not by looking for the trigger |
+| `DefaultValueSentinelTests` | an explicitly set value being swallowed by a database default |
+| `SchemaInvariantTests` | a table that is not STRICT, a REAL column, a money column that is not INTEGER, a rowid-alias primary key |
+| `EntityMappingTests` | a converter writing the wrong thing — enum spelling, timestamp format, integer money |
+| `ArchitectureTests` | `Sync` reaching `Pseudonymisation`, EF Core or HTTP below the hosts |
+
+Two habits worth keeping, because both caught real defects here.
+
+**Assert behaviour, not declaration.** A trigger named correctly, on the right
+table, with the right message, can still carry a `WHEN` clause that narrows it to
+nothing. Only executing the `DELETE` finds that.
+
+**Read the raw column, not the round trip.** EF reads back whatever it wrote, so
+a converter emitting `"PaidIn"` into a column whose CHECK allows only `paid_in`
+round-trips perfectly and fails in production. `EntityMappingTests` and
+`DefaultValueSentinelTests` both open a raw SQL connection for this reason.
+
+**And a comparison is worth exactly what it compares.** An earlier version of
+`ModelMatchesSchemaTests` checked index names and columns but not uniqueness or
+filters, and reported "no structural differences" while a composite UNIQUE had
+been flattened into three single-column constraints and twelve partial indexes
+had lost their filters (D-024).
+
+---
+
+## 6. Things that will bite
+
+**Never call `Migrate()` inside a transaction.** EF Core 9+ starts its own and
+uses an execution strategy. `MigrateAndApplyTriggers()` checks and throws with a
+message that says so, because EF's own error does not.
 
 **Always configure the context with `UseWaymarkSqlite`, never `UseSqlite`.**
-Plain `UseSqlite` does not register the STRICT generator, and tables created
-without it accept a REAL into a money column. This is not hypothetical — the
-first version of `ModelMatchesSchemaTests` used `UseSqlite` and produced 58
-non-STRICT tables while the build stayed green.
+Plain `UseSqlite` omits the STRICT generator, and tables created without it
+accept a REAL into a money column. Not hypothetical: the first version of
+`ModelMatchesSchemaTests` used `UseSqlite` and produced 58 non-STRICT tables with
+the build green.
 
-**Your `sqlite3` CLI is newer than the application's SQLite.** The CLI is 3.53;
-SQLCipher gives the application 3.39.2. DDL that works at the prompt can still
-fail at runtime. `dotnet ef` is the authority.
+**Your `sqlite3` CLI is not the application's SQLite.** The CLI is 3.53;
+SQLCipher gives the application 3.39.2 (D-015). DDL that works at the prompt can
+still fail at runtime. `dotnet ef` is the authority.
+
+**A database created before the baseline has no migration history.** If you have
+an old `waymark-store.db` built by running `schema_v7_1.sql` through the CLI,
+`Migrate()` will try to create tables that already exist and fail. Delete it and
+let the application build it.
+
+**Do not re-run the generator.** `tools/generate-model` rewrites all 58
+configurations from the frozen schema. It would undo every migration's worth of
+model changes and reproduce v1.
 
 ---
 
-## Command reference
+## 7. Command reference
 
 ```bash
 # add a migration
 dotnet ef migrations add <Name> --project src/Waymark.Persistence
+```
 
+```bash
 # see what it would run, without running it
 dotnet ef migrations script --project src/Waymark.Persistence
+```
 
+```bash
 # undo the last migration, before it has been applied anywhere
 dotnet ef migrations remove --project src/Waymark.Persistence
+```
 
+```bash
 # list migrations and whether they have been applied
 dotnet ef migrations list --project src/Waymark.Persistence
+```
 
-# the DDL the model alone would produce - the D-019 diff, any time
+```bash
+# the DDL the model alone would produce
 dotnet ef dbcontext script --project src/Waymark.Persistence
 ```
+
+```bash
+# everything, including the fidelity and golden-file checks
+dotnet test src/Waymark.sln -maxcpucount:1
+```
+
+`-maxcpucount:1` is a local workaround, not a project rule: MSBuild tries to
+spawn a node per core and this machine runs out of memory doing it.

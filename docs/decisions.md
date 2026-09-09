@@ -833,6 +833,109 @@ everywhere else.
 
 ---
 
+## D-026 — `schema_current.sql` is produced by a test, not a script [Phase 0]
+
+**What.** `src/Waymark.Persistence/schema_current.sql` is a canonical rendering
+of the live schema — 58 tables, 81 indexes, 11 triggers, each sorted by name.
+Committed, read, never executed, and deliberately not an embedded resource.
+`SchemaCurrentTests` regenerates it when `WAYMARK_UPDATE_SCHEMA_CURRENT=1` and
+otherwise fails if it has drifted.
+
+**Why a test rather than a `tools/` script.** D-019 named the hazard precisely:
+regenerate this file from a database created by `dotnet ef database update`
+alone and it records **zero triggers as correct**, permanently, and every later
+comparison agrees with it. A script would have to remember to build the
+database the right way. A test that already owns `MigratedDatabaseFixture`
+cannot build it any other way — the fixture calls
+`MigrateAndApplyTriggers()` and nothing else is on offer.
+
+The failure message carries the regeneration command, so the person who hits it
+does not have to find this entry to know what to do.
+
+**Why sorted.** A diff of this file after a migration is the human-readable
+summary of what the migration did, and it is worth reading before committing.
+Unsorted output would show things moving as well as changing, which is how a
+useful diff becomes one nobody reads.
+
+**Rejected.** Generating it from `schema_v7_1.sql` (frozen at v1, so it would
+never change), and dumping `.schema` from the CLI (which would capture whatever
+database happened to be lying around, including one built without triggers).
+
+---
+
+## D-027 — Every `HasDefaultValue` is paired with `HasSentinel` [Phase 0]
+
+**Found by reading the StoreServer startup log**, which is the only reason it
+was found at all: EF logs it once, as a model-validation warning, and nothing
+else was looking.
+
+**What was wrong.** EF omits a property from an INSERT when its value equals the
+*sentinel* — the value EF reads as "not set" — and lets the database default
+apply instead. The sentinel defaults to the CLR default of the type. Wherever
+the database default is something else, an explicitly set value is silently
+replaced:
+
+| Property | Set to | Would have stored |
+| :---- | :---- | :---- |
+| `Customer.LegalBasis` | `Consent` | `'contract'` |
+| `PromotionProduct.Priority` | `0` | `100` |
+| `ReasonCode.IsActive` and eight other flags | `false` | `1` |
+
+Fifteen properties were exposed. **`Customer.LegalBasis` is the serious one**:
+it is the lawful basis recorded against a customer, `Consent` is the CLR default
+only because it happens to be declared first, and the DPIA is built on that
+column meaning what it says.
+
+**The fix, and why it is uniform.** Every `HasDefaultValue(x)` now carries
+`HasSentinel(x)`. Setting the sentinel *to the database default* makes omission
+harmless in every case at once: if the caller's value equals the default it is
+omitted and the database writes that same default; anything else is sent. No
+per-property judgement, and no way to get one wrong.
+
+**Why not rely on EF inferring it.** EF does infer a sentinel from a property
+initializer in some cases — which is worse than never doing it, because it made
+the bool properties behave correctly while the enum and integer ones did not.
+Verified: with the sentinels removed, `IsActive = false` still round-tripped
+while `LegalBasis = Consent` came back as `contract` and `Priority = 0` came
+back as `100`. A rule that holds sometimes is one nobody can reason about.
+
+**Rejected.** Dropping `HasDefaultValue` from the model so EF always sends the
+value — that loses the DEFAULT clause on the next table rebuild (D-022), which
+trades a wrong value for a missing constraint.
+
+`DefaultValueSentinelTests` covers all three shapes and reads the raw column
+rather than trusting the round trip: EF reads back whatever it wrote, so a
+swallowed value looks perfectly correct through the model.
+
+---
+
+## D-028 — StoreServer initialises the database at startup, or does not start [Phase 0]
+
+**What.** `Waymark.StoreServer` resolves its data directory from
+`Waymark:Storage:DataDirectory`, falling back to `%ProgramData%\Waymark\data`
+(D-013), registers `WaymarkDbContext` through `UseWaymarkSqlite`, and calls
+`MigrateAndApplyTriggers()` in a scope before serving anything.
+
+**Why at startup and why fatal.** The alternative is a till that starts, works,
+looks right, and has no append-only guards. A store that will not start is a
+phone call and twenty minutes; a store that quietly stopped enforcing consent
+history is a finding, discovered by whoever asks for the audit trail. Failing
+loudly is the cheaper of the two by a wide margin.
+
+**Path resolution belongs to the host.** `WaymarkStoragePaths` composes paths
+and nothing else — no configuration, no dependency injection — so
+`Waymark.Persistence` keeps no opinion about how a host is wired. The identity
+database is deliberately absent from that class: only
+`Waymark.Pseudonymisation` may name that path (CLAUDE.md §3.4), and a
+convenience helper offering it would be the first step to it appearing
+somewhere else.
+
+**Verified by running it.** Against a scratch directory the server created a
+database with 58 tables, 81 indexes, all 11 triggers, WAL mode and the migration
+recorded in `__EFMigrationsHistory`.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at

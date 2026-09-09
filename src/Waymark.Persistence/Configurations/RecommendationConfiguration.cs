@@ -87,7 +87,8 @@ internal sealed class RecommendationConfiguration : IEntityTypeConfiguration<Rec
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.RecommendationStatusConverter)
-            .HasDefaultValue(RecommendationStatus.Pending);
+            .HasDefaultValue(RecommendationStatus.Pending)
+            .HasSentinel(RecommendationStatus.Pending);
         builder.Property(x => x.IssuedAt)
             .HasColumnName("issued_at")
             .HasConversion(WaymarkConverters.Timestamp);

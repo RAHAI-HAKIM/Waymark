@@ -61,21 +61,25 @@ internal sealed class VariantConfiguration : IEntityTypeConfiguration<Variant>
         builder.Property(x => x.BarcodeType)
             .HasColumnName("barcode_type")
             .HasConversion(EnumConverters.BarcodeTypeConverter)
-            .HasDefaultValue(BarcodeType.Standard);
+            .HasDefaultValue(BarcodeType.Standard)
+            .HasSentinel(BarcodeType.Standard);
         builder.Property(x => x.SellingUnitCode)
             .HasColumnName("selling_unit_code");
         builder.Property(x => x.IsWeighted)
             .HasColumnName("is_weighted")
-            .HasDefaultValue(false);
+            .HasDefaultValue(false)
+            .HasSentinel(false);
         builder.Property(x => x.TareWeight)
             .HasColumnName("tare_weight")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.Image)
             .HasColumnName("image");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.VariantStatusConverter)
-            .HasDefaultValue(VariantStatus.Active);
+            .HasDefaultValue(VariantStatus.Active)
+            .HasSentinel(VariantStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

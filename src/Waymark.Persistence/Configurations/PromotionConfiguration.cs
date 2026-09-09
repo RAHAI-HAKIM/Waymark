@@ -52,7 +52,8 @@ internal sealed class PromotionConfiguration : IEntityTypeConfiguration<Promotio
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.PromotionStatusConverter)
-            .HasDefaultValue(PromotionStatus.Draft);
+            .HasDefaultValue(PromotionStatus.Draft)
+            .HasSentinel(PromotionStatus.Draft);
         builder.Property(x => x.CreatedBy)
             .HasColumnName("created_by");
         builder.Property(x => x.CreatedAt)

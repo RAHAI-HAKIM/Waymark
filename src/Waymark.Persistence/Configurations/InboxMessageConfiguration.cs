@@ -58,7 +58,8 @@ internal sealed class InboxMessageConfiguration : IEntityTypeConfiguration<Inbox
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.InboxMessageStatusConverter)
-            .HasDefaultValue(InboxMessageStatus.Pending);
+            .HasDefaultValue(InboxMessageStatus.Pending)
+            .HasSentinel(InboxMessageStatus.Pending);
         builder.Property(x => x.RejectionReason)
             .HasColumnName("rejection_reason");
 

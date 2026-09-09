@@ -116,6 +116,15 @@ def configuration_file(table, entity, folder, props, checks, keys, fks, entity_o
             call.append(f"            .HasConversion({p.converter})")
         if p.default is not None:
             call.append(f"            .HasDefaultValue({p.default})")
+            # The sentinel is the value EF reads as "not set" and omits from the
+            # INSERT. It defaults to the CLR default, which is wrong wherever
+            # the database default is something else: setting IsActive = false
+            # on a column defaulting to 1 would be dropped and the row would
+            # come back active, and Customer.LegalBasis = Consent would be
+            # stored as 'contract'. Setting the sentinel to the database default
+            # makes omission harmless in every case — the omitted value and the
+            # written value become the same thing.
+            call.append(f"            .HasSentinel({p.default})")
         lines.append("\n".join(call) + ";")
 
     index_lines = []

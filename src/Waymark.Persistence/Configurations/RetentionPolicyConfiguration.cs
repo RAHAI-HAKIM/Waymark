@@ -56,7 +56,8 @@ internal sealed class RetentionPolicyConfiguration : IEntityTypeConfiguration<Re
             .HasConversion(EnumConverters.ActionOnExpiryConverter);
         builder.Property(x => x.IsActive)
             .HasColumnName("is_active")
-            .HasDefaultValue(true);
+            .HasDefaultValue(true)
+            .HasSentinel(true);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

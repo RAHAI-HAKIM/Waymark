@@ -66,7 +66,8 @@ internal sealed class StaffConfiguration : IEntityTypeConfiguration<Staff>
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.StaffStatusConverter)
-            .HasDefaultValue(StaffStatus.Active);
+            .HasDefaultValue(StaffStatus.Active)
+            .HasSentinel(StaffStatus.Active);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

@@ -66,14 +66,16 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             .HasColumnName("unit_cost_at_sale");
         builder.Property(x => x.DiscountAmount)
             .HasColumnName("discount_amount")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.DiscountReasonCode)
             .HasColumnName("discount_reason_code");
         builder.Property(x => x.AuthorisedBy)
             .HasColumnName("authorised_by");
         builder.Property(x => x.TaxAmount)
             .HasColumnName("tax_amount")
-            .HasDefaultValue(0L);
+            .HasDefaultValue(0L)
+            .HasSentinel(0L);
         builder.Property(x => x.LineTotal)
             .HasColumnName("line_total");
         builder.Property(x => x.CreatedAt)

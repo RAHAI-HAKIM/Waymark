@@ -51,7 +51,8 @@ internal sealed class ShiftConfiguration : IEntityTypeConfiguration<Shift>
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.ShiftStatusConverter)
-            .HasDefaultValue(ShiftStatus.Open);
+            .HasDefaultValue(ShiftStatus.Open)
+            .HasSentinel(ShiftStatus.Open);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);
