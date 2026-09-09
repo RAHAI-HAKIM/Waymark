@@ -15,14 +15,16 @@ namespace Waymark.Integration.Tests;
 /// empty, arrives with the model.
 /// </para>
 /// </summary>
-public sealed class SchemaInvariantTests : IClassFixture<SchemaFixture>
+public sealed class SchemaInvariantTests : IClassFixture<MigratedDatabaseFixture>
 {
-    private readonly SchemaFixture _schema;
+    private readonly MigratedDatabaseFixture _schema;
 
-    public SchemaInvariantTests(SchemaFixture schema) => _schema = schema;
+    public SchemaInvariantTests(MigratedDatabaseFixture schema) => _schema = schema;
 
-    // EF Core owns this table; its shape is not ours to assert on.
-    private const string EfHistoryTable = "__EFMigrationsHistory";
+    // EF Core owns __EFMigrationsHistory and __EFMigrationsLock. Their shape
+    // is EF's business, not ours, and the lock table has exactly the
+    // rowid-alias key these rules forbid everywhere else.
+    private const string EfTablePrefix = "__EF";
 
     // -----------------------------------------------------------------------
     // §3.1 — money is never a float
@@ -37,7 +39,7 @@ public sealed class SchemaInvariantTests : IClassFixture<SchemaFixture>
               AND type = 'table'
               AND strict = 0
               AND name NOT LIKE 'sqlite_%'
-              AND name <> '{EfHistoryTable}'
+              AND name NOT LIKE '{EfTablePrefix}%'
             ORDER BY name
             """);
 
@@ -54,7 +56,7 @@ public sealed class SchemaInvariantTests : IClassFixture<SchemaFixture>
             SELECT m.name || '.' || i.name
             FROM sqlite_schema m
             JOIN pragma_table_info(m.name) i
-            WHERE m.type = 'table' AND upper(i.type) = 'REAL'
+            WHERE m.type = 'table' AND m.name NOT LIKE '__EF%' AND upper(i.type) = 'REAL'
             ORDER BY 1
             """);
 
@@ -121,6 +123,7 @@ public sealed class SchemaInvariantTests : IClassFixture<SchemaFixture>
             SELECT m.name
             FROM sqlite_schema m
             WHERE m.type = 'table'
+              AND m.name NOT LIKE '__EF%'
               AND (SELECT count(*) FROM pragma_table_info(m.name) WHERE pk > 0) = 1
               AND (SELECT upper(type) FROM pragma_table_info(m.name) WHERE pk > 0) = 'INTEGER'
             ORDER BY 1
@@ -137,7 +140,7 @@ public sealed class SchemaInvariantTests : IClassFixture<SchemaFixture>
     {
         var offenders = _schema.Query("""
             SELECT name FROM sqlite_schema
-            WHERE type = 'table' AND upper(sql) LIKE '%AUTOINCREMENT%'
+            WHERE type = 'table' AND name NOT LIKE '__EF%' AND upper(sql) LIKE '%AUTOINCREMENT%'
             ORDER BY 1
             """);
 

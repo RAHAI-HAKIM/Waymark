@@ -105,10 +105,11 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 
 ### 3.7 Schema and migrations
 
-- The initial migration contains the whole of `schema_v7_1.sql`, pasted inline. `Migrate()` creates a complete database from empty and evolves an existing one. There is no other creation path.
+- The initial migration is EF's own generated `Up()`, not the schema pasted inline. Pasting was insurance against the generated tables not matching the reviewed schema; that was checked mechanically and passed on every table, column, column order, key, foreign key, unique constraint, index filter, CHECK expression and default (decisions.md O-9).
+- **`MigrateAndApplyTriggers()` is the only supported way to bring a database up to date.** `Migrate()` alone leaves it with no append-only guards, and that failure is silent. The method refuses to return if a trigger is still missing afterwards.
 - Never run `dotnet ef migrations add` without reading the generated file. EF cannot see triggers, and a table rebuild silently drops every trigger and index EF does not know about.
-- Every index must be declared in the EF model, so EF recreates it after a rebuild.
-- Triggers live in `triggers.sql`, never in the EF model. They are re-applied idempotently (`DROP TRIGGER IF EXISTS, then CREATE`) after every `Migrate()`. A migration that runs without `ApplyTriggers()` leaves the database without its append-only guards.
+- Every index, CHECK constraint and foreign key must be declared in the EF model. A rebuild recreates the table from the model alone and drops anything the model does not know about — verified: a rebuild took `CHECK (amount > 0)` off a table and a negative amount was accepted afterwards, with EF reporting success (decisions.md D-022).
+- Triggers live in `triggers.sql`, never in the EF model — EF cannot see them, and its table rebuild drops them with the table. They are re-applied idempotently (`DROP TRIGGER IF EXISTS`, then `CREATE`) after every `Migrate()`. A migration that runs without `ApplyTriggers()` leaves the database without its append-only guards, which is why the two are one call.
 - `schema_v7_1.sql` is frozen. It is historical. Changing the schema means adding a migration, never editing that file.
 - `schema_current.sql` is regenerated and committed after every migration. It is documentation, never executed.
 - `Migrate()` must not be called inside a transaction. EF Core 9+ manages its own; an ambient one throws.

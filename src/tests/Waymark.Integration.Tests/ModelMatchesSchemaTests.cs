@@ -1,64 +1,81 @@
 using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
-using Waymark.Persistence;
 
 namespace Waymark.Integration.Tests;
 
 /// <summary>
-/// The EF model and <c>schema_v7_1.sql</c> must describe the same database.
+/// What ships must match what was reviewed.
 ///
 /// <para>
-/// Nothing else checks this. <c>HasPendingModelChanges()</c> compares the model
-/// to its own snapshot, both generated from the configurations, so it cannot
-/// see the schema at all (decisions.md O-7). Under D-019 the initial migration
-/// will be hand-pasted SQL, which means a configuration that disagrees with the
-/// schema produces a database that disagrees with the model, silently, for the
-/// life of the project.
+/// Two databases: one built from the frozen <c>schema_v7_1.sql</c>, the artifact
+/// a human read and approved; one built the way a store gets it, <c>Migrate()</c>
+/// then <c>ApplyTriggers()</c>. They must describe the same database.
 /// </para>
 /// <para>
-/// So this builds both — one database from the schema, one from the model's own
-/// create script — and compares them structurally.
+/// Nothing else checks this. <c>HasPendingModelChanges()</c> compares the model
+/// to its own snapshot, both generated from the configurations, so it never sees
+/// the schema at all (decisions.md O-7).
+/// </para>
+/// <para>
+/// The comparison is deliberately wide, because an earlier version of it was
+/// not. Looking only at index names and columns let a composite UNIQUE flattened
+/// into three single-column constraints, and twelve partial indexes stripped of
+/// their filter, both compare equal (D-024). It now checks column order, types,
+/// nullability, keys, STRICT, index columns, index uniqueness, partial-index
+/// filters and triggers.
 /// </para>
 /// </summary>
-public sealed class ModelMatchesSchemaTests : IClassFixture<SchemaFixture>
+public sealed class ModelMatchesSchemaTests
+    : IClassFixture<ReviewedSchemaFixture>, IClassFixture<MigratedDatabaseFixture>
 {
-    private readonly SchemaFixture _schema;
+    private readonly ReviewedSchemaFixture _reviewed;
+    private readonly MigratedDatabaseFixture _shipped;
 
-    public ModelMatchesSchemaTests(SchemaFixture schema) => _schema = schema;
+    public ModelMatchesSchemaTests(ReviewedSchemaFixture reviewed, MigratedDatabaseFixture shipped)
+    {
+        _reviewed = reviewed;
+        _shipped = shipped;
+    }
 
-    private sealed record ColumnShape(string Type, bool NotNull, bool IsKey);
+    private sealed record ColumnShape(int Position, string Type, bool NotNull, bool IsKey);
 
-    private static Dictionary<string, Dictionary<string, ColumnShape>> Describe(SqliteConnection connection)
+    private sealed record IndexShape(string Table, string Columns, bool Unique, string? Filter);
+
+    private static List<string> Tables(SqliteConnection connection)
     {
         var tables = new List<string>();
-        using (var command = connection.CreateCommand())
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT name FROM sqlite_schema
+            WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__EF%'
+            ORDER BY name
+            """;
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
         {
-            command.CommandText = """
-                SELECT name FROM sqlite_schema
-                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
-                  AND name <> '__EFMigrationsHistory'
-                ORDER BY name
-                """;
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                tables.Add(reader.GetString(0));
-            }
+            tables.Add(reader.GetString(0));
         }
 
+        return tables;
+    }
+
+    private static Dictionary<string, Dictionary<string, ColumnShape>> Columns(SqliteConnection connection)
+    {
         var described = new Dictionary<string, Dictionary<string, ColumnShape>>(StringComparer.Ordinal);
-        foreach (var table in tables)
+        foreach (var table in Tables(connection))
         {
             var columns = new Dictionary<string, ColumnShape>(StringComparer.Ordinal);
             using var command = connection.CreateCommand();
-            command.CommandText = $"SELECT name, type, \"notnull\", pk FROM pragma_table_info('{table}')";
+            command.CommandText = $"SELECT cid, name, type, \"notnull\", pk FROM pragma_table_info('{table}')";
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
-                columns[reader.GetString(0)] = new ColumnShape(
-                    reader.GetString(1).ToUpperInvariant(),
-                    reader.GetInt64(2) == 1,
-                    reader.GetInt64(3) > 0);
+                // Position is compared too: SELECT * and a column-less INSERT
+                // both depend on declaration order.
+                columns[reader.GetString(1)] = new ColumnShape(
+                    (int)reader.GetInt64(0),
+                    reader.GetString(2).ToUpperInvariant(),
+                    reader.GetInt64(3) == 1,
+                    reader.GetInt64(4) > 0);
             }
 
             described[table] = columns;
@@ -73,7 +90,7 @@ public sealed class ModelMatchesSchemaTests : IClassFixture<SchemaFixture>
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT name FROM pragma_table_list
-            WHERE schema = 'main' AND type = 'table' AND strict = 1
+            WHERE schema = 'main' AND type = 'table' AND strict = 1 AND name NOT LIKE '__EF%'
             """;
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -84,175 +101,159 @@ public sealed class ModelMatchesSchemaTests : IClassFixture<SchemaFixture>
         return strict;
     }
 
-
-    private sealed record IndexShape(string Table, string Columns, bool Unique, string? Filter);
-
     /// <summary>
-    /// Indexes, compared by what they constrain rather than by name.
-    ///
-    /// <para>
-    /// Uniqueness and the WHERE clause of a partial index are the constraint,
-    /// not decoration. An earlier version of this comparison looked only at
-    /// names and columns, and let two real defects through: a composite
-    /// UNIQUE(a, b, c) flattened into three single-column constraints, and
-    /// twelve partial indexes that lost their filter. Without its filter,
-    /// ux_parameter_current forbids the registry holding two versions of a
-    /// parameter, which is the only thing the registry is for.
-    /// </para>
+    /// Indexes by what they constrain, not by name: EF cannot write an inline
+    /// UNIQUE, so its equivalent of one is always named differently.
     /// </summary>
     private static HashSet<IndexShape> Indexes(SqliteConnection connection)
     {
         var shapes = new HashSet<IndexShape>();
-        var names = new List<(string Name, string Table)>();
-
-        using (var command = connection.CreateCommand())
+        foreach (var table in Tables(connection))
         {
-            command.CommandText = """
-                SELECT name, tbl_name FROM sqlite_schema
-                WHERE type = 'index' AND tbl_name <> '__EFMigrationsHistory'
-                ORDER BY name
-                """;
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            var indexNames = new List<(string Name, bool Unique)>();
+            using (var command = connection.CreateCommand())
             {
-                names.Add((reader.GetString(0), reader.GetString(1)));
-            }
-        }
-
-        foreach (var (name, table) in names)
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = $"""
-                SELECT (SELECT group_concat(name, ',') FROM (
-                            SELECT name FROM pragma_index_info('{name}') ORDER BY seqno)),
-                       (SELECT "unique" FROM pragma_index_list('{table}') WHERE name = '{name}'),
-                       (SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = '{name}')
-                """;
-            using var reader = command.ExecuteReader();
-            if (!reader.Read() || reader.IsDBNull(0))
-            {
-                continue;
+                command.CommandText = $"SELECT name, \"unique\" FROM pragma_index_list('{table}')";
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    indexNames.Add((reader.GetString(0), reader.GetInt64(1) == 1));
+                }
             }
 
-            var sql = reader.IsDBNull(2) ? "" : reader.GetString(2);
-            var where = sql.IndexOf(" WHERE ", StringComparison.OrdinalIgnoreCase);
-            var filter = where < 0
-                ? null
-                : string.Join(' ', sql[(where + 7)..].Replace("\"", "", StringComparison.Ordinal)
-                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
+            foreach (var (name, unique) in indexNames)
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = $"""
+                    SELECT (SELECT group_concat(name, ',') FROM (
+                                SELECT name FROM pragma_index_info('{name}') ORDER BY seqno)),
+                           (SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = '{name}')
+                    """;
+                using var reader = command.ExecuteReader();
+                if (!reader.Read() || reader.IsDBNull(0))
+                {
+                    continue;
+                }
 
-            shapes.Add(new IndexShape(table, reader.GetString(0), reader.GetInt64(1) == 1, filter));
+                var sql = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                var where = sql.IndexOf(" WHERE ", StringComparison.OrdinalIgnoreCase);
+                var filter = where < 0
+                    ? null
+                    : string.Join(
+                            ' ',
+                            sql[(where + 7)..]
+                                .Replace("\"", string.Empty, StringComparison.Ordinal)
+                                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                        .ToLowerInvariant();
+
+                shapes.Add(new IndexShape(table, reader.GetString(0), unique, filter));
+            }
         }
 
         return shapes;
     }
 
-    /// <summary>A database built from the model rather than from the schema.</summary>
-    private static SqliteConnection BuildFromModel(string path)
+    private static HashSet<string> Triggers(SqliteConnection connection)
     {
-        var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseWaymarkSqlite(path)
-            .Options;
-
-        using (var context = new WaymarkDbContext(options))
-        using (var connection = new SqliteConnection($"Data Source={path}"))
+        var triggers = new HashSet<string>(StringComparer.Ordinal);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT name FROM sqlite_schema WHERE type = 'trigger'";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
         {
-            connection.Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = context.Database.GenerateCreateScript();
-            command.ExecuteNonQuery();
+            triggers.Add(reader.GetString(0));
         }
 
-        var open = new SqliteConnection($"Data Source={path}");
-        open.Open();
-        return open;
+        return triggers;
     }
 
     [Fact]
-    public void Every_table_and_column_agrees()
+    public void The_shipped_database_matches_the_reviewed_schema()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "waymark-model-diff", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        using var reviewed = _reviewed.Connect();
+        using var shipped = _shipped.Connect();
 
-        try
+        var differences = new List<string>();
+
+        var left = Columns(reviewed);
+        var right = Columns(shipped);
+
+        foreach (var table in left.Keys.Except(right.Keys).Order(StringComparer.Ordinal))
         {
-            using var fromSchema = _schema.Connect();
-            using var fromModel = BuildFromModel(Path.Combine(directory, "model.db"));
-
-            var schema = Describe(fromSchema);
-            var model = Describe(fromModel);
-
-            var differences = new List<string>();
-
-            foreach (var table in schema.Keys.Except(model.Keys).Order(StringComparer.Ordinal))
-            {
-                differences.Add($"{table}: in the schema, no entity configured for it");
-            }
-
-            foreach (var table in model.Keys.Except(schema.Keys).Order(StringComparer.Ordinal))
-            {
-                differences.Add($"{table}: configured, but no such table in the schema");
-            }
-
-            foreach (var table in schema.Keys.Intersect(model.Keys).Order(StringComparer.Ordinal))
-            {
-                var (left, right) = (schema[table], model[table]);
-
-                foreach (var column in left.Keys.Except(right.Keys).Order(StringComparer.Ordinal))
-                {
-                    differences.Add($"{table}.{column}: in the schema, not mapped");
-                }
-
-                foreach (var column in right.Keys.Except(left.Keys).Order(StringComparer.Ordinal))
-                {
-                    differences.Add($"{table}.{column}: mapped, but not in the schema");
-                }
-
-                foreach (var column in left.Keys.Intersect(right.Keys).Order(StringComparer.Ordinal))
-                {
-                    if (left[column] != right[column])
-                    {
-                        differences.Add($"{table}.{column}: schema {left[column]} vs model {right[column]}");
-                    }
-                }
-            }
-
-            // Indexes are compared by shape, not name: EF cannot write an
-            // inline UNIQUE, so its equivalent of one is always named
-            // differently.
-            var indexesInSchema = Indexes(fromSchema);
-            var indexesInModel = Indexes(fromModel);
-
-            foreach (var index in indexesInSchema.Except(indexesInModel).OrderBy(i => i.Table + i.Columns, StringComparer.Ordinal))
-            {
-                differences.Add(
-                    $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
-                    + "constrained by the schema, not by the model");
-            }
-
-            foreach (var index in indexesInModel.Except(indexesInSchema).OrderBy(i => i.Table + i.Columns, StringComparer.Ordinal))
-            {
-                differences.Add(
-                    $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
-                    + "constrained by the model, not by the schema");
-            }
-
-            var strictInSchema = StrictTables(fromSchema);
-            var strictInModel = StrictTables(fromModel);
-            foreach (var table in strictInSchema.Except(strictInModel).Order(StringComparer.Ordinal))
-            {
-                differences.Add($"{table}: STRICT in the schema, not from the model");
-            }
-
-            Assert.True(differences.Count == 0,
-                "The EF model and schema_v7_1.sql have drifted. Nothing else catches "
-                + "this, because HasPendingModelChanges compares the model to its own "
-                + "snapshot.\n\n  " + string.Join("\n  ", differences));
+            differences.Add($"{table}: in the reviewed schema, not created by Migrate()");
         }
-        finally
+
+        foreach (var table in right.Keys.Except(left.Keys).Order(StringComparer.Ordinal))
         {
-            SqliteConnection.ClearAllPools();
-            try { Directory.Delete(directory, recursive: true); } catch (IOException) { }
+            differences.Add($"{table}: created by Migrate(), not in the reviewed schema");
         }
+
+        foreach (var table in left.Keys.Intersect(right.Keys).Order(StringComparer.Ordinal))
+        {
+            var reviewedColumns = left[table];
+            var shippedColumns = right[table];
+
+            foreach (var column in reviewedColumns.Keys.Except(shippedColumns.Keys).Order(StringComparer.Ordinal))
+            {
+                differences.Add($"{table}.{column}: reviewed, not mapped");
+            }
+
+            foreach (var column in shippedColumns.Keys.Except(reviewedColumns.Keys).Order(StringComparer.Ordinal))
+            {
+                differences.Add($"{table}.{column}: mapped, not in the reviewed schema");
+            }
+
+            foreach (var column in reviewedColumns.Keys.Intersect(shippedColumns.Keys).Order(StringComparer.Ordinal))
+            {
+                if (reviewedColumns[column] != shippedColumns[column])
+                {
+                    differences.Add(
+                        $"{table}.{column}: reviewed {reviewedColumns[column]} vs shipped {shippedColumns[column]}");
+                }
+            }
+        }
+
+        foreach (var table in StrictTables(reviewed).Except(StrictTables(shipped)).Order(StringComparer.Ordinal))
+        {
+            differences.Add($"{table}: STRICT in the reviewed schema, not as shipped");
+        }
+
+        var reviewedIndexes = Indexes(reviewed);
+        var shippedIndexes = Indexes(shipped);
+
+        foreach (var index in reviewedIndexes.Except(shippedIndexes)
+                     .OrderBy(i => i.Table + i.Columns, StringComparer.Ordinal))
+        {
+            differences.Add(
+                $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
+                + "constrained in the reviewed schema, not as shipped");
+        }
+
+        foreach (var index in shippedIndexes.Except(reviewedIndexes)
+                     .OrderBy(i => i.Table + i.Columns, StringComparer.Ordinal))
+        {
+            differences.Add(
+                $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
+                + "constrained as shipped, not in the reviewed schema");
+        }
+
+        // Triggers reach the shipped database only through ApplyTriggers(), so
+        // these two loops are also what prove it ran.
+        foreach (var trigger in Triggers(reviewed).Except(Triggers(shipped)).Order(StringComparer.Ordinal))
+        {
+            differences.Add(
+                $"trigger {trigger}: in the reviewed schema, missing after Migrate() + ApplyTriggers()");
+        }
+
+        foreach (var trigger in Triggers(shipped).Except(Triggers(reviewed)).Order(StringComparer.Ordinal))
+        {
+            differences.Add($"trigger {trigger}: shipped, but not in the reviewed schema");
+        }
+
+        Assert.True(
+            differences.Count == 0,
+            "The database a store gets no longer matches schema_v7_1.sql, the file that was "
+            + "reviewed. Nothing else catches this.\n\n  "
+            + string.Join("\n  ", differences));
     }
 }

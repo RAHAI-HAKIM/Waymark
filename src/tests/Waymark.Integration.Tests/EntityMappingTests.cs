@@ -20,23 +20,17 @@ namespace Waymark.Integration.Tests;
 /// what actually landed on disk.
 /// </para>
 /// </summary>
-public sealed class EntityMappingTests : IClassFixture<SchemaFixture>
+public sealed class EntityMappingTests : IClassFixture<MigratedDatabaseFixture>
 {
-    private readonly SchemaFixture _schema;
+    private readonly MigratedDatabaseFixture _schema;
 
-    public EntityMappingTests(SchemaFixture schema) => _schema = schema;
+    public EntityMappingTests(MigratedDatabaseFixture schema) => _schema = schema;
 
-    private WaymarkDbContext NewContext()
-    {
+    private WaymarkDbContext NewContext() =>
         // Foreign keys off: cash_movements references cash_sessions,
         // reason_codes and staff, and seeding those to test a column mapping
         // would mean seeding half the catalogue.
-        var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseWaymarkSqlite(_schema.DatabasePath, enforceForeignKeys: false)
-            .Options;
-
-        return new WaymarkDbContext(options);
-    }
+        _schema.NewContext(enforceForeignKeys: false);
 
     [Fact]
     public void A_unit_of_measure_round_trips()

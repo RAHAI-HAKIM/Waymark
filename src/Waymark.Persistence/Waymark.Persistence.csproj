@@ -13,6 +13,11 @@
     <!-- The schema travels inside the assembly, not beside it. See
          SchemaScript and decisions.md D-016. -->
     <EmbeddedResource Include="schema_v7_1.sql" />
+    <!-- The append-only triggers travel with the assembly for the same
+         reason: a migration that runs without them leaves the database
+         with no audit guards, and a missing file would be discovered
+         only by a regulator. -->
+    <EmbeddedResource Include="triggers.sql" />
   </ItemGroup>
 
   <ItemGroup>

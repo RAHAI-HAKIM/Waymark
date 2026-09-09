@@ -26,11 +26,11 @@ namespace Waymark.Integration.Tests;
 /// be append-only too.
 /// </para>
 /// </summary>
-public sealed class AppendOnlyTests : IClassFixture<SchemaFixture>
+public sealed class AppendOnlyTests : IClassFixture<MigratedDatabaseFixture>
 {
-    private readonly SchemaFixture _schema;
+    private readonly MigratedDatabaseFixture _schema;
 
-    public AppendOnlyTests(SchemaFixture schema) => _schema = schema;
+    public AppendOnlyTests(MigratedDatabaseFixture schema) => _schema = schema;
 
     [Theory]
     [InlineData("trg_consent_events_no_update")]

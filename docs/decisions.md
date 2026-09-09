@@ -778,6 +778,61 @@ which does not say so.
 
 ---
 
+## D-025 — `triggers.sql`, `ApplyTriggers()`, and one entry point that cannot forget [Phase 0]
+
+**Closes the last piece of D-016 cost 5.**
+
+**What.** The eleven append-only triggers were extracted verbatim from section 13
+of `schema_v7_1.sql` into `src/Waymark.Persistence/triggers.sql`, embedded in
+the assembly beside the schema. Every statement is `DROP TRIGGER IF EXISTS`
+then `CREATE TRIGGER`, so the file is idempotent: applying it to a database
+that has the triggers is a no-op, and applying it to one that has just lost
+them restores them.
+
+`WaymarkDbContext.MigrateAndApplyTriggers()` is the only supported way to bring
+a database up to date. It migrates, applies the triggers, and then **refuses to
+return** if any are still missing.
+
+**Why the method is named that way.** `Migrate()` alone leaves a database with
+no audit guards, and that failure is silent — the till works, the reports look
+right, and `consent_events` quietly accepts an UPDATE that the DPIA says is
+impossible. A method called `MigrateAndApplyTriggers` makes anyone reaching for
+`Database.Migrate()` stop and wonder why there are two. That is the entire
+design: the same reasoning as `UseWaymarkSqlite`, where two ways to configure a
+context and one of them silently wrong was the problem worth removing.
+
+Throwing on a missing trigger is deliberate. A database that will not open is a
+visible failure someone fixes in minutes. A database that accepts writes the
+regulator was told are impossible is a failure discovered by the regulator.
+
+**Ambient transactions are refused with a message that points here.** EF Core 9
+and later start their own transaction for migrations and use an execution
+strategy; an ambient one throws from deep inside `Migrate` about retrying
+execution strategies, which says nothing about the actual mistake.
+
+**The test fixtures were split, which was D-020's stated consequence.**
+`ReviewedSchemaFixture` builds from the frozen `schema_v7_1.sql` — the artifact
+a human approved. `MigratedDatabaseFixture` builds the way a store gets it,
+`Migrate()` then `ApplyTriggers()`. Every suite that asserts a *rule* now uses
+the second, so the rules are checked against what actually reaches a till
+rather than against a file that is never executed again.
+
+`ModelMatchesSchemaTests` compares the two, and therefore now also compares
+triggers — which makes it the thing that proves `ApplyTriggers()` ran at all.
+
+**Verified by removing a trigger from the script.** Seven tests failed from four
+independent directions: the fidelity comparison reported it missing after
+`Migrate() + ApplyTriggers()`, the named-trigger check reported it absent, and
+three count assertions disagreed. Restored, 52 tests green.
+
+**Consequence for the invariant suites.** They now run against a migrated
+database, which contains EF's own `__EFMigrationsHistory` and
+`__EFMigrationsLock`. Those are excluded: their shape is EF's business, and the
+lock table has exactly the rowid-alias primary key these rules forbid
+everywhere else.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -792,5 +847,5 @@ during scaffolding.
 | O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
 | O-6 | ~~Entity topology~~ — **resolved by D-021.** One set: entities in `Waymark.Domain`, configurations in `Waymark.Persistence`. |
 | O-7 | **`HasPendingModelChanges()` cannot see the v1 schema.** Under D-019 the initial migration's `Up()` is hand-written SQL while the model snapshot is generated from the entity configurations. That check compares model to snapshot, so the configurations and the pasted schema can disagree and nothing reports it. Confined to v1, since every later change flows from the model — and the one-time diff in D-019 is the mitigation, which makes that diff load-bearing rather than advisory. Flagged 08/09/2026 to investigate before the baseline is generated. |
-| O-9 | **Does the baseline `Up()` still need the schema SQL pasted into it?** D-019 requires it as insurance against the generated `CreateTable` calls not matching the reviewed schema. That has now been checked mechanically: a database built by the migration matches the schema on all 58 tables, 625 columns, types, nullability, keys, 137 foreign keys, unique constraints (as groups), index columns, index uniqueness, partial-index filters, all 167 CHECK constraints and all 102 defaults. Only the 11 triggers are absent, and those are `triggers.sql`'s job by design. Pasting still buys the reviewed text verbatim; keeping the generated `Up()` buys a working `Down()` and one consistent migration style. |
+| O-9 | ~~Does the baseline `Up()` still need the schema SQL pasted into it?~~ — **resolved 09/09/2026: no.** Pasting was insurance against the generated `CreateTable` calls not matching the reviewed schema; that has now been checked mechanically and passed on all 58 tables, 625 columns, column *order*, types, nullability, keys, 137 foreign keys, unique constraints as groups, index columns, uniqueness, partial-index filters, 167 CHECK expressions and 102 defaults. The insurance has nothing left to cover, and it would cost a 1,200-line opaque string, a `Down()` that cannot be generated, and a first migration unlike every later one. The generated `Up()` stands. |
 | O-8 | ~~The 85 foreign-key indexes EF adds on its own~~ — **resolved 08/09/2026: suppressed.** `ForeignKeyIndexConvention` is removed in `ConfigureConventions`, so the model declares 82 indexes against the schema's 68 named plus 14 UNIQUE constraints, and nothing appears by itself. Hakim works with foreign keys directly and does not want indexes the schema never asked for; they are not free on write, and this database lives on one till. If a foreign key later needs an index it is added with `HasIndex`, like every other. |

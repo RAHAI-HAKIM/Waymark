@@ -4,40 +4,38 @@ How a schema change is made, from the model that exists today to a migration on
 a shop's till. The rules behind it are CLAUDE.md §3.7; the reasoning is
 decisions.md D-016, D-019 and D-022.
 
-> **Where this stands.** The model exists. **No migration exists yet**, and
-> neither do `triggers.sql`, `ApplyTriggers()`, the bootstrapper or
-> `schema_current.sql`. Step 0 below has not been done. Everything after it
-> describes the loop once it has.
+> **Where this stands.** The model exists, the baseline migration exists,
+> `triggers.sql` and `ApplyTriggers()` exist. Still missing: `schema_current.sql`
+> and its regeneration script, and the startup call in `Waymark.StoreServer`.
+> Step 0 below is done and is kept as a record of how.
 
 ---
 
-## Step 0 — the baseline, once, and carefully
+## Step 0 — the baseline, done 08–09/09/2026
 
-This is the only step that is not routine, and it is the one that everything
-downstream trusts.
+Kept as a record, not as instructions; it happens once and it has happened.
 
 ```bash
 dotnet ef migrations add InitialSchema --project src/Waymark.Persistence
 ```
 
-EF writes an `Up()` containing `CreateTable` calls for all 58 tables, generated
-from the configurations. **Do not delete it yet.**
+EF wrote an `Up()` containing `CreateTable` for all 58 tables, generated from
+the configurations. That generated `Up()` is what stands — D-019 originally
+called for replacing it with `schema_v7_1.sql` pasted inline, and O-9 records
+why that turned out to be unnecessary: the two were compared mechanically and
+agree on every table, column, column order, type, nullability, key, foreign
+key, unique constraint, index filter, CHECK expression and default.
 
-**Diff that generated code against `schema_v7_1.sql` before replacing it.** This
-is the one moment a complete comparison of 58 configurations against the
-reviewed schema comes for free, and after this the two artifacts diverge and it
-never comes free again. `ModelMatchesSchemaTests` already compares tables,
-columns, types, nullability, keys, foreign keys and STRICT — what it does *not*
-compare is CHECK constraint expressions and default values, so those are what to
-read.
+The comparison that established it now runs on every build as
+`ModelMatchesSchemaTests`, so the agreement is not a one-off finding.
 
-Then replace the body of `Up()` with the contents of `schema_v7_1.sql`, minus
-its triggers, as one `migrationBuilder.Sql(...)`. From that point:
+From here:
 
-- `schema_v7_1.sql` is **frozen**. It is history. Never edit it again.
-- `Migrate()` is the only way a database gets created.
-- Triggers move to `triggers.sql` and are applied by `ApplyTriggers()` after
-  every `Migrate()`.
+- `schema_v7_1.sql` is **frozen**. It is history and the reference side of that
+  comparison. Never edit it.
+- `MigrateAndApplyTriggers()` is the only way a database is created or updated.
+- The 11 triggers live in `triggers.sql` and are re-applied after every
+  migration.
 
 ---
 
@@ -107,8 +105,8 @@ type, dropping a column or adding a CHECK all do this.
 When you see `ef_temp`, three things are true:
 
 1. **Every trigger on that table is gone.** `DROP TABLE` takes them with it.
-   `ApplyTriggers()` puts them back, which is why it must run after every
-   `Migrate()` and never be skipped.
+   `ApplyTriggers()` puts them back, which is why `MigrateAndApplyTriggers()`
+   is one call and why it throws if a trigger is still missing afterwards.
 2. **Only what the model declares comes back** — indexes, CHECK constraints and
    foreign keys. Anything you forgot to configure is now permanently absent, and
    nothing will tell you.
@@ -134,9 +132,10 @@ The ones that matter here:
 
 | Test | Catches |
 | :---- | :---- |
-| `ModelMatchesSchemaTests` | the model and the schema disagreeing |
+| `ModelMatchesSchemaTests` | the shipped database drifting from the reviewed schema, triggers included |
 | `SchemaInvariantTests` | a table that is not STRICT, a REAL column, a rowid-alias key |
 | `AppendOnlyTests` | a trigger dropped by a rebuild — asserted by attempting the write |
+| `TriggerApplicationTests` | `triggers.sql` drifting, or `ApplyTriggers()` not restoring |
 | `StrictSqliteMigrationsSqlGeneratorTests` | new tables losing STRICT |
 
 ### 7. Commit the migration and the model together
@@ -153,8 +152,9 @@ own and uses an execution strategy; an ambient transaction raises
 `MigrationsUserTransactionWarning` and throws.
 
 **`dotnet ef database update` is not a creation path.** It applies migrations
-and stops. No `ApplyTriggers()`, so the database has no append-only guards. Use
-the application's own startup path, which does both.
+and stops — no `ApplyTriggers()`, so the database has no append-only guards.
+This is pinned down by a test (`Migrate_alone_leaves_the_database_unprotected`)
+rather than left as folklore. Use `MigrateAndApplyTriggers()`.
 
 **Always configure the context with `UseWaymarkSqlite`, never `UseSqlite`.**
 Plain `UseSqlite` does not register the STRICT generator, and tables created
