@@ -2,7 +2,7 @@
 
 Everything about how the database is defined, created, changed and checked. The
 short rules are CLAUDE.md §3.7; the reasoning is decisions.md D-016, D-019,
-D-021 to D-028.
+D-021 to D-029.
 
 ---
 
@@ -21,8 +21,13 @@ D-021 to D-028.
 Three of these are not obvious and are worth knowing about.
 
 **`schema_v7_1.sql` is frozen.** Changing the schema means adding a migration.
-Editing that file changes nothing about any database and breaks the comparison
-that proves the model is right.
+Editing that file changes nothing about any database, and it breaks the
+comparison that proves the baseline migration reproduces it.
+
+It follows that this file falls further behind the live schema with every
+migration, **by design**. It is not a description of the database now — that is
+`schema_current.sql`. It is the record of what was reviewed once, kept so the
+baseline can still be checked against it.
 
 **Triggers are not in the EF model.** EF does not know triggers exist, and its
 table rebuild issues `DROP TABLE`, which takes them along. Reproduced during the
@@ -198,12 +203,13 @@ operational event to be planned, not slipped into a routine update.
 
 ## 5. What the tests catch
 
-57 tests. These are the ones that exist because the failure they catch is
+58 tests. These are the ones that exist because the failure they catch is
 silent.
 
 | Suite | Catches |
 | :---- | :---- |
-| `ModelMatchesSchemaTests` | the shipped database drifting from the reviewed schema — columns, order, types, nullability, keys, STRICT, index columns, index uniqueness, partial-index filters, triggers |
+| `ModelMatchesSchemaTests` (baseline) | the **baseline migration** or `schema_v7_1.sql` being edited — columns, order, types, nullability, keys, STRICT, index columns, index uniqueness, partial-index filters, triggers. It compares the baseline alone, never head |
+| `ModelMatchesSchemaTests` (pending) | a configuration changed with no migration to carry it |
 | `SchemaCurrentTests` | `schema_current.sql` no longer describing the database |
 | `TriggerApplicationTests` | `triggers.sql` drifting, `ApplyTriggers()` not restoring, `Migrate()` alone leaving the database unprotected |
 | `AppendOnlyTests` | an audit table accepting an UPDATE or DELETE — asserted by attempting the write, not by looking for the trigger |
@@ -229,9 +235,76 @@ filters, and reported "no structural differences" while a composite UNIQUE had
 been flattened into three single-column constraints and twelve partial indexes
 had lost their filters (D-024).
 
+**Check the right two things, as well.** That same test then compared the
+reviewed schema against the database at *head*, which is correct exactly until
+the first migration and wrong forever after: the frozen file cannot gain a
+column, so every future migration would fail it. Adding `variants.reorder_point`
+is what surfaced it. It now compares the baseline alone, and the pending-changes
+test covers what that no longer sees (D-029).
+
 ---
 
-## 6. Things that will bite
+## 6. Undoing a migration
+
+`dotnet ef migrations remove` deletes the migration file and rewinds the model
+snapshot. It does **not** touch anything else, and two of those are easy to
+forget.
+
+**It will not undo an applied migration.** If the migration has been applied to
+the database the tools can reach, EF refuses:
+
+```
+The migration '20260910134838_AddVariantReorderPoint' has already been applied
+to the database. Revert it and try again.
+```
+
+Revert the database first, naming the migration you want to end at — everything
+after it is undone by running its `Down()`:
+
+```bash
+dotnet ef database update InitialSchema --project src/Waymark.Persistence
+```
+
+```bash
+dotnet ef migrations remove --project src/Waymark.Persistence
+```
+
+**"The database" here is the design-time one**, not the one your application
+uses. See the trap in §7: the EF tools build a context from
+`WaymarkDbContextDesignTimeFactory`, which points at
+`%TEMP%\waymark-design-time\waymark-store.db`. That is the database EF checks
+before refusing, and the one `database update` acts on.
+
+**It will not revert your entity or configuration changes.** Those are ordinary
+source edits and are yours to undo. If you leave them, the model no longer
+matches any migration and
+`ModelMatchesSchemaTests.The_model_has_no_changes_waiting_for_a_migration`
+fails — which is the intended outcome, not a nuisance.
+
+**It will not regenerate `schema_current.sql`.** That file only ever changes
+when you regenerate it deliberately:
+
+```powershell
+$env:WAYMARK_UPDATE_SCHEMA_CURRENT = "1"
+dotnet test src/Waymark.sln --filter FullyQualifiedName~SchemaCurrent
+```
+
+Until you do, `SchemaCurrentTests` fails and names the first differing line.
+That is the file doing its job: it is documentation, and documentation that
+updated itself silently would document nothing.
+
+So the full sequence to undo a migration is four steps, in this order:
+
+1. `dotnet ef database update <previous migration>`
+2. `dotnet ef migrations remove`
+3. revert the entity and configuration edits
+4. regenerate `schema_current.sql`, then run the tests
+
+Step 4 is the one that gets skipped, and the test suite is what remembers.
+
+---
+
+## 7. Things that will bite
 
 **Never call `Migrate()` inside a transaction.** EF Core 9+ starts its own and
 uses an execution strategy. `MigrateAndApplyTriggers()` checks and throws with a
@@ -242,6 +315,19 @@ Plain `UseSqlite` omits the STRICT generator, and tables created without it
 accept a REAL into a money column. Not hypothetical: the first version of
 `ModelMatchesSchemaTests` used `UseSqlite` and produced 58 non-STRICT tables with
 the build green.
+
+**`dotnet ef` does not touch the database your application uses.** Every EF
+command builds a context from `WaymarkDbContextDesignTimeFactory`, which points
+at a scratch path under `%TEMP%`, deliberately — a mistyped command must not be
+able to reach a store's data. So `database update` migrates the scratch
+database, `migrations remove` checks the scratch database, and neither of them
+has any opinion about `%ProgramData%\Waymark\data`. The application's database
+is brought up to date by the application, at startup, through
+`MigrateAndApplyTriggers()`.
+
+A consequence worth knowing: a scratch database built by `dotnet ef database
+update` **has no triggers**, because nothing ran `ApplyTriggers()`. That is fine
+for inspecting migrations and wrong for anything else.
 
 **Your `sqlite3` CLI is not the application's SQLite.** The CLI is 3.53;
 SQLCipher gives the application 3.39.2 (D-015). DDL that works at the prompt can
@@ -258,7 +344,7 @@ model changes and reproduce v1.
 
 ---
 
-## 7. Command reference
+## 8. Command reference
 
 ```bash
 # add a migration
@@ -271,7 +357,12 @@ dotnet ef migrations script --project src/Waymark.Persistence
 ```
 
 ```bash
-# undo the last migration, before it has been applied anywhere
+# revert the database to a named migration, before removing one
+dotnet ef database update <MigrationName> --project src/Waymark.Persistence
+```
+
+```bash
+# undo the last migration, once the database no longer has it applied
 dotnet ef migrations remove --project src/Waymark.Persistence
 ```
 

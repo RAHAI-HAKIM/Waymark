@@ -119,10 +119,6 @@ public sealed class WaymarkDbContext(DbContextOptions<WaymarkDbContext> options)
     public DbSet<SyncState> SyncState => Set<SyncState>();
 
     /// <summary>
-    /// EF indexes every foreign key by convention. Left on, that adds 85
-    /// indexes the schema never asked for — useful for lookups, but not free on
-    /// write, and this database lives on a single till (decisions.md O-8).
-    ///
     /// <para>
     /// Removing the convention also makes the rule uniform: every index in this
     /// database is declared, and none appears by itself. If a foreign key turns

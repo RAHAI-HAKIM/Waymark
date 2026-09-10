@@ -936,6 +936,52 @@ recorded in `__EFMigrationsHistory`.
 
 ---
 
+## D-029 — The fidelity comparison guards the baseline, not head [Phase 0]
+
+**Found by Hakim's first real schema change**, which is the only way it could
+have been found: the test passed on every run until a migration existed.
+
+**What was wrong.** `ModelMatchesSchemaTests` compared `schema_v7_1.sql` against
+a database migrated to **head**. Those are identical at v1 and diverge the
+moment a legitimate migration lands, because `schema_v7_1.sql` is frozen and can
+never gain a column. Adding `variants.reorder_point` — the worked example from
+`docs/schema-changes.md`, done exactly as written — failed the suite with
+`variants.reorder_point: mapped, not in the reviewed schema`. The migration was
+correct; the test was wrong, and would have been wrong for every migration
+after it.
+
+This is the museum-piece failure D-020 describes, in the test written to avoid
+it. Worth stating plainly: writing the warning down did not stop it happening.
+
+**The fix.** The comparison now builds the database by applying **`InitialSchema`
+alone** and nothing after it. The property it guards is narrower and permanent:
+*the baseline migration reproduces the schema a human reviewed*. That stays true
+however many migrations follow, and it is what O-7 actually cared about.
+
+**What now guards what.** The reframing splits one overloaded test into three
+honest ones.
+
+| Check | Guards |
+| :---- | :---- |
+| `ModelMatchesSchemaTests.The_baseline_migration_reproduces_the_reviewed_schema` | the baseline, or `schema_v7_1.sql`, being edited |
+| `ModelMatchesSchemaTests.The_model_has_no_changes_waiting_for_a_migration` | a configuration changed with no migration to carry it |
+| `SchemaCurrentTests` | the shipped database drifting from its committed documentation |
+
+The second is new, and closes the gap the reframing opened: with the comparison
+pinned to the baseline, nothing else would notice an entity edited without a
+migration. `HasPendingModelChanges()` compares the model to the last migration's
+snapshot, which is exactly that.
+
+**A division of labour worth knowing.** The baseline comparison matches indexes
+by *shape* — table, columns, uniqueness, filter — never by name, because EF
+cannot write an inline UNIQUE and names its equivalent differently. So an index
+*rename* passes it. Verified: renaming `ix_variants_status` in the baseline
+migration left the comparison green and failed `SchemaCurrentTests`, which
+reported the exact line. Shape is the semantic guard; the golden file is the
+name-level one, and neither is redundant.
+
+---
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at

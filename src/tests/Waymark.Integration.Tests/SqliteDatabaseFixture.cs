@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Waymark.Persistence;
 
 namespace Waymark.Integration.Tests;
@@ -125,5 +127,34 @@ public sealed class MigratedDatabaseFixture : SqliteDatabaseFixture
     {
         using var context = NewContext();
         context.MigrateAndApplyTriggers();
+    }
+}
+
+/// <summary>
+/// Built by applying only the <c>InitialSchema</c> migration, then the triggers.
+///
+/// <para>
+/// This exists to be compared with <see cref="ReviewedSchemaFixture"/>, and the
+/// distinction is the whole point. <c>schema_v7_1.sql</c> is frozen at v1, so
+/// comparing it against a database migrated to <em>head</em> fails the moment
+/// the first legitimate migration lands — which is what happened, and it was a
+/// mistake in the test rather than in the migration.
+/// </para>
+/// <para>
+/// What is true forever is narrower and still worth guarding: the baseline
+/// migration reproduces the schema a human reviewed. Everything after the
+/// baseline is <c>SchemaCurrentTests</c>' job.
+/// </para>
+/// </summary>
+public sealed class BaselineDatabaseFixture : SqliteDatabaseFixture
+{
+    protected override void Build()
+    {
+        using var context = NewContext();
+
+        var baseline = context.Database.GetMigrations().First();
+        context.Database.GetService<IMigrator>().Migrate(baseline);
+
+        context.ApplyTriggers();
     }
 }

@@ -1,7 +1,4 @@
 {
-  // Shared editor settings. Machine-specific paths do not belong here — set
-  // the Python interpreter through the command palette, which writes to your
-  // own workspace state rather than this file.
   "files.eol": "\n",
   "files.trimTrailingWhitespace": true,
   "files.insertFinalNewline": true,

@@ -1,19 +1,30 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 
 namespace Waymark.Integration.Tests;
 
 /// <summary>
-/// What ships must match what was reviewed.
+/// The baseline migration reproduces the schema a human reviewed.
 ///
 /// <para>
-/// Two databases: one built from the frozen <c>schema_v7_1.sql</c>, the artifact
-/// a human read and approved; one built the way a store gets it, <c>Migrate()</c>
-/// then <c>ApplyTriggers()</c>. They must describe the same database.
+/// Two databases: one built from the frozen <c>schema_v7_1.sql</c>; one built by
+/// applying <c>InitialSchema</c> and nothing after it. They must describe the
+/// same database.
 /// </para>
 /// <para>
-/// Nothing else checks this. <c>HasPendingModelChanges()</c> compares the model
-/// to its own snapshot, both generated from the configurations, so it never sees
-/// the schema at all (decisions.md O-7).
+/// <b>Only the baseline.</b> An earlier version of this compared the reviewed
+/// schema against a database migrated to <em>head</em>, which is wrong the
+/// moment a legitimate migration lands: <c>schema_v7_1.sql</c> is frozen at v1
+/// and can never gain a column, so the comparison fails forever and the failure
+/// says nothing about the migration. That was the museum-piece trap D-020
+/// describes, in the test written to avoid it. Drift after the baseline is
+/// <c>SchemaCurrentTests</c>' job.
+/// </para>
+/// <para>
+/// Nothing else checks the property this does. <c>HasPendingModelChanges()</c>
+/// compares the model to its own snapshot, both generated from the
+/// configurations, so it never sees the reviewed schema at all (decisions.md
+/// O-7).
 /// </para>
 /// <para>
 /// The comparison is deliberately wide, because an earlier version of it was
@@ -25,15 +36,15 @@ namespace Waymark.Integration.Tests;
 /// </para>
 /// </summary>
 public sealed class ModelMatchesSchemaTests
-    : IClassFixture<ReviewedSchemaFixture>, IClassFixture<MigratedDatabaseFixture>
+    : IClassFixture<ReviewedSchemaFixture>, IClassFixture<BaselineDatabaseFixture>
 {
     private readonly ReviewedSchemaFixture _reviewed;
-    private readonly MigratedDatabaseFixture _shipped;
+    private readonly BaselineDatabaseFixture _baseline;
 
-    public ModelMatchesSchemaTests(ReviewedSchemaFixture reviewed, MigratedDatabaseFixture shipped)
+    public ModelMatchesSchemaTests(ReviewedSchemaFixture reviewed, BaselineDatabaseFixture baseline)
     {
         _reviewed = reviewed;
-        _shipped = shipped;
+        _baseline = baseline;
     }
 
     private sealed record ColumnShape(int Position, string Type, bool NotNull, bool IsKey);
@@ -168,10 +179,10 @@ public sealed class ModelMatchesSchemaTests
     }
 
     [Fact]
-    public void The_shipped_database_matches_the_reviewed_schema()
+    public void The_baseline_migration_reproduces_the_reviewed_schema()
     {
         using var reviewed = _reviewed.Connect();
-        using var shipped = _shipped.Connect();
+        using var shipped = _baseline.Connect();
 
         var differences = new List<string>();
 
@@ -180,12 +191,12 @@ public sealed class ModelMatchesSchemaTests
 
         foreach (var table in left.Keys.Except(right.Keys).Order(StringComparer.Ordinal))
         {
-            differences.Add($"{table}: in the reviewed schema, not created by Migrate()");
+            differences.Add($"{table}: in the reviewed schema, not created by the baseline migration");
         }
 
         foreach (var table in right.Keys.Except(left.Keys).Order(StringComparer.Ordinal))
         {
-            differences.Add($"{table}: created by Migrate(), not in the reviewed schema");
+            differences.Add($"{table}: created by the baseline migration, not in the reviewed schema");
         }
 
         foreach (var table in left.Keys.Intersect(right.Keys).Order(StringComparer.Ordinal))
@@ -195,12 +206,12 @@ public sealed class ModelMatchesSchemaTests
 
             foreach (var column in reviewedColumns.Keys.Except(shippedColumns.Keys).Order(StringComparer.Ordinal))
             {
-                differences.Add($"{table}.{column}: reviewed, not mapped");
+                differences.Add($"{table}.{column}: in the reviewed schema, not in the baseline migration");
             }
 
             foreach (var column in shippedColumns.Keys.Except(reviewedColumns.Keys).Order(StringComparer.Ordinal))
             {
-                differences.Add($"{table}.{column}: mapped, not in the reviewed schema");
+                differences.Add($"{table}.{column}: in the baseline migration, not in the reviewed schema");
             }
 
             foreach (var column in reviewedColumns.Keys.Intersect(shippedColumns.Keys).Order(StringComparer.Ordinal))
@@ -208,14 +219,14 @@ public sealed class ModelMatchesSchemaTests
                 if (reviewedColumns[column] != shippedColumns[column])
                 {
                     differences.Add(
-                        $"{table}.{column}: reviewed {reviewedColumns[column]} vs shipped {shippedColumns[column]}");
+                        $"{table}.{column}: reviewed {reviewedColumns[column]} vs baseline {shippedColumns[column]}");
                 }
             }
         }
 
         foreach (var table in StrictTables(reviewed).Except(StrictTables(shipped)).Order(StringComparer.Ordinal))
         {
-            differences.Add($"{table}: STRICT in the reviewed schema, not as shipped");
+            differences.Add($"{table}: STRICT in the reviewed schema, not in the baseline migration");
         }
 
         var reviewedIndexes = Indexes(reviewed);
@@ -226,7 +237,7 @@ public sealed class ModelMatchesSchemaTests
         {
             differences.Add(
                 $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
-                + "constrained in the reviewed schema, not as shipped");
+                + "constrained in the reviewed schema, not by the baseline migration");
         }
 
         foreach (var index in shippedIndexes.Except(reviewedIndexes)
@@ -234,7 +245,7 @@ public sealed class ModelMatchesSchemaTests
         {
             differences.Add(
                 $"{index.Table}({index.Columns}) unique={index.Unique} filter={index.Filter ?? "none"}: "
-                + "constrained as shipped, not in the reviewed schema");
+                + "constrained by the baseline migration, not in the reviewed schema");
         }
 
         // Triggers reach the shipped database only through ApplyTriggers(), so
@@ -242,12 +253,12 @@ public sealed class ModelMatchesSchemaTests
         foreach (var trigger in Triggers(reviewed).Except(Triggers(shipped)).Order(StringComparer.Ordinal))
         {
             differences.Add(
-                $"trigger {trigger}: in the reviewed schema, missing after Migrate() + ApplyTriggers()");
+                $"trigger {trigger}: in the reviewed schema, missing after the baseline + ApplyTriggers()");
         }
 
         foreach (var trigger in Triggers(shipped).Except(Triggers(reviewed)).Order(StringComparer.Ordinal))
         {
-            differences.Add($"trigger {trigger}: shipped, but not in the reviewed schema");
+            differences.Add($"trigger {trigger}: applied, but not in the reviewed schema");
         }
 
         Assert.True(
@@ -255,5 +266,29 @@ public sealed class ModelMatchesSchemaTests
             "The database a store gets no longer matches schema_v7_1.sql, the file that was "
             + "reviewed. Nothing else catches this.\n\n  "
             + string.Join("\n  ", differences));
+    }
+
+    [Fact]
+    public void The_model_has_no_changes_waiting_for_a_migration()
+    {
+        // The gap left by comparing only the baseline: a configuration edited
+        // without a migration to carry it. The baseline comparison cannot see
+        // that — the baseline is fixed — and schema_current.sql cannot either,
+        // because it is regenerated from a database built by the migrations
+        // that do exist.
+        //
+        // This compares the model to the snapshot of the last migration, which
+        // is the one thing that notices.
+        using var context = _baseline.NewContext();
+
+        Assert.False(
+            context.Database.HasPendingModelChanges(),
+            """
+            An entity or configuration has changed with no migration to carry it. The
+            model and the migrations have diverged, so a fresh database and an upgraded
+            one would end up different.
+
+                dotnet ef migrations add <Name> --project src/Waymark.Persistence
+            """);
     }
 }
