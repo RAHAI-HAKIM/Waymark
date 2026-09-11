@@ -14,8 +14,9 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup Label="Identity">
-    <!-- ULIDs, not autoincrement, not UUIDv4 (CLAUDE.md 3.2).
-          Referenced by nobody yet — see decisions.md O-1. -->
+    <!-- ULIDs, not autoincrement, not UUIDv4 (CLAUDE.md 3.2). Belongs in
+          Waymark.Application, never Domain: ids come from the IIdGenerator port
+          so the synthetic generator stays deterministic (decisions.md D-038). -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.11" />
     <PackageVersion Include="Ulid" Version="1.4.1" />
   </ItemGroup>
@@ -27,9 +28,10 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="10.0.11" />
-    <!-- The single native provider for the whole process. SQLCipher opens
-          unencrypted files as ordinary SQLite, so waymark-store.db stays a
-          normal database and only waymark-identity.db is keyed. -->
+    <!-- The single native provider for the whole process. Verified end to end
+          in D-040: migration, triggers, indexes, STRICT, WAL and rekey all work
+          against an encrypted waymark-store.db, and an unencrypted database
+          still opens under the same bundle, which is what the POS cache needs. -->
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
   </ItemGroup>
   <ItemGroup Label="Hosting">

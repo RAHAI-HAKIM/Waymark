@@ -47,12 +47,19 @@ public sealed class ArchitectureTests
     }
 
     /// <summary>
-    /// Only Waymark.Pseudonymisation may name the identity database. Any
-    /// other project holding that path or opening that connection breaks
-    /// CLAUDE.md §3.4.
+    /// Only Waymark.Pseudonymisation may hold the tenant key.
+    ///
+    /// <para>
+    /// Renamed 11/09/2026. This was
+    /// <c>Only_Pseudonymisation_may_name_the_identity_database</c>, and D-039
+    /// removed that database — so the test still passed while guarding nothing.
+    /// What needs guarding now is the key: the pseudonym is a keyed hash, and
+    /// the separation the DPIA relies on is that nobody else can compute one
+    /// (CLAUDE.md §3.5).
+    /// </para>
     /// </summary>
     [Fact]
-    public void Only_Pseudonymisation_may_name_the_identity_database()
+    public void Only_Pseudonymisation_may_hold_the_tenant_key()
     {
         Assembly[] everyoneElse = [Domain, Contracts, Application, Persistence, Hardware, Sync];
 
@@ -65,6 +72,56 @@ public sealed class ArchitectureTests
 
             Assert.True(result.IsSuccessful, Explain(result, $"{assembly.GetName().Name} referenced Waymark.Pseudonymisation."));
         }
+    }
+
+    /// <summary>
+    /// Nobody below the hosts touches cryptography except Waymark.Pseudonymisation.
+    ///
+    /// <para>
+    /// The pseudonym is <c>HMAC-SHA256(tenant_key, …)</c>. A second place that
+    /// computes one is a second place that holds the key, and the first sign of
+    /// it would be a compliance question rather than a test failure. This is the
+    /// mechanical half of "only this project computes a pseudonym" — the
+    /// reference test above catches the obvious route, this one catches
+    /// somebody reimplementing it in place.
+    /// </para>
+    /// <para>
+    /// Hosts are excluded: TLS is cryptography and they are entitled to it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Only_Pseudonymisation_may_compute_a_pseudonym()
+    {
+        Assembly[] everyoneElse = [Domain, Contracts, Application, Persistence, Hardware, Sync];
+
+        foreach (var assembly in everyoneElse)
+        {
+            var result = Types.InAssembly(assembly)
+                .ShouldNot()
+                .HaveDependencyOn("System.Security.Cryptography")
+                .GetResult();
+
+            Assert.True(
+                result.IsSuccessful,
+                Explain(result, $"{assembly.GetName().Name} reached for cryptography. Only Waymark.Pseudonymisation may."));
+        }
+    }
+
+    /// <summary>
+    /// The key that must never reach the cloud is not held by anything that
+    /// talks to the cloud, in either direction.
+    /// </summary>
+    [Fact]
+    public void Pseudonymisation_and_Sync_know_nothing_of_each_other()
+    {
+        var result = Types.InAssembly(Pseudonymisation)
+            .ShouldNot()
+            .HaveDependencyOn("Waymark.Sync")
+            .GetResult();
+
+        Assert.True(
+            result.IsSuccessful,
+            Explain(result, "Waymark.Pseudonymisation reached toward the outbox. The boundary is symmetric."));
     }
 
     // -----------------------------------------------------------------------
@@ -155,6 +212,54 @@ public sealed class ArchitectureTests
 
             Assert.True(result.IsSuccessful, Explain(result, $"{assembly.GetName().Name} depends upward."));
         }
+    }
+
+    /// <summary>
+    /// Domain references no package outside a named allowlist.
+    ///
+    /// <para>
+    /// <see cref="Domain_depends_on_nothing"/> covers the eight sibling
+    /// projects, which is the mistake somebody is most likely to make. This
+    /// covers the one it cannot see: a NuGet package added to Domain. "Zero
+    /// dependencies" was written about project references, and a rule whose
+    /// value comes from being absolute needs the other half stated too
+    /// (decisions.md D-038).
+    /// </para>
+    /// <para>
+    /// <b>The allowlist is empty, and that is the intended state.</b> The
+    /// <c>Ulid</c> package lives in <c>Waymark.Application</c>, because ids come
+    /// from the <c>IIdGenerator</c> port and the port is all Domain needs to
+    /// know. Adding a name here is an architecture change: say why in a decision
+    /// entry first.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Domain_references_no_package_outside_the_allowlist()
+    {
+        string[] allowlist = [];
+        string[] framework = ["System", "netstandard", "mscorlib"];
+
+        var offenders = Domain.GetReferencedAssemblies()
+            .Select(reference => reference.Name ?? "(unnamed)")
+            .Where(name => !framework.Any(
+                prefix => name.Equals(prefix, StringComparison.Ordinal)
+                          || name.StartsWith(prefix + ".", StringComparison.Ordinal)))
+            .Where(name => !allowlist.Contains(name, StringComparer.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            $"""
+            Waymark.Domain took a package dependency.
+
+            Outside the allowlist:
+              {string.Join(Environment.NewLine + "  ", offenders)}
+
+            Domain has zero dependencies (CLAUDE.md §2.1). If this package really
+            belongs there, add it to the allowlist above and write the decision
+            entry that says why. Do not widen the framework prefixes.
+            """);
     }
 
     // -----------------------------------------------------------------------
