@@ -30,7 +30,7 @@ The division is by **reversibility and silence**, not by difficulty. Hakim owns 
 ### Hakim writes, or specifies precisely and reviews line by line
 
 - Schema and every migration  
-- The Statistics tier 1 → tier 2 pseudonymisation boundary and the mapping table  
+- The Statistics tier 1 → tier 2 pseudonymisation boundary and the pseudonym scheme  
 - Money and stock arithmetic; the decimal discipline  
 - Sync rules: what conflicts, what wins, what is flagged for review  
 - The recommendation envelope and the Integration Layer contract  
@@ -133,7 +133,9 @@ Not merely its own table. This makes "never synchronised, never backed up to clo
 
 ### 3.4 Decimal discipline
 
-Monetary columns are declared `TEXT` or `INTEGER` and mapped to `decimal` in C\#. **Never `REAL`.** Minor units stored as integers (centimes) or fixed-scale strings. The convention is decided once, enforced in the schema and the domain layer, and covered by tests.  
+Monetary columns are declared `INTEGER`, in minor units, and mapped to the `Money` value object in C\#. **Never `REAL`, never `TEXT`.** One Waymark minor unit is 1/100 of a currency unit, for every currency. The convention is enforced by `STRICT` tables in the schema, by `Money` in the domain layer, and by tests — including one that fails if a `decimal` or a `double` ever appears in the value objects' public API.
+
+*Revised 11/09/2026 (decisions.md D-031): this said "`TEXT` or `INTEGER` … mapped to `decimal`", and left fixed-scale strings open. `INTEGER` won because `STRICT` makes it mechanical, and `Money` replaced bare `decimal` because a bare decimal cannot refuse to be added to another currency or to round without being told how.*  
 ---
 
 ## 4\. Admin app — two surfaces, one product
@@ -249,7 +251,7 @@ Infrastructure points *up* into Domain because it implements interfaces Domain d
 | :---- | :---- |
 | `Waymark.Persistence` | EF Core, SQLite, migrations, repository implementations |
 | `Waymark.Hardware` | ESC/POS printing, drawer kick, scale serial protocols. Behind interfaces, so development runs against a fake printer writing to a file |
-| `Waymark.Pseudonymisation` | The tier 1→2 boundary and the mapping table, isolated so the boundary is a **compile-time fact**. Nothing on the cloud side may reference it |
+| `Waymark.Pseudonymisation` | The tier 1→2 boundary and the tenant key, isolated so the boundary is a **compile-time fact**. Nothing on the cloud side may reference it, and since D-039 this project holds the key, which makes that absence matter more |
 | `Waymark.Sync` | Outbound queue, inbound application, conflict rules |
 
 **Hosts**
@@ -513,6 +515,14 @@ Four reasons a separate *file* rather than a separate table:
 
 #### 9.7.1 Backup treatment — stated explicitly 
 
+> **Still true, with "tenant key" in place of "identity file" (D-039).** The key goes into
+> the local nightly backup to the second device and never into the cloud backup, and the
+> recovery consequence below is unchanged — which is why D-039 does not count key loss as a
+> new risk. What *did* change is that this is now enforced by a test over the backup
+> payload rather than by a file simply not being in the backup set, and that is the real
+> cost of the change.
+
+
 The identity file goes into the **local** nightly backup to the second device. It **never** goes to the cloud backup.
 
 **Recovery consequence, which must be explained at onboarding:** if the store hardware is lost and only the cloud backup survives, the mapping is gone permanently and the pseudonymised history becomes unlinkable. Transactions and totals survive; the connection to named customers does not.
@@ -774,7 +784,7 @@ Ordered roughly by usefulness. Most of these are a blog post or a book chapter, 
 
 #### One book chapter, if you want depth
 
-*Designing Data-Intensive Applications*, chapter 5 (Replication). Read the sections on leader-based replication and on replication lag. That is exactly this problem, described generally. Chapter 7 (Transactions) if the two-file write in §7.2 stays uncomfortable.
+*Designing Data-Intensive Applications*, chapter 5 (Replication). Read the sections on leader-based replication and on replication lag. That is exactly this problem, described generally. Chapter 7 (Transactions) for the outbox write, which is the two-row transaction that remains after D-039 removed the two-file one.
 
 Skip the chapters on distributed consensus. Manual promotion exists precisely so that material is not needed.  
 ---
@@ -785,7 +795,7 @@ One entry per non-obvious choice. What, why, what was rejected. Newest at the bo
 
 Format: `### NNN — Title` · date · then three short paragraphs.
 
-Entries 001–020 were made during Stage 3 planning and are recorded retrospectively from `Waymark_Implementation_Decisions` and `Waymark_Sync_Design`.  
+Entries 001–020 were made during Stage 3 planning and are recorded retrospectively from `Waymark_Implementation` and `Waymark_Sync_Design`.  
 ---
 
 **001 — C\# / .NET for both store-side surfaces**  
@@ -811,7 +821,9 @@ The weak-typing objection is real and is handled by 004\.
 **004 — Decimal discipline**  
 **01/09/2026**
 
-Monetary columns are `TEXT` or `INTEGER`, mapped to `decimal` in C\#. Never `REAL`. Minor units as integers or fixed-scale strings. Decided once, enforced in schema and domain layer, covered by tests. Floating-point money is the canonical silent error.  
+Monetary columns are `TEXT` or `INTEGER`, mapped to `decimal` in C\#. Never `REAL`. Minor units as integers or fixed-scale strings. Decided once, enforced in schema and domain layer, covered by tests. Floating-point money is the canonical silent error.
+
+*Narrowed 11/09/2026 by D-031: `INTEGER` only, and the C# side is `Money` rather than a bare `decimal`. The rule above is unchanged in substance — this one just closed the options it left open.*  
 **005 — DuckDB for statistics tiers 2–3**  
 **01/09/2026**
 
@@ -887,7 +899,7 @@ Side benefit: loyalty and tier rules evaluated at the store mean those customers
 
 Destroying the mapping leaves the history linked to itself: all of that person's baskets still share a pseudonym, so the profile survives, merely unattributed. In a shop with 200 regulars, a year of timestamped baskets is distinctive enough to single someone out.
 
-Instead: null the pseudonym on cloud transaction rows, delete the mapping row, purge identity columns in `processing_log`. Legally simpler, no singling-out exposure, and the engine loses nothing — only the Customer department cares who bought what, and that customer asked to be forgotten.
+Instead: null the pseudonym on cloud transaction rows, ~~delete the mapping row,~~ purge identity columns in `processing_log`. Legally simpler, no singling-out exposure, and the engine loses nothing — only the Customer department cares who bought what, and that customer asked to be forgotten. *(D-039: there is no mapping row to delete. The reasoning above is why the rest stands — nulling the cloud pseudonym was always the load-bearing action.)*
 
 Requires an append-only erasure ledger outside the erased data, re-applied on every restore.  
 **019 — Manual hot-replica promotion**  

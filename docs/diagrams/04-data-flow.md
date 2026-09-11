@@ -9,7 +9,7 @@ flowchart LR
         direction TB
         capture["Capture at POS or Admin<br/>name, phone, email, consent"]
         tier1[("Statistics tier 1<br/>raw, identified")]
-        mapping[("Mapping table<br/>customer_id to pseudonym_key<br/>separate file, separate key")]
+        key["Tenant key<br/>HMAC-SHA256, held only by<br/>Waymark.Pseudonymisation"]
         pseudo["Pseudonymisation<br/>THE BOUNDARY"]
         outbox[("Outbox<br/>already tier 2")]
         inbox[("Inbox<br/>pseudonym-keyed")]
@@ -25,30 +25,36 @@ flowchart LR
     end
 
     capture --> tier1
-    capture --> mapping
     tier1 --> pseudo
-    mapping -.->|"read only, never leaves"| pseudo
+    key -.->|"never leaves the premises"| pseudo
     pseudo --> outbox
     outbox ==>|"crosses the boundary"| tier2
     tier2 --> almanac
     almanac --> recs
     recs ==>|"crosses the boundary"| inbox
     inbox --> integ
-    mapping -.->|"read only, never leaves"| integ
+    key -.->|"never leaves the premises"| integ
     integ --> surface
 
     style local fill:#FAECE7,stroke:#993C1D,stroke-width:2px
     style cloudside fill:#E3F3F1,stroke:#0E8C86,stroke-width:2px
     style pseudo fill:#EDE7FA,stroke:#5A3AA8,stroke-width:2px
-    style mapping fill:#FFEEED,stroke:#93292F,stroke-width:2px
+    style key fill:#FFEEED,stroke:#93292F,stroke-width:2px
 ```
 
 **The claim this diagram supports.** Nothing carrying a direct identifier crosses either
-thick arrow. The mapping table is read at two points, both on the premises, and travels
-nowhere.
+thick arrow. The pseudonym is `HMAC-SHA256(tenant_key, "waymark:customer:v1:" ‖
+customer_id)` truncated to 128 bits (decisions.md D-039), and the key is used at two
+points, both on the premises. It is never in a backup and never in a sync payload, which
+is what stops anyone holding the cloud data from recomputing who is who.
+
+*Revised 11/09/2026: was a mapping table in a separate file. There is no mapping and no
+second database. What is kept separately is the key.*
 
 **Product improvement data (DPIA §2.7)** is not shown because it is not personal data:
 aggregates over at least 20 data subjects, computed at the store, fixed metric list.
 
-**On erasure**, the pseudonym is nulled on the cloud's
-transaction rows — unlinking rather than key destruction. See Waymark_Sync_Design §9.
+**On erasure**, the pseudonym is nulled on the cloud's transaction rows and identity
+columns in `processing_log` are purged — unlinking rather than key destruction, because
+destroying a mapping alone would leave the history linked to itself and still able to
+single someone out. See `Waymark_Implementation` §9.9.

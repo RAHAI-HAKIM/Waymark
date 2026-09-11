@@ -17,8 +17,14 @@ diagrams — generated documentation covers that.
 | 7 | `07-sequence-intent.md` | A Cloud Admin decision reaching the store | Sync work |
 | 8 | `08-state-lifecycles.md` | Recommendation and intent state machines | Integration Layer work |
 
-**Sources of truth.** `System_Architecture` for module design, `Waymark_Sync_Design` for
-everything in 4, 7 and 8, `Waymark_Implementation_Decisions` for 2, 3 and 5.
+**Sources of truth.** `../System_Architecture.md` for module design,
+`Waymark_Sync_Design` for everything in 4, 7 and 8, and `../Waymark_Implementation.md`
+for 2, 3 and 5. `Waymark_Sync_Design` is one of the documents held outside the
+repository — see `../README.md` for the list.
+
+**When a decision changes a diagram**, edit the diagram in the same commit and say which
+decision did it, inline. A diagram that contradicts `decisions.md` is worse than no
+diagram, because it is read as current.
 
 **Convention.** Solid arrow = calls or writes. Dotted arrow = occasional or out-of-band.
 Anything crossing the store/cloud line carries no direct identifier.

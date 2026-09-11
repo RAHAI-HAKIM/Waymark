@@ -13,7 +13,7 @@ flowchart BT
 
     persistence["Waymark.Persistence<br/>EF Core, SQLite, migrations"]
     hardware["Waymark.Hardware<br/>ESC/POS, drawer, scale"]
-    pseudo["Waymark.Pseudonymisation<br/>tier 1 to tier 2, mapping table<br/>holds the identity-file path"]
+    pseudo["Waymark.Pseudonymisation<br/>tier 1 to tier 2<br/>holds the tenant key"]
     sync["Waymark.Sync<br/>outbox, inbox, preconditions"]
 
     server["Waymark.StoreServer<br/>ASP.NET Core host"]

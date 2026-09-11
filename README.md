@@ -83,13 +83,17 @@ Four rules are worth repeating here, because each is silently wrong when
 broken — the code compiles, the tests pass, and the damage appears months
 later:
 
-1. **Money is never a float.** Monetary columns are `TEXT` or `INTEGER`, never
-   `REAL`. C# side is `decimal`, wrapped in `Money`.
-2. **Every primary key is a ULID generated in application code.** No database
-   autoincrement, anywhere, so offline terminals cannot collide.
-3. **Mapping row first, commit, then the customer row.** Order writes so
-   failure leaves garbage, not a gap.
-4. **Every engine figure carries its interval, its Because block and its
+1. **Money is never a float.** Monetary columns are `INTEGER`, in minor units,
+   never `REAL` and never `TEXT`. C# side is `Money`, which carries its
+   currency and refuses to round without being told how.
+2. **A stock level and a stock change are different types.** `Quantity` and
+   `QuantityDelta`. `Quantity + Quantity` does not compile, on purpose.
+3. **Every primary key is a ULID generated in application code**, through the
+   `IIdGenerator` port. No database autoincrement, anywhere, so offline
+   terminals cannot collide — and the synthetic generator stays deterministic.
+4. **The tenant key never leaves the premises.** It is what makes a pseudonym,
+   and it is in no backup and no sync payload.
+5. **Every engine figure carries its interval, its Because block and its
    computed-at age.** A number without a range is a bug.
 
 ---
@@ -104,7 +108,12 @@ later:
 | `docs/Waymark_Build_Plan.md` | Phase contents and definitions of done |
 | `docs/Project_Organization.md` | The roadmap and its running log |
 | `docs/decisions.md` | Every non-obvious choice, and why |
+| `docs/phase-0-plan.md` | What is left in Phase 0, and what blocks each piece |
+| `docs/schema-changes.md` | How to change the schema without breaking it |
 | `docs/diagrams/` | The eight architecture diagrams |
+
+Start at **`docs/README.md`** — it says which document answers which question,
+which wins when two disagree, and where a new piece of writing belongs.
 
 ---
 

@@ -120,7 +120,7 @@ So Statistics basically is being fed from the operational module, every decision
 **Tier 1 (raw events)** — holds real identifiers. Local, never syncs.  
 **Tier 2 (computed cache)** — pseudonymization happens here. This is the boundary.  
 **Tier 3 (consumption)** — the engine sees pseudonymous keys only.  
-**Mapping table** (`customer_id` ↔ `pseudonym_key`) sits beside Tier 1 and never crosses.   
+**The pseudonym** is `HMAC-SHA256(tenant_key, "waymark:customer:v1:" ‖ customer_id)`, truncated to 128 bits. There is no mapping table: what is kept separately is the **key**, which never leaves the premises and is in no backup and no sync payload *(revised 11/09/2026 — see decisions.md D-039)*.   
  Below a list of like 30 stats \-to be presented with graphs-, only like 4 show to the dashboard (i.e Revenue, most sold products, …) this module provides all needed data for the Engine to operate in an organized manner.  *Here is a suggested list :*
 
 1. Online/social sales share   
@@ -328,7 +328,7 @@ Here is a table which present the format of operation of each department:
 * Full operational DB — products, prices, inventory, batches, open transactions. The POS must keep selling when the line drops.  
 * `Customers` direct identifiers: name, phone, email, address  
 * `Staff` identifiers  
-* The mapping table (`customer_id` ↔ `pseudonym_key`)  
+* The tenant key that makes a pseudonym — never backed up to the cloud, never synced (D-039)  
 * Consent records and notice versions  
   **Cloud (Algeria):**  
 * Statistics tiers 2 and 3 — pseudonymized  

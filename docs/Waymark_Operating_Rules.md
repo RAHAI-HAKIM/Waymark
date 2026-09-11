@@ -342,7 +342,9 @@ Locked 31/08/2026. Companion to System\_Architecture and to
 
 The System\_Architecture "Data placement" section already committed to this; it is now explicit.
 
-**Store side (authoritative for all operational data):** Full operational DB — products, prices, inventory, batches, transactions. Direct identifiers (customer name, phone, email, address), staff identifiers, the `customer_id ↔ pseudonym_key` mapping table, consent records and notice versions. Statistics **tier 1**.
+**Store side (authoritative for all operational data):** Full operational DB — products, prices, inventory, batches, transactions. Direct identifiers (customer name, phone, email, address), staff identifiers, the **tenant key** that derives `pseudonym_key` from `customer_id`, consent records and notice versions. Statistics **tier 1**.
+
+*Revised 11/09/2026 (decisions.md D-039): this said "the `customer_id ↔ pseudonym_key` mapping table". There is no mapping table and no second database. The pseudonym is a keyed hash, so the separately-kept information is the key. Every commitment in this section is unchanged — what crosses the boundary, and what does not, is the same.*
 
 **Cloud side:** Statistics **tiers 2–3** (pseudonymised), transaction history keyed by pseudonym, products/batches/suppliers/POs, the Analytical Engine (all five departments), backups.
 
@@ -399,7 +401,7 @@ Almanac pre-computes recommendation candidates keyed by pseudonym and pushes the
 Consequences:
 
 - Checkout recommendations keep working offline.  
-- The mapping table never leaves the store, satisfying the Integration Layer's own security rule.  
+- The tenant key never leaves the store, satisfying the Integration Layer's own security rule.  
 - No latency risk during a sale.  
 - Consistent with the brand: an almanac is precomputed by definition.
 
@@ -417,7 +419,7 @@ Consequences:
 
 **Cloud in Algeria**, as already written into System\_Architecture.
 
-Optionality worth knowing but not spending: because only pseudonymised data crosses the boundary and the mapping table never does, non-Algerian hosting would also be **defensible** under law 25-11 if Algerian providers prove impractical. Law 25-11 imposes no localisation mandate; it requires prior ANPDP authorisation for transfers to non-adequate countries (the US is not on the adequacy list; response 30–60 days).
+Optionality worth knowing but not spending: because only pseudonymised data crosses the boundary and the tenant key never does, non-Algerian hosting would also be **defensible** under law 25-11 if Algerian providers prove impractical. Law 25-11 imposes no localisation mandate; it requires prior ANPDP authorisation for transfers to non-adequate countries (the US is not on the adequacy list; response 30–60 days).
 
 **Still open:** choice of provider. Also to investigate — any university/data-centre arrangement available through ENSIA.
 

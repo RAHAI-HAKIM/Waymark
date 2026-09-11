@@ -23,7 +23,7 @@ to the shopkeeper. Code that cannot be explained cannot ship.
 | Store server | C# / .NET, ASP.NET Core |
 | Admin (local and cloud) | React + TypeScript + Tailwind + Vite |
 | Analytical engine | Python |
-| Store data | SQLite (operational, stats tier 1, identity, POS cache) |
+| Store data | SQLite (operational, stats tier 1, POS cache) |
 | Cloud data | Postgres (state), DuckDB per tenant (stats tiers 2–3) |
 
 ---
@@ -183,7 +183,11 @@ EF Core version: 10, with .NET 10 LTS. Not 11 — it is STS, and the till needs 
 ### 3.8 A stock level and a stock change are different types
 
 - **`Quantity`** is a level or a magnitude — what you order, receive, count, return, shelve.
-- **`QuantityDelta`** is a change — what a stock movement does. Signed, never zero.
+- **`QuantityDelta`** is a change — what a stock movement does. Signed. **Zero is a legal
+  value though not a legal movement**: `CHECK (quantity_changed <> 0)` stops a pointless
+  row, but a receipt and a write-off cancelling sum to nothing, and two equal levels differ
+  by nothing. The non-zero rule belongs to the column, like the non-negative rules on
+  `quantity_ordered`.
 - The operators are the specification. `Quantity + QuantityDelta → Quantity`;
   `Quantity − Quantity → QuantityDelta`; `QuantityDelta + QuantityDelta → QuantityDelta`.
   **`Quantity + Quantity` deliberately does not exist.**
@@ -276,8 +280,8 @@ inventory module". If a task seems to require an architecture decision, stop and
 ### 7.2 What needs Hakim's decision, not a best guess
 
 - Schema and migrations
-- The tier 1 → tier 2 boundary and the mapping table
-- Money and stock arithmetic
+- The tier 1 → tier 2 boundary and the pseudonym scheme
+- Money and stock arithmetic — *the rules are settled (D-031 to D-037); changing one is a new decision*
 - Sync rules: what conflicts, what wins, what is flagged
 - The recommendation envelope and Integration Layer contract
 - Engine method selection, cold-start fallbacks, interval computation
@@ -337,4 +341,11 @@ rights logic.
 | `Waymark_Implementation` | How the software is built |
 | `Waymark_Build_Plan` | Phase contents and definitions of done |
 | `Waymark_DPIA_v1` | What is promised to the regulator |
+| `/docs/decisions.md` | Every non-obvious choice, and what was rejected |
+| `/docs/phase-0-plan.md` | What is left in Phase 0, and what blocks each piece |
+| `/docs/schema-changes.md` | How to change the schema without breaking it |
 | `/docs/diagrams` | The eight architecture diagrams |
+
+`/docs/README.md` is the index: which document answers which question, which wins when two
+disagree, and where a new piece of writing belongs. Some of the documents above are held
+outside the repository; that file says which.

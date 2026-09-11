@@ -1309,6 +1309,21 @@ no test catches it because whoever writes the test makes the same mistake. This
 is exactly the silent error §8 says tests exist for, and here the type system
 does the job better than a test can.
 
+**Zero is a legal value for a delta, though not a legal movement.** Written up
+first as "signed, never zero", which building it proved wrong.
+`CHECK (quantity_changed <> 0)` stops a pointless row being written; it cannot
+stop a receipt and a write-off cancelling, and it cannot stop two equal levels
+differing by nothing. A type that refused zero could express neither, so
+`Quantity − Quantity` would not be total and `Σ(deltas)` would have no identity.
+The non-zero rule belongs to the column, exactly like the non-negative rules on
+`quantity_ordered`.
+
+**Totalling magnitudes goes through a named `Sum`, not `operator +`.** Adding the
+units across the lines of an order is legitimate; adding two *levels* is not, and
+one type serves both roles. Naming the operation is the safeguard — it reads as a
+deliberate act at the call site, which is exactly where somebody should ask which
+of the two they are doing.
+
 **Both types carry their unit.** Every quantity column in the schema sits beside
 a `unit_code`, and `units_of_measure` carries `factor_to_base` and
 `decimal_places`. Adding 1 kg to 500 g must not be a silent integer addition:
@@ -1324,6 +1339,22 @@ the column comments the schema already carries (`-- thousandths, signed` → del
 `-- thousandths` → quantity). The remaining cost is 8–15 explicit conversions at
 boundaries — `QuantityDelta.Decrease(sold)`, `delta.Magnitude` — and each one is
 a place somebody had to say out loud which direction they meant.
+
+**`decimal_places` is enforced by `UnitPrecision`, a third type.** The validation
+needs a number that lives on `units_of_measure`, and `Quantity` holds only the
+`unit_code` — because that is all a row carries, and an EF converter cannot reach
+across to another table. So the metadata is its own small value type, built at the
+boundary from the entity: `UnitPrecision.For(unit.UnitCode, (int)unit.DecimalPlaces)`.
+It is named for its job rather than called `UnitOfMeasure`, which is already the
+entity in `Waymark.Domain.Reference`.
+
+**Unit conversion is deliberately not built yet.** Nothing in Phase 0 converts
+between units — `supplier_variant.units_per_purchase_unit` is a separate
+mechanism — and conversion is the only quantity operation that would round. It
+therefore needs the same "multiply by a rational, round once" primitive `Money`
+already has, and the two should be one implementation rather than two. Building
+it now would mean either duplicating that logic or refactoring `Money` mid-review.
+When it lands, it lands with the extraction.
 
 **`Money` is deliberately not split the same way.** It has the same shape
 (`customers.credit` versus `credit_movements.amount`), but there the ledger is

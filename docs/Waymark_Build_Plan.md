@@ -2,7 +2,7 @@
 
 The detailed expansion of the eight phases. Owner: Hakim. Opened: 02/09/2026.
 
-**Relationship to other documents.** This does not introduce scope; it expands the phase table in Waymark\_Implementation\_Decisions §6 into something that can be worked from daily. Where the two disagree, that table is the shorter statement of the same thing and this file is wrong.
+**Relationship to other documents.** This does not introduce scope; it expands the phase table in Waymark\_Implementation §6 into something that can be worked from daily. Where the two disagree, that table is the shorter statement of the same thing and this file is wrong.
 
 **Principle, restated.** The product is never shown mid-phase. Each phase ends demo-able. Work proceeds as far as time allows; the February demo is whatever phase last completed.
 
@@ -41,7 +41,7 @@ That last one is the regression guard. It is cheap and it is the thing that stop
 
 ### 1.2 Division of labour — the general shape
 
-Unchanged from Waymark\_Implementation\_Decisions §1: divide by **reversibility and silence**, not by difficulty. Per-phase specifics appear below, but the constant is:
+Unchanged from Waymark\_Implementation §1: divide by **reversibility and silence**, not by difficulty. Per-phase specifics appear below, but the constant is:
 
 **Hakim** — schema, migrations, the pseudonymisation boundary, money and stock arithmetic, sync rules, the recommendation envelope, engine method selection, cold-start fallbacks, interval computation, anything the DPIA promises.
 
@@ -129,7 +129,7 @@ Channels worth knowing for .NET, both of which teach the same architecture this 
 | SQLite | The operational store. Output: one file, no service | Its own docs; read the WAL-mode page properly |
 | xUnit | Test framework. Output: the safety net for silent errors | Nick Chapsas on testing |
 | NetArchTest | Architecture tests. Output: the layering rule enforced by CI, not by discipline | README of the library; an hour |
-| ULID library | Sortable IDs. Output: no collisions across offline terminals | Read the ULID spec first (short), then pick a .NET package |
+| ULID library | Sortable IDs. Output: no collisions across offline terminals | **Decided (D-038):** the `Ulid` package, in `Waymark.Application`, behind the `IIdGenerator` port so the synthetic generator stays deterministic |
 
 ### Definition of done
 
