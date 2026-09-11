@@ -50,5 +50,5 @@ nowhere.
 **Product improvement data (DPIA §2.7)** is not shown because it is not personal data:
 aggregates over at least 20 data subjects, computed at the store, fixed metric list.
 
-**On erasure**, the mapping row is deleted and the pseudonym is nulled on the cloud's
+**On erasure**, the pseudonym is nulled on the cloud's
 transaction rows — unlinking rather than key destruction. See Waymark_Sync_Design §9.

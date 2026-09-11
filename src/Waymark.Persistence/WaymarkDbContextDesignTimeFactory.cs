@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Waymark.Domain;
 
 namespace Waymark.Persistence;
 
@@ -33,6 +34,8 @@ public sealed class WaymarkDbContextDesignTimeFactory : IDesignTimeDbContextFact
             .UseWaymarkSqlite(scratch)
             .Options;
 
-        return new WaymarkDbContext(options);
+        // No store: design-time work builds the model and writes SQL, and never
+        // reads a row, so there is nothing for a store filter to scope.
+        return new WaymarkDbContext(options, new FixedCurrentStore(null));
     }
 }

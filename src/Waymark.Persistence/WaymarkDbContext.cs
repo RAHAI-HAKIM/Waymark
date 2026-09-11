@@ -4,8 +4,10 @@
 // would overwrite anything edited since. It deliberately carries no generated-
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
+using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
+using Waymark.Domain;
 using Waymark.Domain.Catalogue;
 using Waymark.Domain.Customers;
 using Waymark.Domain.Engine;
@@ -31,13 +33,23 @@ namespace Waymark.Persistence;
 /// pointed anywhere else.
 /// </para>
 /// <para>
-/// This context does not own <c>waymark-identity.db</c> and never will. Only
-/// <c>Waymark.Pseudonymisation</c> holds that path (CLAUDE.md §3.4).
+/// This context never holds the tenant key and never computes a pseudonym.
+/// Only <c>Waymark.Pseudonymisation</c> does (CLAUDE.md §3.5, D-039).
 /// </para>
 /// </summary>
-public sealed class WaymarkDbContext(DbContextOptions<WaymarkDbContext> options)
+public sealed class WaymarkDbContext(
+    DbContextOptions<WaymarkDbContext> options,
+    ICurrentStore currentStore)
     : DbContext(options)
 {
+    /// <summary>
+    /// Read by the global query filters. A property rather than a captured
+    /// local, because EF compiles the filter expression once and re-reads this
+    /// on every query — capturing the value would freeze whichever store was
+    /// current when the model was first built.
+    /// </summary>
+    private string? CurrentStoreId => currentStore.StoreId;
+
     // Catalogue
     public DbSet<AttributeDefinition> AttributeDefinitions => Set<AttributeDefinition>();
     public DbSet<AttributeOption> AttributeOptions => Set<AttributeOption>();
@@ -143,6 +155,60 @@ public sealed class WaymarkDbContext(DbContextOptions<WaymarkDbContext> options)
         // what keeps it short at 58 tables instead of 1,100 lines.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(WaymarkDbContext).Assembly);
 
+        ApplyStoreScope(modelBuilder);
+
         base.OnModelCreating(modelBuilder);
+    }
+
+    /// <summary>
+    /// Puts every <see cref="IStoreScoped"/> entity behind a store filter
+    /// (CLAUDE.md §3.3). A filter rather than a <c>where</c> clause because a
+    /// caller can forget a <c>where</c> clause, and cross-tenant leakage is
+    /// DPIA risk R9.
+    ///
+    /// <para>
+    /// Applied here by reflection rather than a line in each of the seventeen
+    /// configurations. The filter is the same rule seventeen times, and a rule
+    /// repeated by hand is a rule that will eventually be missed once.
+    /// </para>
+    /// </summary>
+    private void ApplyStoreScope(ModelBuilder modelBuilder)
+    {
+        var open = typeof(WaymarkDbContext).GetMethod(
+            nameof(FilterByStore), BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            if (!typeof(IStoreScoped).IsAssignableFrom(entityType.ClrType))
+            {
+                continue;
+            }
+
+            var storeId = entityType.FindProperty(nameof(IStoreScoped.StoreId))
+                ?? throw new InvalidOperationException(
+                    $"{entityType.ClrType.Name} is IStoreScoped but has no mapped StoreId.");
+
+            open.MakeGenericMethod(entityType.ClrType)
+                .Invoke(this, [modelBuilder, storeId.IsNullable]);
+        }
+    }
+
+    private void FilterByStore<TEntity>(ModelBuilder modelBuilder, bool storeIdIsNullable)
+        where TEntity : class, IStoreScoped
+    {
+        if (storeIdIsNullable)
+        {
+            // promotions and processing_log allow no store, and those rows mean
+            // "every store" — a promotion that is not store-specific, or
+            // processing that happened outside one. They stay visible.
+            modelBuilder.Entity<TEntity>()
+                .HasQueryFilter(e => e.StoreId == null || e.StoreId == CurrentStoreId);
+            return;
+        }
+
+        // Plain equality where the column is NOT NULL. The nullable form above
+        // would read `store_id IS NULL OR store_id = @p`, which costs an index
+        // seek on tables like transactions for a branch that can never be true.
+        modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.StoreId == CurrentStoreId);
     }
 }

@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Sales;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Sales;
 /// and how this reaches SQLite lives in <c>TransactionConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class Transaction
+public sealed class Transaction : IStoreScoped
 {
     /// <summary>Primary key (<c>transaction_id</c>).</summary>
     public required string TransactionId { get; init; }

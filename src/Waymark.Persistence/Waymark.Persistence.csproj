@@ -4,8 +4,9 @@
     EF Core, SQLite, migrations, repository implementations. The only project
     besides Sync and the hosts allowed to contain SQL.
 
-    Owns waymark-store.db. It does NOT own waymark-identity.db — that path
-    lives in Waymark.Pseudonymisation and nowhere else (CLAUDE.md 3.4).
+    Owns waymark-store.db, which is the only operational database there is
+    since D-039 removed waymark-identity.db. It does NOT hold the tenant key —
+    that lives in Waymark.Pseudonymisation and nowhere else (CLAUDE.md 3.5).
   -->
 
 

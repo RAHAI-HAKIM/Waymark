@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Organisation;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Organisation;
 /// and how this reaches SQLite lives in <c>TerminalConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class Terminal
+public sealed class Terminal : IStoreScoped
 {
     /// <summary>Primary key (<c>terminal_id</c>).</summary>
     public required string TerminalId { get; init; }

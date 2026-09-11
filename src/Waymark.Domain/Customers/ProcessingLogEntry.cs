@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Customers;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Customers;
 /// and how this reaches SQLite lives in <c>ProcessingLogEntryConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class ProcessingLogEntry
+public sealed class ProcessingLogEntry : IStoreScoped
 {
     /// <summary>Primary key (<c>log_id</c>).</summary>
     public required string LogId { get; init; }

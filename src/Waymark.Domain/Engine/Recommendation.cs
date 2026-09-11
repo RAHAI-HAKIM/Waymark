@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Engine;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Engine;
 /// and how this reaches SQLite lives in <c>RecommendationConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class Recommendation
+public sealed class Recommendation : IStoreScoped
 {
     /// <summary>Primary key (<c>recommendation_id</c>).</summary>
     public required string RecommendationId { get; init; }

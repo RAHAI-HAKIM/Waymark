@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Sync;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Sync;
 /// and how this reaches SQLite lives in <c>IntentConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class Intent
+public sealed class Intent : IStoreScoped
 {
     /// <summary>Primary key (<c>intent_id</c>).</summary>
     public required string IntentId { get; init; }

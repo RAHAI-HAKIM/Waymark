@@ -4,8 +4,8 @@
     Two jobs.
 
     1. Integration tests against a real temporary SQLite file, never an
-       in-memory substitute (CLAUDE.md 8). Migrations, the two-file write
-       ordering, sync replay.
+       in-memory substitute (CLAUDE.md 8). Migrations, store scoping,
+       sync replay.
     2. Architecture tests (NetArchTest) enforcing CLAUDE.md 2.1. They must
        fail when a forbidden reference is added — that is the point of them.
 

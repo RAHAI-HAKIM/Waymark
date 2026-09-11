@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Waymark.Domain;
 using Waymark.Persistence;
 
 namespace Waymark.Integration.Tests;
@@ -32,13 +33,18 @@ public abstract class SqliteDatabaseFixture : IDisposable
 
     protected abstract void Build();
 
-    public WaymarkDbContext NewContext(bool enforceForeignKeys = true)
+    /// <summary>
+    /// A context for this database. <paramref name="storeId"/> feeds the global
+    /// store filter; the default sees every row that belongs to no store and
+    /// nothing that belongs to one, which is the fail-closed behaviour.
+    /// </summary>
+    public WaymarkDbContext NewContext(bool enforceForeignKeys = true, string? storeId = null)
     {
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
             .UseWaymarkSqlite(DatabasePath, enforceForeignKeys)
             .Options;
 
-        return new WaymarkDbContext(options);
+        return new WaymarkDbContext(options, new FixedCurrentStore(storeId));
     }
 
     public SqliteConnection Connect(bool enforceForeignKeys = true)

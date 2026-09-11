@@ -10,7 +10,7 @@ flowchart TB
         server["Waymark.StoreServer<br/>ASP.NET Core"]
         localadmin["Local Admin<br/>TypeScript web app"]
         storedb[("waymark-store.db<br/>SQLite<br/>operational + stats tier 1")]
-        identitydb[("waymark-identity.db<br/>SQLite<br/>mapping table only")]
+        tenantkey["Tenant key<br/>HMAC-SHA256<br/>held by Waymark.Pseudonymisation"]
         poscache[("POS Level-2 cache<br/>SQLite")]
         backup[("Local nightly backup<br/>second device")]
     end
@@ -21,16 +21,16 @@ flowchart TB
         postgres[("Postgres<br/>tenants, subscriptions, sync state")]
         duckdb[("DuckDB, one file per tenant<br/>stats tiers 2 and 3")]
         cloudadmin["Cloud Admin<br/>TypeScript PWA"]
-        cloudbackup[("Cloud backup<br/>never holds the mapping")]
+        cloudbackup[("Cloud backup<br/>never holds the tenant key")]
     end
 
     pos -->|"local HTTP"| server
     pos --> poscache
     localadmin -->|"HTTP over LAN"| server
     server --> storedb
-    server --> identitydb
+    server --> tenantkey
     server --> backup
-    identitydb -.->|"local backup only"| backup
+    tenantkey -.->|"local backup only"| backup
 
     server <-->|"mTLS, store-initiated, both directions in one round trip"| api
 
@@ -43,12 +43,15 @@ flowchart TB
 
     style premises fill:#FBFAFC,stroke:#5A3AA8,stroke-width:2px
     style algeria fill:#FBFAFC,stroke:#0E8C86,stroke-width:2px
-    style identitydb fill:#FAECE7,stroke:#993C1D,stroke-width:2px
+    style tenantkey fill:#FAECE7,stroke:#993C1D,stroke-width:2px
 ```
 
 **Reading it.** Only one arrow crosses between the two boxes, and it is store-initiated.
-The identity database is highlighted because it is the only store that must never
-cross — not over sync, not over backup.
+The tenant key is highlighted because it is the one thing that must never cross — not over
+sync, not over backup. *(Was `waymark-identity.db`; removed by decisions.md D-039. The
+pseudonym is now a keyed hash, so what is kept separately is the key rather than a mapping
+table — and the exclusion is enforced by a test rather than by the file simply not being
+in the backup set.)*
 
 **Absent from the cloud by design:** any screen or table showing a customer name, phone or
 email.

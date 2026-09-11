@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Purchasing;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Purchasing;
 /// and how this reaches SQLite lives in <c>PurchaseOrderConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class PurchaseOrder
+public sealed class PurchaseOrder : IStoreScoped
 {
     /// <summary>Primary key (<c>order_id</c>).</summary>
     public required string OrderId { get; init; }

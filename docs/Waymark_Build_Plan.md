@@ -85,15 +85,17 @@ Channels worth knowing for .NET, both of which teach the same architecture this 
 
 **Type and identity discipline**
 
-- `Money` and `Quantity` value objects; monetary columns `TEXT` or `INTEGER`, never `REAL`  
-- ULID generation in application code for every primary key  
-- Store scoping as an EF Core global query filter, not a per-query `where`
+- `Money` with its currency, `Quantity` and `QuantityDelta`; monetary columns `INTEGER` in minor units, never `REAL` (D-031, D-035, D-036)  
+- Three rounding mechanisms — exact allocation, the retailer's policy, the cash step — and the `rounding_variance` ledger (D-032, D-034)  
+- ULID generation in application code for every primary key, through the `IIdGenerator` port so the generator stays deterministic (D-038)  
+- Store scoping as an EF Core global query filter, not a per-query `where` — **done**, D-030
 
-**The two-file split**
+**Pseudonymisation** *(revised — was "the two-file split")*
 
-- `waymark-store.db` and `waymark-identity.db`, separate connections, separate keys  
-- `Waymark.Pseudonymisation`: mapping read/write, the mapping-first write ordering, the tier 1→2 transform interface  
-- Only this project holds the identity path
+- `waymark-identity.db` **is removed.** The pseudonym is `HMAC-SHA256(tenant_key, "waymark:customer:v1:" ‖ customer_id)`, truncated to 128 bits, with no mapping table (D-039)  
+- `Waymark.Pseudonymisation`: the key, the hash, the tier 1→2 transform interface. Only this project holds the key  
+- A test proving the key cannot appear in a backup payload or the outbox  
+- `waymark-store.db` stays SQLCipher-encrypted; the path is verified end to end (D-040)
 
 **Contracts**
 
@@ -132,10 +134,11 @@ Channels worth knowing for .NET, both of which teach the same architecture this 
 ### Definition of done
 
 - Solution builds; architecture tests pass and *fail* when a forbidden reference is added  
-- Migration creates both databases from empty  
+- Migration creates the store database from empty, **encrypted**, with every trigger in place  
 - The generator produces a year of data that loads and looks plausible under inspection  
-- Value-object tests cover money rounding, currency, negative quantities  
-- A mapping row and its customer survive a simulated crash between the two writes, leaving garbage rather than a gap
+- Value-object tests cover money rounding under both policies, allocation summing exactly to the total, TVA extraction from TTC, currency mismatch throwing, the cash step, and the level/change algebra  
+- The tenant key cannot appear in a backup payload or the outbox, proved by a test that fails when the exclusion is removed  
+- *(dropped — the mapping-first crash test went with `waymark-identity.db`, D-039)*
 
 **Test kinds:** unit tests on value objects and domain rules; architecture tests; one smoke test that generated data loads.
 
@@ -237,7 +240,7 @@ One product, one store, one department, ugly UI. Its only job is to prove the ar
 - Auth: sessions, roles, PIN gating at the till  
 - Local Admin web app, served by StoreServer over the LAN  
 - Offline Level 1 behaviour: everything works with no cloud; the outbox accumulates  
-- Nightly local backup to a second device, including the identity file; one-click restore a non-technical user can perform  
+- Nightly local backup to a second device, **including the tenant key** (the identity file is gone, D-039); one-click restore a non-technical user can perform  
 - Real hardware: ESC/POS printing, drawer kick, scanner input handling
 
 ### Skills and tools
@@ -468,13 +471,13 @@ Hakim owns almost all of this phase's substance — method selection, formulas, 
 
 **Erasure propagation**
 
-- Unlink: null the pseudonym on cloud transaction rows, delete the mapping row, purge identity columns in `processing_log`  
+- Unlink: null the pseudonym on cloud transaction rows, purge identity columns in `processing_log` (no mapping row to delete, D-039)  
 - Priority flush, surviving long offline windows  
 - Append-only erasure ledger outside the erased data, re-applied on every restore
 
 **Backups**
 
-- Cloud backup that never contains the identity file  
+- Cloud backup that never contains the tenant key, proved by a test that fails when the exclusion is removed  
 - Restore drill including erasure ledger re-application
 
 ### Skills and tools

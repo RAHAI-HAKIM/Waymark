@@ -105,7 +105,7 @@ Where performance is a genuine engineering problem is the **engine**: incrementa
 | Operational (transactional writes) | **SQLite** | **Postgres** — subscriptions, tenants, sync state |
 | Statistics tier 1 (raw, identified) | **SQLite** | — |
 | Statistics tiers 2–3 (pseudonymised) | — | **DuckDB**, one file per tenant |
-| Mapping table (`customer_id` ↔ `pseudonym_key`) | **SQLite, separate file** | never |
+| Mapping table (`customer_id` ↔ `pseudonym_key`) | ~~SQLite, separate file~~ **removed — keyed hash, no table (D-039)** | never |
 | POS Level-2 offline cache | **SQLite, own file and schema** | — |
 
 ### 3.1 SQLite for operational data — confirmed
@@ -123,6 +123,11 @@ Volume check: a supérette at 2,000 transactions/day with \~6 lines each produce
 DuckDB's single-writer embedded limitation is a non-issue: one database file per tenant is what tenant isolation already requires.
 
 ### 3.3 The mapping table lives in its own file
+
+> **SUPERSEDED 11/09/2026 by D-039.** There is no mapping table. The property this section
+> was buying — "never synchronised, never backed up" as configuration rather than as a rule
+> to remember — is the one thing the change genuinely costs, and it is now bought instead
+> by a test that fails if the tenant key can reach a backup payload or the outbox.
 
 Not merely its own table. This makes "never synchronised, never backed up to cloud" a property of the sync and backup configuration rather than a rule someone must remember.
 
@@ -483,6 +488,16 @@ Only two, and both already have rules.
 
 ### 9.7 The mapping table
 
+> **SUPERSEDED 11/09/2026 by `decisions.md` D-039.** There is no mapping table and no
+> second file. The pseudonym is `HMAC-SHA256(tenant_key, "waymark:customer:v1:" ‖
+> customer_id)`, truncated to 128 bits. The four reasons below were weighed individually
+> in D-039: reason 1 survives in a different form (there is no mapping to join *to*), reason
+> 2 was always weaker than it reads — the PII lives in `customers` in the operational
+> database, so a thief with the till gets the names regardless — reason 4 still holds, and
+> **reason 3 is the real cost of the change** and is why the key exclusion is now enforced
+> by a test rather than by file-level configuration. §9.7.2 no longer applies at all.
+> Kept below because it is the rationale for what was rejected.
+
 **Decision: a second SQLite file on the store machine.**
 
 `waymark-store.db` holds operational data. `waymark-identity.db` holds nothing but `(customer_id, pseudonym_key, created_at)` and the staff equivalent.
@@ -503,6 +518,12 @@ The identity file goes into the **local** nightly backup to the second device. I
 **Recovery consequence, which must be explained at onboarding:** if the store hardware is lost and only the cloud backup survives, the mapping is gone permanently and the pseudonymised history becomes unlinkable. Transactions and totals survive; the connection to named customers does not.
 
 #### 9.7.2 Write ordering — the orphan rule
+
+> **NO LONGER APPLIES (D-039).** One file means one transaction, so the window this
+> section manages does not exist. The general rule at the end — *order writes so failure
+> leaves garbage, not a gap* — is kept in CLAUDE.md §3.5 because it outlives the case it
+> was written for.
+
 
 Two files means two transactions, which means a window where one has committed and the other has not. You choose which side of that window is safe.
 
@@ -575,7 +596,13 @@ Consistent with the locked voice rule: *Almanac admits its age as well as its un
 
 ### 9.9 Erasure — unlink, do not destroy
 
-**Decision: on erasure, null the pseudonym on the cloud's transaction rows, delete the mapping row, and purge identity columns in the processing log.**
+**Decision: on erasure, null the pseudonym on the cloud's transaction rows, ~~delete the mapping row,~~ and purge identity columns in the processing log.**
+
+> **Amended 11/09/2026 (D-039).** The mapping-row deletion is gone with the mapping. The
+> rest stands unchanged, and the reasoning below is why: nulling the cloud pseudonym was
+> always the load-bearing action, because destroying the mapping alone leaves the history
+> linked to itself. What is lost is defence in depth — severance now depends on the cloud
+> honouring the request, with no local unilateral cut.
 
 #### 9.9.1 Why not simply destroy the mapping
 
@@ -703,7 +730,7 @@ Phase 5, but it changes what the replica records, so it is written down now.
 | Certificate enrolment and renewal flow, including the offline-past-expiry path | Phase 4 |
 | Parameter registry schema — version and computed-at fields on the cold-start table | Phase 2 |
 | DPIA Annex A revision: ask about unlinking, not mapping destruction | Before ANPDP submission |
-| DPIA correction: `pseudonym_key` column on `Customers` superseded by the separate identity file | Before ANPDP submission |
+| DPIA correction: DPIA §5.2 describes a separately-stored mapping; under D-039 there is no mapping and no identity file — the pseudonym is a keyed hash and the *key* is what is stored separately | Before ANPDP submission |
 
 ---
 
@@ -835,13 +862,13 @@ Cost: a price change made from a phone does not take effect until the store sync
 Rejected re-confirmation. If the store is offline, the Cloud Admin the retailer is looking at is already stale; asking him to re-confirm gives him a second chance to decide on the same stale picture. It looks like a safeguard and is not one.
 
 An expired intent does not vanish — it becomes a fresh decision request at the store, computed against current data. Windows tabulated in `Waymark_Sync_Design` §6.3, organised by cost of applying late.  
-**015 — The mapping lives in its own SQLite file**  
+**015 — The mapping lives in its own SQLite file** — ~~superseded 11/09/2026 by D-039~~  
 **01/09/2026**
 
 `waymark-identity.db`, separate from `waymark-store.db`. SQLite foreign keys cannot cross files, so the boundary is physically impossible to violate. It gets its own encryption key, which is what actually mitigates DPIA risk R5. Backup and sync exclusion become file-level configuration rather than a rule to remember at every call site.
 
 Supersedes the `pseudonym_key` column on `Customers` in DB\_design\_v5. The DPIA needs correcting before submission.  
-**016 — Mapping row written first**  
+**016 — Mapping row written first** — ~~no longer applies; one file, one transaction (D-039)~~  
 **01/09/2026**
 
 Two files means two transactions and a window between them. Crash after the mapping and before the customer leaves a harmless orphan. The reverse leaves a customer with no pseudonym, and the first sale then has nothing to translate — forcing a dropped event, a blocked sale, or a second pseudonym minted at the till.
@@ -855,7 +882,7 @@ What settled it: a store-side evaluator is being built regardless, because expir
 Once the evaluator exists, adding "is stock below this number" costs nearly nothing. The discipline that stops the split from doubling the work: no formula is implemented twice.
 
 Side benefit: loyalty and tier rules evaluated at the store mean those customers' events never cross the boundary at all.  
-**018 — Erasure unlinks rather than destroying the mapping**  
+**018 — Erasure unlinks rather than destroying the mapping** — *stands; the mapping-row deletion alone is dropped (D-039)*  
 **01/09/2026**
 
 Destroying the mapping leaves the history linked to itself: all of that person's baskets still share a pseudonym, so the profile survives, merely unattributed. In a shop with 200 regulars, a year of timestamped baskets is distinctive enough to single someone out.

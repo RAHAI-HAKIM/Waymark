@@ -3,10 +3,10 @@
   <!--
     The tier 1 to tier 2 boundary, isolated so it is a compile-time fact.
 
-    This is the ONLY project that holds the waymark-identity.db path or opens
-    a connection to it. Waymark.Sync must never reference this project — that
-    missing edge is a legal boundary, and an architecture test asserts it
-    (CLAUDE.md 2.1, 3.4).
+    This is the ONLY project that holds the tenant key or computes a pseudonym.
+    Waymark.Sync must never reference this project — that missing edge is a
+    legal boundary, and an architecture test asserts it (CLAUDE.md 2.1, 3.5).
+    It matters more since D-039, not less: this project now holds the key.
   -->
 
 
@@ -15,8 +15,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The identity file is encrypted with its own key, separate from the
-        operational database. -->
+    <!-- D-039 removed waymark-identity.db, so this project no longer opens a
+         database of its own. The references stay until the pseudonymisation
+         work lands and confirms they are unused. -->
     <PackageReference Include="Microsoft.Data.Sqlite.Core" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
   </ItemGroup>

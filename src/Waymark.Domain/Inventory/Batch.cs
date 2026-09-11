@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Inventory;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Inventory;
 /// and how this reaches SQLite lives in <c>BatchConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class Batch
+public sealed class Batch : IStoreScoped
 {
     /// <summary>Primary key (<c>batch_id</c>).</summary>
     public required string BatchId { get; init; }

@@ -982,19 +982,572 @@ name-level one, and neither is redundant.
 
 ---
 
+## D-030 — Store scoping: a marker interface, a reflected filter, fail closed [Phase 0]
+
+Implements CLAUDE.md §3.3 and DPIA risk R9.
+
+**What.** Seventeen of the 58 tables carry `store_id`. Their entities implement
+`IStoreScoped`, and `WaymarkDbContext.OnModelCreating` attaches a global query
+filter to each. No schema change: query filters are model metadata, and
+`has-pending-model-changes` stays clean.
+
+**A marker interface rather than a convention on the column name.** Naming the
+column `store_id` should not silently opt a table into a security filter, and
+forgetting the marker should not be mistakable for a decision. The filtered set
+is something a person wrote down, and a test checks that what they wrote down
+covers every table with the column.
+
+**Applied by reflection rather than a line in each of the seventeen
+configurations.** It is one rule seventeen times, and a rule repeated by hand is
+a rule that will be missed once — which is the whole reason §3.3 asks for a
+filter instead of a `where` clause.
+
+**Two filter shapes, because two columns are nullable.** `promotions` and
+`processing_log` allow a null store, and those rows mean *every* store — a
+promotion that is not store-specific, or processing that happened outside one.
+They read `store_id IS NULL OR store_id = @p`. The other fifteen are NOT NULL
+and read plain equality: the nullable form would add a branch that can never be
+true and cost an index seek on tables like `transactions`.
+
+**Unset means nothing, not everything.** `ICurrentStore.StoreId` returning null
+does not disable the filter; it matches only rows belonging to no store. A
+tenancy filter that opens up when unconfigured fails silently and leaks
+everything; one that returns nothing fails in the first minute. `StoreServer`
+reads `Waymark:Store:StoreId`, which is unset until a store row exists.
+
+**`stores` is filtered too**, so a till sees its own row and no other. Correct at
+Basic tier, and worth revisiting if a deployment ever holds more than one store
+in one database.
+
+**Verified by removing the marker from `Terminal`.** Five tests failed, and the
+useful one was not the structural check but
+`The_other_stores_rows_are_not_merely_reordered_but_absent`: store A's context
+returned store B's terminal. That is R9 happening, reproduced.
+
+**Escape hatch, and it is deliberate.** `IgnoreQueryFilters()` bypasses this, and
+the tests use it to seed. Anything outside a test that calls it is doing
+cross-store work and needs to say why in a decision entry.
+
+---
+
+---
+
+## D-031 — `Money`: a fixed-scale integer, a currency, and no accidental rounding [Phase 0]
+
+Closes half of O-4.
+
+**What.** `Money` is a readonly struct of `(long MinorUnits, Currency Currency)`. It
+maps to the schema's `INTEGER` money columns with no change to any column:
+`schema_v7_1.sql` already fixes the storage as *"INTEGER, in centimes (scale
+100). Never REAL, never TEXT."*
+
+**The storage scale is a Waymark convention, not the currency's minor unit.**
+One Waymark minor unit is 1/100 of a currency unit, for every currency. This
+matters because an EF value converter sees one property in isolation — it cannot
+read the row's `currency` column to learn an exponent. Fixing the storage scale
+at 100 keeps the converter a pure function. The currency's *own* exponent lives
+on the `Currency` type and governs display and cash rounding, not storage.
+
+**No arithmetic that can round exists as an operator.** `+`, `-`, unary `-`,
+comparison and multiplication by an `int` are exact and are operators.
+Multiplication by a rate or a quantity, and division, exist **only** as methods
+that take an explicit rounding policy:
+
+```
+money.Times(Quantity q, Rounding r)
+money.Percent(BasisPoints bp, Rounding r)
+money.Allocate(weights)        // exact; takes no policy
+```
+
+There is deliberately no `operator *(Money, decimal)`.
+
+**Why the ceremony.** Grepping for `Times(`, `Percent(` and `Allocate(` returns
+every site in the codebase where a centime can be created or destroyed. That
+list is what CLAUDE.md §7.4 asks for — a founder who can point at every place
+money changes shape. An implicit `*` operator would scatter those sites into
+ordinary-looking arithmetic and there would be no way to enumerate them again.
+
+**Rejected: `decimal` everywhere with rounding at the persistence boundary.**
+It is what most .NET codebases do. It moves the rounding to a place nobody
+reads, applies one policy to every case regardless of meaning, and makes the
+count of rounding sites unknowable.
+
+---
+
+## D-032 — Rounding is three problems, not one setting [Phase 0]
+
+**What.** Three mechanisms, deliberately not unified:
+
+| Problem | Mechanism | Can it create variance? |
+| :---- | :---- | :---- |
+| Splitting a known total across parts | `Allocate` — largest remainder | **No.** Exact by construction |
+| Deriving a value with no predetermined total | `Rounding.HalfEven` / `HalfUp`, retailer's choice | Yes, and it is the retailer's policy |
+| Cash tender | The currency's cash step | Yes, and it is recorded (D-034) |
+
+**Allocation, not repeated rounding.** A basket discount split across four lines,
+or a bundle price split into components, gives each part its floor and then
+distributes the leftover minor units one at a time, largest remainder first,
+ties broken by line sequence. `sum(parts) == total` holds by construction,
+always, deterministically. Rounding each part independently guarantees it will
+not.
+
+**Two policies, both the retailer's:** `HalfEven` (banker's) and `HalfUp` (away
+from zero). Stored as `stores.rounding_policy`, **and stamped on
+`transactions.rounding_policy`**. The second is the one that matters: a retailer
+who switches policy in March must not make February's receipts
+unreproducible. A receipt has to be recomputable from its own row.
+
+**`Truncate` is not offered as a store policy.** It is biased downward on every
+single line without exception, so the drift accumulates in one direction and
+never cancels, and it is the hardest of the three to defend to an inspector. It
+remains available as an internal operation where it is semantically correct
+("how many whole packs fit"), never as a money presentation policy.
+
+**Banker's does not make the variance zero.** Its zero-expectation property
+assumes the discarded fractions are uniformly distributed. Retail prices cluster
+on `.00`, `.50`, `.90`, `.99`, and 19% TVA on a price ending in `.99` produces a
+strongly biased set of half-centimes. Banker's *reduces* drift versus half-up;
+it does not remove it. The variance ledger is needed under either policy, which
+is why it is not conditional on the choice.
+
+**The engine's rounding is not selectable.** Almanac always uses `HalfEven`, and
+mostly should not round at all — §5 says every figure carries its interval, and
+a figure with an interval does not need rounding to the centime. Engine output
+is stored at full precision and rounded only at display. This is what keeps the
+retailer's presentation choice out of the statistics: a store that picked
+`HalfUp` would otherwise bias every number Almanac fits on.
+
+---
+
+## D-033 — TVA is extracted per line from a TTC price, and derived by subtraction [Phase 0]
+
+Resolves O-11. Under Law No. 04-02 on commercial practices, displayed retail
+prices in Algeria must be **TTC**, and research confirms TVA is computed per
+line item, with the discount applied before extraction.
+
+**The arithmetic of a line, in order:**
+
+```
+line_ttc = round(sell_price × quantity, policy)   ← rounding site 1
+line_ttc = line_ttc − discount_amount             ← exact
+ht       = round(line_ttc / (1 + rate), policy)   ← rounding site 2
+tva      = line_ttc − ht                          ← exact, by subtraction
+```
+
+**TVA is derived by subtraction, never rounded independently.** That is the
+whole trick: it makes `ht + tva == line_ttc` true by construction on every line,
+under any policy, with no residual. Summing then gives `subtotal + tax_total ==
+total_amount` exactly, which is a testable invariant rather than a hope.
+
+**Consequence: invoice-level tax variance cannot occur**, so
+`tax_reconciliation` was dropped from the variance ledger's sources before it
+was ever built. Had TVA been computed on the invoice total, or rounded
+independently per line, that source would have been necessary.
+
+**`prices.is_tax_inclusive` stays, and stays defaulted to 1.** Law 04-02 governs
+*displayed retail* prices. B2B and wholesale quoting in HT is a different case,
+and `supplier_variant.purchase_price` is HT by nature.
+
+---
+
+## D-034 — Cash tender rounds to the currency's step, and the difference is recorded [Phase 0]
+
+Resolves O-10 and the R5 question of when. The smallest coin in practical
+circulation in Algeria is 5 DZD.
+
+**Rounding applies to the tender, never to the invoice.** The invoice total stays
+exact: it is a fiscal document, it must be printable before the customer chooses
+how to pay, and it must not change because they reached for cash instead of a
+card.
+
+```
+Total TTC      1 247,00
+Espèces        1 245,00
+Arrondi          −2,00   →  rounding_variance, source 'cash_tender'
+```
+
+Only the **cash portion** of a tender is rounded. Card takes the exact amount.
+
+**Nearest, ties away from zero.** Rejected: always-toward-the-store, which is
+common practice and was the first suggestion here. It takes up to 4,99 DZD from
+every cash customer on every sale, systematically and without exception — an
+argument nobody wants to have under the same law that mandated TTC display.
+Nearest is also the only one of the three that does not accumulate, and it is
+what a shopkeeper does by hand anyway, which makes it explainable.
+
+**The step is a property of the currency, not a constant in the POS.**
+`Currency.CashRoundingStep` is 500 minor units for DZD and 1 for EUR (no
+rounding). The number 500 never appears in a handler.
+
+**Why a ledger and not a memo.** `cash_sessions` already has `counted_cash`,
+`expected_cash` and `variance`, and that variance column exists to detect theft
+and miscounting. If tender rounding leaks into it, every session shows a few
+dinars off every day, the shopkeeper learns to ignore the number, and the
+control is dead. Recording tender rounding separately is what keeps
+`cash_sessions.variance` meaning what it says.
+
+**New table, in the first real migration:**
+
+```
+rounding_variance
+  variance_id  store_id  occurred_at
+  source        'cash_tender' | 'currency_conversion'
+  reference_type  reference_id
+  amount        INTEGER signed minor units
+  policy        TEXT
+  created_at
+```
+
+Append-only, guarded by triggers like the other ledgers. Note what `source`
+excludes: allocation. Allocation is exact (D-032), so a row with that source
+would mean the allocator is broken — the absence is itself an assertion.
+
+**The invariant this buys, and it is testable:**
+
+```
+expected_cash = opening_float
+              + Σ cash payments + Σ paid_in − Σ paid_out − Σ drops
+              + Σ tender rounding variance
+```
+
+---
+
+## D-035 — Currency is carried by the value, and costs one field [Phase 0]
+
+Closes the currency half of O-4.
+
+**Three things the word "currency" usually conflates, kept apart:**
+
+| | What it is | Today |
+| :---- | :---- | :---- |
+| Ledger currency | What the store's books are in. Set at commissioning, immutable | DZD |
+| Document currency | What one document is denominated in | DZD — except supplier documents, which may already differ |
+| Presentation currency | What a report is *displayed* in. Never stored | DZD |
+
+**One rule.** Within a document all money is in that document's currency. Across
+documents, arithmetic requires equal currencies or an explicit recorded
+conversion. `+`, `-` and comparison **throw** on mismatch. There is no implicit
+conversion anywhere, ever.
+
+**Almost nothing changes.** v7 already put `currency TEXT NOT NULL DEFAULT 'DZD'`
+on all eight money-bearing tables — `stores`, `prices`, `transactions`,
+`transaction_payments`, `purchase_orders`, `suppliers`, `supplier_variant`,
+`batch_items`. The work is in the type, not the schema.
+
+**What is built now:** a `Currency` readonly struct of `(Code,
+MinorUnitExponent, CashRoundingStep)` and a static registry of supported
+currencies. **No `currencies` table** — these are ISO facts and local practice
+facts, identical for every store, so they are code, not data. A table would cost
+a migration, foreign keys from eight tables, and seed data, to hold values that
+never vary per store.
+
+**What is not built now:** rate tables, a rate feed, a conversion engine,
+multi-currency reporting, revaluation. There is nothing to convert.
+
+**No CHECK constraint on the `currency` columns.** Adding one to eight existing
+tables means eight SQLite table rebuilds, including `transactions` and
+`transaction_payments` — the exact operation CLAUDE.md §3.7 says to plan as an
+operational event. For one supported currency the protection is not worth the
+rebuild. Revisit if a second currency ever ships.
+
+**Why the exponent is worth having today.** The schema's "scale 100" is a **DZD
+fact**, not a universal one. If a currency with a different minor unit ever
+appears, every INTEGER money column changes meaning at once, and no migration
+can tell you which rows were which. With the exponent on the type from the
+start, that day costs one converter.
+
+**Stage 2 works with no code at all.** A French supplier quoting EUR sets
+`supplier_variant.currency = 'EUR'` and `purchase_orders.currency = 'EUR'`; the
+entire purchase-order arithmetic happens in EUR, so no conversion occurs and no
+rate is needed. **Known limitation:** foreign-currency documents do not
+round-trip through the ambient converter, which builds `Money` with the
+deployment's ledger currency from `Waymark:Store:Currency`. That is the Stage 2
+boundary and it is named here so it is not discovered later.
+
+**Stage 3 — where EUR meets DZD** — happens at exactly one place: valuing
+received stock into DZD inventory. The converted cost is written **once** into
+`batches.unit_cost`, stamped with the rate and its date, as a landed-cost
+decision rather than a live lookup. The same batch then always values the same
+way and last year's margins do not move when the dinar does. Any residual is the
+`currency_conversion` source of D-034's ledger.
+
+---
+
+## D-036 — `Quantity` and `QuantityDelta`: a level and a change are different types [Phase 0]
+
+Closes the quantity half of O-4. Resolves R4.
+
+**The distinction is level versus change, not positive versus signed.** The first
+instinct was to force quantity positive, but the schema says otherwise in four
+places — `inventories.quantity` is annotated *"thousandths, may be negative"*,
+`stock_movements.quantity_changed` is *"thousandths, signed"*,
+`transaction_items.quantity` is `CHECK (<> 0)` for refund lines, and
+`transaction_payments.amount` is *"negative on refund"* — while
+`quantity_ordered`, `quantity_received`, `quantity_returned` and
+`stock_count_items.quantity` are all `> 0`. A stock level going negative is not a
+bug; it is a sale that outran its receipt, which happens constantly.
+
+**Two types, and the operators are the specification:**
+
+```
+Quantity      + QuantityDelta  →  Quantity        level + change = level
+Quantity      − Quantity       →  QuantityDelta   level − level  = change
+QuantityDelta + QuantityDelta  →  QuantityDelta   changes sum
+Quantity      + Quantity                          deliberately does not exist
+```
+
+What falls out is the reconciliation algebra CLAUDE.md §8 puts in its top three,
+now type-checked rather than conventional:
+
+```
+closing_level = opening_level + Σ(deltas)
+```
+
+**Why a type and not a test.** The archetypal stock bug is a sign error — a delta
+passed where a magnitude was expected. Both values are plausible integers, and
+no test catches it because whoever writes the test makes the same mistake. This
+is exactly the silent error §8 says tests exist for, and here the type system
+does the job better than a test can.
+
+**Both types carry their unit.** Every quantity column in the schema sits beside
+a `unit_code`, and `units_of_measure` carries `factor_to_base` and
+`decimal_places`. Adding 1 kg to 500 g must not be a silent integer addition:
+mismatched units throw, and conversion is explicit through `factor_to_base`.
+`decimal_places BETWEEN 0 AND 3` is per unit, so a variant sold by `piece`
+(0 places) rejects 1.5 pieces at construction rather than at the CHECK
+constraint.
+
+**The cost, and why it is small here.** Two EF value converters instead of one
+would normally mean editing 60-odd configurations by hand. Because path C′
+generates the configurations, it is one rule in `tools/generate-model`, keyed off
+the column comments the schema already carries (`-- thousandths, signed` → delta,
+`-- thousandths` → quantity). The remaining cost is 8–15 explicit conversions at
+boundaries — `QuantityDelta.Decrease(sold)`, `delta.Magnitude` — and each one is
+a place somebody had to say out loud which direction they meant.
+
+**`Money` is deliberately not split the same way.** It has the same shape
+(`customers.credit` versus `credit_movements.amount`), but there the ledger is
+append-only and the balance is derived rather than mutated, so the confusion has
+far less room to occur. Revisit only if it bites.
+
+---
+
+## D-037 — Division by zero throws; absence is never zero [Phase 0]
+
+**What.** `Money` division by zero throws, always, with no contextual exception.
+A caller who legitimately expects zero to be possible calls a different method
+that returns null, and the compiler then forces them to handle it. The engine
+has an explicit "insufficient data" state and the UI renders that state.
+
+**Why it is not contextual.** A margin of 0% shown because revenue was zero is
+precisely the failure CLAUDE.md §8 exists for — the code runs, the screen looks
+right, the number is wrong, and nobody notices for a quarter. §5 says stale
+output is shown as stale and never hidden; a zero standing in for "could not
+compute" hides it.
+
+**The property that makes this cheap to review.** The choice is visible in *which
+method was called*, so nobody reasons about context at a call site and a
+reviewer sees it in the diff.
+
+---
+
+## D-038 — ULIDs come from a port, so the generator stays deterministic [Phase 0]
+
+Resolves O-1.
+
+**What.** `Waymark.Domain` declares `IIdGenerator { string NewId(); }` and
+nothing else. `UlidGenerator` wraps `Ulid.NewUlid()` and lives in
+`Waymark.Application`. `SeededIdGenerator(seed, clockStart)` is deterministic and
+is what tests and the synthetic store generator inject. Command handlers mint
+every id for the whole unit of work — transaction, items, movements, outbox row
+— before anything is written.
+
+**What forced it.** CLAUDE.md §8 says the synthetic store generator is
+deterministic from a seed and tests depend on that. An entity that calls
+`Ulid.NewUlid()` in its constructor makes that unachievable: the same seed
+produces different ids every run, so there is no golden-file test over generated
+data, no diff between two generated stores, and no reproducing a reported bug
+from its seed. A static call cannot be substituted, and no amount of test
+scaffolding recovers it afterwards.
+
+A ULID is 48 bits of timestamp plus 80 bits of randomness, so fixing the clock
+and seeding the randomness preserves every property that matters — uniqueness
+within a run and correct sort order. It also gives a bonus that turns out to
+matter: a store generated for 2024 gets ids whose embedded timestamps are in
+2024, so ULID sort order matches business chronology in the fake data too.
+
+**Consequence for the allowlist.** Hakim approved a named-allowlist rule for
+Domain packages in place of loosening "zero dependencies" to "no project
+references". That rule stands and is the right rule — but with the port,
+**`Ulid` lives in Application and the allowlist starts empty.** Domain keeps a
+true zero. `Ulid` 1.4.1 was verified MIT with an empty dependency group on
+net6.0/net7.0/net8.0, so the allowlist would have been safe; it simply is not
+needed. It earns an entry only if Domain later wants a typed `UlidId` that
+validates format or reads the timestamp back out.
+
+---
+
+## D-039 — Pseudonymisation by keyed hash; `waymark-identity.db` is removed [Phase 0]
+
+Supersedes the identity-file half of CLAUDE.md §3.4 and all of §3.5. **This
+changes commitments in `Waymark_DPIA_v1` and that document must be amended
+before it is filed.**
+
+**What.** `pseudonym_key = HMAC-SHA256(tenant_key, "waymark:customer:v1:" ‖
+customer_id)`, truncated to 128 bits and Crockford base32 encoded, so a
+pseudonym is 26 characters like a ULID and the cloud's columns stay uniform.
+There is no mapping table and no second SQLite file. The four-file split in §3.4
+becomes three.
+
+**The reframe that decided it.** `waymark-identity.db` never held the PII —
+names and phone numbers are in `customers` in the operational database, with
+`ix_customers_phone` on them. The identity file's job was exactly one
+capability: **severing the link, per customer, by deleting a row.** That is a
+much narrower purpose than the four-file table suggests, and the question
+reduces to whether per-customer severance is worth a file, a second key and
+§3.5's write ordering.
+
+**Reverse lookup does not need a table.** HMAC is one-way, but a store has a few
+thousand customers: enumerate them, compute each HMAC, match. Milliseconds. The
+mapping table is genuinely unnecessary.
+
+**The backup is what the separation has to survive.** `waymark-store.db` is
+backed up to Waymark's cloud. If the mapping simply lived in a column on
+`customers`, it would be uploaded in every backup, Waymark would hold both sides,
+and the tier separation would be decorative. Two things survive that: a separate
+file that is never backed up, or **a key that is never in a backup or sync
+payload.** They are equally protective against the threat that matters —
+Waymark-the-company being able to connect `customer_id`s in a backup to
+pseudonyms in the cloud.
+
+**Erasure is almost unchanged, and the first draft of this entry got that
+wrong.** `Waymark_Implementation` §9.9 (decision 018) already specifies erasure
+as **null the pseudonym on the cloud's transaction rows**, purge identity columns
+in `processing_log`, and record it in `erasure_ledger` — *because* merely
+destroying the mapping leaves the history linked to itself, so a year of
+timestamped baskets still singles the person out. All of that works identically
+under HMAC. What disappears is the second, store-side, unilateral cut. Since the
+cloud-side null was always the load-bearing action and the mapping deletion was
+defence-in-depth against the cloud failing to comply, **the cost is the loss of
+that defence in depth, not the loss of anonymisation.** The aggregate statistics
+survive either way.
+
+**Rejected: a random pseudonym in a mapping table.** It is the stronger scheme on
+one axis — severance can be performed locally, unilaterally, without the cloud's
+cooperation, and without a network. Against that, removing the file deletes a
+second key, §3.5's write ordering and an entire class of two-phase-commit bugs
+from a system running on one Windows till.
+
+**Accepted costs, stated plainly:**
+
+1. **Backup exclusion stops being file-level.** This is the real one.
+   `Waymark_Implementation` §9.7 reason 3 is that excluding a whole *file* from
+   the cloud backup is configuration, not a rule anyone has to remember at a call
+   site. Excluding a 32-byte secret from a payload is a rule someone can forget.
+   This is precisely why condition 1 below is a test rather than a sentence.
+2. **Erasure loses its defence in depth** — see above. Severance now depends on
+   the cloud honouring the request; there is no local unilateral cut.
+3. **Key compromise is total, permanent and unfixable.** One key, one function,
+   every customer, forever, retroactively. The scheme is non-rotating by
+   decision, so a leaked key re-identifies all historical cloud data for that
+   tenant and nothing undoes it.
+4. **No relief on D-015.** `waymark-store.db` stays SQLCipher-encrypted, so the
+   bundle and SQLite 3.39.2 stay.
+
+**Two costs that turn out not to be costs.** *Key loss* looked like a new risk
+but is not: §9.7.1 already accepts that if the hardware is lost and only the
+cloud backup survives, the mapping is gone permanently and the history becomes
+unlinkable. The same sentence holds with "key" in place of "mapping". And §9.7
+reason 2 — that two keys mean stolen hardware yields the operational database
+but not the link — was always weaker than it reads, because the PII itself lives
+in `customers` in the operational database. A thief with the till gets the names
+and phone numbers directly; the mapping was never what stood in the way.
+
+**Four conditions, all binding:**
+
+1. **The key is never in a backup or sync payload** — enforced by a test over
+   the backup payload and the outbox, not by a policy statement.
+2. **The key is per tenant, not per store** (O-12), so one customer has one
+   pseudonym across a chain. This costs nothing at Basic tier, where a tenant is
+   one store. At multi-store it costs an out-of-band provisioning step, and the
+   thing it must never cost is Waymark's cloud seeing the key: the key is
+   generated client-side and carried operator-to-operator, never issued by the
+   cloud.
+3. **Domain separation in the input** — the `"waymark:customer:v1:"` prefix.
+   Costs nothing now, impossible to add later, and it is what allows staff or
+   suppliers to be pseudonymised under the same key without collision, and the
+   scheme to be versioned if it must be.
+4. **`Waymark.Sync` must still never reference `Waymark.Pseudonymisation`**
+   (§2.1). That boundary is now more important, not less, because
+   `Waymark.Pseudonymisation` holds the key.
+
+**Not settled here:** key custody and recovery (O-2), and what a tier-2 record
+contains beyond the pseudonym (O-3).
+
+---
+
+## D-040 — SQLCipher verified end to end before anything was built on it [Phase 0]
+
+Hakim asked for confirmation before writing. A throwaway probe was run against
+the real stack and deleted afterwards.
+
+```
+sqlite_version 3.39.2          cipher_version 4.5.2 community
+cipher_provider libtomcrypt    kdf_iter 256000 (PBKDF2-HMAC-SHA512)
+journal_mode=wal  -> wal       STRICT tables -> OK
+right key -> opens    wrong key -> rejected    no key -> rejected
+canary string in plaintext -> False
+PRAGMA rekey -> OK, rows intact
+unencrypted database in the same process -> OK
+
+MigrateAndApplyTriggers() on an encrypted file -> OK
+  60 tables, 11 triggers, 81 indexes, 58 STRICT
+  'CREATE TABLE "transactions"' present in plaintext -> False
+```
+
+**What this settles.** The whole migration path — the STRICT generator, all 11
+append-only triggers, all 81 indexes — runs unchanged against an encrypted
+database. WAL works. Nothing leaks to a hex editor, including the schema text
+itself. An unencrypted database opens in the same process under the same
+bundle, which is what the POS Level-2 cache needs.
+
+**What it also settles, usefully:** `PRAGMA rekey` works, so key rotation is
+mechanically possible. D-039 chose a non-rotating pseudonymisation key, but the
+*database* key is a separate secret and can be rotated. That matters to O-2.
+
+**What it does not settle.** Where the key bytes live and who can recover them.
+That is O-2 and it is unchanged by any of this.
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
 during scaffolding.
 
-| # | Question | Why it cannot be defaulted |
-| :---- | :---- | :---- |
-| O-1 | Does `Waymark.Domain` take the `Ulid` NuGet package, or define its own ULID type? | "Zero dependencies" is written about project references. A leaf package is arguably fine, but the rule's value comes from being absolute. `Ulid` is declared in `Directory.Packages.props` and referenced by nobody, pending this. |
-| O-2 | ~~Two SQLite providers in one process~~ — **resolved by D-015.** One bundle, SQLCipher, for the whole process. Key custody for `waymark-identity.db` remains open under DPIA §5.4. |
-| O-3 | Schema — every table, and the tier 1 → tier 2 mapping | The whole of Phase 0's middle. Nothing was scaffolded here. |
-| O-4 | `Money` and `Quantity` — rounding mode, currency handling, negative quantity rules | Money arithmetic is explicitly Hakim's. |
-| O-5 | Assertion library for the test projects | FluentAssertions 8.x requires a paid commercial licence from Xceed, and Waymark is a commercial product. The pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. Nothing in the suite uses an assertion library today. |
+### Still open
+
+| # | Question | Why it cannot be defaulted | Blocks |
+| :---- | :---- | :---- | :---- |
+| O-2 | **Key custody and recovery.** Where the SQLCipher key and the HMAC tenant key live on a Windows till — DPAPI machine scope, DPAPI user scope, a key file, an operator passphrase — and whether either is recoverable if the machine dies, by whom. | DPIA §5.4. Two secrets now, with different properties: the database key **can** be rotated (`PRAGMA rekey`, verified in D-040); the tenant key **cannot** (D-039), so its loss permanently unlinks all cloud history and its compromise is permanent and retroactive. Escrow solves loss but reintroduces the linkage risk unless the escrow is operator-held. | `Waymark.Pseudonymisation`, and encrypting the store database at all |
+| O-3 | **What a tier-2 record contains**, beyond the pseudonym. | The mapping *mechanism* is settled by D-039; the payload is not. It is the thing the DPIA promises about, and it decides what the outbox can carry. | The tier 1→2 transform, the outbox shape |
+| O-5 | Assertion library for the test projects. | FluentAssertions 8.x requires a paid commercial licence from Xceed and Waymark is a commercial product, so the pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. All 64 tests currently use plain `Assert` and read fine. | Nothing. Deferrable indefinitely, but cheaper to decide before the value-object suites are written |
+| O-15 | **The recommendation envelope's exact fields and their types.** `Waymark_Build_Plan` gives `{department, explanation, urgency, action_type: binary\|menu, options[], source}` — is that final? | CLAUDE.md §7.2 names the Integration Layer contract explicitly. It is also the shape Almanac has to emit, so changing it later costs on both sides. | `Waymark.Contracts` |
+| O-16 | **What `processing_log` records at each access site** — the exact column set per purpose (collection, consultation, disclosure, transmission, erasure). | DPIA commitment. §4 says the write is structural, not remembered, which means the helper's signature *is* the promise. | The `processing_log` helper, and therefore any handler touching a customer |
+| O-17 | **The synthetic store generator's spec** — category mix, price distributions, Ramadan and payday shape, spoilage and stockout rates, connectivity quality. | The Build Plan calls this the highest-leverage build in the phase and says to review its *output distributions*, not its code. A generator built to a guessed spec produces plausible-looking data that teaches the engine the wrong seasonality. | The generator, and every test that depends on a year of data |
+
+### Resolved
+
+| # | Outcome |
+| :---- | :---- |
+| O-1 | ~~Does `Waymark.Domain` take the `Ulid` package?~~ — **resolved by D-038: it does not.** The port `IIdGenerator` lives in Domain, `Ulid` lives in Application. The named-allowlist rule Hakim approved stands and starts empty, so Domain keeps a true zero dependency count. |
+| O-2 *(first half)* | ~~Two SQLite providers in one process~~ — **resolved by D-015**, one SQLCipher bundle for the whole process, and **verified end to end by D-040**: migration, 11 triggers, 81 indexes, 58 STRICT tables, WAL, wrong-key rejection, rekey, and an unencrypted database in the same process. Custody remains open above. |
+| O-3 *(first half)* | ~~The tier 1 → tier 2 mapping mechanism~~ — **resolved by D-039.** HMAC-SHA256 with a per-tenant key, truncated to 128 bits, no mapping table, no identity file. |
+| O-4 | ~~`Money` and `Quantity`~~ — **resolved by D-031, D-032, D-033, D-034, D-035, D-036 and D-037.** Fixed-scale integers, currency on the value, three rounding mechanisms, TVA by subtraction, cash tender recorded, two quantity types, division by zero throws. |
 | O-6 | ~~Entity topology~~ — **resolved by D-021.** One set: entities in `Waymark.Domain`, configurations in `Waymark.Persistence`. |
-| O-7 | **`HasPendingModelChanges()` cannot see the v1 schema.** Under D-019 the initial migration's `Up()` is hand-written SQL while the model snapshot is generated from the entity configurations. That check compares model to snapshot, so the configurations and the pasted schema can disagree and nothing reports it. Confined to v1, since every later change flows from the model — and the one-time diff in D-019 is the mitigation, which makes that diff load-bearing rather than advisory. Flagged 08/09/2026 to investigate before the baseline is generated. |
-| O-9 | ~~Does the baseline `Up()` still need the schema SQL pasted into it?~~ — **resolved 09/09/2026: no.** Pasting was insurance against the generated `CreateTable` calls not matching the reviewed schema; that has now been checked mechanically and passed on all 58 tables, 625 columns, column *order*, types, nullability, keys, 137 foreign keys, unique constraints as groups, index columns, uniqueness, partial-index filters, 167 CHECK expressions and 102 defaults. The insurance has nothing left to cover, and it would cost a 1,200-line opaque string, a `Down()` that cannot be generated, and a first migration unlike every later one. The generated `Up()` stands. |
-| O-8 | ~~The 85 foreign-key indexes EF adds on its own~~ — **resolved 08/09/2026: suppressed.** `ForeignKeyIndexConvention` is removed in `ConfigureConventions`, so the model declares 82 indexes against the schema's 68 named plus 14 UNIQUE constraints, and nothing appears by itself. Hakim works with foreign keys directly and does not want indexes the schema never asked for; they are not free on write, and this database lives on one till. If a foreign key later needs an index it is added with `HasIndex`, like every other. |
+| O-7 | ~~`HasPendingModelChanges()` cannot see the v1 schema~~ — **closed 10/09/2026.** Its premise was D-019's hand-pasted `Up()`, which O-9 removed. The concern itself is now covered by `ModelMatchesSchemaTests` and the pending-changes test added in D-029. |
+| O-8 | ~~The 85 foreign-key indexes EF adds on its own~~ — **resolved 08/09/2026: suppressed.** `ForeignKeyIndexConvention` is removed in `ConfigureConventions`. If a foreign key later needs an index it is added with `HasIndex`, like every other. |
+| O-9 | ~~Does the baseline `Up()` still need the schema SQL pasted into it?~~ — **resolved 09/09/2026: no.** Checked mechanically across all 58 tables, 625 columns, column *order*, types, nullability, keys, 137 foreign keys, unique constraints as groups, index columns, uniqueness, partial-index filters, 167 CHECK expressions and 102 defaults. |
+| O-10 | ~~Cash rounding direction~~ — **resolved by D-034: nearest, ties away from zero.** Always-toward-the-store was rejected as systematically taking up to 4,99 DZD from every cash customer. |
+| O-11 | ~~Is the discount applied before TVA extraction?~~ — **resolved by D-033: yes**, and TVA is derived by subtraction so `ht + tva == line_ttc` holds by construction. |
+| O-12 | ~~HMAC key per store or per chain?~~ — **resolved by D-039: per tenant.** Free at Basic tier; at multi-store it costs an out-of-band provisioning step, and the key must never be issued by Waymark's cloud. |
+| O-13 | ~~Pseudonym shape~~ — **resolved by D-039: truncated to 128 bits, Crockford base32**, so a pseudonym is 26 characters like a ULID. |
+| O-14 | ~~Does `Money` get the level/change split too?~~ — **resolved by D-036: no.** The credit ledger is append-only and the balance is derived rather than mutated, so the confusion has far less room to occur. |

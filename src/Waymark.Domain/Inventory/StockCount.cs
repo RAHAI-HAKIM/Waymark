@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Inventory;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Inventory;
 /// and how this reaches SQLite lives in <c>StockCountConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class StockCount
+public sealed class StockCount : IStoreScoped
 {
     /// <summary>Primary key (<c>count_id</c>).</summary>
     public required string CountId { get; init; }

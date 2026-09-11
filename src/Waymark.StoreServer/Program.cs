@@ -4,6 +4,7 @@
 // the API the POS calls arrives in Phase 1.
 
 using Microsoft.EntityFrameworkCore;
+using Waymark.Domain;
 using Waymark.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +16,13 @@ var dataDirectory = builder.Configuration[WaymarkStoragePaths.DataDirectorySetti
     ?? WaymarkStoragePaths.DefaultDataDirectory;
 
 WaymarkStoragePaths.EnsureDataDirectory(dataDirectory);
+
+// Which store this till is. Unset until a store row exists, and unset means
+// store-scoped tables read as empty rather than as everything — a tenancy
+// filter that opens up when unconfigured fails silently, and one that returns
+// nothing fails in the first minute (CLAUDE.md §3.3, DPIA risk R9).
+builder.Services.AddSingleton<ICurrentStore>(
+    new FixedCurrentStore(builder.Configuration["Waymark:Store:StoreId"]));
 
 builder.Services.AddDbContext<WaymarkDbContext>(options =>
     // UseWaymarkSqlite, never UseSqlite: the latter omits the STRICT generator

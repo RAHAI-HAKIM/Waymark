@@ -5,6 +5,8 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Inventory;
 
 /// <summary>
@@ -16,7 +18,7 @@ namespace Waymark.Domain.Inventory;
 /// and how this reaches SQLite lives in <c>InventoryConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class Inventory
+public sealed class Inventory : IStoreScoped
 {
     /// <summary>Part of the primary key (<c>store_id</c>).</summary>
     public required string StoreId { get; init; }

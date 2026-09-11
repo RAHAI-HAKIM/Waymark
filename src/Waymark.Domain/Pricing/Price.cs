@@ -7,6 +7,8 @@
 
 using Waymark.Domain.Enums;
 
+using Waymark.Domain;
+
 namespace Waymark.Domain.Pricing;
 
 /// <summary>
@@ -18,7 +20,7 @@ namespace Waymark.Domain.Pricing;
 /// and how this reaches SQLite lives in <c>PriceConfiguration</c>.
 /// </para>
 /// </summary>
-public sealed class Price
+public sealed class Price : IStoreScoped
 {
     /// <summary>Part of the primary key (<c>variant_id</c>).</summary>
     public required string VariantId { get; init; }
