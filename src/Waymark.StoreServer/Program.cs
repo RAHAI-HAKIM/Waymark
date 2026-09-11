@@ -4,7 +4,9 @@
 // the API the POS calls arrives in Phase 1.
 
 using Microsoft.EntityFrameworkCore;
+using Waymark.Application.IdGenerator;
 using Waymark.Domain;
+using Waymark.Domain.Ids;
 using Waymark.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,6 +25,11 @@ WaymarkStoragePaths.EnsureDataDirectory(dataDirectory);
 // nothing fails in the first minute (CLAUDE.md §3.3, DPIA risk R9).
 builder.Services.AddSingleton<ICurrentStore>(
     new FixedCurrentStore(builder.Configuration["Waymark:Store:StoreId"]));
+
+// Ids are minted here, never inside an entity constructor. A singleton because
+// Ulid.NewUlid() is thread-safe; the seeded implementation is for the synthetic
+// store generator and for tests, and is deliberately not registered (D-038).
+builder.Services.AddSingleton<IIdGenerator, UlidGenerator>();
 
 builder.Services.AddDbContext<WaymarkDbContext>(options =>
     // UseWaymarkSqlite, never UseSqlite: the latter omits the STRICT generator

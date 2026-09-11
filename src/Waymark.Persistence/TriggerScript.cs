@@ -44,13 +44,46 @@ public static partial class TriggerScript
     /// the expected inventory: what a correctly initialised database must
     /// contain, and what <c>FindMissingTriggers</c> checks against.
     /// </summary>
-    public static IReadOnlyList<string> DeclaredNames()
-    {
-        return CreateTrigger().Matches(Read())
-            .Select(match => match.Groups["name"].Value)
-            .ToList();
-    }
+    public static IReadOnlyList<string> DeclaredNames() =>
+        [.. DeclaredTriggers().Select(trigger => trigger.Name)];
 
-    [GeneratedRegex(@"CREATE\s+TRIGGER\s+(?<name>\w+)", RegexOptions.IgnoreCase)]
-    private static partial Regex CreateTrigger();
+    /// <summary>
+    /// Each trigger, the table it guards, and the statements that install it.
+    ///
+    /// <para>
+    /// The table matters because a database can legitimately be part-way
+    /// through its migrations — the baseline fixture builds exactly that — and
+    /// <c>CREATE TRIGGER … ON a_table_that_does_not_exist_yet</c> is an error
+    /// rather than a no-op. Knowing which table each trigger belongs to is what
+    /// lets <see cref="WaymarkDatabaseExtensions.ApplyTriggers"/> install the
+    /// ones that apply and leave the rest for the migration that creates their
+    /// table.
+    /// </para>
+    /// <para>
+    /// The parse assumes what the script does: one <c>BEGIN … END;</c> per
+    /// trigger, never nested. <c>TriggerScriptTests</c> asserts the inventory
+    /// matches the file, so a shape the regex cannot read shows up as a missing
+    /// trigger rather than as silence.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<TriggerDefinition> DeclaredTriggers() =>
+        [.. TriggerBlock().Matches(Read()).Select(match => new TriggerDefinition(
+            match.Groups["name"].Value,
+            match.Groups["table"].Value,
+            match.Value))];
+
+    // Optional DROP, then CREATE … ON <table> … through the terminating END;.
+    [GeneratedRegex(
+        @"(?:DROP\s+TRIGGER\s+IF\s+EXISTS\s+\w+\s*;\s*)?"
+        + @"CREATE\s+TRIGGER\s+(?<name>\w+)\s+"
+        + @"(?:BEFORE|AFTER|INSTEAD\s+OF)\s+\w+(?:\s+OF\s+[\w\s,]+?)?\s+"
+        + @"ON\s+(?<table>\w+).*?END\s*;",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex TriggerBlock();
 }
+
+/// <summary>One trigger from <c>triggers.sql</c>.</summary>
+/// <param name="Name">The trigger's name, as <c>sqlite_schema</c> records it.</param>
+/// <param name="Table">The table it guards.</param>
+/// <param name="Sql">The drop-then-create pair that installs it, idempotently.</param>
+public sealed record TriggerDefinition(string Name, string Table, string Sql);

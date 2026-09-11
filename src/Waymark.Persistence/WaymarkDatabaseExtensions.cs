@@ -41,6 +41,19 @@ public static class WaymarkDatabaseExtensions
         context.Database.Migrate();
         context.ApplyTriggers();
 
+        // Every migration has run, so every table a trigger names must be here.
+        // One that is not means triggers.sql is out of step with the schema —
+        // a renamed table, most likely — and ApplyTriggers would have skipped
+        // it without a word.
+        var orphaned = context.FindTriggersWithNoTable();
+        if (orphaned.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "triggers.sql names tables this database does not have, so those "
+                + "triggers were skipped:\n  "
+                + string.Join("\n  ", orphaned));
+        }
+
         var missing = context.FindMissingTriggers();
         if (missing.Count > 0)
         {
@@ -56,21 +69,62 @@ public static class WaymarkDatabaseExtensions
     }
 
     /// <summary>
-    /// Re-applies every trigger in <c>triggers.sql</c>.
+    /// Re-applies every trigger in <c>triggers.sql</c> whose table exists.
     ///
     /// <para>
     /// Idempotent, because each statement drops before it creates. Safe to run
     /// against a database that already has them and against one that has just
     /// lost them to a table rebuild.
     /// </para>
+    /// <para>
+    /// <b>Triggers on tables that do not exist yet are skipped, not applied.</b>
+    /// A database can legitimately be part-way through its migrations — the
+    /// baseline test fixture builds exactly that — and
+    /// <c>CREATE TRIGGER … ON a_table_that_does_not_exist</c> is an error, not a
+    /// no-op. Without this, the first ledger introduced by a later migration
+    /// would break every test built on a partial database, permanently.
+    /// </para>
+    /// <para>
+    /// This does not weaken the guarantee. <see cref="MigrateAndApplyTriggers"/>
+    /// runs every migration first, so by the time it checks, every table a
+    /// trigger names must exist — and it says so if one does not.
+    /// </para>
     /// </summary>
     public static void ApplyTriggers(this WaymarkDbContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        var tables = ExistingTables(context);
+
+        foreach (var trigger in TriggerScript.DeclaredTriggers())
+        {
+            if (!tables.Contains(trigger.Table))
+            {
+                continue;
+            }
+
 #pragma warning disable EF1002 // The script is an embedded constant, not input.
-        context.Database.ExecuteSqlRaw(TriggerScript.Read());
+            context.Database.ExecuteSqlRaw(trigger.Sql);
 #pragma warning restore EF1002
+        }
+    }
+
+    /// <summary>
+    /// Tables a trigger names that the database does not have. After every
+    /// migration has run this must be empty; anything in it is a trigger left
+    /// behind by a renamed or dropped table, which would otherwise be skipped
+    /// in silence.
+    /// </summary>
+    public static IReadOnlyList<string> FindTriggersWithNoTable(this WaymarkDbContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var tables = ExistingTables(context);
+
+        return [.. TriggerScript.DeclaredTriggers()
+            .Where(trigger => !tables.Contains(trigger.Table))
+            .Select(trigger => $"{trigger.Name} (no table '{trigger.Table}')")
+            .Order(StringComparer.Ordinal)];
     }
 
     /// <summary>
@@ -109,8 +163,48 @@ public static class WaymarkDatabaseExtensions
             }
         }
 
-        return TriggerScript.DeclaredNames()
-            .Where(name => !present.Contains(name))
-            .ToList();
+        // A trigger whose table is not here yet is not missing; it is not due.
+        // FindTriggersWithNoTable is what reports those, and only after a full
+        // migration is that a fault rather than a partial database.
+        var tables = ExistingTables(context);
+
+        return [.. TriggerScript.DeclaredTriggers()
+            .Where(trigger => tables.Contains(trigger.Table))
+            .Where(trigger => !present.Contains(trigger.Name))
+            .Select(trigger => trigger.Name)];
+    }
+
+    private static HashSet<string> ExistingTables(WaymarkDbContext context)
+    {
+        var tables = new HashSet<string>(StringComparer.Ordinal);
+
+        var connection = context.Database.GetDbConnection();
+        var opened = false;
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            connection.Open();
+            opened = true;
+        }
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                tables.Add(reader.GetString(0));
+            }
+        }
+        finally
+        {
+            if (opened)
+            {
+                connection.Close();
+            }
+        }
+
+        return tables;
     }
 }

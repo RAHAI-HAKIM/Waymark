@@ -100,3 +100,21 @@ BEFORE DELETE ON erasure_ledger
 BEGIN
     SELECT RAISE(ABORT, 'erasure_ledger is the evidence of compliance and cannot be deleted');
 END;
+
+-- rounding_variance is a ledger: a minor unit that was created or destroyed
+-- cannot be un-created. A correction is a new row with the opposite amount.
+-- Without these, the reconciliation in D-034 could be made to balance by
+-- editing it, which is the one thing an audit trail must not allow.
+DROP TRIGGER IF EXISTS trg_rounding_variance_no_update;
+CREATE TRIGGER trg_rounding_variance_no_update
+BEFORE UPDATE ON rounding_variance
+BEGIN
+    SELECT RAISE(ABORT, 'rounding_variance is append-only: post a correcting row');
+END;
+
+DROP TRIGGER IF EXISTS trg_rounding_variance_no_delete;
+CREATE TRIGGER trg_rounding_variance_no_delete
+BEFORE DELETE ON rounding_variance
+BEGIN
+    SELECT RAISE(ABORT, 'rounding_variance is append-only');
+END;

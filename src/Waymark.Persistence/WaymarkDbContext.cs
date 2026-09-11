@@ -103,6 +103,8 @@ public sealed class WaymarkDbContext(
     public DbSet<PromotionVariant> PromotionVariant => Set<PromotionVariant>();
     public DbSet<Promotion> Promotions => Set<Promotion>();
 
+    public DbSet<RoundingVariance> RoundingVariances => Set<RoundingVariance>();
+
     // Purchasing
     public DbSet<PurchaseOrderItem> PurchaseOrderItems => Set<PurchaseOrderItem>();
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();

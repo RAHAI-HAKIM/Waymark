@@ -7,6 +7,7 @@
 
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 namespace Waymark.Persistence.Configurations;
 
@@ -210,6 +211,15 @@ internal static class EnumConverters
 
     public static readonly ValueConverter<StockCountStatus, string> StockCountStatusConverter =
         new(value => ToDatabase(value), text => ToStockCountStatus(text));
+
+    public static readonly ValueConverter<Rounding, string> RoundingConverter =
+        new(value => ToDatabase(value), text => ToRounding(text));
+
+    public static readonly ValueConverter<VarianceReferenceType, string> VarianceReferenceTypeConverter =
+        new(value => ToDatabase(value), text => ToVarianceReferenceType(text));
+
+    public static readonly ValueConverter<VarianceSource, string> VarianceSourceConverter =
+        new(value => ToDatabase(value), text => ToVarianceSource(text));
 
     public static readonly ValueConverter<StockMovementType, string> StockMovementTypeConverter =
         new(value => ToDatabase(value), text => ToStockMovementType(text));
@@ -1620,4 +1630,53 @@ internal static class EnumConverters
             nameof(text), text, "Unknown VariantStatus value in the database.")
     };
 
+    private static string ToDatabase(Rounding value) => value switch
+    {
+        Rounding.HalfEven => "half_even",
+        Rounding.HalfUp => "half_up",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped Rounding.")
+    };
+
+    private static Rounding ToRounding(string text) => text switch
+    {
+        "half_even" => Rounding.HalfEven,
+        "half_up" => Rounding.HalfUp,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown Rounding value in the database.")
+    };
+
+    private static string ToDatabase(VarianceReferenceType value) => value switch
+    {
+        VarianceReferenceType.Transaction => "transaction",
+        VarianceReferenceType.PurchaseOrder => "purchase_order",
+        VarianceReferenceType.Batch => "batch",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped VarianceReferenceType.")
+    };
+
+    private static VarianceReferenceType ToVarianceReferenceType(string text) => text switch
+    {
+        "transaction" => VarianceReferenceType.Transaction,
+        "purchase_order" => VarianceReferenceType.PurchaseOrder,
+        "batch" => VarianceReferenceType.Batch,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown VarianceReferenceType value in the database.")
+    };
+
+    private static string ToDatabase(VarianceSource value) => value switch
+    {
+        VarianceSource.CashTender => "cash_tender",
+        VarianceSource.CurrencyConversion => "currency_conversion",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped VarianceSource.")
+    };
+
+    private static VarianceSource ToVarianceSource(string text) => text switch
+    {
+        "cash_tender" => VarianceSource.CashTender,
+        "currency_conversion" => VarianceSource.CurrencyConversion,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown VarianceSource value in the database.")
+    };
 }

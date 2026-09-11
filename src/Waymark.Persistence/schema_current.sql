@@ -780,6 +780,23 @@ CREATE TABLE "roles" (
     CONSTRAINT "ck_roles_rank" CHECK (rank > 0)
 ) STRICT;
 
+CREATE TABLE "rounding_variance" (
+    "variance_id" TEXT NOT NULL CONSTRAINT "PK_rounding_variance" PRIMARY KEY,
+    "store_id" TEXT NOT NULL,
+    "occurred_at" TEXT NOT NULL,
+    "reference_type" TEXT NOT NULL,
+    "reference_id" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "policy" TEXT NOT NULL,
+    "created_at" TEXT NOT NULL,
+    CONSTRAINT "ck_rounding_variance_amount" CHECK (amount <> 0),
+    CONSTRAINT "ck_rounding_variance_policy" CHECK (policy IN ('half_even','half_up')),
+    CONSTRAINT "ck_rounding_variance_reference_type" CHECK (reference_type IN ('transaction','purchase_order','batch')),
+    CONSTRAINT "ck_rounding_variance_source" CHECK (source IN ('cash_tender','currency_conversion')),
+    CONSTRAINT "FK_rounding_variance_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id")
+) STRICT;
+
 CREATE TABLE "schema_migrations" (
     "version" TEXT NOT NULL CONSTRAINT "PK_schema_migrations" PRIMARY KEY,
     "description" TEXT NOT NULL,
@@ -1269,6 +1286,10 @@ CREATE INDEX "ix_returns_item" ON "returns" ("transaction_item_id");
 
 CREATE INDEX "ix_returns_store_date" ON "returns" ("store_id", "created_at");
 
+CREATE INDEX "ix_rounding_variance_reference" ON "rounding_variance" ("reference_type", "reference_id");
+
+CREATE INDEX "ix_rounding_variance_store_date" ON "rounding_variance" ("store_id", "occurred_at");
+
 CREATE INDEX "ix_shifts_staff" ON "shifts" ("staff_id", "start_time");
 
 CREATE INDEX "ix_shifts_store_open" ON "shifts" ("store_id") WHERE status = 'open';
@@ -1367,6 +1388,18 @@ BEFORE UPDATE ON recommendation_decisions
     WHEN OLD.applied_at IS NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'a decision cannot be changed once applied');
+END;
+
+CREATE TRIGGER trg_rounding_variance_no_delete
+BEFORE DELETE ON rounding_variance
+BEGIN
+    SELECT RAISE(ABORT, 'rounding_variance is append-only');
+END;
+
+CREATE TRIGGER trg_rounding_variance_no_update
+BEFORE UPDATE ON rounding_variance
+BEGIN
+    SELECT RAISE(ABORT, 'rounding_variance is append-only: post a correcting row');
 END;
 
 CREATE TRIGGER trg_stock_movements_no_delete

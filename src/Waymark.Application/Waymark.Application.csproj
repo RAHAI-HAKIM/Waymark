@@ -9,6 +9,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
     <ProjectReference Include="..\Waymark.Contracts\Waymark.Contracts.csproj" />
+    <!-- ULIDs for IIdGenerator. No Version here: it lives in
+         Directory.Packages.props, and naming it twice is NU1008. -->
+    <PackageReference Include="Ulid" />
   </ItemGroup>
 
 </Project>
