@@ -32,8 +32,12 @@ in the order it can actually be built, with what blocks each piece.
 
 ## The order of work
 
-Five items are unblocked and can start today. Four are blocked on decisions that are
-yours, and they are blocked on *different* decisions, so none of them blocks the others.
+**Everything but the generator is unblocked.** D-042 to D-047 closed O-2, O-3, O-5, O-15
+and O-16, and D-048 put their schema cost into one migration. O-17 is the only decision
+still outstanding, and it blocks W10 alone.
+
+The order Hakim set: the open decisions first (done but for O-17), then W7, W8 and W9 in
+any order, then W11, then W10.
 
 ```
   W1 Currency + Money ─┬─ W4 the migration ─┐
@@ -41,11 +45,11 @@ yours, and they are blocked on *different* decisions, so none of them blocks the
   W3 IIdGenerator ─────┘                    │
   W6 Domain allowlist test ─────────────────┘   DONE
 
-  W7 Pseudonymisation      ← O-2  (key custody)
-  W8 Contracts             ← O-15 (recommendation envelope)
-  W9 Application scaffold  ← O-16 (processing_log columns)
-  W10 Synthetic generator  ← O-17 (generator spec)
-  W11 Fake hardware        ← nothing; parked by choice
+  W7 Pseudonymisation      unblocked by D-042, D-039
+  W8 Contracts             unblocked by D-044
+  W9 Application scaffold  unblocked by D-045
+  W11 Fake hardware        unblocked; nothing ever blocked it
+  W10 Synthetic generator  ← O-17 (generator spec), the last open decision
 ```
 
 ---

@@ -29,6 +29,26 @@ public sealed class Recommendation : IStoreScoped
 
     public required Department Department { get; init; }
 
+    /// <summary>
+    /// What kind of suggestion this is — added by D-044.
+    ///
+    /// <para>
+    /// <c>department</c> identifies a surface, not a recommendation. Without
+    /// this, two different suggestions about the same variant in the same
+    /// department collide, and supersession has nothing deterministic to match
+    /// on. The dedupe key is derived rather than stored:
+    /// <c>(store_id, recommendation_type, subject_type, subject_id)</c>, indexed
+    /// as <c>ix_recs_dedupe</c>. Re-emission is an update plus a superseded row,
+    /// never a second insert.
+    /// </para>
+    /// <para>
+    /// A string with no CHECK, deliberately. The closed set belongs with the
+    /// engine that emits it and does not exist yet; adding a CHECK later would
+    /// be a table rebuild (D-022), so the validation will live in the contract.
+    /// </para>
+    /// </summary>
+    public required string RecommendationType { get; init; }
+
     public required Urgency Urgency { get; init; }
 
     public required ActionType ActionType { get; init; }

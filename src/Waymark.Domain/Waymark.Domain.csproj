@@ -11,5 +11,18 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
   </ItemGroup>
+  <!--
+    The one project allowed to construct a Pseudonym. Its constructor is
+    internal so that a call site wanting to write to processing_log has to cross
+    the pseudonymisation boundary to obtain the value, which makes CLAUDE.md 4's
+    "structural rather than remembered" a compiler rule (decisions.md D-045).
+
+    This grants no reference in the other direction: Domain still depends on
+    nothing, and the architecture tests still fail if it acquires anything.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Waymark.Pseudonymisation" />
+  </ItemGroup>
+
 </Project>
 

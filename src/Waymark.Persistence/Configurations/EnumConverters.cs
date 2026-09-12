@@ -212,6 +212,12 @@ internal static class EnumConverters
     public static readonly ValueConverter<StockCountStatus, string> StockCountStatusConverter =
         new(value => ToDatabase(value), text => ToStockCountStatus(text));
 
+    public static readonly ValueConverter<ProcessingLegalBasis, string> ProcessingLegalBasisConverter =
+        new(value => ToDatabase(value), text => ToProcessingLegalBasis(text));
+
+    public static readonly ValueConverter<ProcessingPurpose, string> ProcessingPurposeConverter =
+        new(value => ToDatabase(value), text => ToProcessingPurpose(text));
+
     public static readonly ValueConverter<Rounding, string> RoundingConverter =
         new(value => ToDatabase(value), text => ToRounding(text));
 
@@ -1678,5 +1684,55 @@ internal static class EnumConverters
         "currency_conversion" => VarianceSource.CurrencyConversion,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown VarianceSource value in the database.")
+    };
+
+    private static string ToDatabase(ProcessingPurpose value) => value switch
+    {
+        ProcessingPurpose.PosSale => "pos_sale",
+        ProcessingPurpose.LoyaltyLookup => "loyalty_lookup",
+        ProcessingPurpose.CreditManagement => "credit_management",
+        ProcessingPurpose.CustomerService => "customer_service",
+        ProcessingPurpose.AnalyticsPseudonymised => "analytics_pseudonymised",
+        ProcessingPurpose.LegalObligation => "legal_obligation",
+        ProcessingPurpose.DataSubjectRequest => "data_subject_request",
+        ProcessingPurpose.RetentionExpiry => "retention_expiry",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped ProcessingPurpose.")
+    };
+
+    private static ProcessingPurpose ToProcessingPurpose(string text) => text switch
+    {
+        "pos_sale" => ProcessingPurpose.PosSale,
+        "loyalty_lookup" => ProcessingPurpose.LoyaltyLookup,
+        "credit_management" => ProcessingPurpose.CreditManagement,
+        "customer_service" => ProcessingPurpose.CustomerService,
+        "analytics_pseudonymised" => ProcessingPurpose.AnalyticsPseudonymised,
+        "legal_obligation" => ProcessingPurpose.LegalObligation,
+        "data_subject_request" => ProcessingPurpose.DataSubjectRequest,
+        "retention_expiry" => ProcessingPurpose.RetentionExpiry,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown ProcessingPurpose value in the database.")
+    };
+
+    private static string ToDatabase(ProcessingLegalBasis value) => value switch
+    {
+        ProcessingLegalBasis.Consent => "consent",
+        ProcessingLegalBasis.Contract => "contract",
+        ProcessingLegalBasis.LegalObligation => "legal_obligation",
+        ProcessingLegalBasis.LegitimateInterest => "legitimate_interest",
+        ProcessingLegalBasis.VitalInterest => "vital_interest",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped ProcessingLegalBasis.")
+    };
+
+    private static ProcessingLegalBasis ToProcessingLegalBasis(string text) => text switch
+    {
+        "consent" => ProcessingLegalBasis.Consent,
+        "contract" => ProcessingLegalBasis.Contract,
+        "legal_obligation" => ProcessingLegalBasis.LegalObligation,
+        "legitimate_interest" => ProcessingLegalBasis.LegitimateInterest,
+        "vital_interest" => ProcessingLegalBasis.VitalInterest,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown ProcessingLegalBasis value in the database.")
     };
 }

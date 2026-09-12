@@ -16,6 +16,7 @@ piece of writing belongs. Start here rather than guessing.
 | `Waymark_Implementation.md` | How the software is built — stack, layout, sequencing | Hakim |
 | `Waymark_Build_Plan.md` | Phase contents and definitions of done | Hakim |
 | `decisions.md` | Every non-obvious choice, why, and what was rejected | Both |
+| `Waymark_DPIA_v1.md` | What is promised to the ANPDP. Breaking one of its commitments is a legal problem, not a bug | Hakim |
 | `../CLAUDE.md` | The short form of every rule that reaches code | Hakim |
 
 **Precedence.** `Waymark_Operating_Rules` beats everything. `System_Architecture` beats
@@ -42,14 +43,12 @@ Referenced by name in the documents above, but not files here:
 
 | Document | Why it matters |
 | :---- | :---- |
-| `Waymark_DPIA_v1` | What is promised to the ANPDP. Breaking one of its commitments is a legal problem, not a bug |
 | `Waymark_Sync_Design` | The authority behind diagrams 4, 7 and 8, and every sync window |
 | `Waymark_Brand_Identity` | Present as a `.pptx`. The seven locked lines are summarised in `CLAUDE.md` §6 |
 | `DB_design_v5` | The schema's ancestor. Superseded in the repository by `src/Waymark.Persistence/schema_v7_1.sql`, which is frozen |
 
-**`Waymark_DPIA_v1` currently needs amending.** Its §5.2 describes a separately-stored
-mapping table; decision D-039 removed it. Nothing in the repository will remind anyone
-about this, which is why it is written down here.
+*`Waymark_DPIA_v1` is now in the repository, under `Waymark_DPIA_v1.md`, and the amendment
+pending since D-039 has been made (D-048).*
 
 ---
 

@@ -10,9 +10,11 @@ namespace Waymark.Persistence;
 /// what sits inside it.
 /// </para>
 /// <para>
-/// The identity database is deliberately absent from this class. Only
-/// <c>Waymark.Pseudonymisation</c> may name that path (CLAUDE.md §3.4), and a
-/// helper here offering it would be the first step to it appearing elsewhere.
+/// The key files are named here but never read here. Only
+/// <c>Waymark.Pseudonymisation</c> unwraps the tenant key and only the host
+/// unwraps the database key (CLAUDE.md §3.5, decisions.md D-042); a helper in
+/// this class returning key <i>material</i> would be the first step to it
+/// appearing elsewhere. A directory is not material.
 /// </para>
 /// </summary>
 public static class WaymarkStoragePaths
@@ -25,7 +27,7 @@ public static class WaymarkStoragePaths
 
     /// <summary>
     /// <c>%ProgramData%\Waymark</c> on Windows. Siblings of <c>data</c> under
-    /// it are <c>identity</c>, <c>pos-cache</c>, <c>backups</c>, <c>logs</c>
+    /// it are <c>keys</c>, <c>pos-cache</c>, <c>backups</c>, <c>logs</c>
     /// and <c>config</c> (D-013).
     /// </summary>
     public static string DefaultRootDirectory =>
@@ -52,6 +54,34 @@ public static class WaymarkStoragePaths
     /// </para>
     /// </summary>
     public static string DefaultDataDirectory => Path.Combine(DefaultRootDirectory, "data");
+
+    /// <summary>
+    /// Where the wrapped key blobs live — <c>%ProgramData%\Waymark\keys</c>.
+    ///
+    /// <para>
+    /// Its own directory rather than a file beside the database, because the
+    /// cloud backup set is an allowlist of directories: a key cannot be swept
+    /// into a backup by someone adding a pattern, only by someone adding this
+    /// directory (decisions.md D-042). That restores the file-level exclusion
+    /// D-039 gave up when <c>waymark-identity.db</c> went away, and narrows the
+    /// residual risk to code putting a key into a payload — which is what the
+    /// outbox test covers.
+    /// </para>
+    /// <para>
+    /// Both blobs are DPAPI-wrapped at <c>LocalMachine</c> scope, so the test
+    /// that asserts a key never reaches a payload has to assert on the wrapped
+    /// blob as well as the raw bytes, or it passes while the blob ships.
+    /// </para>
+    /// </summary>
+    public static string DefaultKeysDirectory => Path.Combine(DefaultRootDirectory, "keys");
+
+    /// <summary>Creates the keys directory if it is absent, and returns it.</summary>
+    public static string EnsureKeysDirectory(string keysDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(keysDirectory);
+        Directory.CreateDirectory(keysDirectory);
+        return keysDirectory;
+    }
 
     /// <summary>Full path to the operational database inside a data directory.</summary>
     public static string StoreDatabase(string dataDirectory)

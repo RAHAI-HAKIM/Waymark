@@ -1711,8 +1711,108 @@ Three things outside the code, alongside the DPIA §5.2 amendment already pendin
 
 ---
 
-## D-047 — Tier 2 is full-fidelity and local; the outbox is where the record is shaped [Phase 0]
+## D-047 — Plain xUnit Assert, no assertion library [Phase 0]
+
+*(Retitled by D-048: this entry carried D-043's heading. There is no D-046.)*
+
 Resolves O-5, Plain xUnit `Assert` Is stable with experience, used accross All tests currently handled.
+
+---
+
+## D-048 — What D-042 to D-047 cost in schema, and three things they collided with [Phase 0]
+
+An implementation pass over the decisions that closed O-2, O-3, O-5, O-15 and
+O-16. Most of them needed no code. Three needed a change to what they said.
+
+**One migration, `ProcessingRegisterAndRecommendationType`, and it rebuilds
+nothing.** Two `ADD COLUMN`, one `CREATE TABLE`, two `CREATE INDEX` — verified in
+the generated `Up()` before running, and again afterwards by counting the CHECKs
+and indexes that a rebuild would have dropped (D-022). SQLite appends an added
+column to the stored table SQL in place, so the diff in `schema_current.sql`
+shows the new columns on the same line as their predecessor; a rebuild would have
+reformatted the whole definition. That shape *is* the evidence.
+
+| | |
+| :---- | :---- |
+| `recommendations.recommendation_type` | D-044. No CHECK — the closed set belongs with the engine that emits it and does not exist yet, and adding a CHECK later is a rebuild |
+| `ix_recs_dedupe` | `(store_id, recommendation_type, subject_type, subject_id)`. D-044 derives the dedupe key rather than storing it, which only works if finding the row being superseded is cheap |
+| `processing_log.legal_basis` | D-045 |
+| `processing_counters` | D-045. `counter_id` ULID, unique on `(store_id, day, operation, purpose)` |
+
+**Both added columns carry `DEFAULT ''`, and it cannot be avoided.** SQLite
+requires a non-null default on a `NOT NULL` added column; the alternative is a
+rebuild. No store holds rows yet and both properties are `required` in C#, so the
+default is unreachable through the application — but a direct `INSERT` could
+leave an empty string, and that is the price of not rebuilding.
+
+### Three collisions
+
+**D-045's `Pseudonym` could not live where it said.** The decision puts
+`IProcessingLog.Record` in `Waymark.Application` and has it take a `Pseudonym`
+"constructible only inside `Waymark.Pseudonymisation`". Those two cannot both be
+true: Application naming a type from Pseudonymisation means referencing that
+project, which fails the architecture test and puts the tenant key's project on
+Application's dependency graph — the boundary §2.1 calls legal rather than
+stylistic, and which matters more since D-039 put the key there.
+
+Resolved without weakening either half: **`Pseudonym` is declared in
+`Waymark.Domain` with an `internal` constructor**, and Domain grants
+`InternalsVisibleTo` to `Waymark.Pseudonymisation` alone. Application can hold
+one and cannot make one. The compile-time guarantee is intact, Domain still
+depends on nothing, and the architecture tests still pass unchanged.
+
+**D-045's fifth legal basis collides with an existing CHECK.**
+`customers.legal_basis` carries
+`CHECK (legal_basis IN ('consent','contract','legal_obligation','legitimate_interest'))`
+and the `LegalBasis` enum has exactly those four. Adding `vital_interest` to that
+enum would let code produce a value `customers` rejects at write time; widening
+the CHECK is a rebuild of `customers`, which D-045 avoids everywhere else for
+D-022's reasons. So `ProcessingLegalBasis` is a separate five-member enum — the
+same convention that already keeps `StoreStatus`, `SupplierStatus` and
+`CustomerStatus` apart, each matching the constraint its own column carries.
+
+**`processing_log.subject_id` stays nullable.** D-045 says it "holds a
+pseudonym, always"; making the column `NOT NULL` is a rebuild. It is also not
+what the decision needs: a retention sweep or a system operation genuinely has no
+subject. The guarantee that matters — never a direct identifier — comes from the
+type at the boundary, not from the nullability, and the type now enforces it.
+
+### Smaller things
+
+**`purpose` became an enum.** D-045 says "a closed enum validated by the helper,
+not a CHECK"; the column was mapped to a bare `string`. `ProcessingPurpose`
+carries the eight starting values, and the converter throws in both directions on
+anything else — which is the validation the decision asked for, without a CHECK
+and therefore without a rebuild. Adding a purpose stays free; removing one is not,
+since rows carrying it become unreadable rather than silently defaulting.
+
+**D-042's key directory exists.** `WaymarkStoragePaths` gained
+`DefaultKeysDirectory` and lost a stale paragraph about the identity database.
+The class names the directory and never returns key material.
+
+**D-043 puts DuckDB on the till.** CLAUDE.md listed DuckDB under cloud data only,
+and §3.4 described three SQLite files. Tier 2 being local adds a fourth local
+store and a dependency that did not exist in the deployment picture. Documented
+in CLAUDE.md §1 and §3.4 and in DPIA §2.6; no Phase 0 code.
+
+### Two corrections to the log itself
+
+**D-047 carried D-043's heading.** It is titled "Tier 2 is full-fidelity and
+local; the outbox is where the record is shaped" but resolves O-5, the assertion
+library. Retitled; the number is unchanged so references still resolve.
+
+**There is no D-046.** The numbering goes 045 → 047. Left as it is rather than
+renumbering, because renumbering would break every reference written since.
+
+### The DPIA
+
+`Waymark_DPIA_v1` is now in the repository and has been amended in eight places:
+§2.6 for the tenant key, local tier 2 and the two outbox streams; §5.2 rewritten
+for the keyed hash with a dated note recording what it replaced; §5.4 for key
+custody and the stolen-terminal limitation; §5.5 for the lawful basis, the
+purpose-limitation test and the counter roll-up; §5.6 for the backup allowlist
+and recovery codes; and §4 for R5 stated without overclaiming. The amendment
+pending since D-039 is discharged.
 
 ## Open — decisions waiting on Hakim
 

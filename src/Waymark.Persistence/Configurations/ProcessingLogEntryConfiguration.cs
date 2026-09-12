@@ -59,7 +59,11 @@ internal sealed class ProcessingLogEntryConfiguration : IEntityTypeConfiguration
         builder.Property(x => x.ActorId)
             .HasColumnName("actor_id");
         builder.Property(x => x.Purpose)
-            .HasColumnName("purpose");
+            .HasColumnName("purpose")
+            .HasConversion(EnumConverters.ProcessingPurposeConverter);
+        builder.Property(x => x.LegalBasis)
+            .HasColumnName("legal_basis")
+            .HasConversion(EnumConverters.ProcessingLegalBasisConverter);
         builder.Property(x => x.Recipient)
             .HasColumnName("recipient");
         builder.Property(x => x.SourceModule)

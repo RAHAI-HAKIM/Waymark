@@ -448,6 +448,18 @@ CREATE TABLE "prices" (
     CONSTRAINT "FK_prices_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id")
 ) STRICT;
 
+CREATE TABLE "processing_counters" (
+    "counter_id" TEXT NOT NULL CONSTRAINT "PK_processing_counters" PRIMARY KEY,
+    "store_id" TEXT NULL,
+    "day" TEXT NOT NULL,
+    "operation" TEXT NOT NULL,
+    "purpose" TEXT NOT NULL,
+    "event_count" INTEGER NOT NULL,
+    "rolled_up_at" TEXT NOT NULL,
+    CONSTRAINT "ck_processing_counters_event_count" CHECK (event_count > 0),
+    CONSTRAINT "FK_processing_counters_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id")
+) STRICT;
+
 CREATE TABLE "processing_log" (
     "log_id" TEXT NOT NULL CONSTRAINT "PK_processing_log" PRIMARY KEY,
     "occurred_at" TEXT NOT NULL,
@@ -460,7 +472,7 @@ CREATE TABLE "processing_log" (
     "recipient" TEXT NULL,
     "source_module" TEXT NOT NULL,
     "store_id" TEXT NULL,
-    "terminal_id" TEXT NULL,
+    "terminal_id" TEXT NULL, "legal_basis" TEXT NOT NULL DEFAULT '',
     CONSTRAINT "ck_processing_log_actor_type" CHECK (actor_type IN ('staff','system','engine')),
     CONSTRAINT "ck_processing_log_operation" CHECK (operation IN ('collection','consultation','disclosure','transmission', 'modification','erasure','pseudonymisation','re_identification')),
     CONSTRAINT "ck_processing_log_subject_type" CHECK (subject_type IN ('customer','staff')),
@@ -715,7 +727,7 @@ CREATE TABLE "recommendations" (
     "status" TEXT NOT NULL DEFAULT 'pending',
     "issued_at" TEXT NOT NULL,
     "delivered_at" TEXT NULL,
-    "expires_at" TEXT NULL,
+    "expires_at" TEXT NULL, "recommendation_type" TEXT NOT NULL DEFAULT '',
     CONSTRAINT "ck_recommendations_action_type" CHECK (action_type IN ('binary','menu')),
     CONSTRAINT "ck_recommendations_department" CHECK (department IN ('inventory','sales_demand','supply','planning','customer')),
     CONSTRAINT "ck_recommendations_interval_low" CHECK (interval_low IS NULL OR interval_high IS NULL OR interval_high >= interval_low),
@@ -1278,6 +1290,8 @@ CREATE INDEX "ix_rec_decisions_rec" ON "recommendation_decisions" ("recommendati
 
 CREATE INDEX "ix_rec_options_rec" ON "recommendation_options" ("recommendation_id");
 
+CREATE INDEX "ix_recs_dedupe" ON "recommendations" ("store_id", "recommendation_type", "subject_type", "subject_id");
+
 CREATE INDEX "ix_recs_pending" ON "recommendations" ("store_id", "status", "urgency") WHERE status IN ('pending','delivered');
 
 CREATE INDEX "ix_recs_subject" ON "recommendations" ("subject_type", "subject_id");
@@ -1325,6 +1339,8 @@ CREATE INDEX "ix_variants_status" ON "variants" ("status");
 CREATE INDEX "ix_vav_attribute" ON "variant_attribute_values" ("attribute_code");
 
 CREATE UNIQUE INDEX "ux_parameter_current" ON "parameter_registry" ("parameter_code", "scope_type", "scope_id") WHERE is_current = 1;
+
+CREATE UNIQUE INDEX "ux_processing_counters_day" ON "processing_counters" ("store_id", "day", "operation", "purpose");
 
 CREATE UNIQUE INDEX "ux_product_category_primary" ON "product_category" ("product_id") WHERE is_primary = 1;
 

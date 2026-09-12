@@ -53,6 +53,8 @@ internal sealed class RecommendationConfiguration : IEntityTypeConfiguration<Rec
             .HasColumnName("recommendation_id");
         builder.Property(x => x.StoreId)
             .HasColumnName("store_id");
+        builder.Property(x => x.RecommendationType)
+            .HasColumnName("recommendation_type");
         builder.Property(x => x.Department)
             .HasColumnName("department")
             .HasConversion(EnumConverters.DepartmentConverter);
@@ -100,6 +102,10 @@ internal sealed class RecommendationConfiguration : IEntityTypeConfiguration<Rec
             .HasConversion(WaymarkConverters.Timestamp);
 
         // A rebuild recreates only the indexes the model declares.
+        // What supersession matches on (D-044). Without it, every re-emission
+        // scans the table to find the row it is replacing.
+        builder.HasIndex(x => new { x.StoreId, x.RecommendationType, x.SubjectType, x.SubjectId })
+            .HasDatabaseName("ix_recs_dedupe");
         builder.HasIndex(x => new { x.SubjectType, x.SubjectId })
             .HasDatabaseName("ix_recs_subject");
         builder.HasIndex(x => new { x.StoreId, x.Status, x.Urgency })

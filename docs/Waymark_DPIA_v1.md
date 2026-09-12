@@ -87,19 +87,31 @@ The system uses a **hybrid edge architecture**. All processing takes place on Al
 - Operational database replica (products, prices, inventory, batches, transactions)  
 - Customer direct identifiers  
 - Staff identifiers  
-- The mapping table linking `customer_id` to `pseudonym_key`  
+- The **tenant key** from which `pseudonym_key` is derived  
+- Statistics **tier 2**, pseudonymised, at transaction grain  
 - Consent records and notice versions  
-- Data subject request records
+- Data subject request records  
 
 **Cloud — Algerian hosting provider, `[PROVIDER NAME, LOCATION]`:**
 
-- Statistics tiers 2 and 3, pseudonymised  
-- Transaction history keyed by pseudonym  
+- Statistics **tier 3**, derived from what the store transmits  
+- Two transmitted record streams, described below  
 - Product, inventory, supplier and purchase-order data (no personal data)  
 - The analytical engine  
-- Encrypted backups
+- Encrypted backups  
 
-**The boundary between local and cloud is the pseudonymisation boundary.** No direct identifier crosses it. The mapping table never leaves the retailer's premises.
+**The boundary between local and cloud is the pseudonymisation boundary.** No direct identifier crosses it. The tenant key never leaves the retailer's premises, is excluded from every backup and every transmission, and is never held by Waymark.
+
+**Tier 2 is held locally, not in the cloud.** It keeps transaction grain with the pseudonym attached, behind the same premises boundary as tier 1. What crosses to Waymark is therefore not tier 2 itself, but two deliberately shaped record streams:
+
+| Stream | Grain | Carries a pseudonym? |
+| :---- | :---- | :---- |
+| Anonymous basket record | One per basket: date, hour band, day of week, lines as product, quantity and value, payment class, discount flag | **No.** There is no customer column at all, so there is nothing on it to erase |
+| Customer period record | One per pseudonym per month: visit count, banded spend, distinct categories, recency, first-seen period | Yes |
+
+The two grains are mismatched deliberately. Emitting both at transaction grain would allow a join that reconstructs the identified stream, which would make the separation decorative. Timestamps are banded to the hour and spend to a range **at the point of emission**, because after an erasure it is no longer known which rows would need correcting.
+
+The customer period stream is subject to two independent gates: the retailer's licence for the customer module, and the individual's objection flag. **An objection downgrades rather than drops** — the basket record is still emitted, so the retailer keeps inventory analytics and the data subject gets what they asked for.
 
 The POS application operates fully offline against local data. Engine outputs carry a last-computed timestamp and are visibly marked when stale.
 
@@ -166,6 +178,8 @@ Severity and likelihood are assessed after the mitigations in §5.
 
 **R4 and R5 carry the highest residual risk** and warrant continued attention. R4 is inherent to any hosted service; it is contained by the fact that the cloud holds no direct identifiers, which caps the consequences of a breach. R5 is inherent to keeping identifiers on the retailer's premises, which is itself the mitigation for R1 and R4.
 
+**R5 is stated without overclaiming.** A terminal stolen while in service yields both the encrypted database and the key material protecting it, because operating-system key wrapping is recoverable from a disk image and full-disk encryption is unavailable on the consumer Windows editions these terminals run (§5.4). The measures in place reduce the likelihood of the cases that actually occur — a copy taken during repair, a removable-media copy of the data directory — and do not defend against an attacker in possession of the hardware. Waymark records this as accepted rather than mitigated, and it is the principal reason R5 does not fall below medium.
+
 ---
 
 ## 5\. Measures addressing the risks
@@ -183,13 +197,19 @@ Article 11 paragraph 3 excludes from the prohibition decisions taken in the fram
 
 ### 5.2 Pseudonymisation (R1, R4, R9)
 
+The pseudonym is a **keyed hash**: HMAC-SHA256 over the customer identifier under the tenant key, with a domain-separation prefix that distinguishes customer subjects from staff subjects, truncated to 128 bits.
+
 - Direct identifiers never leave the retailer's premises.  
 - The engine receives pseudonymous keys only.  
 - Re-identification occurs solely at the point of delivery to the POS or Admin application, locally, and is logged.  
-- The mapping table is stored separately from the operational database and never synchronised.  
-- Tenant data is isolated; no cross-tenant processing of personal data occurs.
+- **The additional information required to re-identify is the tenant key**, held only on the retailer's premises, wrapped at operating-system level, excluded from every backup and every transmission, and never escrowed with Waymark. Escrowing it would give Waymark both the identifiers in a backup and the pseudonyms in the cloud, which is the single circumstance this design exists to prevent.  
+- The key is not derived from a passphrase. Waymark holds both backups and cloud pseudonyms, and therefore holds known plaintext and ciphertext pairs; a passphrase of the strength a retailer would choose could be recovered offline.  
+- The key does not rotate. Its compromise would re-identify that tenant's records retroactively; its loss renders them permanently unlinkable. Both consequences are accepted and are explained to the retailer at onboarding.  
+- Tenant data is isolated; no cross-tenant processing of personal data occurs.  
 
-**Waymark does not claim that pseudonymised data falls outside the scope of the Law.** It remains personal data under Article 3, as the data subject remains identifiable through the mapping table. Pseudonymisation is applied as a security and risk-reduction measure under Article 38\.
+*Amended \[DATE\]: this section previously described a separate mapping table stored alongside the operational database and never synchronised. There is no mapping table. What is kept separately is the key.*
+
+**Waymark does not claim that pseudonymised data falls outside the scope of the Law.** It remains personal data under Article 3, as the data subject remains identifiable by a party holding the tenant key. Pseudonymisation is applied as a security and risk-reduction measure under Article 38\.
 
 ### 5.3 Exclusion of sensitive categories (R3)
 
@@ -200,12 +220,18 @@ Article 11 paragraph 3 excludes from the prohibition decisions taken in the fram
 
 ### 5.4 Security (R4, R5, R9)
 
-- Encryption in transit and at rest.  
+- Encryption in transit and at rest. The local operational database is encrypted at rest.  
 - Per-tenant encryption keys and tenant isolation in the cloud environment.  
 - Documented internal access control policy; access to retailer data restricted and logged.  
 - Access traceability implemented through the processing log (§5.5).  
 - Confidentiality undertaking signed by all personnel with access to data (Art. 40).  
-- Local device security guidance provided to retailers as part of onboarding.
+- Local device security guidance provided to retailers as part of onboarding.  
+
+**Key custody on the retailer's premises.** Two secrets are held locally, and they are treated differently because they protect different things. The **database key** protects availability: its loss destroys a retailer's history, and it can be rotated. The **tenant key** protects confidentiality: it cannot be rotated, and its compromise is retroactive. Both are 32 bytes from a cryptographic random source, wrapped by the operating system's data protection service at machine scope with additional entropy bound to the installation, and held in a dedicated directory excluded from the backup set by an allowlist of directories rather than by a pattern. Recovery is by a printed code held by the retailer, one per key. Neither key is escrowed with Waymark.
+
+**A limitation stated rather than mitigated.** Machine-scope operating-system key wrapping is recoverable from a disk image taken off a stolen device together with the relevant system stores. The control that would address this is full-disk encryption, which is not available on the consumer Windows editions these terminals run. Terminals are protected at the application layer by staff authentication, which defends against a casual walk-up and not against an attacker in possession of the hardware. **This is recorded as an accepted residual risk under R5.** What the wrapping does defend is the case that occurs in practice: files copied from the machine during repair, a removable-media copy of the application data directory, or the local backup staging area.
+
+**Restore integrity.** A truncated keyed-hash check value is held in the tenant record. The store server recomputes it after a restore and refuses to synchronise on a mismatch, requiring an explicit acknowledgement that a new pseudonym epoch is beginning. Without this check, a restore performed with the wrong key would silently accumulate two pseudonymous identities for the same person.
 
 ### 5.5 Processing logs (R4, R8, R11)
 
@@ -217,13 +243,20 @@ An append-only processing log is maintained on both local and cloud sides, in ac
 - where possible, the identity of the person who consulted or disclosed the data;  
 - the identity of any recipient.
 
-Logs are used exclusively for verifying the lawfulness of processing, internal control, ensuring the integrity and security of data, and the requirements of criminal procedure. They are made available to the National Authority on request.
+- the lawful basis relied on, recorded per operation.  
+
+**The log never holds a direct identifier.** The subject of every entry is a pseudonym, for every category of subject including staff, each under its own domain-separation prefix. Three consequences follow. Nothing requires purging on erasure, because nothing identifying was ever written. Traceability is unaffected: a data subject request computes the person's pseudonym and queries by it. And destruction of the tenant key unlinks the entire log at once, as a property of the design rather than as a further operation to perform. The accepted cost is that reading the log as a record of *whom* requires the key; an examiner holding the device alone sees operations without subjects.
+
+Logs are used exclusively for verifying the lawfulness of processing, internal control, ensuring the integrity and security of data, and the requirements of criminal procedure. They are made available to the National Authority on request. **The same purpose limitation is enforced in the software**: no analytical or reporting path reads the log, and an automated test fails the build if one does. That is also the answer to the concern that a record of staff consultations could become a staff-surveillance tool — the Article that creates the obligation forbids using it that way.
+
+**Volume is bounded at retention rather than at collection.** Consultation is named in the Article, so it is recorded per event and is neither sampled nor suppressed. After the statutory retention period, detail is replaced by counters of operations by purpose and by day: evidence of volume is retained indefinitely, and detail for exactly as long as the law requires.
 
 ### 5.6 Backup and recovery (R6)
 
-- Automated nightly backup to a second local device, with status visible in the Admin application.  
-- Optional encrypted backup to Algerian cloud storage, covered by the Article 39 contract.  
-- One-click restore, operable by a non-technical user.
+- Automated nightly backup to a second local device, with status visible in the Admin application. The key directory is included in this backup and in no other.  
+- Optional encrypted backup to Algerian cloud storage, covered by the Article 39 contract. **The cloud backup set is an allowlist of directories and never includes the keys.**  
+- One-click restore, operable by a non-technical user, with the restore-integrity check described in §5.4.  
+- Recovery codes are produced by the retailer within the application at onboarding, one per key, and held by the retailer.  
 
 ### 5.7 Retention and deletion (R7)
 

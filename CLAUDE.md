@@ -23,7 +23,7 @@ to the shopkeeper. Code that cannot be explained cannot ship.
 | Store server | C# / .NET, ASP.NET Core |
 | Admin (local and cloud) | React + TypeScript + Tailwind + Vite |
 | Analytical engine | Python |
-| Store data | SQLite (operational, stats tier 1, POS cache) |
+| Store data | SQLite (operational, stats tier 1, POS cache), DuckDB (stats tier 2) |
 | Cloud data | Postgres (state), DuckDB per tenant (stats tiers 2–3) |
 
 ---
@@ -129,10 +129,22 @@ R9.
 | POS Level-2 cache | Price list, recent transactions | Terminal → server only | No |
 | (cloud) | — | — | — |
 
-`waymark-store.db` is SQLCipher-encrypted. Verified end to end: migration, all 11
-triggers, all 81 indexes, 58 STRICT tables, WAL, wrong-key rejection and `PRAGMA rekey`
-all work against an encrypted file, and an unencrypted database opens in the same process
-under the same bundle (D-040).
+`waymark-store.db` is SQLCipher-encrypted. Verified end to end: migration, all triggers,
+all indexes, every STRICT table, WAL, wrong-key rejection and `PRAGMA rekey` all work
+against an encrypted file, and an unencrypted database opens in the same process under the
+same bundle (D-040).
+
+**Statistics tier 2 is local too, in DuckDB** (D-043). It keeps transaction grain with the
+pseudonym attached, behind the same premises boundary as tier 1 — so the re-identification
+question applies to what the outbox carries, not to tier 2. The outbox carries two streams
+that must never re-join: an anonymous basket record with no customer column at all, and a
+customer period record at monthly grain. The grains are mismatched deliberately; emitting
+both per transaction would let a join rebuild the identified stream.
+
+**Keys live in `%ProgramData%\Waymark\keys`, never in `data`** (D-042). The cloud backup
+set is an allowlist of directories, so a key cannot be swept in by a pattern. Two secrets,
+opposite policies: the database key protects availability and rotates; the tenant key
+protects confidentiality, does not rotate, and is never escrowed with Waymark.
 
 ### 3.5 Pseudonymisation is a keyed hash, and the key never leaves the premises
 
@@ -142,7 +154,14 @@ truncated to 128 bits, Crockford base32 — 26 characters, like a ULID (D-039).
 - Only `Waymark.Pseudonymisation` holds the key or computes a pseudonym.
 - **The key is never in a backup or a sync payload.** This is enforced by a test over the
   backup payload and the outbox, not by this sentence. It is the whole reason Waymark
-  cannot connect a `customer_id` in a backup to a pseudonym in the cloud.
+  cannot connect a `customer_id` in a backup to a pseudonym in the cloud. **The test must
+  assert on the DPAPI-wrapped blob as well as the raw bytes**, or it passes while the blob
+  ships (D-042).
+- **`Pseudonym` is the only way to name a subject in `processing_log`.** It is declared in
+  Domain with an internal constructor, and Domain grants `InternalsVisibleTo` to
+  `Waymark.Pseudonymisation` alone — so a call site that wants to log must cross the
+  boundary to obtain one. Application may hold a `Pseudonym`; it may not make one, and it
+  still may not reference `Waymark.Pseudonymisation` (D-045, D-048).
 - The key is **per tenant**, generated client-side, carried operator-to-operator. Waymark's
   cloud never issues it and never sees it.
 - The domain-separation prefix is not decoration — it is what lets staff or suppliers be

@@ -78,6 +78,8 @@ public sealed class WaymarkDbContext(
     public DbSet<ErasureLedgerEntry> ErasureLedger => Set<ErasureLedgerEntry>();
     public DbSet<ProcessingLogEntry> ProcessingLog => Set<ProcessingLogEntry>();
 
+    public DbSet<ProcessingCounter> ProcessingCounters => Set<ProcessingCounter>();
+
     // Engine
     public DbSet<ParameterRegistryEntry> ParameterRegistry => Set<ParameterRegistryEntry>();
     public DbSet<RecommendationDecision> RecommendationDecisions => Set<RecommendationDecision>();
