@@ -46,7 +46,7 @@ any order, then W11, then W10.
   W6 Domain allowlist test ─────────────────┘   DONE
 
   W7 Pseudonymisation      unblocked by D-042, D-039
-  W8 Contracts             unblocked by D-044
+  W8 Contracts             DONE (D-049)
   W9 Application scaffold  unblocked by D-045
   W11 Fake hardware        unblocked; nothing ever blocked it
   W10 Synthetic generator  ← O-17 (generator spec), the last open decision
@@ -179,10 +179,13 @@ this test is what replaces it. It has to fail when the exclusion is removed.
 
 ---
 
-### W8 — `Waymark.Contracts` · blocked on **O-15**
+### W8 — `Waymark.Contracts` · **done**
 
-Recommendation envelope, intent shape, sync message shapes. Cheap once the shape is fixed;
-expensive to change afterwards, because Almanac emits it too.
+Recommendation envelope, decision, intent with preconditions, sync envelope, and D-043's
+two statistics records. Contracts references nothing, so it mirrors the schema's vocabulary
+in its own enums — and `ContractsMatchSchemaTests` compares those enums against the `CHECK`
+constraints read out of the live migrated database, so drift fails a test rather than a
+message in production (D-049).
 
 ---
 

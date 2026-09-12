@@ -215,6 +215,44 @@ public sealed class ArchitectureTests
     }
 
     /// <summary>
+    /// Contracts references nothing at all — not even Domain.
+    ///
+    /// <para>
+    /// It is the shape shared with the TypeScript clients and the Python engine,
+    /// so it has to be serialisable and free of behaviour. A reference to Domain
+    /// would let <c>Money</c>, <c>Quantity</c> or an entity into the wire format,
+    /// and the first consumer that could not represent one would find out at
+    /// runtime in another language (D-044).
+    /// </para>
+    /// <para>
+    /// This is why the contract mirrors the schema's vocabulary in its own enums
+    /// rather than reusing Domain's, and why <c>ContractsMatchSchemaTests</c>
+    /// exists to stop the two drifting.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Contracts_depends_on_nothing()
+    {
+        string[] framework = ["System", "netstandard", "mscorlib"];
+
+        var offenders = Contracts.GetReferencedAssemblies()
+            .Select(reference => reference.Name ?? "(unnamed)")
+            .Where(name => !framework.Any(
+                prefix => name.Equals(prefix, StringComparison.Ordinal)
+                          || name.StartsWith(prefix + ".", StringComparison.Ordinal)))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "Waymark.Contracts took a dependency:\n  "
+            + string.Join("\n  ", offenders)
+            + "\n\nContracts is the wire format, shared with TypeScript and Python. It "
+            + "mirrors the schema and holds no behaviour, which is why it can afford to "
+            + "depend on nothing.");
+    }
+
+    /// <summary>
     /// Domain references no package outside a named allowlist.
     ///
     /// <para>

@@ -1711,6 +1711,74 @@ Three things outside the code, alongside the DPIA §5.2 amendment already pendin
 
 ---
 
+## D-046 — The synthetic store generator is a day-stepped simulator with two seams [Phase 0]
+
+Resolves `O-17`. The generator is not a data script that emits a year of rows; it is a simulator that advances one day at a time and writes what happened. The Phase 0 dataset is that simulator run once, with a deliberately mediocre ordering policy, from a fixed seed. Two structural seams are built now — a policy port and coordinate-addressed randomness — because retrofitting either means rewriting the loop. The replication runner, scoring layer and policy-comparison reporting are deferred; they read the generator and do not change it.
+
+**The Loop: **
+`for each day d in the simulated year:`
+    `world.Advance(d) `                     // demand, arrivals, deliveries, spoilage, expiry
+    `view   = world.Observe()`              // only what a shopkeeper could see
+    `orders = policy.Decide(view)`          // ← seam 1
+    `world.Submit(orders)`
+    `storeWriter.Emit(d) `                  // rows into waymark-store.db
+    `truthWriter.Emit(d)`                   // ground truth into the sidecar
+
+`Observe()` is the important discipline: it returns shelf stock, recorded sales, supplier nominal lead times and the promotion calendar — never latent demand, never true lead times, never lost sales. If the policy can see something the shopkeeper can't, every later comparison is invalid.
+
+**Seam 1** — `IReplenishmentPolicy`
+
+One method, `Decide(StoreView)` → `IReadOnlyList<OrderLine>`. Phase 0 ships one implementation, NaiveShopkeeperPolicy, whose parameters are all in the config file and all deliberately suboptimal: reorder when shelf stock drops below a per-category eyeball threshold, round the quantity up to a case or a convenient number, only order on each supplier's delivery day, over-order in the week before Ramadan, ignore slow movers until they hit zero. Its badness is the baseline every future improvement claim is measured against, so it is documented, not tuned.
+
+**Seam 2 — addressed randomness**
+
+`double Draw(string stream, params object[] coords);`
+// `value = f(hash(masterSeed, stream, coords...))`
+
+Streams and their coordinates:
+
+| | |
+| :---- | :---- |
+| Stream	| Coordinates |
+| `demand`	| `variant_id`, `day_index` |
+| `arrivals`	| `day_index`, `customer_slot` |
+| `mission`	| `day_index`, `customer_slot` |
+| `lead`	| `supplier_id`, `order_index` |
+| `spoil`	| `batch_id` |
+| `error`	| `staff_id`, `day_index`, `txn_index` |
+
+Never a shared sequential RNG. A draw's value must depend only on its coordinates, so day 187's demand for a variant is identical regardless of what else ran. XxHash64 over a small struct is fast enough at this volume. IDs come from SeededIdGenerator (W3), so ULIDs are reproducible and carry the simulated timestamps.
+
+**The world, in layers**
+
+**Catalogue (static, deterministic).** ~400 variants across 8 categories, 5 suppliers with nominal lead times and fill rates, 3 staff, terminals, opening hours, units of measure, VAT class per category (19% / 9%), retail prices and cost prices with `valid_from` temporality.
+
+**Demand**. Per variant per day, a multiplicative intensity:` base × weekday × season × ramadan × payday × promo_lift × price_elasticity × trend × noise.` Cost prices drift upward across the year — flat costs make margin analysis trivially stable.
+
+**Baskets (hybrid).** Draw daily footfall from the day's intensity; per customer draw a mission — top-up, weekly shop, single item, pre-Ramadan bulk — which sets basket size and category mix; draw items within category by popularity, plus a small explicit affinity matrix for pairs that genuinely move together. The affinity is put in on purpose, or basket-analysis recommendations get tested against noise.
+
+**Inventory.** FIFO batches with expiry, receipts against purchase orders, spoilage, write-offs. Two behaviours that matter more than anything else here: when a variant is out of stock, sales are zero but demand is not — record both; and a configured fraction of blocked demand moves to a named substitute in the same category while the rest is lost. Censoring is what breaks naive forecasters, and substitution is what creates the cross-variant correlation that makes independent per-SKU forecasting measurably wrong.
+
+**Operational mess**. Voids and refunds with reason codes, discounts carrying `discount_reason_code`, mis-scans, weighted items with embedded-barcode quirks, count discrepancies between `stock_counts` and system stock, shrinkage, cash sessions that don't balance, and cash rounding producing `rounding_variance` rows per D-034.
+
+**Connectivity** is a separate dimension driving `outbox` / `inbox` / `sync_state`, not sales:` always_on | flaky | evening_only | offline_for_weeks.`
+
+**Parameters and calibration**
+
+`generator-params.yaml`, one archetype in Phase 0, structured so archetypes are data rather than code. Every parameter carries a `source` field: `guess`, `literature`, or `interview`. The acceptance review reads the sources, not only the values. The single highest-value action is two afternoons with épiciers in Tlemcen — hourly footfall shape, typical basket size, top twenty items, delivery frequency per supplier, weekly waste, how often bread runs out. That converts a dozen parameters from guess to interview, and it is the strongest thing you can say about the data on stage.
+
+**The ground-truth sidecar**
+
+Written outside `waymark-store.db`, never loaded into it, with an architecture test asserting `Waymark.Persistence` cannot reach it. Contents: latent demand per variant-day before truncation; the multipliers actually used; lost sales and substitution events; true lead times against nominal; true spoilage against recorded; every policy decision and the view it saw; the full parameter set and the master seed. DuckDB, so truth can be queried with the same tooling as tier 2.
+
+**How it is reviewed**
+
+Distributions, each with a target band declared in the spec before the generator runs: daily revenue and its coefficient of variation, weekday profile, Ramadan uplift, the ABC curve with the top 20% of variants carrying roughly 70–80% of revenue, basket size with mode 1–3 and a long right tail, inter-purchase time for returning customers, spoilage rate by category, stockout frequency.
+
+Invariants, pass/fail: no variant sells more than it ever received; `closing == opening + Σ(deltas)` per variant per day (W2's property over a year); `ht + tva == line_ttc` on every line under both rounding policies (W1's); every `completed` transaction has an `invoice_number`; every non-zero `discount_amount` has a reason code; every batch's `expiration_date >= received_date.` These fall out of CHECKs already in the schema, so a generator bug surfaces as a constraint violation at insert rather than as plausible-looking wrong data
+
+---
+
 ## D-047 — Plain xUnit Assert, no assertion library [Phase 0]
 
 *(Retitled by D-048: this entry carried D-043's heading. There is no D-046.)*
@@ -1795,24 +1863,120 @@ and §3.4 described three SQLite files. Tier 2 being local adds a fourth local
 store and a dependency that did not exist in the deployment picture. Documented
 in CLAUDE.md §1 and §3.4 and in DPIA §2.6; no Phase 0 code.
 
-### Two corrections to the log itself
+---
 
-**D-047 carried D-043's heading.** It is titled "Tier 2 is full-fidelity and
-local; the outbox is where the record is shaped" but resolves O-5, the assertion
-library. Retitled; the number is unchanged so references still resolve.
+## D-049 — The contract is checked against the database, not against a second copy of the list [Phase 0]
 
-**There is no D-046.** The numbering goes 045 → 047. Left as it is rather than
-renumbering, because renumbering would break every reference written since.
+W8. D-044 decided the envelope's shape; this is what building it settled.
 
-### The DPIA
+**Contracts references nothing, so it cannot reuse Domain's vocabulary.** The
+project has no project references at all — it is the shape shared with the
+TypeScript clients and the Python engine, and a reference to Domain would let
+`Money`, `Quantity` or an entity into the wire format, where the first consumer
+unable to represent one finds out at runtime in another language. So the enums
+are declared again here.
 
-`Waymark_DPIA_v1` is now in the repository and has been amended in eight places:
-§2.6 for the tenant key, local tier 2 and the two outbox streams; §5.2 rewritten
-for the keyed hash with a dated note recording what it replaced; §5.4 for key
-custody and the stolen-terminal limitation; §5.5 for the lawful basis, the
-purpose-limitation test and the counter roll-up; §5.6 for the backup allowlist
-and recovery codes; and §4 for R5 stated without overclaiming. The amendment
-pending since D-039 is discharged.
+**Declared again is a drift risk, and the drift is what the test watches.**
+`ContractsMatchSchemaTests` reads the `CHECK` constraints out of the **live
+migrated database** and compares them to the wire values the contract enums
+serialise to. Twelve vocabularies are mirrored this way. Comparing against
+Domain's enums instead would have compared one copy to another; comparing against
+the constraint compares the contract to the thing that will actually reject a
+message. A second test asserts every contract enum is either in that table or on
+a short list of contract-only vocabulary, so a new enum cannot quietly be
+compared to nothing.
+
+**Figures cross as text, never as JSON numbers.** `interval_low`, a factor's
+`value`, a basket line's `quantity` and `line_value`, an option's
+`projected_value`, a precondition's `value` — all strings. A JSON number is a
+double in both TypeScript and Python, so a quantity in thousandths or a price in
+centimes that round-trips through one comes back approximately right. That is
+precisely the silent error CLAUDE.md §3.1 exists to prevent, and it would arrive
+having crossed a language boundary, which is the worst place to debug it. A test
+asserts these fields are `string` and fails if one becomes a number.
+
+**Every property names its own wire field.** `[JsonPropertyName]` on all of them,
+rather than a serializer naming policy. A policy is configured per consumer, and
+this contract has three consumers configuring themselves separately; the wire
+name has to be a property of the contract, not of whoever deserialises it. Enums
+carry `[JsonStringEnumMemberName]` for the same reason, and a converter so they
+never cross as integers — a reader on the other side would take `1` for the first
+member of *its* copy of the enum.
+
+**`SyncEnvelope.Payload` stays an unparsed `JsonElement`.** The envelope can then
+be routed, counted, sequenced and replayed without the router knowing every
+payload shape that exists, which is what keeps adding a message type from being a
+change to the transport.
+
+**`Precondition` is a comparison and nothing more** — a subject, one of six
+comparisons, a value and a unit. The store-side evaluator may read local data,
+compare and do arithmetic on a couple of quantities; it may not fit, aggregate,
+iterate or optimise (CLAUDE.md §5). A precondition expressive enough to need any
+of those would be the engine running inside a transaction, which is the one thing
+the engine never does. The unit is carried so a comparison cannot silently cross
+units.
+
+**Two enums have no CHECK behind them**, and that is pinned rather than left
+implicit: `FactorDirection` and `Comparison` are contract-only vocabulary that is
+never stored, so there is no constraint to mirror.
+
+### Amended the same day, after review
+
+**The envelope is two types, not one.** `SyncEnvelope` carried its channel as a
+bare `string` while `OutboundChannel` and `InboundChannel` sat in the same file
+being tested against their CHECKs — because one type served both directions and
+the two directions have disjoint channel sets. It also permitted an inbound
+message on `A_statistics`, which cannot exist. `OutboundEnvelope` and
+`InboundEnvelope` each use their own enum, and each carries only what actually
+crosses: the inbound one drops `received_at`, `applied_at`, `status` and
+`rejection_reason`, because trusting a status the sender wrote would defeat
+idempotent replay.
+
+**`entity_type` stays an open string.** Reviewed and kept. Six columns in the
+schema carry a closed type vocabulary and all six are different sets —
+`customer`/`staff` twice, six recommendation subjects, seven retention entity
+types, three variance reference types, five stock-movement reference types. There
+is no global entity vocabulary to close it against, and `outbox` carries
+everything that ever syncs, so its set is the union of all of them and grows
+every phase. An open enum was offered and declined; a string is the honest shape
+for a field whose set is not ours to fix.
+
+**Two fields had no column at all, and the vocabulary tests could not see it.**
+`RecommendationOption.projected_value_unit` was invented;
+`RecommendationDecisionMessage.decided_by_cloud_user` was borrowed from `intents`,
+where it exists. Both serialised happily and passed every test. Dropped rather
+than migrated: D-044 says the contract mirrors the tables, the projection is money
+in the store's one ledger currency, and *which* cloud user decided is on the
+intent that produced the decision — a join away rather than a column the store
+cannot write.
+
+**`ContractsMirrorTheSchemaTests` is what found them**, and is the structural
+half the vocabulary tests were missing. It compares fields to columns in both
+directions: a wire field with no column is an invention, and a column with no
+wire field is data the UI and the engine cannot see. Differences are legal and
+listed, each with its reason — and two further tests keep the list honest, one
+failing when an entry names something that no longer exists, the other when an
+entry carries no reason. A fourth fails when a new contract record is neither
+mirrored nor explained.
+
+**Verified by breaking it.** Adding a value to an enum without the CHECK,
+dropping a wire name so a member falls back to its C# spelling, removing the
+string converter, dropping a `[JsonPropertyName]`, and moving the Because cap off
+CLAUDE.md's three each fail the suite. Turning a figure into a `double` does not
+compile. Referencing Domain from Contracts is caught **only once the reference is
+used** — an unused `ProjectReference` is dropped from the IL and is not a
+dependency in any sense the test can or should see. On the structural side:
+adding a field with no column, and drifting a wire name off its column, each fail
+the direction that exists to catch them — the second fails both, since the column
+is then uncovered as well. A stale exceptions entry and an exception with no
+reason each fail their own guard.
+
+**Still open.** `AnonymousBasketRecord.payment_class` could mirror
+`ck_transaction_payments_payment_method`, whose five values are already classes
+rather than instruments. `BecauseFactor.unit` mixes `units_of_measure` codes —
+data, per-store — with `percent` and `days`, which are neither; two vocabularies
+in one field. And `CustomerPeriodRecord.total_spend_band` has no banding scheme
+behind it, which is a DPIA §2.6 commitment rather than a contract detail.
 
 ## Open — decisions waiting on Hakim
 
@@ -1823,7 +1987,7 @@ during scaffolding.
 
 | # | Question | Why it cannot be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
-| O-17 | **The synthetic store generator's spec** — category mix, price distributions, Ramadan and payday shape, spoilage and stockout rates, connectivity quality. | The Build Plan calls this the highest-leverage build in the phase and says to review its *output distributions*, not its code. A generator built to a guessed spec produces plausible-looking data that teaches the engine the wrong seasonality. | The generator, and every test that depends on a year of data |
+
 
 ### Resolved
 
@@ -1845,3 +2009,4 @@ during scaffolding.
 | O-14 | ~~Does `Money` get the level/change split too?~~ — **resolved by D-036: no.** The credit ledger is append-only and the balance is derived rather than mutated, so the confusion has far less room to occur. |
 | O-15 | ~~**The recommendation envelope's exact fields and their types.**~~ — **Resolved by D-044-** The decision gives `{department, explanation, urgency, action_type, options[], source}` with special edits |
 | O-16 | ~~**What `processing_log` records at each access site**~~ — **Resolved by D-045** the exact column set per purpose (collection, consultation, disclosure, transmission, erasure), is given + some additions to the schema were added. |
+| O-17 | ~~**The synthetic store generator's spec**~~ — **Resolved by D-046** category mix, price distributions, Ramadan and payday shape, spoilage and stockout rates, connectivity quality are all specified in the decision, we also set the environment for entigrating **Monte Carlo Simulation** in later phases. |
