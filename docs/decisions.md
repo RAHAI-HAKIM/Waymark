@@ -1641,6 +1641,79 @@ that test fails is the day the EUR supplier work starts, not a bug to patch.
 branch, and reverting a money column to `long` each fail the suite; reverting a
 *non-nullable* one does not even compile.
 
+---
+
+## D-042 — Key custody is split by what each key is for [Phase 0]
+
+Resolves `O-2`. Waymark holds two secrets in Phase 0 and will hold a third in Phase 2. They are not one problem. The **database key** is an availability secret: its loss destroys a shop's history, its compromise costs one store's data to someone who usually has the till in their hands anyway, and it rotates (D-040). The tenant key is a confidentiality secret: its loss is already an accepted cost (D-039, §9.7.1), its compromise re-identifies every customer of that tenant retroactively and forever, and it does not rotate. They therefore get opposite policies.
+
+**Mechanism, both keys.** 32 bytes from `RandomNumberGenerator`, wrapped with DPAPI `LocalMachine` scope and an optional-entropy parameter bound to the install GUID, stored as two separate files in `C:\ProgramData\Waymark\keys\` — the directory D-013 reserved for `identity\`, now vacant. Its own ACL; the cloud backup set is an allowlist of directories, not a denylist, on the D-008 argument. This recovers most of D-039's accepted cost 1: file-level exclusion is back, and the residual risk narrows to code putting a key into a payload, which is exactly what condition 1's test covers. That test must assert on the wrapped blob as well as the raw bytes, or it passes while the DPAPI blob ships. The database key is supplied to SQLCipher in raw-key form `(PRAGMA key = "x'…64 hex…'")`, skipping the 256 000-iteration KDF; `PRAGMA rekey` stays reachable from an admin command.
+
+**What this does not defend**. A stolen, powered-on till is a compromise. `LocalMachine` DPAPI is recoverable offline from a disk image plus the SYSTEM and SECURITY hives; the control that would address it is full-disk encryption, unavailable on the Windows Home boxes this deploys to. Tills are PIN-protected at the application layer, which stops a casual walk-up, not an attacker with the hardware. This is stated in the DPIA as an accepted risk rather than papered over. What the DPAPI wrapping does defend is the case that actually happens: files copied off the machine by a repair technician, a USB grab of `ProgramData`, or the local backup staging folder.
+
+**Neither key is escrowed with Waymark, ever.** Escrowing the tenant key would let Waymark link customer_ids in a backup to pseudonyms in the cloud, which is the single threat D-039 exists to survive. Recovery is instead a printed code per key, held by the retailer. A passphrase-derived tenant key was rejected: Waymark holds both backups and cloud pseudonyms, so it holds known plaintext/ciphertext pairs and could brute-force a shopkeeper-grade passphrase offline.
+
+**Amends D-039.** `HMAC(tenant_key, "waymark:keycheck:v1")`, truncated, is stored in the cloud tenant record. StoreServer recomputes it on restore and refuses to sync on mismatch, forcing an explicit new-epoch acknowledgement. Without it, a restore with the wrong key silently accumulates two identities per customer. Publishing one known-plaintext HMAC pair is harmless against a full-entropy key — and is a second, independent reason the key must not be passphrase-derived.
+
+**The backup key is deferred to Phase 2, but only we you build the ceremony as an in-app screen rather than a technician's checklist.** If it's a screen, adding a third key in Phase 2 is "the retailer opens Recovery Codes and runs it once more for one more key", done alone, no site visit. If it's a checklist a technician performs at onboarding, every already-deployed store needs a re-visit when the backup key arrives, and the deferral quietly becomes expensive. Build the screen in Phase 1; it costs a day and it's the difference.
+
+---
+
+## D-043 — Tier 2 is full-fidelity and local; the outbox is where the record is shaped [Phase 0]
+
+Resolves `O-3`. The tier 1→2 transform runs in the store and writes to local **DuckDB**, behind the same machine boundary as tier 1. Nothing crosses to Waymark except what the outbox carries, so tier 2 keeps transaction grain with the pseudonym attached — exact timestamps, exact values, full line detail — and the whole re-identification question applies to the outbox payload, not to tier 2. Splitting these two was a mistake.
+
+**The outbox carries two streams, and they must not re-join.** An anonymous basket record — `basket_id`, `store_id`, `date`, `hour_bucket`, `day_of_week`, lines as `(product_id, quantity, line_value)`, `payment class`, `discount flag` — with no pseudonym and no nullable customer column, so there is nothing on it to erase. And a customer period record, one row per pseudonym per month — `customer_pseudonym`, `store_id`, `period`, `visit_count`, `banded total_spend`, `distinct_categories`, `recency_days`, `first_seen_period`, `objection_flag_at_emit`. The two grains are deliberately mismatched: matching a month's banded spend against a set of baskets is hard, whereas emitting both at transaction grain would let a JOIN reconstruct the identified stream and make the whole scheme decorative.
+
+**Note:** The list was a suggestion of stats, others can be added when stats are implemented, this was an illustration of **What type of stats** to include.
+
+**The test a field must pass is erasure-survivability, not "is it an identifier".** D-039 defines erasure as nulling the pseudonym and keeping the row; that is only honest if what remains singles out nobody. Hour buckets instead of seconds and banded instead of exact spend are the two coarsenings that do the work, and they happen at emit, because after erasure you no longer know which rows to fix.
+
+The customer department ships in v1, sold separately. This gives the customer period stream two independent gates: the tenant's licence, and the individual's objection flag. Neither substitutes for the other, and the anonymous basket stream is emitted unconditionally under both — a retailer who never buys the customer department still gets basket affinity, replenishment, expiry and spoilage analytics, because none of those need a person. That is also the honest sales line: the customer department is priced as the module that carries legal obligations, and a retailer who doesn't want those obligations loses none of the inventory intelligence.
+
+**Objection downgrades rather than drops.** An objecting customer's transactions still produce the anonymous basket record. The retailer keeps their analytics, the customer gets what they asked for, and nothing is silently deleted from the retailer's own books.
+
+Three standing rules. No field enters the outbox without a named consumer and a written analysis that needs it — this is the only thing that stops the payload growing quietly over two years. No free text, ever: no notes, no product names, product_id only, resolved cloud-side. And no second polymorphic axis: one record shape per stream, versioned.
+
+---
+
+## D-044 — The recommendation envelope mirrors the recommendations tables, plus one column [Phase 0]
+
+Resolves `O-15`.` Waymark.Contracts` does not invent a shape; it mirrors `recommendations`, `recommendation_options` and `recommendation_decisions`, because the engine writes those tables and the UI reads them, and a contract that diverges from the storage is a translation layer nobody asked for. The Build Plan's `{department, explanation, urgency, action_type, options[], source}` is confirmed with four amendments.
+
+`recommendation_type` is added (`ALTER TABLE ADD COLUMN`). department identifies a surface, not a recommendation; two different suggestions about the same variant in the same department collide without it, and supersession — already in the status CHECK — has nothing deterministic to match on. The dedupe key is derived, not stored: (`store_id, recommendation_type, subject_type, subject_id`). Re-emission is an update plus a superseded row, never a second insert.
+
+`because_json` is a structured document, not a sentence, and this is a contract rule rather than a schema change: {` key, params, factors[] `}, each factor (`label_key, value, unit, direction`). headline stays a rendered string in the store's configured language. The reason is the UI is English, French and Arabic, and a pre-rendered explanation makes the engine locale-aware and every wording change an engine deploy. The factors are also the interpretability artifact — the headline is a rendering, the factors are the reasoning, and only the factors are auditable.
+
+`payload_json` on an option is an executable intent, mapping to an Application command — create purchase order, apply markdown, flag batch. `recommendation_decisions.resulting_entity_type/_id` already close that loop. Without this rule the surface is a suggestion box.
+
+**Rejected**: informational and quantified action types. Amending a `CHECK` requires a table rebuild, and D-022 established that a rebuild silently drops triggers, indexes and `CHECKs`. informational is binary with one acknowledge option; quantified is already decision = 'adjust' with adjusted_payload_json, enforced by an existing CHECK. Rejected: a stored priority_score — derivable from urgency, expiry and projected_value, and storing it turns every retune into a migration. Rejected: requires_reidentification — subject_type = 'customer' plus minimum_required_role already force the Integration Layer path.
+
+---
+
+## D-045 — processing_log records every named operation, and never a direct identifier [Phase 0]
+
+Resolves `O-16`. The scope question was answered by statute rather than by design. **Loi 25-11 of 24 July 2025 amended Loi 18-07, and articles 41 bis 2 and 41 bis 3** require the controller and the processor to keep a register of processing activities, electronic or paper, plus an automated logbook of personal-data processing, both produced to the ANPDP on request. The logbook must identify collection, modification, consultation, transmission and deletion operations, tracing them with their reasons, dates, times and the identity of users and recipients where available, and it serves exclusively to verify lawfulness, check data integrity and security, and meet the needs of criminal proceedings. Consultation is named, so it is logged per event; the proposal to suppress high-volume routine operations is withdrawn. The existing twelve columns and the operation CHECK map onto that article almost field for field, which is evidence the table was designed from the statute and is a reason not to trim it.
+
+**The reduction applies to the row, not the count.** `subject_id` holds a pseudonym, always — every operation, every subject_type, including '`staff`' under its own domain-separation prefix (D-039 condition 3). Three consequences: nothing needs purging at erasure, because the log never held a direct identifier and there is no half-erased row; traceability is unharmed, since a data-subject request computes the person's pseudonym and queries, which D-039 already established costs milliseconds; and destroying the tenant key unlinks the entire log at once, as behaviour rather than as a feature to build. The accepted cost is that reading the log requires the tenant key, so an examiner holding the disk but not the key sees operations without subjects — acceptable given the article's stated purposes, and arguably the point.
+
+**Enforced by the type, not by the helper's body**. `IProcessingLog.Record` takes a Pseudonym — a readonly struct constructible only inside `Waymark.Pseudonymisation` — never a string and never a `CustomerId`, with no implicit conversion and no string overload. A call site that wants to log must cross the pseudonymisation boundary to obtain the value, so the compiler enforces what review otherwise would. A compile-time assertion test fails if a string-taking overload ever appears, the same device W1 uses to prevent operator `*(Money, decimal).` This is what §4's "structural rather than remembered" means in practice: the signature is the promise.
+
+**`purpose` is a closed enum validated by the helper, not a CHECK — no rebuild (D-022),** and a test asserts every call site uses a listed value. Starting set: pos_sale, loyalty_lookup, credit_management, customer_service, analytics_pseudonymised, legal_obligation, data_subject_request, retention_expiry.
+
+`legal_basis` is added (`ALTER TABLE ADD COLUMN`): `consent`, `contract`, `legal_obligation`, `legitimate_interest`, `vital_interest`. `data_categories` is not — the article puts categories in the register, which is per activity, not per row.
+
+**Growth is bounded at retention, not at write.** A busy store generates on the order of 1 500 rows a day. Full rows are kept for the statutory period, then rolled up into per-`(operation, purpose, day, store)` counters and the detail dropped: volume evidence forever, detail for as long as the law requires, table bounded. Needs a processing_counters table `(CREATE TABLE, no rebuild)` and a `retention_policies` entry.
+
+`The log is barred from engine and reporting queries,` per the article's purpose limitation. A test asserts no Almanac or reporting path reads it. This is also what answers the staff-surveillance concern: the same article that creates the obligation forbids using it that way.
+
+Three things outside the code, alongside the DPIA §5.2 amendment already pending: designating a data protection delegate and notifying the authority of their contact details, declaring the processing to the ANPDP before it operates, and pricing both into the customer-department module.
+
+---
+
+## D-047 — Tier 2 is full-fidelity and local; the outbox is where the record is shaped [Phase 0]
+Resolves O-5, Plain xUnit `Assert` Is stable with experience, used accross All tests currently handled.
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -1650,11 +1723,6 @@ during scaffolding.
 
 | # | Question | Why it cannot be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
-| O-2 | **Key custody and recovery.** Where the SQLCipher key and the HMAC tenant key live on a Windows till — DPAPI machine scope, DPAPI user scope, a key file, an operator passphrase — and whether either is recoverable if the machine dies, by whom. | DPIA §5.4. Two secrets now, with different properties: the database key **can** be rotated (`PRAGMA rekey`, verified in D-040); the tenant key **cannot** (D-039), so its loss permanently unlinks all cloud history and its compromise is permanent and retroactive. Escrow solves loss but reintroduces the linkage risk unless the escrow is operator-held. | `Waymark.Pseudonymisation`, and encrypting the store database at all |
-| O-3 | **What a tier-2 record contains**, beyond the pseudonym. | The mapping *mechanism* is settled by D-039; the payload is not. It is the thing the DPIA promises about, and it decides what the outbox can carry. | The tier 1→2 transform, the outbox shape |
-| O-5 | Assertion library for the test projects. | FluentAssertions 8.x requires a paid commercial licence from Xceed and Waymark is a commercial product, so the pin was removed rather than shipping a licensing liability into Phase 1. Candidates: `AwesomeAssertions` (MIT fork of FluentAssertions 7), `Shouldly`, or plain xUnit `Assert`. All 64 tests currently use plain `Assert` and read fine. | Nothing. Deferrable indefinitely, but cheaper to decide before the value-object suites are written |
-| O-15 | **The recommendation envelope's exact fields and their types.** `Waymark_Build_Plan` gives `{department, explanation, urgency, action_type: binary\|menu, options[], source}` — is that final? | CLAUDE.md §7.2 names the Integration Layer contract explicitly. It is also the shape Almanac has to emit, so changing it later costs on both sides. | `Waymark.Contracts` |
-| O-16 | **What `processing_log` records at each access site** — the exact column set per purpose (collection, consultation, disclosure, transmission, erasure). | DPIA commitment. §4 says the write is structural, not remembered, which means the helper's signature *is* the promise. | The `processing_log` helper, and therefore any handler touching a customer |
 | O-17 | **The synthetic store generator's spec** — category mix, price distributions, Ramadan and payday shape, spoilage and stockout rates, connectivity quality. | The Build Plan calls this the highest-leverage build in the phase and says to review its *output distributions*, not its code. A generator built to a guessed spec produces plausible-looking data that teaches the engine the wrong seasonality. | The generator, and every test that depends on a year of data |
 
 ### Resolved
@@ -1662,9 +1730,10 @@ during scaffolding.
 | # | Outcome |
 | :---- | :---- |
 | O-1 | ~~Does `Waymark.Domain` take the `Ulid` package?~~ — **resolved by D-038: it does not.** The port `IIdGenerator` lives in Domain, `Ulid` lives in Application. The named-allowlist rule Hakim approved stands and starts empty, so Domain keeps a true zero dependency count. |
-| O-2 *(first half)* | ~~Two SQLite providers in one process~~ — **resolved by D-015**, one SQLCipher bundle for the whole process, and **verified end to end by D-040**: migration, 11 triggers, 81 indexes, 58 STRICT tables, WAL, wrong-key rejection, rekey, and an unencrypted database in the same process. Custody remains open above. |
-| O-3 *(first half)* | ~~The tier 1 → tier 2 mapping mechanism~~ — **resolved by D-039.** HMAC-SHA256 with a per-tenant key, truncated to 128 bits, no mapping table, no identity file. |
+| O-2 | ~~Two SQLite providers in one process~~ — **resolved by D-015, D-042**, one SQLCipher bundle for the whole process, and **verified end to end by D-040**: migration, 11 triggers, 81 indexes, 58 STRICT tables, WAL, wrong-key rejection, rekey, and an unencrypted database in the same process. For custody, the key holding rules and treat of theft are explained in **D-042**. |
+| O-3 | ~~What a tier-2 record contains, beyond the pseudonym?~~ —  The mapping *mechanism* is settled by **D-039**; the payload by **D-043**. It is the thing the DPIA promises about, and it decided what the outbox carries. |
 | O-4 | ~~`Money` and `Quantity`~~ — **resolved by D-031, D-032, D-033, D-034, D-035, D-036 and D-037.** Fixed-scale integers, currency on the value, three rounding mechanisms, TVA by subtraction, cash tender recorded, two quantity types, division by zero throws. |
+| O-5 | ~~Assertion library for the test projects.~~  — **resolved by D-047**  Plain xUnit `Assert`since it proved it's performance accross All tests currently handled and being and read fine. |
 | O-6 | ~~Entity topology~~ — **resolved by D-021.** One set: entities in `Waymark.Domain`, configurations in `Waymark.Persistence`. |
 | O-7 | ~~`HasPendingModelChanges()` cannot see the v1 schema~~ — **closed 10/09/2026.** Its premise was D-019's hand-pasted `Up()`, which O-9 removed. The concern itself is now covered by `ModelMatchesSchemaTests` and the pending-changes test added in D-029. |
 | O-8 | ~~The 85 foreign-key indexes EF adds on its own~~ — **resolved 08/09/2026: suppressed.** `ForeignKeyIndexConvention` is removed in `ConfigureConventions`. If a foreign key later needs an index it is added with `HasIndex`, like every other. |
@@ -1674,3 +1743,5 @@ during scaffolding.
 | O-12 | ~~HMAC key per store or per chain?~~ — **resolved by D-039: per tenant.** Free at Basic tier; at multi-store it costs an out-of-band provisioning step, and the key must never be issued by Waymark's cloud. |
 | O-13 | ~~Pseudonym shape~~ — **resolved by D-039: truncated to 128 bits, Crockford base32**, so a pseudonym is 26 characters like a ULID. |
 | O-14 | ~~Does `Money` get the level/change split too?~~ — **resolved by D-036: no.** The credit ledger is append-only and the balance is derived rather than mutated, so the confusion has far less room to occur. |
+| O-15 | ~~**The recommendation envelope's exact fields and their types.**~~ — **Resolved by D-044-** The decision gives `{department, explanation, urgency, action_type, options[], source}` with special edits |
+| O-16 | ~~**What `processing_log` records at each access site**~~ — **Resolved by D-045** the exact column set per purpose (collection, consultation, disclosure, transmission, erasure), is given + some additions to the schema were added. |
