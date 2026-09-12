@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 namespace Waymark.Domain.Purchasing;
 
@@ -39,7 +40,7 @@ public sealed class Supplier
 
     public long NetDays { get; init; }
 
-    public long? CreditLimit { get; init; }
+    public Money? CreditLimit { get; init; }
 
     public string Currency { get; init; } = "DZD";
 

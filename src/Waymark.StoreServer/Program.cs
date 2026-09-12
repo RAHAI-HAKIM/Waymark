@@ -26,6 +26,13 @@ WaymarkStoragePaths.EnsureDataDirectory(dataDirectory);
 builder.Services.AddSingleton<ICurrentStore>(
     new FixedCurrentStore(builder.Configuration["Waymark:Store:StoreId"]));
 
+// The currency the books are kept in. Money columns are a bare INTEGER count of
+// minor units and most carry no currency column at all, so the value converter
+// has to get it from outside the row (D-035). Set at commissioning; changing it
+// would reinterpret every historical row.
+builder.Services.AddSingleton<ILedgerCurrency>(
+    FixedLedgerCurrency.FromCode(builder.Configuration["Waymark:Store:Currency"]));
+
 // Ids are minted here, never inside an entity constructor. A singleton because
 // Ulid.NewUlid() is thread-safe; the seeded implementation is for the synthetic
 // store generator and for tests, and is deliberately not registered (D-038).
@@ -63,6 +70,24 @@ using (var scope = app.Services.CreateScope())
 
     var triggerCount = TriggerScript.DeclaredNames().Count;
     logger.LogInformation("Database ready: {Triggers} append-only triggers in place", triggerCount);
+
+    // The ledger currency is configuration; the store row is the record. If they
+    // disagree, every money column has just been read back with the wrong label
+    // — the integer is identical and nothing else would notice.
+    var ledger = scope.ServiceProvider.GetRequiredService<ILedgerCurrency>();
+    var storeCurrency = database.Stores.IgnoreQueryFilters()
+        .Select(store => store.Currency)
+        .FirstOrDefault();
+
+    if (storeCurrency is not null && !string.Equals(storeCurrency, ledger.Currency.Code, StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"Waymark:Store:Currency is '{ledger.Currency.Code}' but the store row says "
+            + $"'{storeCurrency}'. Every money column would be read back in the wrong "
+            + "currency, with the right number. Fix the configuration rather than the row.");
+    }
+
+    logger.LogInformation("Ledger currency: {Currency}", ledger.Currency.Code);
 }
 
 // The POS uses this to decide whether the server is reachable before falling

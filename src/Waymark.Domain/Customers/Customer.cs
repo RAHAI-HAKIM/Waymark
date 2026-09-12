@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 namespace Waymark.Domain.Customers;
 
@@ -37,7 +38,7 @@ public sealed class Customer
 
     public long Points { get; init; }
 
-    public long Credit { get; init; }
+    public Money Credit { get; init; }
 
     public long Discount { get; init; }
 

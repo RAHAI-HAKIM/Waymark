@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 using Waymark.Domain;
 
@@ -39,7 +40,7 @@ public sealed class StockMovement : IStoreScoped
 
     public required string UnitCode { get; init; }
 
-    public long? UnitCost { get; init; }
+    public Money? UnitCost { get; init; }
 
     public string? ReferenceType { get; init; }
 

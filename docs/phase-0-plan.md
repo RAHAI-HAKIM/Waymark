@@ -37,9 +37,9 @@ yours, and they are blocked on *different* decisions, so none of them blocks the
 
 ```
   W1 Currency + Money ─┬─ W4 the migration ─┐
-  W2 Quantity ─────────┤                    ├─ W5 wire into configurations
+  W2 Quantity ─────────┤                    ├─ W5 wire into the model  DONE
   W3 IIdGenerator ─────┘                    │
-  W6 Domain allowlist test ─────────────────┘
+  W6 Domain allowlist test ─────────────────┘   DONE
 
   W7 Pseudonymisation      ← O-2  (key custody)
   W8 Contracts             ← O-15 (recommendation envelope)
@@ -130,23 +130,28 @@ regenerated and matching.
 
 ---
 
-### W5 — Wire the value objects into the generated configurations
+### W5 — Wire the value objects into the model · **done**
 
-*Blocked on W1, W2, W4.*
+*Half of it turned out to be impossible, and that is the useful result (D-041).*
 
-**Produces.** Value converters for `Money`, `Quantity` and `QuantityDelta`, applied by a
-rule in `tools/generate-model` keyed off the column comments the schema already carries
-(`-- centimes` → Money, `-- thousandths, signed` → delta, `-- thousandths` → quantity).
-Regenerate all 58 configurations. The ambient ledger currency comes from
-`Waymark:Store:Currency`, with a startup check that it equals `stores.currency`.
+**Money: done.** Thirty-two columns are `Money` in the entity, converted
+centrally by CLR type in `WaymarkDbContext.OnModelCreating`. No migration —
+a converted CLR type is invisible to EF's model differ, verified on one column
+before the other thirty-one were touched.
 
-**The trap.** Every column comment must map to exactly one rule, and a column that matches
-none must **fail the generator** rather than fall through to `long`. A silent fall-through
-is how a money column ends up unwrapped and nobody notices.
+**Quantity: not possible, and not a matter of effort.** A value converter sees
+one property in isolation, and a unit varies per row. Five of the eleven
+quantity columns have no unit column on their row at all, so even an EF complex
+type could only cover six of them. Quantity columns stay `long` and `Quantity` is
+built at the point of use, from the row plus the unit it belongs to.
 
-**Estimate.** 4–6 h.
+**Three columns groups stay `long` permanently** because their meaning depends on
+a sibling column — promotion values, parameter-registry figures, recommendation
+intervals and attribute values. See D-041.
 
----
+**The comment-driven rule the plan assumed does not work**: twelve money columns
+carry no comment. The list is hand-verified and lives in
+`MoneyMappingTests.MoneyColumns`, compared against the model in both directions.
 
 ### W6 — The Domain package allowlist test
 

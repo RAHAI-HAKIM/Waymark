@@ -7,6 +7,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Waymark.Domain.Values;
 using Waymark.Domain.Catalogue;
 using Waymark.Domain.Purchasing;
 using Waymark.Domain.Reference;
@@ -66,8 +67,7 @@ internal sealed class PurchaseOrderItemConfiguration : IEntityTypeConfiguration<
             .HasColumnName("unit_cost");
         builder.Property(x => x.Discount)
             .HasColumnName("discount")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.LineTotal)
             .HasColumnName("line_total");
 

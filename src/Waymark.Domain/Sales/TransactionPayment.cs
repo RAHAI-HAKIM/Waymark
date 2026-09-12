@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 namespace Waymark.Domain.Sales;
 
@@ -29,7 +30,7 @@ public sealed class TransactionPayment
 
     public required PaymentMethod PaymentMethod { get; init; }
 
-    public required long Amount { get; init; }
+    public required Money Amount { get; init; }
 
     public string Currency { get; init; } = "DZD";
 

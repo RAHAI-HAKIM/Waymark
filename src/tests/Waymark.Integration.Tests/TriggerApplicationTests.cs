@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Waymark.Domain;
+using Waymark.Domain.Values;
 using Waymark.Persistence;
 
 namespace Waymark.Integration.Tests;
@@ -35,7 +36,10 @@ public sealed class TriggerApplicationTests : IDisposable
 
         // No store: this suite is about triggers, which the store filter does
         // not touch.
-        return new WaymarkDbContext(options, new FixedCurrentStore(null));
+        return new WaymarkDbContext(
+            options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
     }
 
     private static int CountTriggers(WaymarkDbContext context) =>

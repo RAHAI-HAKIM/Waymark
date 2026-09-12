@@ -5,6 +5,8 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 
+using Waymark.Domain.Values;
+
 namespace Waymark.Domain.Inventory;
 
 /// <summary>
@@ -33,9 +35,9 @@ public sealed class StockCountItem
 
     public long? VarianceQuantity { get; init; }
 
-    public long? UnitCost { get; init; }
+    public Money? UnitCost { get; init; }
 
-    public long? VarianceValue { get; init; }
+    public Money? VarianceValue { get; init; }
 
     public string? CountedBy { get; init; }
 

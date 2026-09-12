@@ -19,6 +19,8 @@ using Waymark.Domain.Purchasing;
 using Waymark.Domain.Reference;
 using Waymark.Domain.Sales;
 using Waymark.Domain.Sync;
+using Waymark.Domain.Values;
+using Waymark.Persistence.Configurations;
 
 namespace Waymark.Persistence;
 
@@ -39,7 +41,8 @@ namespace Waymark.Persistence;
 /// </summary>
 public sealed class WaymarkDbContext(
     DbContextOptions<WaymarkDbContext> options,
-    ICurrentStore currentStore)
+    ICurrentStore currentStore,
+    ILedgerCurrency ledgerCurrency)
     : DbContext(options)
 {
     /// <summary>
@@ -49,6 +52,13 @@ public sealed class WaymarkDbContext(
     /// current when the model was first built.
     /// </summary>
     private string? CurrentStoreId => currentStore.StoreId;
+
+    /// <summary>
+    /// The ledger currency's code. Read by <see cref="WaymarkModelCacheKeyFactory"/>
+    /// so a model built for one currency is never handed to a context using
+    /// another.
+    /// </summary>
+    internal string LedgerCurrencyCode => ledgerCurrency.Currency.Code;
 
     // Catalogue
     public DbSet<AttributeDefinition> AttributeDefinitions => Set<AttributeDefinition>();
@@ -157,9 +167,48 @@ public sealed class WaymarkDbContext(
         // what keeps it short at 58 tables instead of 1,100 lines.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(WaymarkDbContext).Assembly);
 
+        ApplyMoney(modelBuilder);
         ApplyStoreScope(modelBuilder);
 
         base.OnModelCreating(modelBuilder);
+    }
+
+    /// <summary>
+    /// Gives every <see cref="Money"/> property its converter to the
+    /// <c>INTEGER</c> count of minor units the schema stores.
+    ///
+    /// <para>
+    /// Central rather than named in each configuration, for the same reason the
+    /// store filter is: one rule thirty-odd times is a rule that will be missed
+    /// once, and the one it is missed on is a money column stored unwrapped
+    /// with nothing to notice.
+    /// </para>
+    /// <para>
+    /// The currency comes from <see cref="ILedgerCurrency"/> because the column
+    /// does not carry one, which is also why
+    /// <c>WaymarkModelCacheKeyFactory</c> exists: two stores on different
+    /// currencies in one process must not share a model built for the first.
+    /// </para>
+    /// </summary>
+    private void ApplyMoney(ModelBuilder modelBuilder)
+    {
+        var money = new MoneyConverter(ledgerCurrency.Currency);
+        var nullableMoney = new NullableMoneyConverter(ledgerCurrency.Currency);
+
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.ClrType == typeof(Money))
+                {
+                    property.SetValueConverter(money);
+                }
+                else if (property.ClrType == typeof(Money?))
+                {
+                    property.SetValueConverter(nullableMoney);
+                }
+            }
+        }
     }
 
     /// <summary>

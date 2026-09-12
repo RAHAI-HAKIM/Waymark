@@ -5,6 +5,8 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 
+using Waymark.Domain.Values;
+
 namespace Waymark.Domain.Purchasing;
 
 /// <summary>
@@ -32,9 +34,9 @@ public sealed class PurchaseOrderItem
 
     public long UnitsPerPurchaseUnit { get; init; } = 1000L;
 
-    public required long UnitCost { get; init; }
+    public required Money UnitCost { get; init; }
 
-    public long Discount { get; init; }
+    public Money Discount { get; init; }
 
-    public required long LineTotal { get; init; }
+    public required Money LineTotal { get; init; }
 }

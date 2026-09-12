@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 using Waymark.Domain;
 
@@ -39,7 +40,7 @@ public sealed class SalesReturn : IStoreScoped
 
     public required long QuantityReturned { get; init; }
 
-    public required long RefundAmount { get; init; }
+    public required Money RefundAmount { get; init; }
 
     public required RefundMethod RefundMethod { get; init; }
 

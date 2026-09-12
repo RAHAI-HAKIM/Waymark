@@ -50,11 +50,12 @@ public sealed class RoundingVariance : IStoreScoped
     public required VarianceSource Source { get; init; }
 
     /// <summary>
-    /// Signed minor units. Negative means the shop received less than the
-    /// invoice said. <c>long</c> like every other money column; it becomes
-    /// <c>Money</c> when the value objects are wired in (W5).
+    /// Signed. Negative means the shop received less than the invoice said.
+    /// Stored as the INTEGER count of minor units the schema declares; the
+    /// currency comes from <see cref="ILedgerCurrency"/>, because the column
+    /// does not carry one.
     /// </summary>
-    public required long Amount { get; init; }
+    public required Money Amount { get; init; }
 
     /// <summary>
     /// The rounding policy in force when this happened — the same vocabulary as

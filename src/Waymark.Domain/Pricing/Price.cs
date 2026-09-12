@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 using Waymark.Domain;
 
@@ -34,7 +35,7 @@ public sealed class Price : IStoreScoped
     /// <summary>Part of the primary key (<c>price_type</c>).</summary>
     public PriceType PriceType { get; init; } = PriceType.Retail;
 
-    public required long PriceValue { get; init; }
+    public required Money PriceValue { get; init; }
 
     public string Currency { get; init; } = "DZD";
 

@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Waymark.Domain.Customers;
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 using Waymark.Domain.Reference;
 
 namespace Waymark.Persistence.Configurations;
@@ -86,8 +87,7 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasSentinel(0L);
         builder.Property(x => x.Credit)
             .HasColumnName("credit")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.Discount)
             .HasColumnName("discount")
             .HasDefaultValue(0L)

@@ -8,6 +8,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 using Waymark.Domain.Organisation;
 
 namespace Waymark.Persistence.Configurations;
@@ -52,8 +53,7 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.OpeningFloat)
             .HasColumnName("opening_float")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.ClosedBy)
             .HasColumnName("closed_by");
         builder.Property(x => x.ClosedAt)

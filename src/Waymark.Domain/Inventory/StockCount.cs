@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 using Waymark.Domain;
 
@@ -41,7 +42,7 @@ public sealed class StockCount : IStoreScoped
 
     public DateTimeOffset? ApprovedAt { get; init; }
 
-    public long? TotalVarianceValue { get; init; }
+    public Money? TotalVarianceValue { get; init; }
 
     public StockCountStatus Status { get; init; } = StockCountStatus.Draft;
 

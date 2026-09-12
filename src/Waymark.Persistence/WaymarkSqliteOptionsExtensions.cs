@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Waymark.Persistence;
@@ -46,7 +47,10 @@ public static class WaymarkSqliteOptionsExtensions
 
         return builder
             .UseSqlite($"Data Source={databasePath};Foreign Keys={enforceForeignKeys}")
-            .ReplaceService<IMigrationsSqlGenerator, StrictSqliteMigrationsSqlGenerator>();
+            .ReplaceService<IMigrationsSqlGenerator, StrictSqliteMigrationsSqlGenerator>()
+            // The money converters are built from the ledger currency, so the
+            // currency has to be part of what identifies a cached model.
+            .ReplaceService<IModelCacheKeyFactory, WaymarkModelCacheKeyFactory>();
     }
 
     /// <summary>

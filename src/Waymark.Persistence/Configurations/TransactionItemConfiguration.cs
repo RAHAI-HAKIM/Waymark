@@ -7,6 +7,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Waymark.Domain.Values;
 using Waymark.Domain.Catalogue;
 using Waymark.Domain.Inventory;
 using Waymark.Domain.Organisation;
@@ -66,16 +67,14 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             .HasColumnName("unit_cost_at_sale");
         builder.Property(x => x.DiscountAmount)
             .HasColumnName("discount_amount")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.DiscountReasonCode)
             .HasColumnName("discount_reason_code");
         builder.Property(x => x.AuthorisedBy)
             .HasColumnName("authorised_by");
         builder.Property(x => x.TaxAmount)
             .HasColumnName("tax_amount")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.LineTotal)
             .HasColumnName("line_total");
         builder.Property(x => x.CreatedAt)

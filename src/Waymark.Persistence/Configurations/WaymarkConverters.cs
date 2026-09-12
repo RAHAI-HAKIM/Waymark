@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Waymark.Domain.Values;
 
 namespace Waymark.Persistence.Configurations;
 
@@ -9,6 +10,28 @@ namespace Waymark.Persistence.Configurations;
 /// </summary>
 internal static class WaymarkConverters
 {
+    /// <summary>
+    /// The model default for a money column the schema declares <c>DEFAULT 0</c>.
+    ///
+    /// <para>
+    /// <see cref="Money"/> cannot be built without a currency, and a
+    /// configuration cannot know the ledger's — it is instantiated by
+    /// <c>ApplyConfigurationsFromAssembly</c> with nothing passed in. The
+    /// currency named here never surfaces: the value exists only so migrations
+    /// emit <c>DEFAULT 0</c>, and the converter turns it into the integer 0
+    /// whatever currency it carries.
+    /// </para>
+    /// <para>
+    /// No matching <c>HasSentinel</c>, and that is an improvement rather than
+    /// an omission. D-027's problem was that <c>0L</c> means both "no value" and
+    /// "zero", so an explicit zero was silently replaced by the column default.
+    /// <c>default(Money)</c> is the only Money with no currency at all, so it
+    /// cannot collide with a real amount — and EF already uses it as the
+    /// sentinel for a struct without being told.
+    /// </para>
+    /// </summary>
+    public static readonly Money ZeroMoney = Money.Zero(Currency.Dzd);
+
     /// <summary>
     /// Timestamps are TEXT, ISO-8601 UTC, <c>YYYY-MM-DD HH:MM:SS</c> — the
     /// schema's own convention. Note the space rather than a <c>T</c>, and no

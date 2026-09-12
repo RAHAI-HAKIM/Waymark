@@ -5,6 +5,8 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 
+using Waymark.Domain.Values;
+
 namespace Waymark.Domain.Inventory;
 
 /// <summary>
@@ -28,7 +30,7 @@ public sealed class BatchItem
 
     public required string UnitCode { get; init; }
 
-    public required long UnitCost { get; init; }
+    public required Money UnitCost { get; init; }
 
     public string Currency { get; init; } = "DZD";
 

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Waymark.Domain;
+using Waymark.Domain.Values;
 using Waymark.Persistence;
 
 namespace Waymark.Integration.Tests;
@@ -44,7 +45,10 @@ public abstract class SqliteDatabaseFixture : IDisposable
             .UseWaymarkSqlite(DatabasePath, enforceForeignKeys)
             .Options;
 
-        return new WaymarkDbContext(options, new FixedCurrentStore(storeId));
+        return new WaymarkDbContext(
+            options,
+            new FixedCurrentStore(storeId),
+            new FixedLedgerCurrency(Currency.Dzd));
     }
 
     public SqliteConnection Connect(bool enforceForeignKeys = true)

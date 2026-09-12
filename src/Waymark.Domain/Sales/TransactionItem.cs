@@ -5,6 +5,8 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 
+using Waymark.Domain.Values;
+
 namespace Waymark.Domain.Sales;
 
 /// <summary>
@@ -33,19 +35,19 @@ public sealed class TransactionItem
 
     public required string UnitCode { get; init; }
 
-    public required long SellPrice { get; init; }
+    public required Money SellPrice { get; init; }
 
-    public long? UnitCostAtSale { get; init; }
+    public Money? UnitCostAtSale { get; init; }
 
-    public long DiscountAmount { get; init; }
+    public Money DiscountAmount { get; init; }
 
     public string? DiscountReasonCode { get; init; }
 
     public string? AuthorisedBy { get; init; }
 
-    public long TaxAmount { get; init; }
+    public Money TaxAmount { get; init; }
 
-    public required long LineTotal { get; init; }
+    public required Money LineTotal { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }
 }

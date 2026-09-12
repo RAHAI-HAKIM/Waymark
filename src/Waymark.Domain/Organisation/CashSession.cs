@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 using Waymark.Domain;
 
@@ -33,17 +34,17 @@ public sealed class CashSession : IStoreScoped
 
     public required DateTimeOffset OpenedAt { get; init; }
 
-    public long OpeningFloat { get; init; }
+    public Money OpeningFloat { get; init; }
 
     public string? ClosedBy { get; init; }
 
     public DateTimeOffset? ClosedAt { get; init; }
 
-    public long? CountedCash { get; init; }
+    public Money? CountedCash { get; init; }
 
-    public long? ExpectedCash { get; init; }
+    public Money? ExpectedCash { get; init; }
 
-    public long? Variance { get; init; }
+    public Money? Variance { get; init; }
 
     public long? ZReportNumber { get; init; }
 

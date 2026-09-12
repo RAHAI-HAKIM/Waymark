@@ -5,6 +5,8 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 
+using Waymark.Domain.Values;
+
 namespace Waymark.Domain.Purchasing;
 
 /// <summary>
@@ -32,7 +34,7 @@ public sealed class SupplierVariant
 
     public long? StatedLeadTimeDays { get; init; }
 
-    public required long PurchasePrice { get; init; }
+    public required Money PurchasePrice { get; init; }
 
     public string Currency { get; init; } = "DZD";
 

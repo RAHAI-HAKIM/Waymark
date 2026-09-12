@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Waymark.Domain.Customers;
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Reference;
 using Waymark.Domain.Sales;
@@ -64,20 +65,16 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.Subtotal)
             .HasColumnName("subtotal")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.DiscountTotal)
             .HasColumnName("discount_total")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.TaxTotal)
             .HasColumnName("tax_total")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.TotalAmount)
             .HasColumnName("total_amount")
-            .HasDefaultValue(0L)
-            .HasSentinel(0L);
+            .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.Currency)
             .HasColumnName("currency")
             .HasDefaultValue("DZD")

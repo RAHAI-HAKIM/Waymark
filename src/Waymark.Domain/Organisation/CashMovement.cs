@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 namespace Waymark.Domain.Organisation;
 
@@ -27,7 +28,7 @@ public sealed class CashMovement
 
     public required CashMovementType MovementType { get; init; }
 
-    public required long Amount { get; init; }
+    public required Money Amount { get; init; }
 
     public required string ReasonCode { get; init; }
 

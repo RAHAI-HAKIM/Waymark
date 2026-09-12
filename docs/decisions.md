@@ -1549,6 +1549,98 @@ mechanically possible. D-039 chose a non-rotating pseudonymisation key, but the
 **What it does not settle.** Where the key bytes live and who can recover them.
 That is O-2 and it is unchanged by any of this.
 
+---
+
+## D-041 — `Money` is wired into the model; `Quantity` cannot be [Phase 0]
+
+W5 as planned was "a rule in `tools/generate-model` keyed off the column
+comments — `-- centimes` → Money, `-- thousandths` → Quantity". Building it
+found three reasons that rule does not work. Two of them are fatal to half the
+task.
+
+**Finding 1: the comments are not a complete rule.** Nineteen columns carry
+`-- centimes`. Twelve more are money and carry no comment at all, because the
+schema comments the first line of a group and not the rest:
+`transactions.discount_total`, `tax_total` and `total_amount` are unmarked,
+as are all four money columns on `transaction_items` after the first.
+`purchase_order_items.discount` is money and reads like a rate. A
+comment-driven rule would have left those twelve as bare `long` and reported
+success. The list is therefore **hand-verified against `schema_v7_1.sql` and
+written down in `MoneyMappingTests.MoneyColumns`**, where a test compares it to
+the model in both directions — a money column missing from the model fails, and
+so does a non-money column that crept in.
+
+**Finding 2: some columns cannot be typed at all.** Their unit depends on a
+sibling column in the same row:
+
+| Column | Depends on |
+| :---- | :---- |
+| `promotion_variant.promotion_value`, `promotion_product.promotion_value` | `value_type` — centimes when `amount`, basis points when `percent` |
+| `parameter_registry.value_number`, `interval_low`, `interval_high` | the parameter |
+| `recommendations.interval_low`, `interval_high`, `recommendation_options.projected_value` | what the recommendation is about |
+| `product_attribute_values.value_number`, `variant_attribute_values.value_number` | *"scaled per the attribute's unit"* |
+
+These stay `long`. A value object cannot honestly wrap a number whose meaning is
+decided elsewhere, and wrapping it in the wrong one would be worse than leaving
+it plain.
+
+**Finding 3 — the fatal one: `Quantity` has no unit to be built from.** A value
+converter sees one property in isolation. `Money` survives that because the
+ledger currency is a deployment fact that can come from outside the row
+(D-035). **A unit is not**: it varies per row, and five of the eleven quantity
+columns have no unit column on their row at all —
+`promotion_variant.min_quantity`, `product_bundle_items.quantity`,
+`inventories.quantity`, `returns.quantity_returned`,
+`stock_count_items.quantity`. Their unit is the variant's `selling_unit_code`,
+on another table.
+
+An EF complex type mapping `Quantity` to `(quantity, unit_code)` would work for
+the six that do carry a unit and cannot work for the five that do not, so the
+model would be half one shape and half another. **Quantity columns stay `long`,
+and `Quantity` is constructed at the point of use** — in a handler, from the row
+plus the unit it belongs to, which is exactly where `UnitPrecision` was designed
+to be built anyway (D-036). Nothing is lost from the arithmetic: the level/change
+algebra still type-checks wherever quantities are actually computed on.
+
+**What was built.** Thirty-two money columns are now `Money` in the entity. The
+converter is applied **centrally by CLR type** in
+`WaymarkDbContext.OnModelCreating`, not named in each configuration — the same
+argument as the store filter: one rule thirty-two times is a rule that will be
+missed once, and the one it is missed on is a money column stored unwrapped with
+nothing to notice.
+
+**Nothing migrated, and that is worth knowing.** Changing a property from `long`
+to `Money` with a converter to `long` is invisible to EF's model differ:
+`has-pending-model-changes` stays clean and the column stays `INTEGER`. Verified
+before the other thirty-one columns were touched.
+
+**The sentinel improved by accident.** D-027 paired `HasDefaultValue(0L)` with
+`HasSentinel(0L)` because `0L` means both "no value" and "zero", and without the
+pairing an explicit zero was silently replaced by the column default.
+`default(Money)` is the only `Money` with no currency, so it cannot collide with
+a real amount — EF uses it as the struct's sentinel without being told, and the
+explicit `HasSentinel` is gone from the money properties. `HasDefaultValue` keeps
+a value only so migrations still emit `DEFAULT 0`; its currency never surfaces,
+which `WaymarkConverters.ZeroMoney` says out loud.
+
+**`WaymarkModelCacheKeyFactory`.** EF caches one model per context type. The
+money converters are built from the ledger currency, so a model built for a DZD
+store could be handed to a EUR one and read every money column back with the
+right number and the wrong label. One store per process at Basic tier means this
+cannot bite today; it is here because the failure leaves no trace at all.
+
+**The Stage 2 limitation now has an alarm.**
+`MoneyMappingTests.Every_currency_column_holds_the_ledger_currency` scans all
+eight currency columns and fails if a row is in anything but the ledger
+currency, and `StoreServer` refuses to start if `Waymark:Store:Currency`
+disagrees with the `stores` row. D-035 named this limitation and accepted it;
+what was missing was anything that would say when it had been reached. The day
+that test fails is the day the EUR supplier work starts, not a bug to patch.
+
+**Verified by breaking it.** Not applying the converter, dropping the nullable
+branch, and reverting a money column to `long` each fail the suite; reverting a
+*non-nullable* one does not even compile.
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at

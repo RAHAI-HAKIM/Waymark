@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Reference;
 using Waymark.Persistence;
@@ -22,6 +23,12 @@ namespace Waymark.Integration.Tests;
 /// </summary>
 public sealed class EntityMappingTests : IClassFixture<MigratedDatabaseFixture>
 {
+    /// <summary>
+    /// Money needs a currency, and a test that says which one reads better than
+    /// one that repeats it at every call site.
+    /// </summary>
+    private static Money Dzd(long minorUnits) => new(minorUnits, Currency.Dzd);
+
     private readonly MigratedDatabaseFixture _schema;
 
     public EntityMappingTests(MigratedDatabaseFixture schema) => _schema = schema;
@@ -75,7 +82,7 @@ public sealed class EntityMappingTests : IClassFixture<MigratedDatabaseFixture>
                 MovementId = "01ROUNDTRIP",
                 SessionId = "session-1",
                 MovementType = CashMovementType.PaidOut,
-                Amount = 1250,
+                Amount = Dzd(1_250),
                 ReasonCode = "supplier-cash",
                 Note = null,
                 StaffId = "staff-1",
@@ -90,7 +97,7 @@ public sealed class EntityMappingTests : IClassFixture<MigratedDatabaseFixture>
             var movement = context.CashMovements.Single(m => m.MovementId == "01ROUNDTRIP");
 
             Assert.Equal(CashMovementType.PaidOut, movement.MovementType);
-            Assert.Equal(1250L, movement.Amount);
+            Assert.Equal(Dzd(1_250), movement.Amount);
             Assert.Null(movement.Note);
             Assert.Equal("manager-1", movement.AuthorisedBy);
             Assert.Equal(new DateTimeOffset(2026, 3, 4, 17, 45, 12, TimeSpan.Zero), movement.OccurredAt);
@@ -107,7 +114,7 @@ public sealed class EntityMappingTests : IClassFixture<MigratedDatabaseFixture>
                 MovementId = "01ONDISK",
                 SessionId = "session-1",
                 MovementType = CashMovementType.FloatAdd,
-                Amount = 50_000,
+                Amount = Dzd(50_000),
                 ReasonCode = "opening-float",
                 StaffId = "staff-1",
                 OccurredAt = new DateTimeOffset(2026, 3, 4, 8, 0, 0, TimeSpan.Zero)
@@ -151,7 +158,7 @@ public sealed class EntityMappingTests : IClassFixture<MigratedDatabaseFixture>
             MovementId = "01NEGATIVE",
             SessionId = "session-1",
             MovementType = CashMovementType.PaidIn,
-            Amount = -1,
+            Amount = Dzd(-1),
             ReasonCode = "oops",
             StaffId = "staff-1",
             OccurredAt = DateTimeOffset.UnixEpoch
