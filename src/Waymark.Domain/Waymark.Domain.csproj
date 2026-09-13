@@ -8,9 +8,6 @@
 
 
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
-  </ItemGroup>
   <!--
     The one project allowed to construct a Pseudonym. Its constructor is
     internal so that a call site wanting to write to processing_log has to cross

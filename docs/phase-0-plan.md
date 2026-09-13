@@ -32,12 +32,12 @@ in the order it can actually be built, with what blocks each piece.
 
 ## The order of work
 
-**Everything but the generator is unblocked.** D-042 to D-047 closed O-2, O-3, O-5, O-15
-and O-16, and D-048 put their schema cost into one migration. O-17 is the only decision
-still outstanding, and it blocks W10 alone.
+**Two items left, neither blocked.** D-042 to D-047 closed O-2, O-3, O-5, O-15 and O-16,
+D-048 put their schema cost into one migration, and D-046 closed O-17.
 
-The order Hakim set: the open decisions first (done but for O-17), then W7, W8 and W9 in
-any order, then W11, then W10.
+O-18 is open and blocks no code: it asks who sets the ACL on the keys directory, which
+W7 found D-042 had assigned to nobody (D-051). It is a deployment control, and the DPIA
+already describes it as being in place.
 
 ```
   W1 Currency + Money ─┬─ W4 the migration ─┐
@@ -45,12 +45,16 @@ any order, then W11, then W10.
   W3 IIdGenerator ─────┘                    │
   W6 Domain allowlist test ─────────────────┘   DONE
 
-  W7 Pseudonymisation      unblocked by D-042, D-039
   W8 Contracts             DONE (D-049)
-  W9 Application scaffold  unblocked by D-045
+  W9 Application scaffold  DONE (D-050)
+  W7 Pseudonymisation      DONE (D-051)
   W11 Fake hardware        unblocked; nothing ever blocked it
-  W10 Synthetic generator  ← O-17 (generator spec), the last open decision
+  W10 Synthetic generator  unblocked by D-046 ← the highest-leverage build left
 ```
+
+**W7 gated the rest of W9's tests**, which the original "any order" did not anticipate. A
+`Pseudonym` cannot be constructed outside `Waymark.Pseudonymisation`, so until that project
+existed nothing — production code or test — could obtain one. That test now exists.
 
 ---
 
@@ -167,15 +171,25 @@ starts empty** (D-038). Must fail when a package is added to Domain — mutation
 
 ---
 
-### W7 — `Waymark.Pseudonymisation` · blocked on **O-2**
+### W7 — `Waymark.Pseudonymisation` · **done**
 
-HMAC-SHA256, the domain-separation prefix, truncation to 128 bits, Crockford base32, the
-tier 1→2 transform interface. Key custody is the blocker: where the bytes live and whether
-they are recoverable.
+HMAC-SHA256, three domain-separation prefixes, truncation to 128 bits, Crockford base32,
+and `IPseudonymiser` as the tier 1→2 port (D-051). Keys live in
+`%ProgramData%\Waymark\keys`, wrapped by DPAPI at machine scope with entropy bound to the
+install id and domain-separated per key purpose, created once with no way to replace them.
 
-**The test that matters most is not the hash.** It is the one proving the tenant key cannot
-appear in a backup payload or the outbox — D-039 accepts losing file-level exclusion, and
-this test is what replaces it. It has to fail when the exclusion is removed.
+**The test that matters most is not the hash**, and it is built: the tenant key and its
+wrapped blob appear nowhere in `waymark-store.db`, its `-wal` sibling, or any outbox
+payload, searched as raw bytes, hex in both cases and base64. Injecting the key into a
+payload in any of those forms fails it.
+
+**The port turned out to be the route that was left open.** Forbidding `Waymark.Sync` from
+referencing this project never stopped it from injecting `IPseudonymiser`, which is
+declared in Domain. Two architecture tests now close that.
+
+**One thing D-042 assigned to nobody: the ACL on the keys directory.** `LocalMachine`
+DPAPI is unwrappable by any process on the box, so the ACL is the control that stops a
+second local account reading the tenant key — and nothing sets it. O-18.
 
 ---
 
@@ -189,15 +203,28 @@ message in production (D-049).
 
 ---
 
-### W9 — Application scaffolding · blocked on **O-16**
+### W9 — Application scaffolding · **done**
 
-Command/handler skeleton, and the `processing_log` helper. §4 says the write is structural
-rather than remembered, which means the helper's signature *is* the privacy promise —
-which is why guessing the columns is not an option.
+Command/handler skeleton and the `processing_log` helper (D-050).
+
+**Handlers stage; `CommandExecutor` commits once.** A handler has no way to write, so
+§3.2's "mint every id for the whole unit of work before anything is written" holds by
+construction rather than by discipline, and §3.6 has one place to live.
+`IProcessingLog.Record` stages into the same unit of work: an operation that rolled back
+leaves no entry claiming it happened, and one that committed cannot have failed to log.
+
+**The helper's signature is the privacy promise**, so three of the twelve columns are not
+the caller's to set — `log_id`, `occurred_at` and `store_id`. The last is the one that was
+not obvious: `processing_log` is store-scoped behind a fail-closed filter, so a row filed
+under another store is invisible to the process that wrote it.
+
+Found on the way: `Waymark.Domain` had been shipping `Microsoft.EntityFrameworkCore.SqlServer`
+since 04/09/2026, and W6's allowlist test could not see it because Domain never used an EF
+type. Removed, and the test now reads the deps file as well as the IL.
 
 ---
 
-### W10 — Synthetic store generator · blocked on **O-17**, needs W1–W3
+### W10 — Synthetic store generator · unblocked by **D-046**, needs W1–W3
 
 The Build Plan calls this the highest-leverage build in the phase. ~400 variants, 8
 categories, 5 suppliers, 3 staff, one year of transactions with weekly and seasonal shape,

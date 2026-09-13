@@ -1978,6 +1978,211 @@ data, per-store — with `percent` and `days`, which are neither; two vocabulari
 in one field. And `CustomerPeriodRecord.total_spend_band` has no banding scheme
 behind it, which is a DPIA §2.6 commitment rather than a contract detail.
 
+---
+
+## D-050 — Handlers stage, the executor commits, and three log columns are not the caller's to set [Phase 0]
+
+W9. D-045 settled what `processing_log` records; this is what building the
+scaffolding around it settled.
+
+**Handlers do not commit, and that is the whole design.** `ICommandHandler`
+stages work and returns; `CommandExecutor` seals the context and calls
+`IUnitOfWork.CommitAsync` once. The inversion is what turns CLAUDE.md §3.2 —
+"command handlers mint every id for the whole unit of work before anything is
+written" — from a rule somebody has to remember into a fact: a handler has no way
+to write, so every id it minted necessarily came first. It is also §3.6 in one
+place, since the domain row, the outbox row and the log row have no route to
+separate transactions.
+
+**`IProcessingLog.Record` stages rather than writes**, for the reason the two
+failure modes are not symmetric in a regulator's eyes but are both wrong: an
+operation that rolled back and logged claims processing that never happened, and
+one that committed without logging is processing with no trace. The entry joins
+the open unit of work and commits with it. A consultation that reads and changes
+nothing still commits — the log row *is* the work.
+
+**Three of the twelve columns are taken away from the caller.** `log_id` comes
+from `IIdGenerator`, `occurred_at` from an injected `TimeProvider`, and
+`store_id` from `ICurrentStore`. The first two because evidence whose ids and
+timestamps the audited party chose is worth less than evidence whose it did not.
+The third is the one that was not obvious and is the most dangerous:
+`processing_log` is store-scoped behind a query filter that fails closed (§3.3),
+so a row written under another store's id is invisible to the process that wrote
+it — an audit gap that looks like nothing at all, and the cheapest possible route
+to DPIA risk R9. `ProcessingEvent` therefore has no `StoreId` field, and a test
+fails if one appears. `terminal_id` stays caller-supplied: there is no ambient
+terminal to read, and naming the wrong till mislabels a row without crossing a
+tenancy boundary.
+
+**The clock is injected rather than `DateTimeOffset.UtcNow`** so W10's generator
+can write a year of history stamped with the days it simulated instead of the
+minute it ran, and so the test is an equality rather than a tolerance.
+
+**Rejected: a decorator that logs every command.** It would have to guess the
+purpose, the legal basis and the subject, and would write a row for commands
+touching no personal data at all. D-045 derived those columns from statute
+precisely so they are not guessed. The handler names the operation; what keeps
+that structural rather than remembered is that it cannot name a *subject*
+without crossing the pseudonymisation boundary to obtain a `Pseudonym`.
+
+**`CommandContext` stops working when its command finishes.** The executor seals
+it before committing. The failure this catches is a handler that stores the
+context, starts background work and mints an id afterwards — the id attaches to a
+transaction that has already closed, and surfaces as a foreign key violation days
+later rather than as an exception at the call site.
+
+**`NoResult` rather than `Unit` or `Nothing`.** A unit in this codebase is a unit
+of measure and `Quantity` carries one; `Nothing` is a Visual Basic keyword and
+CA1716 rejects it.
+
+**Found while building it: `Waymark.Domain` had shipped
+`Microsoft.EntityFrameworkCore.SqlServer` since 04/09/2026.** It was added in
+passing by a commit about EF tooling that never mentions Domain — almost
+certainly a `dotnet add package` in the wrong directory, the same hazard that
+damaged three files under central package management earlier in the phase. The
+project whose file says ZERO DEPENDENCIES in capitals was shipping a SQL Server
+driver. `Domain_references_no_package_outside_the_allowlist` passed the entire
+time, and was right to: it reads the compiled assembly's references, Domain never
+*used* an EF type, and the compiler emits no reference for a package nothing
+touches. This is the same blind spot D-049 recorded for an unused
+`ProjectReference`, and recording it twice was not enough — so
+`Domain_ships_no_package_outside_the_allowlist` now reads the deps file, which
+lists what a project was built against whether or not a line of code touches it.
+The reference is removed and Domain builds clean without it.
+
+**W7 has to come before W9 can be finished testing, which the plan did not
+anticipate.** A `Pseudonym` cannot be constructed outside
+`Waymark.Pseudonymisation`, so until W7 exists there is no way — in production
+code or in a test — to obtain one. Everything subject-less is tested now: the
+port's shape, the columns, the staging, the refusals, the vocabulary. The test
+that a computed pseudonym reaches `subject_id` intact belongs to W7. This is the
+boundary working as designed rather than a defect, and it is worth knowing before
+the order of the remaining work is set.
+
+**Verified by breaking it.** Removing the seal fails both context tests;
+committing in a `finally` so a throwing handler still commits fails the rollback
+test; swapping the store and terminal columns fails the store test; using the
+wall clock while still reading the injected one fails the clock test; writing
+`Pseudonym.Value` unconditionally fails the null-subject test; dropping the
+source-module guard fails its own. Adding a string overload to `IProcessingLog`
+fails three of the contract tests at once — added as a *default interface method*,
+because an abstract one breaks the test fakes and the compiler catches it first,
+which proves nothing about the tests. Restoring `Microsoft.EntityFrameworkCore.SqlServer`
+fails the new deps-file test while the IL-based one still passes, which is the
+point of having both.
+
+---
+
+## D-051 — The pseudonymisation boundary, built; and the ACL D-042 assigned to nobody [Phase 0]
+
+W7. D-039 chose the scheme and D-042 chose the custody; this is what building
+them settled, and one thing it found missing.
+
+**The scheme is one expression, in one place.**
+`base32( HMAC-SHA256(tenant_key, prefix ‖ subject_id)[0..16] )`, in
+`PseudonymScheme`. The test that pins it recomputes the whole construction from
+the primitives rather than comparing against a stored constant, so it says what
+the scheme *is* and fails if any part of it quietly changes — a stored expected
+value would still pass if the prefix moved, as long as somebody regenerated it.
+
+**Three populations, three prefixes, and an unknown one throws.** `Customer`,
+`Staff` and `Supplier` (D-039 condition 3; D-045 requires staff for
+`processing_log`). `PrefixFor` has no default case: a new `SubjectDomain` member
+without a prefix is a compile-time hole that would otherwise become two
+populations silently sharing one namespace — the exact collision the prefix
+exists to prevent, arriving with no symptom.
+
+**The leading character of a pseudonym is 0–7, not 0–3.** 26 × 5 = 130 bits of
+room for 128, so the first character carries three significant bits, the same
+bound ULID has and for the same reason. The first draft of the test asserted
+0–3 and failed; the test was wrong, not the encoder.
+
+**`IPseudonymiser` is a capability, and the port is the route that was left
+open.** The architecture tests already forbade `Waymark.Sync` from *referencing*
+`Waymark.Pseudonymisation`, but the port is declared in Domain and Domain is
+referenced by everybody — so injecting `IPseudonymiser` would have handed Sync
+the ability to turn a customer id into the cloud's name for that person without
+adding a single forbidden reference. Two tests close it: Sync may not touch
+`Waymark.Domain.Privacy` at all, and Contracts, Persistence and Hardware may not
+name `IPseudonymiser` or `ITenantKeyCheck`. Application may, because
+pseudonymisation happens there, before the outbox.
+
+**The key-check value gets its own port.** `ITenantKeyCheck` rather than a member
+of `IPseudonymiser`, on least-privilege grounds: restore integrity is a sync-time
+concern, and the component comparing one constant would otherwise be handed the
+ability to compute every customer's pseudonym.
+
+**Entropy is domain-separated per key purpose**, which D-042 did not specify and
+should have. The tenant key is wrapped under `waymark:tenant-key:v1:‖install_id`;
+the database key must use its own prefix. Without that the two blobs are
+interchangeable — a restore script, a backup that caught the wrong directory, or
+a mistake at a keyboard swaps the files, both unwrap cleanly, and Waymark starts
+pseudonymising under the database key. Every customer gets a new identity and
+nothing reports an error.
+
+**There is no way to replace the key, and a test asserts the absence.** No
+rotate, no reset, no overwrite, no force flag. Creation uses `FileMode.CreateNew`
+so two processes racing at first start produce an error rather than one silently
+overwriting the other's key. The unwrap-failure message says, in as many words,
+not to delete the file — because deleting it is the obvious way to make the error
+go away and it is unrecoverable.
+
+**The exclusion test is what D-039 rests on, so it searches for four
+representations** — raw bytes, hex in both cases, base64 — over the database file
+and its `-wal` sibling, after writing the rows that would carry a leak if one
+existed. A leak is rarely a `memcpy`; it is a diagnostic, a serialised settings
+object, or an error message, and every one of those converts to text first. It
+searches for **the wrapped blob as well as the key**, as D-042 requires:
+machine-scope DPAPI is unwrappable by anything on that machine, so shipping the
+blob is very nearly shipping the key, and a test looking only for plaintext would
+pass while the blob went to the cloud in every backup.
+
+### The finding: `LocalMachine` DPAPI does not defend against a local user, and the ACL that would is nobody's job
+
+D-042 specifies the wrapping as DPAPI `LocalMachine` scope with entropy bound to
+the install GUID, and adds "its own ACL" in four words without assigning it to
+anything. Building it made the weight those four words carry obvious.
+
+`LocalMachine` scope means **any process on the box can unwrap the blob** — that
+is what machine scope is. The optional entropy is the only thing standing in the
+way, and it is derived from the install id, which is not a secret and has to be
+readable by the service at start-up. So the control that actually stops a second
+cashier account, or any local process, from reading the tenant key is the **file
+ACL on `%ProgramData%\Waymark\keys`** — and `C:\ProgramData` grants
+`BUILTIN\Users` write with `ContainerInherit` by default, which a017eb0 already
+recorded while looking at a different problem.
+
+Nothing in the codebase sets that ACL. `TenantKeyStore` creates the directory
+with whatever it inherits. Setting it needs Windows ACL APIs and therefore
+another package in the project that holds the key, which is not a decision to
+take in passing — so it is recorded here rather than half-done. **Until the
+installer sets it, the tenant key is readable by any local account**, and the
+DPIA's "wrapped by the operating system's data protection service at machine
+scope with additional entropy" is accurate but is doing less than a reader would
+assume.
+
+Two things follow, both for Hakim:
+
+1. **Where the install id lives matters more than it looks.** If it sits in
+   `config\` in a world-readable file, the entropy adds nothing against a local
+   attacker and the ACL is the whole control.
+2. **The ACL belongs in the installer work**, with the `Modify` grant a017eb0
+   already identified as needed for multi-cashier logins — the same piece of work,
+   pulling in opposite directions, which is why it should be designed once rather
+   than twice.
+
+**Verified by breaking it.** Putting the raw key, the key as hex, and the wrapped
+blob as base64 into an outbox payload each fail the exclusion tests, and fail the
+right ones — the payload test plus whichever of the two file-level tests owns
+that secret. Adding a public accessor that returns the key fails the API-shape
+test. Giving every population the customer prefix fails domain separation.
+Defaulting an unknown population to customer fails its refusal test. Truncating
+to 64 bits fails the whole scheme suite, loudly, because the encoder refuses a
+wrong-length span rather than encoding a smaller number with leading zeros.
+Giving `Waymark.Sync` a class that uses `IPseudonymiser` fails both new
+architecture tests — and it had to *use* it, since an unused reference is dropped
+from the IL and is not a dependency any test can see (D-049, D-050).
+
 ## Open — decisions waiting on Hakim
 
 These are in CLAUDE.md §7.2 territory and were deliberately **not** guessed at
@@ -1987,6 +2192,7 @@ during scaffolding.
 
 | # | Question | Why it cannot be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
+| O-18 | **Who sets the ACL on `%ProgramData%\Waymark\keys`, and where does the install id live?** | D-042 says "its own ACL" and assigns it to nothing. DPAPI at `LocalMachine` scope is unwrappable by any process on the box, so the ACL — not the wrapping — is what stops a second local account reading the tenant key, and `C:\ProgramData` grants `BUILTIN\Users` write by inheritance. Setting it needs Windows ACL APIs in the project that holds the key, which is an architecture change. It also collides with the `Modify` grant the installer needs for multi-cashier logins (a017eb0), so the two want designing together. See D-051. | Nothing in code. It is a deployment control, and the DPIA describes it as in place |
 
 
 ### Resolved

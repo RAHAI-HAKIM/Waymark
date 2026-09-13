@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using NetArchTest.Rules;
 
 namespace Waymark.Integration.Tests;
@@ -104,6 +105,70 @@ public sealed class ArchitectureTests
             Assert.True(
                 result.IsSuccessful,
                 Explain(result, $"{assembly.GetName().Name} reached for cryptography. Only Waymark.Pseudonymisation may."));
+        }
+    }
+
+    /// <summary>
+    /// Sync cannot reach the pseudonymisation boundary through the <i>port</i>
+    /// either.
+    ///
+    /// <para>
+    /// Added 12/09/2026 with W7, because until then there was nothing to reach.
+    /// <see cref="Sync_must_not_reference_Pseudonymisation"/> closes the obvious
+    /// route — a project reference — but <c>IPseudonymiser</c> is declared in
+    /// Domain, and Domain is referenced by everybody. Injecting the port would
+    /// hand Sync the ability to turn a customer id into the pseudonym the cloud
+    /// stores, without adding a single forbidden reference.
+    /// </para>
+    /// <para>
+    /// The whole namespace, not just that one interface: pseudonymisation
+    /// happens <i>before</i> the outbox, so what Sync carries is already tier-2
+    /// shaped text (CLAUDE.md §4). Sync has no honest use for <c>Pseudonym</c>,
+    /// <c>ProcessingEvent</c> or the key-check value either, and a rule that
+    /// admits exceptions is a rule somebody argues with.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Sync_knows_nothing_of_the_privacy_types()
+    {
+        var result = Types.InAssembly(Sync)
+            .ShouldNot()
+            .HaveDependencyOn("Waymark.Domain.Privacy")
+            .GetResult();
+
+        Assert.True(
+            result.IsSuccessful,
+            Explain(result, "Waymark.Sync reached for a privacy type. What reaches the outbox is already pseudonymised."));
+    }
+
+    /// <summary>
+    /// Only Application and the hosts may hold the ability to pseudonymise.
+    ///
+    /// <para>
+    /// Holding <c>IPseudonymiser</c> is a capability: it turns a direct
+    /// identifier into the cloud's name for the same person, which is half of
+    /// re-identification. Application needs it, because pseudonymisation happens
+    /// there, before the outbox. Nothing else does — Persistence stores whatever
+    /// it is handed, Contracts is a wire shape, Hardware prints receipts.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Only_Application_and_the_hosts_may_pseudonymise()
+    {
+        Assembly[] mustNotBeAbleTo = [Contracts, Persistence, Hardware, Sync];
+
+        foreach (var assembly in mustNotBeAbleTo)
+        {
+            var result = Types.InAssembly(assembly)
+                .ShouldNot()
+                .HaveDependencyOnAny(
+                    "Waymark.Domain.Privacy.IPseudonymiser",
+                    "Waymark.Domain.Privacy.ITenantKeyCheck")
+                .GetResult();
+
+            Assert.True(
+                result.IsSuccessful,
+                Explain(result, $"{assembly.GetName().Name} acquired the ability to pseudonymise."));
         }
     }
 
@@ -270,6 +335,15 @@ public sealed class ArchitectureTests
     /// know. Adding a name here is an architecture change: say why in a decision
     /// entry first.
     /// </para>
+    /// <para>
+    /// <b>This test alone is not enough.</b> It reads the compiled assembly's
+    /// references, and the compiler emits a reference only for a package Domain
+    /// actually <i>uses</i>. An unused one is dropped from the IL and passes
+    /// here while still being restored, resolved and shipped — the same blind
+    /// spot D-049 recorded for an unused <c>ProjectReference</c>.
+    /// <see cref="Domain_ships_no_package_outside_the_allowlist"/> is the half
+    /// that catches it.
+    /// </para>
     /// </summary>
     [Fact]
     public void Domain_references_no_package_outside_the_allowlist()
@@ -298,6 +372,88 @@ public sealed class ArchitectureTests
             belongs there, add it to the allowlist above and write the decision
             entry that says why. Do not widen the framework prefixes.
             """);
+    }
+
+    /// <summary>
+    /// Domain ships no package outside the allowlist — used or not.
+    ///
+    /// <para>
+    /// Written 12/09/2026, after <c>Waymark.Domain.csproj</c> was found carrying
+    /// <c>Microsoft.EntityFrameworkCore.SqlServer</c>. It had been there since
+    /// 04/09/2026, added in passing by a commit about EF tooling that never
+    /// mentioned Domain, and
+    /// <see cref="Domain_references_no_package_outside_the_allowlist"/> passed
+    /// the whole time: Domain never used an EF type, so the compiler emitted no
+    /// reference and there was nothing in the IL to find. The package was
+    /// nonetheless restored, resolved and copied beside the assembly — the
+    /// project with zero dependencies shipped a SQL Server driver.
+    /// </para>
+    /// <para>
+    /// The deps file is the right place to look because it is what the runtime
+    /// reads: it lists what a library was built against whether or not a single
+    /// line of code touched it. A test that only inspects IL is a test that
+    /// cannot see the mistake most likely to be made — one <c>dotnet add
+    /// package</c> in the wrong directory.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Domain_ships_no_package_outside_the_allowlist()
+    {
+        string[] allowlist = [];
+
+        var offenders = ShippedDependenciesOf("Waymark.Domain")
+            .Where(name => !allowlist.Contains(name, StringComparer.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            $"""
+            Waymark.Domain was built against a package it does not use:
+              {string.Join(Environment.NewLine + "  ", offenders)}
+
+            Zero dependencies means the project file too, not only the IL
+            (CLAUDE.md §2.1). Remove the PackageReference from
+            Waymark.Domain.csproj. If it truly belongs there, add it to both
+            allowlists and write the decision entry that says why.
+            """);
+    }
+
+    /// <summary>
+    /// What <paramref name="library"/> was built against, from this test
+    /// assembly's own deps file.
+    ///
+    /// <para>
+    /// It throws rather than returning nothing when the library is missing. A
+    /// lookup that quietly finds no entry is how the test above would go back to
+    /// passing while guarding nothing, which is the failure it was written to
+    /// end.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<string> ShippedDependenciesOf(string library)
+    {
+        var deps = Path.ChangeExtension(typeof(ArchitectureTests).Assembly.Location, ".deps.json");
+
+        using var document = JsonDocument.Parse(File.ReadAllText(deps));
+
+        foreach (var target in document.RootElement.GetProperty("targets").EnumerateObject())
+        {
+            foreach (var entry in target.Value.EnumerateObject())
+            {
+                if (!entry.Name.StartsWith(library + "/", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                return entry.Value.TryGetProperty("dependencies", out var dependencies)
+                    ? [.. dependencies.EnumerateObject().Select(dependency => dependency.Name)]
+                    : [];
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"{library} is not in {deps}. The deps file is how this suite sees what a "
+            + "project was built against; without the entry the check proves nothing.");
     }
 
     // -----------------------------------------------------------------------

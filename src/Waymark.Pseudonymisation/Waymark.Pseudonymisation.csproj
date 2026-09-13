@@ -15,11 +15,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- D-039 removed waymark-identity.db, so this project no longer opens a
-         database of its own. The references stay until the pseudonymisation
-         work lands and confirms they are unused. -->
-    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
+    <!-- DPAPI, to wrap the tenant key at LocalMachine scope with entropy bound
+         to the install id (D-042). The one package this project needs.
+
+         The Sqlite references that used to sit here are gone: D-039 removed
+         waymark-identity.db, W7 confirmed this project opens no database of its
+         own, and a project holding the tenant key should carry no dependency it
+         cannot justify. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 
 </Project>

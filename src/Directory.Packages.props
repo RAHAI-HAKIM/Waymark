@@ -17,8 +17,16 @@
     <!-- ULIDs, not autoincrement, not UUIDv4 (CLAUDE.md 3.2). Belongs in
           Waymark.Application, never Domain: ids come from the IIdGenerator port
           so the synthetic generator stays deterministic (decisions.md D-038). -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.11" />
     <PackageVersion Include="Ulid" Version="1.4.1" />
+  </ItemGroup>
+  <ItemGroup Label="Pseudonymisation">
+    <!-- DPAPI, for wrapping the tenant key at LocalMachine scope with entropy
+          bound to the install id (decisions.md D-042). Referenced ONLY by
+          Waymark.Pseudonymisation: an architecture test fails if any other
+          project below the hosts takes a dependency on
+          System.Security.Cryptography, because a second place that can compute
+          an HMAC is a second place that holds the key. -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup Label="Persistence">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />

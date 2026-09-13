@@ -2,352 +2,199 @@
 
 Rules for working in this repository. Read before writing code.
 
-These are constraints, not suggestions. Most of them are silently wrong if broken: the
-code compiles, the tests pass, and the damage appears months later. Reasoning lives in
-`/docs`; this file is the short form.
-
+These are constraints, not suggestions. Most are silently wrong if broken: the code
+compiles, the tests pass, and the damage appears months later.
 **If a rule here blocks a task, stop and ask. Do not work around it.**
+
+This file is the rule; the `D-nnn` beside it is the argument, in `/docs/decisions.md`.
+Follow a reference only when you need the reasoning or are about to change the rule.
+`/docs/README.md` is the index and says which documents live outside this repository.
 
 ---
 
 ## 1. What this is
 
-A retail management system for Algerian SMB retailers (can be extended to global market), with an analytical engine
-(Almanac). Store-side software runs on a single Windows 10 till at Basic tier. The
-product's differentiator is **interpretability**: every recommendation must be explainable
-to the shopkeeper. Code that cannot be explained cannot ship.
+Retail management for Algerian SMB retailers with an analytical engine (Almanac), running
+on one Windows 10 till at Basic tier. The differentiator is **interpretability**: code that
+cannot be explained cannot ship.
 
-| Surface | Stack |
-| :---- | :---- |
-| POS client | C# / .NET, Avalonia |
-| Store server | C# / .NET, ASP.NET Core |
-| Admin (local and cloud) | React + TypeScript + Tailwind + Vite |
-| Analytical engine | Python |
-| Store data | SQLite (operational, stats tier 1, POS cache), DuckDB (stats tier 2) |
-| Cloud data | Postgres (state), DuckDB per tenant (stats tiers 2–3) |
+C# / .NET throughout the store — Avalonia POS, ASP.NET Core StoreServer. React + TypeScript
++ Tailwind + Vite for Admin. Python for the engine. SQLite for operational data, stats tier
+1 and the POS cache; DuckDB for tier 2; Postgres and per-tenant DuckDB in the cloud.
 
 ---
 
 ## 2. Architecture rules
 
-### 2.1 Dependencies point inward
+### 2.1 Dependencies point inward — `docs/diagrams/05-solution-dependencies.md`
 
 ```
-POS · StoreServer · Admin API      ← hosts
-            ↓
-       Application                  ← use cases
-            ↓
-          Domain                    ← rules, entities
-            ↑
-Persistence · Hardware · Sync · Pseudonymisation   ← infrastructure
+POS · StoreServer · Admin API → Application → Domain ← Persistence · Hardware · Sync · Pseudonymisation
 ```
 
-- `Waymark.Domain` has **zero dependencies**. Not Persistence, not Contracts, not EF Core.
-- Infrastructure implements interfaces **declared in Domain**. Domain declares
-  `IBatchRepository`; Persistence implements it. Domain never names SQLite.
-- **`Waymark.Sync` must never reference `Waymark.Pseudonymisation`.** This absence is a
-  legal boundary, not a style preference. Architecture tests enforce it.
+- **`Waymark.Domain` has zero dependencies** — no project, no NuGet package. Checked in the IL *and* the deps file: an unused package is dropped from the IL (D-050).
+- **`Waymark.Contracts` references nothing at all**, not even Domain. It is the wire shape shared with TypeScript and Python (D-044, D-049).
+- Infrastructure implements interfaces **declared in Domain**. Domain never names SQLite.
+- **`Waymark.Sync` must never reference `Waymark.Pseudonymisation`, nor touch `Waymark.Domain.Privacy`.** A legal boundary, not a style preference (D-039, D-051).
 - No SQL, no EF Core types, no HTTP outside Persistence, Sync and the hosts.
-
-Adding a project reference is an architecture change. Ask first.
+- Adding a project reference is an architecture change. Ask first.
 
 ### 2.2 The POS talks HTTP to StoreServer
 
 Even at Basic tier where both run on one machine. One code path, not two. The POS never
 opens the store database directly.
 
+### 2.3 Handlers stage. The executor commits. — D-050
+
+A handler never saves: it stages and returns, and `CommandExecutor` seals the context and
+calls `IUnitOfWork.CommitAsync` **once**, so everything commits together or not at all. Ids
+and log entries come from `CommandContext`, which belongs to one unit of work and throws
+once that closes. Wanting to save inside a handler means it is a second command.
+
 ---
 
 ## 3. Data rules
 
-### 3.1 Money is never a float
+### 3.1 Money — D-031…D-035, D-037
 
-- Monetary columns are `INTEGER`, in minor units. **Never `REAL`, never `TEXT`.**
-- One Waymark minor unit is 1/100 of a currency unit, for every currency. The scale is
-  fixed so an EF value converter stays a pure function; a currency's own minor-unit
-  exponent lives on the `Currency` type and governs display and cash rounding, not
-  storage (D-031, D-035).
-- C# side is always `Money` — `(long MinorUnits, Currency Currency)`. Never `double`,
-  never `float`, for money, quantity, or anything summed.
-- **`Money` carries its currency and throws on mismatch.** `+`, `-` and comparison refuse
-  two different currencies. There is no implicit conversion anywhere, ever. Conversion is
-  an explicit, recorded event with a rate and a date, and converted figures are
-  presentation-only — never written back into a money column.
+- Monetary columns are `INTEGER` minor units, 1/100 of a currency unit for every currency. **Never `REAL`, never `TEXT`.**
+- C# side is always `Money`. Never `double` or `float` for money, quantity, or anything summed.
+- **`Money` carries its currency and throws on mismatch.** No implicit conversion, ever. Conversion is a recorded event with a rate and a date, and is presentation-only.
+- **No arithmetic that can round exists as an operator.** `Times`, `Percent`, `Allocate` take an explicit policy, so grepping them enumerates every site where a centime can be created. **Never add `operator *(Money, decimal)`.**
+- **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
+- **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row.
+- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
+- **TVA is extracted per line from the TTC price by subtraction**: `ht = round(ttc/(1+r))`, then `tva = ttc − ht`. Never round `tva` independently (D-033). Displayed prices are TTC under Law No. 04-02.
+- **Division by zero throws**, always; callers expecting zero use the nullable variant. **Absence is never zero** (D-037).
+- Almanac always uses `HalfEven`, stores full precision, rounds at display only.
 
-**Rounding.** Three separate problems, deliberately not unified into one setting (D-032):
+### 3.2 Identity — D-038
 
-- **Splitting a known total** — `Allocate`, largest remainder. Exact by construction;
-  `sum(parts) == total` always. Never round the parts independently.
-- **Deriving a value** — `HalfEven` or `HalfUp`, the retailer's choice, stored on
-  `stores.rounding_policy` *and stamped on `transactions.rounding_policy`* so a receipt is
-  recomputable from its own row. `Truncate` is never a store policy.
-- **Cash tender** — rounded to `Currency.CashRoundingStep` (500 for DZD). The **tender**
-  rounds, never the invoice. Only the cash portion. The difference is a real movement of
-  money and goes to `rounding_variance`, never into `cash_sessions.variance` — that column
-  exists to detect theft and must not be filled with noise (D-034).
-
-**No arithmetic that can round exists as an operator.** `Times`, `Percent` and `Allocate`
-are methods taking an explicit policy, so grepping for them enumerates every site where a
-centime can be created or destroyed. Never add `operator *(Money, decimal)`.
-
-**TVA is extracted per line from the TTC price and derived by subtraction** —
-`ht = round(line_ttc / (1 + rate))`, then `tva = line_ttc − ht`. Never round `tva`
-independently; subtraction is what makes `ht + tva == line_ttc` true by construction
-(D-033). Displayed retail prices are TTC under Law No. 04-02.
-
-**Division by zero throws.** Always, with no contextual exception. A caller who expects
-zero to be possible calls the nullable variant, and the compiler forces them to handle it.
-**Absence is never represented as zero** (D-037).
-
-The engine's rounding is not selectable: Almanac always uses `HalfEven`, stores at full
-precision, and rounds only at display.
-
-### 3.2 Every primary key is a ULID generated in application code
-
-- No database autoincrement, anywhere, ever.
-- Generated by the machine that writes, so offline terminals cannot collide.
-- ULID not UUIDv4 — it sorts by creation time.
-- **Ids come from `IIdGenerator`, a port declared in Domain.** Never `Ulid.NewUlid()` in
-  an entity constructor: a static call cannot be substituted, and §8's "deterministic from
-  a seed" generator becomes unachievable the moment one exists (D-038).
-- Command handlers mint every id for the whole unit of work before anything is written.
-- The `Ulid` package lives in `Waymark.Application`, not Domain.
+- **Every primary key is a ULID generated in application code.** No autoincrement, anywhere.
+- Ids come from `IIdGenerator`, a port in Domain. **Never `Ulid.NewUlid()` in an entity constructor** — it cannot be substituted, and W10's seeded generator needs it to be.
+- The `Ulid` package lives in `Waymark.Application`, never Domain.
 
 ### 3.3 Store scoping is a global query filter
 
-Every store-scoped entity carries `store_id` and is filtered by an EF Core global query
-filter, not by a `where` clause the caller might forget. Cross-tenant leakage is DPIA risk
-R9.
+Every store-scoped entity carries `store_id` and is filtered by an **EF Core global query
+filter**, not a `where` clause someone might forget. It **fails closed**. Cross-tenant
+leakage is DPIA risk R9.
 
-### 3.4 Three separate SQLite files, never merged
+### 3.4 Files — D-013, D-042, D-043
 
-*Was four. `waymark-identity.db` was removed by D-039 — see §3.5.*
+- **Three SQLite files, never merged**: `waymark-store.db` (SQLCipher, backed up, pseudonymised data only), the POS Level-2 cache (never backed up), and the cloud.
+- **Statistics tier 2 is local**, in DuckDB. The outbox carries two streams that must never re-join: an anonymous basket record with no customer column, and a customer period record at monthly grain.
+- **Keys live in `%ProgramData%\Waymark\keys`, never in `data`.** The backup set is an allowlist of directories.
 
-| File | Holds | Syncs? | Backed up to cloud? |
-| :---- | :---- | :---- | :---- |
-| `waymark-store.db` | Operational data, stats tier 1 | Pseudonymised only | Yes |
-| POS Level-2 cache | Price list, recent transactions | Terminal → server only | No |
-| (cloud) | — | — | — |
+### 3.5 Pseudonymisation — D-039, D-042, D-045, D-051
 
-`waymark-store.db` is SQLCipher-encrypted. Verified end to end: migration, all triggers,
-all indexes, every STRICT table, WAL, wrong-key rejection and `PRAGMA rekey` all work
-against an encrypted file, and an unencrypted database opens in the same process under the
-same bundle (D-040).
+**`HMAC-SHA256(tenant_key, "waymark:<population>:v1:" ‖ id)`**, truncated to 128 bits,
+Crockford base32 — 26 characters, like a ULID.
 
-**Statistics tier 2 is local too, in DuckDB** (D-043). It keeps transaction grain with the
-pseudonym attached, behind the same premises boundary as tier 1 — so the re-identification
-question applies to what the outbox carries, not to tier 2. The outbox carries two streams
-that must never re-join: an anonymous basket record with no customer column at all, and a
-customer period record at monthly grain. The grains are mismatched deliberately; emitting
-both per transaction would let a join rebuild the identified stream.
-
-**Keys live in `%ProgramData%\Waymark\keys`, never in `data`** (D-042). The cloud backup
-set is an allowlist of directories, so a key cannot be swept in by a pattern. Two secrets,
-opposite policies: the database key protects availability and rotates; the tenant key
-protects confidentiality, does not rotate, and is never escrowed with Waymark.
-
-### 3.5 Pseudonymisation is a keyed hash, and the key never leaves the premises
-
-**`pseudonym_key = HMAC-SHA256(tenant_key, "waymark:customer:v1:" ‖ customer_id)`**,
-truncated to 128 bits, Crockford base32 — 26 characters, like a ULID (D-039).
-
-- Only `Waymark.Pseudonymisation` holds the key or computes a pseudonym.
-- **The key is never in a backup or a sync payload.** This is enforced by a test over the
-  backup payload and the outbox, not by this sentence. It is the whole reason Waymark
-  cannot connect a `customer_id` in a backup to a pseudonym in the cloud. **The test must
-  assert on the DPAPI-wrapped blob as well as the raw bytes**, or it passes while the blob
-  ships (D-042).
-- **`Pseudonym` is the only way to name a subject in `processing_log`.** It is declared in
-  Domain with an internal constructor, and Domain grants `InternalsVisibleTo` to
-  `Waymark.Pseudonymisation` alone — so a call site that wants to log must cross the
-  boundary to obtain one. Application may hold a `Pseudonym`; it may not make one, and it
-  still may not reference `Waymark.Pseudonymisation` (D-045, D-048).
-- The key is **per tenant**, generated client-side, carried operator-to-operator. Waymark's
-  cloud never issues it and never sees it.
-- The domain-separation prefix is not decoration — it is what lets staff or suppliers be
-  pseudonymised under the same key without collision, and the scheme be versioned.
-- The scheme does not rotate. A compromised key re-identifies all historical cloud data
-  for that tenant, permanently. A lost key unlinks it, permanently. Custody is O-2.
-- **`Waymark.Sync` must still never reference `Waymark.Pseudonymisation`** (§2.1). That
-  boundary matters more now, not less, because this project holds the key.
-
-**Erasure is unchanged: null the pseudonym on the cloud's transaction rows**, purge
-identity columns in `processing_log`, record it in `erasure_ledger`. Destroying a mapping
-was never sufficient on its own — a year of timestamped baskets sharing one pseudonym
-still singles the person out (`Waymark_Implementation` §9.9). What is lost is the second,
-store-side cut: severance now depends on the cloud honouring the request.
-
-General write-ordering rule, which outlives the mapping it was written for:
-**order writes so failure leaves garbage, not a gap.**
+- **Only `Waymark.Pseudonymisation` holds the key or computes a pseudonym.**
+- **The key is never in a backup or a sync payload.** A test searches raw bytes, hex and base64 — and **the wrapped blob too**, or it passes while the DPAPI blob ships.
+- **The scheme does not rotate**, and `TenantKeyStore` has no method that replaces a key. A replaced key gives every customer a second identity and orphans the cloud history, with no error.
+- **`Pseudonym` is the only way to name a subject in `processing_log`.** Internal constructor; Domain grants `InternalsVisibleTo` to `Waymark.Pseudonymisation` alone. Application may hold one, may not make one.
+- **Holding `IPseudonymiser` is a capability** — half of re-identification. Only Application and the hosts may. Inject it into as little as possible.
+- **DPAPI at `LocalMachine` scope does not defend against a local user.** The keys directory's ACL does, and nothing sets it yet (O-18). Do not describe the wrapping as more than it is.
+- **Erasure unlinks rather than destroys**: null the pseudonym on cloud transaction rows, record it in `erasure_ledger`. General rule: **order writes so failure leaves garbage, not a gap.**
 
 ### 3.6 Domain row and outbox row go in one transaction
 
 Both or neither. This is the outbox pattern and the whole sync design rests on it.
 
-### 3.7 Schema and migrations
+### 3.7 Schema and migrations — `docs/schema-changes.md`, D-019, D-022
 
-- The initial migration is EF's own generated `Up()`, not the schema pasted inline. Pasting was insurance against the generated tables not matching the reviewed schema; that was checked mechanically and passed on every table, column, column order, key, foreign key, unique constraint, index filter, CHECK expression and default (decisions.md O-9).
-- **`MigrateAndApplyTriggers()` is the only supported way to bring a database up to date.** `Migrate()` alone leaves it with no append-only guards, and that failure is silent. The method refuses to return if a trigger is still missing afterwards.
-- Never run `dotnet ef migrations add` without reading the generated file. EF cannot see triggers, and a table rebuild silently drops every trigger and index EF does not know about.
-- Every index, CHECK constraint and foreign key must be declared in the EF model. A rebuild recreates the table from the model alone and drops anything the model does not know about — verified: a rebuild took `CHECK (amount > 0)` off a table and a negative amount was accepted afterwards, with EF reporting success (decisions.md D-022).
-- Triggers live in `triggers.sql`, never in the EF model — EF cannot see them, and its table rebuild drops them with the table. They are re-applied idempotently (`DROP TRIGGER IF EXISTS`, then `CREATE`) after every `Migrate()`. A migration that runs without `ApplyTriggers()` leaves the database without its append-only guards, which is why the two are one call.
-- `schema_v7_1.sql` is frozen. It is historical. Changing the schema means adding a migration, never editing that file.
-- `schema_current.sql` is regenerated and committed after every migration. It is documentation, never executed.
-- `Migrate()` must not be called inside a transaction. EF Core 9+ manages its own; an ambient one throws.
-- New tables must be `STRICT`. `StrictSqliteMigrationsSqlGenerator` handles this on both plain creation and the rebuild path. If it is ever removed, the decimal rule stops being mechanical.
-- A table rebuild on a store with two years of data is a real pause. SQLite copies the whole table. Schema changes touching transactions, transaction_items or stock_movements need to be planned as an operational event, not slipped into a routine update.
+- **`MigrateAndApplyTriggers()` is the only supported way to bring a database up to date.** `Migrate()` alone leaves it with no append-only guards, silently.
+- **Never run `dotnet ef migrations add` without reading the generated file.**
+- **Every index, CHECK and foreign key must be declared in the EF model.** A table rebuild recreates the table from the model alone and drops whatever the model does not know.
+- **Triggers live in `triggers.sql`, never in the EF model** — EF cannot see them and a rebuild drops them. Re-applied idempotently after every `Migrate()`.
+- **A rebuild copies the whole table.** On `transactions`, `transaction_items`, `stock_movements` or `processing_log` that is an operational event, not a routine update.
+- New tables must be `STRICT`. `schema_v7_1.sql` is frozen; `schema_current.sql` is regenerated and committed after every migration. `Migrate()` must not run inside a transaction.
+- EF Core 10 on .NET 10 LTS. Not 11 — it is STS, and the till needs long support.
 
-EF Core version: 10, with .NET 10 LTS. Not 11 — it is STS, and the till needs long support.
+### 3.8 Quantity — D-036
 
-### 3.8 A stock level and a stock change are different types
-
-- **`Quantity`** is a level or a magnitude — what you order, receive, count, return, shelve.
-- **`QuantityDelta`** is a change — what a stock movement does. Signed. **Zero is a legal
-  value though not a legal movement**: `CHECK (quantity_changed <> 0)` stops a pointless
-  row, but a receipt and a write-off cancelling sum to nothing, and two equal levels differ
-  by nothing. The non-zero rule belongs to the column, like the non-negative rules on
-  `quantity_ordered`.
-- The operators are the specification. `Quantity + QuantityDelta → Quantity`;
-  `Quantity − Quantity → QuantityDelta`; `QuantityDelta + QuantityDelta → QuantityDelta`.
-  **`Quantity + Quantity` deliberately does not exist.**
-- What falls out is `closing_level = opening_level + Σ(deltas)`, type-checked rather than
-  conventional. The archetypal stock bug is a sign error, both values are plausible
-  integers, and no test catches it because the test author makes the same mistake (D-036).
-- **Both carry their unit**, and mismatched units throw. Conversion is explicit through
-  `units_of_measure.factor_to_base`. A unit's `decimal_places` is an invariant: a variant
-  sold by `piece` rejects 1.5 pieces at construction, not at the CHECK constraint.
-- A stock level going negative is not a bug. It is a sale that outran its receipt, and
-  `inventories.quantity` is annotated *"may be negative"* for that reason.
+- **`Quantity`** is a level or magnitude; **`QuantityDelta`** is a signed change.
+- `Quantity + QuantityDelta → Quantity`; `Quantity − Quantity → QuantityDelta`. **`Quantity + Quantity` deliberately does not exist.**
+- Zero is a legal `QuantityDelta` though not a legal movement; the non-zero rule belongs to the column's CHECK.
+- **Both carry their unit** and mismatched units throw. A unit's `decimal_places` is enforced at construction.
+- A stock level going negative is not a bug.
 
 ---
 
-## 4. Privacy rules
+## 4. Privacy — `Waymark_DPIA_v1`, D-045
 
-These implement commitments in `Waymark_DPIA_v1`, which will be filed with the ANPDP.
-Breaking one is a legal problem, not a bug.
+Breaking one of these is a legal problem, not a bug.
 
-- **No direct identifier crosses to the cloud.** Pseudonymisation happens *before* the
-  outbox. What lands in the outbox is already tier-2 shaped.
-- **The tenant key never leaves the premises** — not in a backup, not in a sync payload,
-  not issued by the cloud (§3.5). This is the mechanism behind the sentence above, and it
-  is tested rather than asserted.
-- **Erasure unlinks rather than destroys** — null the pseudonym on cloud transaction rows,
-  purge identity columns in `processing_log`, record it in `erasure_ledger`. Unchanged by
-  D-039 except that there is no mapping row to delete as well. *`Waymark_DPIA_v1` §5.2
-  describes a separately-stored mapping and must be amended before filing.*
-- **`processing_log` is written at every access site.** Writes belong in
-  `Waymark.Application`, not scattered through handlers. Collection, consultation,
-  disclosure, transmission, erasure — all logged with timestamp, purpose, actor, recipient.
-- **`objection_flag` is checked before any customer-directed output** reaches POS or Admin.
-- **Consent is two separate consents** — processing and marketing — each with its own
-  timestamp, notice version, capturing staff member and method. `consent_events` is
-  append-only. Withdrawal is a new event, never an update.
-- **Sensitive categories are excluded from customer-level processing**, evaluated across
-  *all* category links, not the primary category alone.
-- **Nothing decides automatically.** Every recommendation is accepted, adjusted or
-  dismissed by a human. Credit and tier outputs are informational only, with no
-  accept/decline loop.
+- **No direct identifier crosses to the cloud.** Pseudonymisation happens *before* the outbox; what lands there is already tier-2 shaped.
+- **`processing_log` is written at every access site**, through `IProcessingLog.Record`, which takes a `ProcessingEvent` and nothing else. Writes belong in `Waymark.Application`.
+- **The caller does not set `log_id`, `occurred_at` or `store_id`** — they come from `IIdGenerator`, the injected `TimeProvider` and `ICurrentStore`.
+- **`objection_flag` is checked before any customer-directed output.**
+- **Consent is two separate consents**, processing and marketing, each with its own timestamp, notice version, staff member and method. `consent_events` is append-only; withdrawal is a new event, never an update.
+- **Sensitive categories are excluded from customer-level processing**, evaluated across *all* category links.
+- **Nothing decides automatically.** Every recommendation is accepted, adjusted or dismissed by a human.
 
 ---
 
-## 5. Engine rules
+## 5. Engine — `System_Architecture`
 
 **The cloud fits. The store compares. No formula is implemented twice.**
 
-The store-side evaluator **may**: read local data and cloud-supplied parameters, compare
-values, do arithmetic on a couple of quantities, do date arithmetic.
-
-It **may not**: fit models, aggregate over history, iterate, or optimise.
-
-Other constraints:
+The store-side evaluator **may** read local data and cloud parameters, compare values, and
+do arithmetic on a couple of quantities. It **may not** fit models, aggregate over history,
+iterate, or optimise.
 
 - The engine never participates in a live transaction. It ran last night.
-- **Every engine figure carries its interval.** A number without a range is a bug.
-- **Every recommendation carries a Because block** — at most three reasons, each with a
-  figure.
-- **Every output carries its computed-at age.** Stale output is shown as stale, never
-  hidden.
-- Parameters come from the registry with a version and a `computed_at`.
+- **Every figure carries its interval.** A number without a range is a bug.
+- **Every recommendation carries a Because block** — at most three reasons, each a figure.
+- **Every output carries its computed-at age.** Stale output is shown as stale.
 
 ---
 
-## 6. Presentation rules
+## 6. Presentation — `Waymark_Brand_Identity`
 
-From `Waymark_Brand_Identity`. Seven locked lines; these are the ones that reach code.
-
-- **Violet `#5A3AA8` is the operator.** Every button, action, confirmation, active state.
-- **Cyan `#0E8C86` is Almanac.** Edges, fills, interval caps, 3px rules. **Never a button,
-  never a link, never text.** Text uses `#0A5F5B`.
-- **Cyan is never a card fill.** Engine cards are white with a cyan top edge.
-- **Label before colour.** A card with a coloured edge and no label is not a valid state.
-- **Two semantic colours only** — critical and warning. There is **no positive state**; a
-  shelf that is fine gets no card at all.
-- Archivo for readable text, IBM Plex Mono for labels, SKUs, quantities and figures.
-- Voice: *"Suggested reorder: 240 units"*, never *"Reorder 240 units"*. Forecasts speak
-  future with a figure. Admit the range.
-  - The complete color selection is in `Waymark_Brand_Identity`
+- **Violet `#5A3AA8` is the operator** — every button, action, confirmation, active state.
+- **Cyan `#0E8C86` is Almanac** — edges, fills, interval caps. **Never a button, link, text or card fill.** Cyan text is `#0A5F5B`; engine cards are white with a cyan top edge.
+- **Label before colour.** A coloured edge with no label is not a valid state.
+- **Two semantic colours only**, critical and warning. **There is no positive state** — a shelf that is fine gets no card.
+- Archivo for text, IBM Plex Mono for labels, SKUs, quantities and figures.
+- Voice: *"Suggested reorder: 240 units"*, never *"Reorder 240 units"*. Admit the range.
 
 ---
 
 ## 7. Working style
 
-### 7.1 Task shape
-
-Small and scoped. "Implement the batch expiry query against this schema" — not "build the
-inventory module". If a task seems to require an architecture decision, stop and ask.
-
-### 7.2 What needs Hakim's decision, not a best guess
-
-- Schema and migrations
-- The tier 1 → tier 2 boundary and the pseudonym scheme
-- Money and stock arithmetic — *the rules are settled (D-031 to D-037); changing one is a new decision*
-- Sync rules: what conflicts, what wins, what is flagged
-- The recommendation envelope and Integration Layer contract
-- Engine method selection, cold-start fallbacks, interval computation
-- Anything the DPIA promises
-
-### 7.3 Every non-obvious choice gets a decision log entry
-
-`/docs/decisions.md`. What, why, what was rejected. One paragraph.
-
-### 7.4 Nothing merges that cannot be explained
-
-The test is a sceptical incubator judge asking why the safety-stock formula uses that
-z-score. "Roughly understood" fails. Interpretability is the product; a founder who cannot
-interpret his own codebase has no product.
+- **Tasks are small and scoped.** If one seems to need an architecture decision, stop and ask.
+- **Every non-obvious choice gets an entry in `/docs/decisions.md`** — what, why, what was rejected. One paragraph.
+- **Nothing merges that cannot be explained** to a sceptical judge asking why the safety-stock formula uses that z-score. "Roughly understood" fails.
+- **Needs Hakim's decision, not a best guess**: schema and migrations · the tier 1→2 boundary and the pseudonym scheme · sync conflict rules · the recommendation envelope and Integration Layer contract · engine method selection, cold-start fallbacks, intervals · anything the DPIA promises. Money and stock arithmetic are settled (D-031…D-037); changing one is a new decision.
 
 ---
 
 ## 8. Testing
 
-Tests exist where errors are **silent** — where the code runs, the screen looks right, and
-the number is wrong.
+Tests exist where errors are **silent** — the code runs, the screen looks right, the number
+is wrong. **Priority:** money arithmetic · stock movements and reconciliation · expiry and
+markdown · the pseudonymisation boundary · sync idempotency and replay · consent and rights
+logic. **Low priority:** UI rendering, CRUD screens, styling.
 
-**Priority order:** money arithmetic · stock movements and reconciliation · expiry and
-markdown logic · the pseudonymisation boundary · sync idempotency and replay · consent and
-rights logic.
-
-**Low priority:** UI rendering, CRUD screens, styling.
-
-- Domain tests need no database.
-- Integration tests run against a real temporary SQLite file, not an in-memory substitute.
-- Architecture tests (NetArchTest) enforce §2.1 and must fail when a forbidden reference is
-  added.
+- **Prove a test can fail.** Break the code, watch the right test fail, restore. A mutation the *compiler* catches proves nothing about the test.
+- Domain tests need no database. Integration tests run against a real temporary SQLite file, never in-memory.
+- Architecture tests (NetArchTest) enforce §2 and must fail when a forbidden reference is added.
 - The synthetic store generator is deterministic from a seed. Tests depend on that.
+- Plain xUnit `Assert`, no assertion library (D-047).
 
 ---
 
 ## 9. Conventions
 
-| Thing | Convention |
-| :---- | :---- |
-| .NET | Current LTS |
-| Database naming | `snake_case`, mapped to PascalCase in EF Core configuration |
-| Test framework | xUnit |
-| Frontend | React + TypeScript + Tailwind + Vite. Headless components (Radix), TanStack Table, TanStack Query, react-hook-form + zod, Recharts |
-| Admin app | **One codebase, two surfaces.** Cloud Admin hides every screen showing a customer name, phone or email |
-| RTL | CSS logical properties from the first component. Never retrofitted |
-| Repo | Monorepo: `/src` (.NET solution), `/waymark-admin`, `/waymark-engine`, `/docs` |
+- Database naming `snake_case`, PascalCase in EF configuration. xUnit for tests. Current LTS .NET.
+- **Central package management. Never `dotnet add package`** — edit `Directory.Packages.props` and the csproj by hand; the tool has damaged both before.
+- Frontend: React + TypeScript + Tailwind + Vite, Radix, TanStack Table/Query, react-hook-form + zod, Recharts.
+- **Admin is one codebase, two surfaces.** Cloud Admin hides every screen showing a customer name, phone or email.
+- **RTL via CSS logical properties from the first component.** Never retrofitted.
+- Monorepo: `/src`, `/waymark-admin`, `/waymark-engine`, `/docs`.
 
 ---
 
@@ -356,15 +203,11 @@ rights logic.
 | Document | Authority on |
 | :---- | :---- |
 | `Waymark_Operating_Rules` | Commercial, legal, privacy. **Wins over everything** |
+| `Waymark_DPIA_v1` | What is promised to the regulator |
 | `System_Architecture` | Module and data design |
 | `Waymark_Implementation` | How the software is built |
 | `Waymark_Build_Plan` | Phase contents and definitions of done |
-| `Waymark_DPIA_v1` | What is promised to the regulator |
 | `/docs/decisions.md` | Every non-obvious choice, and what was rejected |
 | `/docs/phase-0-plan.md` | What is left in Phase 0, and what blocks each piece |
 | `/docs/schema-changes.md` | How to change the schema without breaking it |
 | `/docs/diagrams` | The eight architecture diagrams |
-
-`/docs/README.md` is the index: which document answers which question, which wins when two
-disagree, and where a new piece of writing belongs. Some of the documents above are held
-outside the repository; that file says which.
