@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The fake hardware, tested as hardware.
+
+    Its own project rather than a folder in Waymark.Integration.Tests: these
+    write files and drive a clock, not a database, and the integration suite
+    pays a migrated-SQLite fixture for every run. Nor Domain.Tests, which is
+    the no-database-ever project.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Waymark.Domain\Waymark.Domain.csproj" />
+    <ProjectReference Include="..\..\Waymark.Hardware\Waymark.Hardware.csproj" />
+  </ItemGroup>
+
+</Project>

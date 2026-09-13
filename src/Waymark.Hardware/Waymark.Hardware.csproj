@@ -11,4 +11,14 @@
     <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
   </ItemGroup>
 
+  <!--
+    The encoder's layout helpers and the readable rendering are internal: they
+    are how this project does its job, not API anyone else should call. The
+    tests need them, and unlike Waymark.Pseudonymisation this project holds no
+    secret, so a grant here costs nothing.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Waymark.Hardware.Tests" />
+  </ItemGroup>
+
 </Project>
