@@ -28,7 +28,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Application.Tests",
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Integration.Tests", "tests\Waymark.Integration.Tests\Waymark.Integration.Tests.csproj", "{F4090A9A-31CE-470D-95CF-EC437040CD07}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Hardware.Tests", "tests\Waymark.Hardware.Tests\Waymark.Hardware.Tests.csproj", "{331E2E83-72B1-4DB0-A265-178C2686057F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Waymark.Hardware.Tests", "tests\Waymark.Hardware.Tests\Waymark.Hardware.Tests.csproj", "{331E2E83-72B1-4DB0-A265-178C2686057F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
