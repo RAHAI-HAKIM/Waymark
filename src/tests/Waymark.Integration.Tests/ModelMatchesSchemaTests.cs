@@ -164,6 +164,17 @@ public sealed class ModelMatchesSchemaTests
         return shapes;
     }
 
+    /// <summary>
+    /// Triggers added to <c>triggers.sql</c> after <c>schema_v7_1.sql</c> froze, on a
+    /// table the baseline already has, so <c>ApplyTriggers()</c> puts them on the
+    /// baseline database too. Each is a reviewed decision, not drift. A trigger on a
+    /// table a later migration creates never reaches the baseline and needs no entry.
+    /// </summary>
+    private static readonly Dictionary<string, string> TriggersAddedAfterTheReviewedSchema = new(StringComparer.Ordinal)
+    {
+        ["trg_processing_log_no_update"] = "the logbook is append-only against edits (D-045, DPIA §5.5)",
+    };
+
     private static HashSet<string> Triggers(SqliteConnection connection)
     {
         var triggers = new HashSet<string>(StringComparer.Ordinal);
@@ -256,9 +267,20 @@ public sealed class ModelMatchesSchemaTests
                 $"trigger {trigger}: in the reviewed schema, missing after the baseline + ApplyTriggers()");
         }
 
-        foreach (var trigger in Triggers(shipped).Except(Triggers(reviewed)).Order(StringComparer.Ordinal))
+        foreach (var trigger in Triggers(shipped).Except(Triggers(reviewed))
+                     .Where(trigger => !TriggersAddedAfterTheReviewedSchema.ContainsKey(trigger))
+                     .Order(StringComparer.Ordinal))
         {
             differences.Add($"trigger {trigger}: applied, but not in the reviewed schema");
+        }
+
+        // A listed trigger that is no longer applied is a stale exception, and a
+        // stale exception is how this list would quietly start excusing things.
+        foreach (var trigger in TriggersAddedAfterTheReviewedSchema.Keys
+                     .Where(trigger => !Triggers(shipped).Contains(trigger))
+                     .Order(StringComparer.Ordinal))
+        {
+            differences.Add($"trigger {trigger}: listed as added after the reviewed schema, but not applied");
         }
 
         Assert.True(

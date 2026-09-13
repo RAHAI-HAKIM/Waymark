@@ -11,8 +11,8 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 | | |
 | :---- | :---- |
 | Build | `dotnet build src/Waymark.sln`, 13 projects, **0 warnings** |
-| Tests | **367 passing**: Domain 129 · Integration 167 · Hardware 43 · Application 28 |
-| Schema | 60 tables (all STRICT), 85 indexes, 13 append-only triggers, 3 migrations: `InitialSchema`, `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType` |
+| Tests | **372 passing**: Domain 129 · Integration 172 · Hardware 43 · Application 28 |
+| Schema | 60 tables (all STRICT), 85 indexes, 14 append-only triggers, 4 migrations: `InitialSchema`, `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType`, `AddRoundingPolicies` |
 | Uncommitted | W11 (hardware project, tests, solution entry), including the EAN-13 check digit and injected drawer clock |
 
 ## 2. Phase 0 work items
@@ -22,10 +22,10 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 | W1 | `Currency`, `Money`, rounding, allocation, TVA, cash tender | Done | D-031–D-035, D-037 |
 | W2 | `Quantity`, `QuantityDelta`, `UnitPrecision` | Done | D-036 |
 | W3 | `IIdGenerator`, `UlidGenerator`, `SeededIdGenerator` | Done; see F-3 before W10 | D-038 |
-| W4 | `rounding_variance` migration | Done, **but `stores.`/`transactions.rounding_policy` were never added** (F-13) | D-032, D-034 |
+| W4 | `rounding_variance`; `rounding_policy` on stores and transactions | Done (the policies landed later, D-053) | D-032, D-034, D-053 |
 | W5 | Money wired into the model | Done; Quantity stays `long` | D-041 |
 | W6 | Domain package allowlist (IL and deps file) | Done | D-038, D-050 |
-| W7 | `Waymark.Pseudonymisation`, tenant key, exclusion test | Done; the database key is not built (F-1) | D-039, D-042, D-051 |
+| W7 | `Waymark.Pseudonymisation`, tenant key, exclusion test | Done; the database key is deferred (F-1) | D-039, D-042, D-051 |
 | W8 | `Waymark.Contracts` | Done | D-044, D-049 |
 | W9 | Command executor, `processing_log` writer | Done | D-045, D-050 |
 | W11 | Fake hardware | Done, uncommitted | D-052 |
@@ -35,8 +35,8 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 
 | Criterion | State |
 | :---- | :---- |
-| Solution builds; architecture tests pass and fail when a forbidden reference is added | ✅ (D-012). The POS→DB rule is not tested (F-4) |
-| Migration creates the store database from empty, **encrypted**, every trigger in place | ⚠️ Triggers yes; **encrypted no** (F-1, O-20) |
+| Solution builds; architecture tests pass and fail when a forbidden reference is added | ✅ (D-012), including POS→DB (`Pos_cannot_reach_the_store_database`) |
+| Migration creates the store database from empty, **encrypted**, every trigger in place | ⚠️ Triggers yes; **encrypted no**. Deferred to the post-Phase 0 revision (F-1, O-20) |
 | The generator produces a plausible year of data that loads | ⏳ W10 |
 | Value-object tests: both policies, exact allocation, TVA from TTC, currency mismatch, cash step, level/change algebra | ✅ |
 | The tenant key cannot reach a backup payload or the outbox, proved by a failing-when-removed test | ✅ for the DB file, WAL and outbox. No backup job exists yet to test |
@@ -50,13 +50,11 @@ or **decide** (Hakim, usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
-| F-1 | **High** | **`waymark-store.db` is created in plaintext.** D-042's database key has no code: no key file, no `PRAGMA key`, and StoreServer's connection string has no key. That misses the Phase 0 "encrypted" criterion, and DPIA §5.4 says the store DB is encrypted at rest. SQLCipher's random page salt also conflicts with D-046's "byte-identical runs" | `Waymark.StoreServer/Program.cs`, `UseWaymarkSqlite` | **Decide** O-20, then fix |
+| F-1 | **High** | **`waymark-store.db` is created in plaintext.** D-042's database key has no code: no key file, no `PRAGMA key`, and StoreServer's connection string has no key. That misses the Phase 0 "encrypted" criterion, and DPIA §5.4 says the store DB is encrypted at rest. SQLCipher's random page salt also conflicts with D-046's "byte-identical runs" | `Waymark.StoreServer/Program.cs`, `UseWaymarkSqlite` | **Deferred** to the post-Phase 0 revision (O-20). Does not block W10: its determinism test compares a canonical dump (D-046) |
 | F-3 | Medium | **`SeededIdGenerator` ignores the simulated clock.** It adds 1 ms per id from `clockStart`, so a year of generated rows gets ULID timestamps packed into the first minutes | `SeededIdGenerator` | **Fix** at W10 step 3, as noted in D-046 |
-| F-4 | Medium | **"The POS never opens the store database" is not tested**, though `README.md` says `ArchitectureTests` asserts it. `Waymark.Pos` is not in any rule, and it will legitimately use SQLite for its Level-2 cache | `ArchitectureTests` | **Fix**: assert that Pos references no `Waymark.Persistence`, and name the cache path rule when it lands |
-| F-5 | **Medium** | **`processing_log` is not append-only.** `triggers.sql` exempts it "because erasure must purge identity columns", which D-045 made untrue. DPIA §5.5 promises an append-only log | `triggers.sql` | **Decide** O-21 |
-| F-6 | Low | **The scanner's custom terminator is broken.** A terminator other than CR/LF is appended to the buffer and never ends a scan. Separately, `Accept` returns false for a scan's *digits*, so they still reach the text box; only Enter is swallowed, which is less than the doc comment claims. A CRLF scanner leaks the `\n` | `KeyboardWedgeScanner` | **Fix** now, or before the POS cart (Phase 0.5) |
-| F-12 | Low | The uncommitted `Waymark.sln` diff added x64/x86 platforms to every project, a stray BOM line, and a legacy project-type GUID for `Waymark.Hardware.Tests` (a `dotnet sln add` side effect) | `src/Waymark.sln` | **Fix** before committing W11 |
-| F-13 | **Medium** | **`stores.rounding_policy` and `transactions.rounding_policy` do not exist.** W4 created only `rounding_variance` (which has its own `policy` column). CLAUDE.md §3.1, D-032, `Rounding.cs` and `RoundingVariance.cs` all describe the two columns as present. Without the stamp a receipt cannot be recomputed after a policy change, and nothing tells a handler which policy the store uses. Also, `Rounding.HalfEven = 0`, so `default(Rounding)` silently means banker's rounding | schema, `Store`, `Transaction` | **Decide** O-22, then one no-rebuild migration |
+| F-6 | Low | **The scanner's custom terminator is broken.** A terminator other than CR/LF is appended to the buffer and never ends a scan. Separately, `Accept` returns false for a scan's *digits*, so they still reach the text box; only Enter is swallowed, which is less than the doc comment claims. A CRLF scanner leaks the `\n` | `KeyboardWedgeScanner` | **Deferred to Phase 0.5**, fix before the POS cart |
+| F-14 | Low | **Constraint names in `AddRoundingPolicies` disagree with the model.** The model names the CHECK on *both* tables `ck_store_rounding_policy` (a copy-paste on `transactions`, against the `ck_<table>_<column>` convention). The migration's `Up()` says `ck_transactions_…` and `ck_stores_…`, and its `Down()` says `ck_store_…` on both. Harmless on SQLite, where the rebuild takes names from the model, but misleading, and it will surface as a diff the next time either table is rebuilt | `TransactionConfiguration`, `StoreConfiguration`, the migration | **Decide**: rename in the model at the next migration that touches either table (a rename alone is another rebuild), or regenerate `AddRoundingPolicies` now, while no store holds data |
+| F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Ten further full runs and three isolated runs were all green. Possibly a fixture racing on a shared temp path | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else |
 
 ---
 
@@ -65,9 +63,9 @@ or **decide** (Hakim, usually an `O-` entry). Close an item by deleting its row.
 Spec: D-046. Hakim writes and reviews the parameter file and output distributions; Claude
 writes the generator.
 
-**Before starting:** F-3 (it hits the generator directly); a direction on O-20, because it
-decides what "same seed, same output" is compared on; and O-22, since every generated sale
-needs a rounding policy to stamp.
+**Before starting:** F-3 (it hits the generator directly). Every generated sale copies the
+store's `rounding_policy` into the transaction (D-053), and the determinism test compares a
+canonical dump, never file bytes (D-046), so it survives the database key landing later.
 
 Suggested build order, each step ending in a green test:
 

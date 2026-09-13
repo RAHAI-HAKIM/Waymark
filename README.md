@@ -52,8 +52,9 @@ Two absences are load-bearing:
   `src/tests/Waymark.Integration.Tests/ArchitectureTests.cs`, which must *fail*
   when a forbidden reference is added.
 - **The POS never opens the store database.** It talks HTTP to StoreServer even
-  at Basic tier where both run on one machine. One code path, not two. *Not yet
-  asserted by a test (`docs/status.md`).*
+  at Basic tier where both run on one machine. One code path, not two. Asserted by
+  `ArchitectureTests.Pos_cannot_reach_the_store_database`, which walks the
+  project graph.
 
 ---
 

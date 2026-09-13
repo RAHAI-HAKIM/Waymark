@@ -1397,6 +1397,12 @@ BEGIN
     SELECT RAISE(ABORT, 'loyalty_movements is append-only: post a reversing movement');
 END;
 
+CREATE TRIGGER trg_processing_log_no_update
+BEFORE UPDATE ON processing_log
+BEGIN
+    SELECT RAISE(ABORT, 'processing_log is append-only: an entry is never edited');
+END;
+
 CREATE TRIGGER trg_rec_decisions_no_delete
 BEFORE DELETE ON recommendation_decisions
 BEGIN

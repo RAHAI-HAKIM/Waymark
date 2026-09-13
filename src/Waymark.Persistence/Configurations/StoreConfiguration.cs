@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Waymark.Domain.Enums;
 using Waymark.Domain.Organisation;
+using Waymark.Domain.Values;
 
 namespace Waymark.Persistence.Configurations;
 
@@ -77,9 +78,9 @@ internal sealed class StoreConfiguration : IEntityTypeConfiguration<Store>
             .HasSentinel(StoreStatus.Active);
         builder.Property(x => x.RoundingPolicy)
             .HasColumnName("rounding_policy")
-            .HasConversion(EnumConverters.RoundingPoliciesConverter)
-            .HasDefaultValue(RoundingPolicies.HalfUp)
-            .HasSentinel(RoundingPolicies.HalfUp);
+            .HasConversion(EnumConverters.RoundingConverter)
+            .HasDefaultValue(Rounding.HalfUp)
+            .HasSentinel(Rounding.HalfUp);
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

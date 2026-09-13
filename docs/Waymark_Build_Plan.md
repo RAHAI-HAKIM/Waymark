@@ -279,7 +279,7 @@ safely deferred phase.
 Stock transfers between stores · consolidated purchasing · central catalogue governance ·
 role hierarchy beyond store · multi-currency · tax engines · merchant-of-record · native
 mobile apps · scale protocols beyond what the founding cohort owns · Arabic RTL beyond what
-Avalonia and the web give (receipts: O-19). Enterprise capability ships only when it
+Avalonia and the web give (receipts stay French in ASCII until Phase 1). Enterprise capability ships only when it
 exists (Operating Rules).
 
 ## Open items this plan depends on

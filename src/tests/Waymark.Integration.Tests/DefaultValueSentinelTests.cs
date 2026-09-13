@@ -1,6 +1,9 @@
 using Waymark.Domain.Customers;
 using Waymark.Domain.Enums;
+using Waymark.Domain.Organisation;
 using Waymark.Domain.Reference;
+using Waymark.Domain.Sales;
+using Waymark.Domain.Values;
 
 namespace Waymark.Integration.Tests;
 
@@ -137,5 +140,52 @@ public sealed class DefaultValueSentinelTests : IClassFixture<MigratedDatabaseFi
         Assert.Equal(
             "0",
             RawValue("SELECT priority FROM promotion_product WHERE promotion_id = 'sentinel-priority'"));
+    }
+
+    [Fact]
+    public void HalfEven_reaches_both_rounding_policy_columns_that_default_to_half_up()
+    {
+        // stores.rounding_policy and transactions.rounding_policy default to
+        // 'half_up' (D-053), while HalfEven is the CLR default of Rounding. Without
+        // the sentinel a banker's-rounding store would be stored as half_up, and
+        // every receipt it stamped would recompute with the wrong policy.
+        var moment = new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero);
+
+        using (var context = _database.NewContext(enforceForeignKeys: false))
+        {
+            context.Stores.Add(new Store
+            {
+                StoreId = "sentinel-store-even",
+                StoreCode = "SENTINEL-EVEN",
+                StoreName = "sentinel",
+                StoreType = "grocery",
+                RoundingPolicy = Rounding.HalfEven,
+                CreatedAt = moment,
+                UpdatedAt = moment
+            });
+            context.Transactions.Add(new Transaction
+            {
+                TransactionId = "sentinel-tx-even",
+                StoreId = "sentinel-store-even",
+                TerminalId = "terminal-1",
+                StaffId = "staff-1",
+                OccurredAt = moment,
+                RoundingPolicy = Rounding.HalfEven,
+                Subtotal = Money.Zero(Currency.Dzd),
+                DiscountTotal = Money.Zero(Currency.Dzd),
+                TaxTotal = Money.Zero(Currency.Dzd),
+                TotalAmount = Money.Zero(Currency.Dzd),
+                CreatedAt = moment,
+                UpdatedAt = moment
+            });
+            context.SaveChanges();
+        }
+
+        Assert.Equal(
+            "half_even",
+            RawValue("SELECT rounding_policy FROM stores WHERE store_id = 'sentinel-store-even'"));
+        Assert.Equal(
+            "half_even",
+            RawValue("SELECT rounding_policy FROM transactions WHERE transaction_id = 'sentinel-tx-even'"));
     }
 }

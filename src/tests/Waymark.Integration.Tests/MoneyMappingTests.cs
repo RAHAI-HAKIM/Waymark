@@ -166,6 +166,7 @@ public sealed class MoneyMappingTests : IClassFixture<MigratedDatabaseFixture>
                 TerminalId = "terminal-money",
                 StaffId = "staff-1",
                 OccurredAt = moment,
+                RoundingPolicy = Rounding.HalfUp,
                 Subtotal = Dzd(0),
                 DiscountTotal = Dzd(0),
                 TaxTotal = Dzd(0),

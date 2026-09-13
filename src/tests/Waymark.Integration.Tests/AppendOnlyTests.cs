@@ -44,6 +44,7 @@ public sealed class AppendOnlyTests : IClassFixture<MigratedDatabaseFixture>
     [InlineData("trg_rec_decisions_no_update")]
     [InlineData("trg_rec_decisions_no_delete")]
     [InlineData("trg_erasure_ledger_no_delete")]
+    [InlineData("trg_processing_log_no_update")]
     [InlineData("trg_rounding_variance_no_update")]
     [InlineData("trg_rounding_variance_no_delete")]
     public void Append_only_trigger_is_present(string triggerName)
@@ -108,6 +109,45 @@ public sealed class AppendOnlyTests : IClassFixture<MigratedDatabaseFixture>
             )
             """));
     }
+
+    [Fact]
+    public void Processing_log_refuses_an_update_and_the_entry_survives()
+    {
+        // The Art. 41 bis 3 logbook (D-045, DPIA §5.5). An entry the audited
+        // party could edit is not evidence of anything.
+        using var connection = _schema.Connect(enforceForeignKeys: false);
+        LogEntry(connection, "01APPENDONLYLOGUPDATE");
+
+        var error = Assert.Throws<SqliteException>(() => Execute(connection,
+            "UPDATE processing_log SET purpose = 'pos_sale' WHERE log_id = '01APPENDONLYLOGUPDATE'"));
+
+        Assert.Contains("append-only", error.Message, StringComparison.Ordinal);
+        Assert.Equal("loyalty_lookup", ScalarOn(connection,
+            "SELECT purpose FROM processing_log WHERE log_id = '01APPENDONLYLOGUPDATE'"));
+    }
+
+    [Fact]
+    public void Processing_log_still_allows_the_retention_delete()
+    {
+        // Deliberately unguarded: after the statutory period, detail is rolled up
+        // into processing_counters and dropped (D-045). A DELETE trigger would make
+        // the retention sweep impossible.
+        using var connection = _schema.Connect(enforceForeignKeys: false);
+        LogEntry(connection, "01APPENDONLYLOGDELETE");
+
+        Execute(connection, "DELETE FROM processing_log WHERE log_id = '01APPENDONLYLOGDELETE'");
+
+        Assert.Equal("0", ScalarOn(connection,
+            "SELECT count(*) FROM processing_log WHERE log_id = '01APPENDONLYLOGDELETE'"));
+    }
+
+    private static void LogEntry(SqliteConnection connection, string logId) =>
+        Execute(connection, $"""
+            INSERT INTO processing_log
+                (log_id, occurred_at, operation, subject_type, actor_type, purpose, legal_basis, source_module)
+            VALUES ('{logId}', '2026-09-14T09:00:00Z', 'consultation', 'customer', 'staff',
+                    'loyalty_lookup', 'consent', 'tests')
+            """);
 
     /// <summary>
     /// One granted-marketing event under its own customer id. Foreign keys are

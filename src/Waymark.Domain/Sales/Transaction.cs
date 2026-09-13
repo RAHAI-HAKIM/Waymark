@@ -39,8 +39,14 @@ public sealed class Transaction : IStoreScoped
     public string? InvoiceNumber { get; init; }
 
     public required DateTimeOffset OccurredAt { get; init; }
-    public RoundingPolicies RoundingPolicy {get; init;} = RoundingPolicies.HalfUp; // The best solution I could think of
-    // It's the default in for all retailers + we will oblige them to choose anyways.
+    /// <summary>
+    /// The store's rounding policy at the moment of sale, stamped so the receipt
+    /// recomputes from its own row after the store changes policy (D-032).
+    /// <b>Required, with no default</b>: a sale that silently took <c>HalfUp</c> in
+    /// a <c>HalfEven</c> store would be exactly the unrecomputable receipt this
+    /// column exists to prevent (D-053).
+    /// </summary>
+    public required Rounding RoundingPolicy { get; init; }
 
     public Money Subtotal { get; init; }
 

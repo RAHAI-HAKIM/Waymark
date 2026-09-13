@@ -60,8 +60,7 @@ public sealed class RoundingVariance : IStoreScoped
     /// <summary>
     /// The rounding policy in force when this happened — the same vocabulary as
     /// <c>stores.rounding_policy</c> and <c>transactions.rounding_policy</c>, so
-    /// one word means one thing across the schema (D-032). Those two columns are
-    /// still to be added (O-22).
+    /// one word means one thing across the schema (D-032, D-053).
     /// </summary>
     public required Rounding Policy { get; init; }
 

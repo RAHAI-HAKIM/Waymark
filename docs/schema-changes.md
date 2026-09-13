@@ -10,7 +10,7 @@ short rules are CLAUDE.md §3.7; the reasoning is decisions.md D-016 and D-019 t
 | File | Role |
 | :---- | :---- |
 | `src/Waymark.Persistence/schema_v7_1.sql` | **Frozen.** The hand-written schema, reviewed once. Never edited, never executed on a store. It is the reference side of the fidelity comparison |
-| `src/Waymark.Persistence/triggers.sql` | The append-only triggers (13). Not in the EF model and cannot be. Idempotent — every statement drops before it creates |
+| `src/Waymark.Persistence/triggers.sql` | The append-only triggers (14). Not in the EF model and cannot be. Idempotent — every statement drops before it creates |
 | `src/Waymark.Persistence/schema_current.sql` | **Generated documentation.** What the database looks like now. Committed, read, never executed |
 | `src/Waymark.Persistence/Migrations/` | EF migrations. `InitialSchema` is the baseline; everything after is a change |
 | `src/Waymark.Domain/**` | The entities and enums. Plain classes, no EF, no attributes |
@@ -157,7 +157,30 @@ dotnet test src/Waymark.sln --filter FullyQualifiedName~SchemaCurrent
 Then **read the diff**. It is the human-readable summary of what your migration
 actually did, and it is the cheapest review you will get.
 
-### 3.6 Run the tests, then commit the migration and the model together
+### 3.6 Adding a trigger (no migration involved)
+
+Triggers live only in `triggers.sql`, so adding one never touches the EF model or a
+migration. How `trg_processing_log_no_update` was added:
+
+1. **Write it in `triggers.sql`** as `DROP TRIGGER IF EXISTS` then `CREATE TRIGGER … BEGIN
+   SELECT RAISE(ABORT, '<table> is append-only…'); END;`. Keep the drop-then-create pair,
+   because that is what makes re-applying idempotent. Update the header comment if it
+   lists the table as unprotected.
+2. **Assert the behaviour, not the declaration.** Add the name to
+   `AppendOnlyTests.Append_only_trigger_is_present`, and a test that attempts the forbidden
+   write and checks both the error and that the row is untouched.
+3. **Update the counts** in `TriggerApplicationTests` (the declared total).
+4. **If the table already exists in the baseline** (`InitialSchema`), `ApplyTriggers()`
+   puts the trigger on the baseline database too, and the fidelity test reports it as
+   "applied, but not in the reviewed schema". Add it, with its reason, to
+   `ModelMatchesSchemaTests.TriggersAddedAfterTheReviewedSchema`. Do not touch
+   `schema_v7_1.sql`, which is frozen. A trigger on a table a later migration creates needs
+   no entry.
+5. **Regenerate `schema_current.sql`** (§3.5): the diff should be exactly the new trigger.
+6. **Prove the tests can fail:** delete the trigger from `triggers.sql` and run them. Every
+   suite above should go red, then restore it.
+
+### 3.7 Run the tests, then commit the migration and the model together
 
 ```bash
 dotnet test src/Waymark.sln -maxcpucount:1

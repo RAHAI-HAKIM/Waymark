@@ -15,7 +15,7 @@ Open questions (`O-nn`) are at the end.
 | Repository, build, CI | D-001–D-012, D-014, D-017 |
 | Storage and schema mechanics | D-013, D-015, D-016, D-019–D-029 |
 | Store scoping | D-030 |
-| Money, quantity, identity | D-031–D-038, D-041 |
+| Money, quantity, identity | D-031–D-038, D-041, D-053 |
 | Privacy, keys, pseudonymisation | D-039, D-040, D-042, D-043, D-045, D-051 |
 | Contracts and application | D-044, D-048, D-049, D-050 |
 | Synthetic generator | D-046 |
@@ -185,7 +185,7 @@ This was reproduced: after a rebuild, `CHECK (amount > 0)` was gone and `-5` was
 A CHECK cannot be re-applied the way a trigger can. So **every index, CHECK and FK is
 declared in the EF model** (CLAUDE.md §3.7). Changing an existing CHECK means a rebuild, so
 later decisions deliberately use `ADD COLUMN` or code-side validation instead (D-044,
-D-045, D-048).
+D-045, D-048). D-053 took a rebuild knowingly, while no store holds data.
 
 ### D-023 — The 58 entities were generated, not typed
 `tools/generate-model` read the database built from `schema_v7_1.sql` and wrote the
@@ -228,7 +228,7 @@ transaction with a message that points at the cause. The name is blunt on purpos
 
 Test fixtures: `ReviewedSchemaFixture` builds from the frozen `.sql`.
 `MigratedDatabaseFixture` builds the way a store does, and every rule suite uses it.
-Currently 13 triggers.
+Currently 14 triggers. A trigger added later on a table the baseline already has is listed, with its reason, in `ModelMatchesSchemaTests.TriggersAddedAfterTheReviewedSchema` (procedure: `schema-changes.md` §3.6).
 
 ### D-026 — `schema_current.sql` is produced by a test, not a script
 `SchemaCurrentTests` regenerates it when `WAYMARK_UPDATE_SCHEMA_CURRENT=1`, and otherwise
@@ -299,8 +299,9 @@ everywhere with rounding at persistence, which makes the rounding sites unknowab
 | Deriving a value | `HalfEven` or `HalfUp`, from `stores.rounding_policy` | Yes, the retailer's policy |
 | Cash tender | Currency cash step (D-034) | Yes, recorded |
 
-The policy is to be stamped on `transactions.rounding_policy`, so a receipt recomputes
-from its own row after a policy change. **Neither column exists yet** (O-22). `Truncate` is not a store policy: it drifts one way and
+The policy is stamped on `transactions.rounding_policy`, so a receipt recomputes from its
+own row after a policy change (columns and default: D-053). `Truncate` is not a store
+policy: it drifts one way and
 never cancels. Banker's rounding reduces drift but does not remove it, because prices
 cluster on `.99`, so the ledger exists under either policy. **Almanac always uses
 `HalfEven`**, stores full precision and rounds at display only.
@@ -382,6 +383,29 @@ built at the point of use.
 `default(Money)` has no currency, so EF uses it as the sentinel.
 `WaymarkModelCacheKeyFactory` keys the model by ledger currency.
 `MoneyMappingTests.Every_currency_column_holds_the_ledger_currency` is the Stage 2 alarm.
+
+### D-053 — `stores.rounding_policy` and `transactions.rounding_policy`
+Migration `AddRoundingPolicies` (Hakim, 13/09/2026). Both columns are `TEXT NOT NULL
+DEFAULT 'half_up'` with `CHECK (rounding_policy IN ('half_even','half_up'))`, mapped to the
+same `Rounding` value object and converter that `rounding_variance.policy` uses, so one
+vocabulary means one thing.
+
+- **`HalfUp` is the store default**: it is what retailers and most fiscal software expect,
+  and the retailer confirms or changes it at onboarding.
+- **`Transaction.RoundingPolicy` is `required`, with no C# default.** A handler must copy
+  the store's policy explicitly. A silent default would stamp `half_up` on a sale in a
+  `half_even` store, which is the unrecomputable receipt D-032 exists to prevent. The
+  database default only serves the `ADD COLUMN`.
+- `HasSentinel(HalfUp)` pairs the default (D-027). `HalfEven` is the CLR default of
+  `Rounding`, so without the sentinel it would be dropped from the INSERT;
+  `DefaultValueSentinelTests` reads both raw columns.
+- **Cost, taken knowingly:** the CHECKs make this a rebuild of `stores` and `transactions`
+  (D-022). Every index, FK and CHECK was recreated from the model, and neither table has a
+  trigger. Rebuilt columns come back in alphabetical order, a cosmetic change visible in
+  `schema_current.sql`. Acceptable while no store holds data; after the first
+  installation, a CHECK on `transactions` is an operational event (CLAUDE.md §3.7).
+- **Rejected:** a separate `RoundingPolicies` enum duplicating `Rounding`; a converter-only
+  column without a CHECK (the D-048 route), because the CHECK is cheap before go-live.
 
 ---
 
@@ -482,6 +506,9 @@ is logged per event.
   `loyalty_lookup`, `credit_management`, `customer_service`, `analytics_pseudonymised`,
   `legal_obligation`, `data_subject_request`, `retention_expiry`.
 - `legal_basis` is added.
+- **Append-only against edits**: `trg_processing_log_no_update` refuses every UPDATE (the
+  DPIA §5.5 promise; resolves O-21). DELETE is deliberately left open for the retention
+  roll-up below, and erasure never needs to touch the log.
 - Growth is bounded at retention: detail is kept for the statutory period, then rolled
   into `processing_counters` per `(store, day, operation, purpose)`.
 - **No engine or reporting path reads the log**; a test is owed when those paths exist.
@@ -660,7 +687,10 @@ effects.
 - every completed transaction has an `invoice_number`;
 - every discount has a reason;
 - `expiration_date >= received_date`;
-- two runs with the same seed are identical;
+- two runs with the same seed are identical, **compared as a canonical dump** (every table's
+  rows, sorted by primary key) rather than as file bytes. Page layout and SQLCipher's
+  random salts differ between byte-identical logical contents, so a byte comparison would
+  break the day the database key lands (O-20);
 - a second catalogue generates a valid year with no code change.
 
 **Outside the code.** Two afternoons with épiciers turn a dozen parameters from `guess`
@@ -685,8 +715,9 @@ into `interview`. Resolves O-17.
   other than 2 refuses to print.
 - Every `EscPos` constant carries its Epson command name, for Hakim's verification.
 
-**Finding:** the encoder is ASCII-only, so receipts cannot print Arabic or accented French
-(O-19).
+**Receipts print French in ASCII.** The encoder is ASCII-only, so accents and Arabic are
+out. Arabic needs a code page per printer, pre-shaping and bidi ordering, none of it
+verifiable without the cohort's printers. Options are considered in Phase 1.
 
 ---
 
@@ -706,11 +737,8 @@ so far. Resolves O-5.
 
 | # | Question | Why it can't be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
-| O-18 | **Who sets the ACL on `%ProgramData%\Waymark\keys`, and where does the install id live?** | LocalMachine DPAPI is unwrappable by any local process; the ACL is the real control, and `ProgramData` grants Users write by inheritance. Setting it needs Windows ACL APIs in the key's project (an architecture change), and it collides with the installer's Modify grant on `data\` (D-013). An install id in a world-readable `config\` adds nothing (D-051) | Nothing in code. The DPIA describes the control as in place |
-| O-19 | **How does a receipt print Arabic and accented French?** | Three stacked problems, none verifiable without the cohort's printers: an ESC/POS code page per printer (Arabic and Latin can't share one), no shaping engine, no bidi (D-052) | Nothing in code. Receipts are French in ASCII until then |
-| O-20 | **When does the database key land, and how does W10 stay deterministic on an encrypted file?** | D-042's database key is unimplemented, so StoreServer creates `waymark-store.db` **in plaintext**. That misses the Phase 0 done-criterion "encrypted", and DPIA §5.4 says the store DB is encrypted at rest. SQLCipher uses random per-page salt and IV, so D-046's "byte-identical runs" cannot hold on an encrypted file. Options: implement the key now and define generator determinism as a logical dump; or defer the key to Phase 0.5/1 and record the gap | Phase 0 exit; W10's determinism test |
-| O-21 | **Should `processing_log` get a no-UPDATE trigger?** | `triggers.sql` leaves it mutable "because erasure must purge its identity columns", but D-045 removed that need: the log never holds an identifier. DPIA §5.5 promises an append-only log. DELETE has to stay open for the retention roll-up (or be conditioned on age) | Nothing; one trigger plus a test |
-| O-22 | **Add `stores.rounding_policy` and `transactions.rounding_policy`: with what default, and should `Rounding` stop defaulting to `HalfEven`?** | D-032 requires both columns, and W4 never added them. Adding a NOT NULL column without a rebuild needs a literal default: `'half_even'` or `'half_up'` is the retailer's policy, not a technical detail. As with D-048, validation would sit in the enum converter rather than a CHECK, because a CHECK on `transactions` is a rebuild. Separately, `Rounding.HalfEven = 0` means an unset value reads as banker's rounding. Giving it no zero member would make "forgot to choose" throw | Phase 0.5 `CompleteSale`; W10 sales |
+| O-18 | **Who sets the ACL on `%ProgramData%\Waymark\keys`, and where does the install id live?** | LocalMachine DPAPI is unwrappable by any local process; the ACL is the real control, and `ProgramData` grants Users write by inheritance. Setting it needs Windows ACL APIs in the key's project (an architecture change), and it collides with the installer's Modify grant on `data\` (D-013). An install id in a world-readable `config\` adds nothing (D-051) | **Deferred to the post-Phase 0 revision.** Nothing in Phase 0 code. The DPIA describes the control as in place |
+| O-20 | **When does the database key land, and how does W10 stay deterministic on an encrypted file?** | D-042's database key is unimplemented, so StoreServer creates `waymark-store.db` **in plaintext**. That misses the Phase 0 done-criterion "encrypted", and DPIA §5.4 says the store DB is encrypted at rest. SQLCipher uses random per-page salt and IV, so D-046's "byte-identical runs" cannot hold on an encrypted file. Options: implement the key now and define generator determinism as a logical dump; or defer the key to Phase 0.5/1 and record the gap | **Deferred to the post-Phase 0 revision.** Not W10, provided its determinism test compares a canonical dump rather than file bytes (see D-046) |
 
 ### Resolved
 | Open | Resolved by |
@@ -732,3 +760,6 @@ so far. Resolves O-5.
 | O-15 | D-044 |
 | O-16 | D-045 |
 | O-17 | D-046 |
+| O-19 | Dropped: receipts are French in ASCII; alternatives in Phase 1 (D-052) |
+| O-21 | D-045 (`trg_processing_log_no_update`) |
+| O-22 | D-053 |

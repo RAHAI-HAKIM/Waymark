@@ -84,9 +84,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             .HasSentinel("DZD");
         builder.Property(x => x.RoundingPolicy)
             .HasColumnName("rounding_policy")
-            .HasConversion(EnumConverters.RoundingPoliciesConverter)
-            .HasDefaultValue(RoundingPolicies.HalfUp)
-            .HasSentinel(RoundingPolicies.HalfUp);
+            .HasConversion(EnumConverters.RoundingConverter)
+            .HasDefaultValue(Rounding.HalfUp)
+            .HasSentinel(Rounding.HalfUp);
         builder.Property(x => x.EcommerceFlag)
             .HasColumnName("ecommerce_flag")
             .HasDefaultValue(false)

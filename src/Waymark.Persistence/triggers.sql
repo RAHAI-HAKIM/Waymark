@@ -18,8 +18,9 @@
 -- These tables are audit trails or financial ledgers. A correction is a new
 -- row, never an edit. The database enforces it so no call site has to remember.
 --
--- processing_log is deliberately NOT protected against UPDATE: erasure must
--- purge its identity columns.
+-- processing_log refuses UPDATE but not DELETE. It never holds a direct
+-- identifier (D-045), so erasure has nothing to purge in it; DELETE stays open
+-- for the retention roll-up into processing_counters.
 -- outbox is deliberately NOT protected: rows are deleted after acknowledgement.
 -- =============================================================================
 
@@ -105,6 +106,17 @@ END;
 -- cannot be un-created. A correction is a new row with the opposite amount.
 -- Without these, the reconciliation in D-034 could be made to balance by
 -- editing it, which is the one thing an audit trail must not allow.
+-- processing_log is the Art. 41 bis 3 logbook the DPIA (§5.5) calls
+-- append-only: an entry the audited party could edit is not evidence. No DELETE
+-- guard, because after the statutory period detail is rolled up into
+-- processing_counters and dropped (D-045).
+DROP TRIGGER IF EXISTS trg_processing_log_no_update;
+CREATE TRIGGER trg_processing_log_no_update
+BEFORE UPDATE ON processing_log
+BEGIN
+    SELECT RAISE(ABORT, 'processing_log is append-only: an entry is never edited');
+END;
+
 DROP TRIGGER IF EXISTS trg_rounding_variance_no_update;
 CREATE TRIGGER trg_rounding_variance_no_update
 BEFORE UPDATE ON rounding_variance

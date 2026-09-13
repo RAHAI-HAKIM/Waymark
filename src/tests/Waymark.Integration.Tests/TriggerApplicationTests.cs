@@ -55,7 +55,7 @@ public sealed class TriggerApplicationTests : IDisposable
         // If the two ever disagree, the extraction lost something.
         var declared = TriggerScript.DeclaredNames();
 
-        Assert.Equal(13, declared.Count);
+        Assert.Equal(14, declared.Count);
         Assert.Contains("trg_consent_events_no_update", declared);
         Assert.Contains("trg_erasure_ledger_no_delete", declared);
         Assert.Equal(declared.Count, declared.Distinct(StringComparer.Ordinal).Count());
@@ -71,7 +71,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.Database.Migrate();
 
         Assert.Equal(0, CountTriggers(context));
-        Assert.Equal(13, context.FindMissingTriggers().Count);
+        Assert.Equal(14, context.FindMissingTriggers().Count);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class TriggerApplicationTests : IDisposable
         using var context = NewContext("full.db");
         context.MigrateAndApplyTriggers();
 
-        Assert.Equal(13, CountTriggers(context));
+        Assert.Equal(14, CountTriggers(context));
         Assert.Empty(context.FindMissingTriggers());
     }
 
@@ -94,7 +94,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.ApplyTriggers();
         context.ApplyTriggers();
 
-        Assert.Equal(13, CountTriggers(context));
+        Assert.Equal(14, CountTriggers(context));
         Assert.Empty(context.FindMissingTriggers());
     }
 
@@ -116,7 +116,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.ApplyTriggers();
 
         Assert.Empty(context.FindMissingTriggers());
-        Assert.Equal(13, CountTriggers(context));
+        Assert.Equal(14, CountTriggers(context));
     }
 
     [Fact]

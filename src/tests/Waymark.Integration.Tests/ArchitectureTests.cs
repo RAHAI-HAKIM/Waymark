@@ -456,6 +456,96 @@ public sealed class ArchitectureTests
             + "project was built against; without the entry the check proves nothing.");
     }
 
+    /// <summary>
+    /// The POS never opens the store database (CLAUDE.md §2.2).
+    ///
+    /// <para>
+    /// It talks HTTP to StoreServer even at Basic tier, where both run on one
+    /// machine: one code path, not two. The rule is checked on the project graph
+    /// rather than the IL for two reasons. This test project cannot reference
+    /// <c>Waymark.Pos</c> (an Avalonia <c>WinExe</c>); and an unused reference is
+    /// dropped from the IL anyway, which is the blind spot D-049 and D-050 recorded.
+    /// </para>
+    /// <para>
+    /// The walk is <b>transitive</b>, because Pos reaching Persistence through
+    /// Application is the same violation as a direct reference. SQLite itself is
+    /// not forbidden: the POS will legitimately own its Level-2 cache. EF Core and
+    /// the store's own projects are.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Pos_cannot_reach_the_store_database()
+    {
+        string[] forbiddenProjects = ["Waymark.Persistence", "Waymark.Application", "Waymark.StoreServer", "Waymark.Pseudonymisation"];
+        const string forbiddenPackagePrefix = "Microsoft.EntityFrameworkCore";
+
+        var pos = Path.Combine(SourceRoot(), "Waymark.Pos", "Waymark.Pos.csproj");
+        var reachable = ProjectClosure(pos);
+
+        var offenders = reachable.Keys
+            .Where(project => forbiddenProjects.Contains(project, StringComparer.Ordinal))
+            .Concat(reachable
+                .SelectMany(entry => entry.Value.Select(package => $"{package} (package, via {entry.Key})"))
+                .Where(package => package.StartsWith(forbiddenPackagePrefix, StringComparison.Ordinal)))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "Waymark.Pos can reach the store database:\n  "
+            + string.Join("\n  ", offenders)
+            + "\n\nThe POS talks HTTP to StoreServer, even on one machine (CLAUDE.md §2.2). "
+            + "Its Level-2 cache is its own SQLite file with its own schema, never the store's.");
+    }
+
+    /// <summary>
+    /// Every project reachable from <paramref name="csproj"/> by
+    /// <c>ProjectReference</c>, itself included, mapped to the packages it references.
+    /// </summary>
+    private static Dictionary<string, List<string>> ProjectClosure(string csproj)
+    {
+        var found = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var pending = new Stack<string>([Path.GetFullPath(csproj)]);
+
+        while (pending.Count > 0)
+        {
+            var path = pending.Pop();
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (found.ContainsKey(name))
+            {
+                continue;
+            }
+
+            var project = System.Xml.Linq.XDocument.Load(path);
+            found[name] = [.. project.Descendants("PackageReference")
+                .Select(reference => (string?)reference.Attribute("Include") ?? string.Empty)];
+
+            foreach (var reference in project.Descendants("ProjectReference"))
+            {
+                var include = ((string?)reference.Attribute("Include") ?? string.Empty).Replace('\\', Path.DirectorySeparatorChar);
+                pending.Push(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, include)));
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>The <c>src</c> directory, found by walking up to <c>Waymark.sln</c>.</summary>
+    private static string SourceRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Waymark.sln")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Waymark.sln was not found above the test output. Without the source tree this "
+            + "rule would check nothing, which is worse than failing.");
+    }
+
     // -----------------------------------------------------------------------
 
     private static string Explain(TestResult result, string headline)

@@ -6,6 +6,7 @@
 // on exactly the code that most needs them.
 
 using Waymark.Domain.Enums;
+using Waymark.Domain.Values;
 
 using Waymark.Domain;
 
@@ -44,8 +45,13 @@ public sealed class Store : IStoreScoped
     public string Currency { get; init; } = "DZD";
 
     public string Timezone { get; init; } = "Africa/Algiers";
-    public RoundingPolicies RoundingPolicy {get; init;} = RoundingPolicies.HalfUp; // The best solution I could think of
-    // It's the default in for all retailers + we will oblige them to choose anyways.
+    /// <summary>
+    /// How derived money values are rounded in this store (D-032). <c>HalfUp</c> by
+    /// default, because it is what retailers and most fiscal software expect; the
+    /// retailer confirms or changes it at onboarding. Each transaction copies it
+    /// into <see cref="Sales.Transaction.RoundingPolicy"/> (D-053).
+    /// </summary>
+    public Rounding RoundingPolicy { get; init; } = Rounding.HalfUp;
 
     public string? TaxRegistrationNumber { get; init; }
 

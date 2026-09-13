@@ -64,7 +64,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **`Money` carries its currency and throws on mismatch.** No implicit conversion, ever. Conversion is a recorded event with a rate and a date, and is presentation-only.
 - **No arithmetic that can round exists as an operator.** `Times`, `Percent`, `Allocate` take an explicit policy, so grepping them enumerates every site where a centime can be created. **Never add `operator *(Money, decimal)`.**
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
-- **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. Neither column exists yet (O-22).
+- **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
 - **TVA is extracted per line from the TTC price by subtraction**: `ht = round(ttc/(1+r))`, then `tva = ttc − ht`. Never round `tva` independently (D-033). Displayed prices are TTC under Law No. 04-02.
 - **Division by zero throws**, always; callers expecting zero use the nullable variant. **Absence is never zero** (D-037).
@@ -130,6 +130,7 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 Breaking one of these is a legal problem, not a bug.
 
 - **No direct identifier crosses to the cloud.** Pseudonymisation happens *before* the outbox; what lands there is already tier-2 shaped.
+- **`processing_log` is append-only against edits** (`trg_processing_log_no_update`); DELETE is reserved for the retention roll-up (D-045).
 - **`processing_log` is written at every access site**, through `IProcessingLog.Record`, which takes a `ProcessingEvent` and nothing else. Writes belong in `Waymark.Application`.
 - **The caller does not set `log_id`, `occurred_at` or `store_id`** — they come from `IIdGenerator`, the injected `TimeProvider` and `ICurrentStore`.
 - **`objection_flag` is checked before any customer-directed output.**
