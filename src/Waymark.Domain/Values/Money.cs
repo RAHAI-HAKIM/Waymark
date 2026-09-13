@@ -24,7 +24,7 @@ namespace Waymark.Domain.Values;
 /// The point is not ceremony. Grepping for <see cref="Times"/>,
 /// <see cref="Percent"/> and <see cref="Allocate(IReadOnlyList{long})"/> returns
 /// every site in the codebase where a centime can be created or destroyed, and
-/// that list is what CLAUDE.md §7.4 asks for. An implicit multiply operator
+/// that list is what CLAUDE.md §7 asks for. An implicit multiply operator
 /// would scatter those sites into ordinary-looking arithmetic, and there would
 /// be no way to enumerate them again (decisions.md D-031).
 /// </para>

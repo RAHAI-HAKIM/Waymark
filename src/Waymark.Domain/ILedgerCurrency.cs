@@ -24,7 +24,7 @@ namespace Waymark.Domain;
 /// <c>supplier_variant</c>, <c>purchase_orders</c>, <c>batch_items</c> — and
 /// their rows would be read back as if they were in the ledger currency. Today
 /// every row is DZD, and
-/// <c>LedgerCurrencyTests.Every_currency_column_holds_the_ledger_currency</c>
+/// <c>MoneyMappingTests.Every_currency_column_holds_the_ledger_currency</c>
 /// fails the moment one is not. That failure is the start of the Stage 2 work,
 /// not a bug to paper over.
 /// </para>

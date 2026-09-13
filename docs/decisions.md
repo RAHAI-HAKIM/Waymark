@@ -299,8 +299,8 @@ everywhere with rounding at persistence, which makes the rounding sites unknowab
 | Deriving a value | `HalfEven` or `HalfUp`, from `stores.rounding_policy` | Yes, the retailer's policy |
 | Cash tender | Currency cash step (D-034) | Yes, recorded |
 
-The policy is stamped on `transactions.rounding_policy`, so a receipt recomputes from its
-own row after a policy change. `Truncate` is not a store policy: it drifts one way and
+The policy is to be stamped on `transactions.rounding_policy`, so a receipt recomputes
+from its own row after a policy change. **Neither column exists yet** (O-22). `Truncate` is not a store policy: it drifts one way and
 never cancels. Banker's rounding reduces drift but does not remove it, because prices
 cluster on `.99`, so the ledger exists under either policy. **Almanac always uses
 `HalfEven`**, stores full precision and rounds at display only.
@@ -364,8 +364,7 @@ have an explicit "insufficient data" state instead.
 package lives) is a singleton in StoreServer. `SeededIdGenerator(seed, clockStart)` is for
 tests and the generator. **Never `Ulid.NewUlid()` in an entity**, because a static call
 cannot be seeded. The Domain package allowlist exists and is **empty**. Resolves O-1.
-*Known gap:* `SeededIdGenerator` advances 1 ms per id from `clockStart`, ignoring any
-simulated clock, so W10 must drive it from its `TimeProvider`.
+`SeededIdGenerator` must follow W10's simulated clock before the generator uses it (D-046).
 
 ### D-041 — `Money` is wired into the model; `Quantity` cannot be
 **32 money columns are `Money`**, converted centrally by CLR type in `OnModelCreating`.
@@ -576,8 +575,10 @@ void result. **Rejected.** A logging decorator on every command, which would gue
 purpose, basis and subject. Found on the way: Domain had shipped
 `Microsoft.EntityFrameworkCore.SqlServer` unused. It was removed, and
 `Domain_ships_no_package_outside_the_allowlist` now reads the deps file as well as the IL.
-*Known gap:* when a handler throws, its staged entities stay tracked and the next commit
-on the same context writes them. The executor must discard them on failure.
+**On failure the executor calls `IUnitOfWork.Discard()`** (it clears EF's change tracker).
+Withholding the commit is not enough: staged entities stay tracked, and the next commit on
+the same context would write them, a failed operation's log row included.
+`CommandExecutorPersistenceTests` proves it on a real database.
 
 ---
 
@@ -608,6 +609,10 @@ and master seed. Every behavioural number lives in it, each with a
 of the master seed and the coordinates. Fixed streams: `demand(variant, day)`,
 `arrivals(day, slot)`, `lead(supplier, order)`, `spoil(batch)`, `error(staff, day, i)`. All
 ids come from `SeededIdGenerator`.
+**Before building W10:** today `SeededIdGenerator` advances 1 ms per id from `clockStart`
+and ignores the simulated clock, so a generated year would get ULID timestamps packed into
+its first minutes. Rework it to read the generator's `TimeProvider`, staying monotonic
+within a tick, so ids carry the simulated time.
 
 **Demand.** A base rate multiplied by weekday, month, Ramadan, payday and promotion
 effects.
@@ -705,6 +710,8 @@ so far. Resolves O-5.
 | O-19 | **How does a receipt print Arabic and accented French?** | Three stacked problems, none verifiable without the cohort's printers: an ESC/POS code page per printer (Arabic and Latin can't share one), no shaping engine, no bidi (D-052) | Nothing in code. Receipts are French in ASCII until then |
 | O-20 | **When does the database key land, and how does W10 stay deterministic on an encrypted file?** | D-042's database key is unimplemented, so StoreServer creates `waymark-store.db` **in plaintext**. That misses the Phase 0 done-criterion "encrypted", and DPIA §5.4 says the store DB is encrypted at rest. SQLCipher uses random per-page salt and IV, so D-046's "byte-identical runs" cannot hold on an encrypted file. Options: implement the key now and define generator determinism as a logical dump; or defer the key to Phase 0.5/1 and record the gap | Phase 0 exit; W10's determinism test |
 | O-21 | **Should `processing_log` get a no-UPDATE trigger?** | `triggers.sql` leaves it mutable "because erasure must purge its identity columns", but D-045 removed that need: the log never holds an identifier. DPIA §5.5 promises an append-only log. DELETE has to stay open for the retention roll-up (or be conditioned on age) | Nothing; one trigger plus a test |
+
+| O-22 | **Add `stores.rounding_policy` and `transactions.rounding_policy`: with what default, and should `Rounding` stop defaulting to `HalfEven`?** | D-032 requires both columns, and W4 never added them. Adding a NOT NULL column without a rebuild needs a literal default: `'half_even'` or `'half_up'` is the retailer's policy, not a technical detail. As with D-048, validation would sit in the enum converter rather than a CHECK, because a CHECK on `transactions` is a rebuild. Separately, `Rounding.HalfEven = 0` means an unset value reads as banker's rounding. Giving it no zero member would make "forgot to choose" throw | Phase 0.5 `CompleteSale`; W10 sales |
 
 ### Resolved
 | Open | Resolved by |

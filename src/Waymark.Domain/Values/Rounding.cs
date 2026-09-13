@@ -7,6 +7,7 @@ namespace Waymark.Domain.Values;
 /// Two values, both the retailer's choice, stored on <c>stores.rounding_policy</c>
 /// and stamped on <c>transactions.rounding_policy</c> so a receipt stays
 /// recomputable from its own row after the policy changes (decisions.md D-032).
+/// Neither column exists yet: W4 added only <c>rounding_variance.policy</c> (O-22).
 /// </para>
 /// <para>
 /// <b>Truncation is deliberately absent.</b> It is biased downward on every

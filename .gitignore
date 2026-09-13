@@ -3,9 +3,9 @@
 # ---------------------------------------------------------------------------
 
 # --- Databases -------------------------------------------------------------
-# No .db file is ever committed. The operational store, the identity store and
-# the POS cache are all generated, and waymark-identity.db must never leave the
-# machine that created it (CLAUDE.md 3.4).
+# No .db file is ever committed. The store database, the POS cache and the
+# synthetic stores are all generated, and a blanket pattern cannot be got round
+# by naming a file differently (decisions.md D-008).
 *.db
 *.db-wal
 *.db-shm

@@ -28,4 +28,16 @@ public interface IUnitOfWork
     /// </summary>
     /// <returns>How many rows were written.</returns>
     Task<int> CommitAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Throws away everything staged since the last commit.
+    ///
+    /// <para>
+    /// Not committing is not enough on its own. Staged work outlives a failed
+    /// command in whatever holds it, and the next <see cref="CommitAsync"/> on
+    /// the same unit of work would write it — including <c>processing_log</c>
+    /// rows claiming an operation that rolled back had happened.
+    /// </para>
+    /// </summary>
+    void Discard();
 }

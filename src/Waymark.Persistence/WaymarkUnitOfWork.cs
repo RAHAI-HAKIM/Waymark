@@ -22,4 +22,11 @@ public sealed class WaymarkUnitOfWork(WaymarkDbContext context) : IUnitOfWork
 {
     public Task<int> CommitAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
+
+    /// <summary>
+    /// Detaches every tracked entity. A failed <c>SaveChanges</c> rolls the
+    /// transaction back but leaves the entities tracked, so without this the
+    /// next commit on the same context would write them.
+    /// </summary>
+    public void Discard() => context.ChangeTracker.Clear();
 }

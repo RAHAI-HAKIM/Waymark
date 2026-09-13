@@ -166,7 +166,7 @@ public sealed class WaymarkDbContext(
 
         // Picks up every IEntityTypeConfiguration in this assembly. Adding an
         // entity means adding one file, never editing this method — which is
-        // what keeps it short at 58 tables instead of 1,100 lines.
+        // what keeps it short at sixty tables instead of 1,100 lines.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(WaymarkDbContext).Assembly);
 
         ApplyMoney(modelBuilder);

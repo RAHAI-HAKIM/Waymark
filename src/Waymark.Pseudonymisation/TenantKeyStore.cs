@@ -24,6 +24,12 @@ public static class TenantKeyStore
     public const string FileName = "tenant.key";
 
     /// <summary>
+    /// Suffix of the file a new key is written to before it is moved into
+    /// place. One left behind by an interrupted creation is never read.
+    /// </summary>
+    public const string TemporarySuffix = ".tmp";
+
+    /// <summary>
     /// Domain separation for the DPAPI entropy.
     ///
     /// <para>
@@ -94,14 +100,35 @@ public static class TenantKeyStore
         var key = RandomNumberGenerator.GetBytes(KeyBytes);
         var wrapped = protector.Protect(key, entropy);
 
-        // CreateNew, not Create or WriteAllBytes: two processes racing at first
-        // start would otherwise both generate a key and the second would
-        // overwrite the first, silently orphaning anything already pseudonymised
-        // under it. Losing the race is an error, not a retry.
-        using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        // Written beside the target and moved into place, so the key file is
+        // either absent or complete. Writing it in place would let a crash
+        // mid-write leave a truncated blob behind — one whose unwrap error says,
+        // correctly for a real key, never to delete it. An interrupted temp file
+        // is garbage nobody reads; a truncated key file is a gap.
+        var temporary = Path.Combine(
+            Path.GetDirectoryName(path)!,
+            $"{FileName}.{Guid.NewGuid():N}{TemporarySuffix}");
+
+        try
         {
-            file.Write(wrapped);
-            file.Flush(flushToDisk: true);
+            using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                file.Write(wrapped);
+                file.Flush(flushToDisk: true);
+            }
+
+            // overwrite: false. Two processes racing at first start would
+            // otherwise both generate a key and the second would replace the
+            // first, silently orphaning anything already pseudonymised under
+            // it. Losing the race is an error, not a retry.
+            File.Move(temporary, path, overwrite: false);
+        }
+        finally
+        {
+            if (File.Exists(temporary))
+            {
+                File.Delete(temporary);
+            }
         }
 
         return key;

@@ -32,8 +32,8 @@ public sealed class ArchitectureTests
     /// The single most important test in the repository.
     ///
     /// Pseudonymisation happens before the outbox, so what Sync carries is
-    /// already tier-2 shaped. Sync being structurally unable to reach the
-    /// mapping is what makes that a fact rather than a promise
+    /// already pseudonymised. Sync being structurally unable to reach the
+    /// tenant key is what makes that a fact rather than a promise
     /// (CLAUDE.md §2.1, §4; DPIA risk R9).
     /// </summary>
     [Fact]

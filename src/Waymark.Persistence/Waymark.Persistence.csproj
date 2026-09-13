@@ -4,9 +4,9 @@
     EF Core, SQLite, migrations, repository implementations. The only project
     besides Sync and the hosts allowed to contain SQL.
 
-    Owns waymark-store.db, which is the only operational database there is
-    since D-039 removed waymark-identity.db. It does NOT hold the tenant key —
-    that lives in Waymark.Pseudonymisation and nowhere else (CLAUDE.md 3.5).
+    Owns waymark-store.db, the only operational database. It does NOT hold
+    the tenant key — that lives in Waymark.Pseudonymisation and nowhere else
+    (CLAUDE.md 3.5).
   -->
 
 
@@ -28,10 +28,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite.Core" />
-    <!-- One bundle for the whole process, and it is the SQLCipher build.
-          waymark-store.db is opened WITHOUT a key and is therefore an
-          ordinary unencrypted SQLite file; only Pseudonymisation supplies a
-          key, and only for the identity database. -->
+    <!-- One bundle for the whole process, and it is the SQLCipher build
+          (decisions.md D-015). waymark-store.db is to be keyed with the
+          database key (D-042); that key is not implemented yet, so today the
+          file is opened without one (O-20). An unencrypted database opens
+          under the same bundle, which the POS cache relies on. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

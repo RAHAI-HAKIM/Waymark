@@ -11,9 +11,9 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 | | |
 | :---- | :---- |
 | Build | `dotnet build src/Waymark.sln`, 13 projects, **0 warnings** |
-| Tests | **361 passing**: Domain 129 · Integration 165 · Hardware 41 · Application 26 |
+| Tests | **367 passing**: Domain 129 · Integration 167 · Hardware 43 · Application 28 |
 | Schema | 60 tables (all STRICT), 85 indexes, 13 append-only triggers, 3 migrations: `InitialSchema`, `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType` |
-| Uncommitted | W11 (hardware project, tests, solution entry) and this documentation pass |
+| Uncommitted | W11 (hardware project, tests, solution entry), including the EAN-13 check digit and injected drawer clock |
 
 ## 2. Phase 0 work items
 
@@ -22,12 +22,12 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 | W1 | `Currency`, `Money`, rounding, allocation, TVA, cash tender | Done | D-031–D-035, D-037 |
 | W2 | `Quantity`, `QuantityDelta`, `UnitPrecision` | Done | D-036 |
 | W3 | `IIdGenerator`, `UlidGenerator`, `SeededIdGenerator` | Done; see F-3 before W10 | D-038 |
-| W4 | `rounding_variance`, `rounding_policy` migration | Done | D-034 |
+| W4 | `rounding_variance` migration | Done, **but `stores.`/`transactions.rounding_policy` were never added** (F-13) | D-032, D-034 |
 | W5 | Money wired into the model | Done; Quantity stays `long` | D-041 |
 | W6 | Domain package allowlist (IL and deps file) | Done | D-038, D-050 |
 | W7 | `Waymark.Pseudonymisation`, tenant key, exclusion test | Done; the database key is not built (F-1) | D-039, D-042, D-051 |
 | W8 | `Waymark.Contracts` | Done | D-044, D-049 |
-| W9 | Command executor, `processing_log` writer | Done; see F-2 | D-045, D-050 |
+| W9 | Command executor, `processing_log` writer | Done | D-045, D-050 |
 | W11 | Fake hardware | Done, uncommitted | D-052 |
 | **W10** | **Synthetic store generator** | **Next. Unblocked** | D-046 |
 
@@ -51,17 +51,12 @@ or **decide** (Hakim, usually an `O-` entry). Close an item by deleting its row.
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
 | F-1 | **High** | **`waymark-store.db` is created in plaintext.** D-042's database key has no code: no key file, no `PRAGMA key`, and StoreServer's connection string has no key. That misses the Phase 0 "encrypted" criterion, and DPIA §5.4 says the store DB is encrypted at rest. SQLCipher's random page salt also conflicts with D-046's "byte-identical runs" | `Waymark.StoreServer/Program.cs`, `UseWaymarkSqlite` | **Decide** O-20, then fix |
-| F-2 | **Medium** | **A failed command's staged rows are committed by the next command on the same context.** `CommandExecutor` does not commit when a handler throws, but the staged entities stay tracked. Proved with a throwaway test on a real DB: a failed command's `processing_log` row was committed by the following successful command. The same happens if `SaveChanges` throws. Harmless with one command per request scope; **W10 runs thousands of commands and will hit it** | `CommandExecutor`, `WaymarkUnitOfWork` | **Fix**: discard the change tracker on failure (an `IUnitOfWork` rollback), plus a real-DB test |
-| F-3 | Medium | **`SeededIdGenerator` ignores the simulated clock.** It adds 1 ms per id from `clockStart`, so a year of generated rows gets ULID timestamps packed into the first minutes. D-046 item 12 needs simulated timestamps | `SeededIdGenerator` | **Fix** in W10: drive it from the generator's `TimeProvider`, monotonic within a tick |
+| F-3 | Medium | **`SeededIdGenerator` ignores the simulated clock.** It adds 1 ms per id from `clockStart`, so a year of generated rows gets ULID timestamps packed into the first minutes | `SeededIdGenerator` | **Fix** at W10 step 3, as noted in D-046 |
 | F-4 | Medium | **"The POS never opens the store database" is not tested**, though `README.md` says `ArchitectureTests` asserts it. `Waymark.Pos` is not in any rule, and it will legitimately use SQLite for its Level-2 cache | `ArchitectureTests` | **Fix**: assert that Pos references no `Waymark.Persistence`, and name the cache path rule when it lands |
 | F-5 | **Medium** | **`processing_log` is not append-only.** `triggers.sql` exempts it "because erasure must purge identity columns", which D-045 made untrue. DPIA §5.5 promises an append-only log | `triggers.sql` | **Decide** O-21 |
 | F-6 | Low | **The scanner's custom terminator is broken.** A terminator other than CR/LF is appended to the buffer and never ends a scan. Separately, `Accept` returns false for a scan's *digits*, so they still reach the text box; only Enter is swallowed, which is less than the doc comment claims. A CRLF scanner leaks the `\n` | `KeyboardWedgeScanner` | **Fix** now, or before the POS cart (Phase 0.5) |
-| F-7 | Low | EAN-13 input is length-checked but the **check digit is not verified**, despite the comment warning about scanning as a different product | `EscPosEncoder.ValidateEan13` | **Fix** |
-| F-8 | Low | `EscPosPrinter` stamps drawer opens with `DateTimeOffset.UtcNow`, not an injected `TimeProvider` | `EscPosPrinter.OpenAsync` | **Fix** |
-| F-9 | Low | The **tenant key file is written in place**. A crash mid-write leaves a truncated blob whose error says "do not delete". Write to a temp file, then move without overwrite | `TenantKeyStore.Create` | **Fix** |
-| F-10 | Low | **`tools/create-database.ps1` is stale and dangerous.** Its default path is the real store DB, it builds from frozen v7_1 with no migration history (which then breaks `Migrate()`), and it cites a bootstrapper that never existed | `tools/` | **Fix**: delete it |
-| F-11 | Low | Stale code comments: `ILedgerCurrency` cites `LedgerCurrencyTests` (really `MoneyMappingTests`); `Directory.Packages.props` cites open O-5; `.gitignore` names `waymark-identity.db`; 2 comments cite a non-existent "CLAUDE.md §7.4". Unused pins: `Microsoft.Data.Sqlite.Core`, `Microsoft.Extensions.Hosting` | various | **Fix** |
 | F-12 | Low | The uncommitted `Waymark.sln` diff added x64/x86 platforms to every project, a stray BOM line, and a legacy project-type GUID for `Waymark.Hardware.Tests` (a `dotnet sln add` side effect) | `src/Waymark.sln` | **Fix** before committing W11 |
+| F-13 | **Medium** | **`stores.rounding_policy` and `transactions.rounding_policy` do not exist.** W4 created only `rounding_variance` (which has its own `policy` column). CLAUDE.md §3.1, D-032, `Rounding.cs` and `RoundingVariance.cs` all describe the two columns as present. Without the stamp a receipt cannot be recomputed after a policy change, and nothing tells a handler which policy the store uses. Also, `Rounding.HalfEven = 0`, so `default(Rounding)` silently means banker's rounding | schema, `Store`, `Transaction` | **Decide** O-22, then one no-rebuild migration |
 
 ---
 
@@ -70,8 +65,9 @@ or **decide** (Hakim, usually an `O-` entry). Close an item by deleting its row.
 Spec: D-046. Hakim writes and reviews the parameter file and output distributions; Claude
 writes the generator.
 
-**Before starting:** F-2 and F-3 (both hit the generator directly), and a direction on
-O-20, because it decides what "same seed, same output" is compared on.
+**Before starting:** F-3 (it hits the generator directly); a direction on O-20, because it
+decides what "same seed, same output" is compared on; and O-22, since every generated sale
+needs a rounding policy to stamp.
 
 Suggested build order, each step ending in a green test:
 

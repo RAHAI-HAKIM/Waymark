@@ -25,7 +25,7 @@ Every terminal transition writes to the statistics module, because the decision 
 a signal — revealed preference feeds parameter tuning later.
 
 `action_type` is `binary` (accept or decline) or `menu` (pick one of several), per
-System_Architecture. Group 3's markdown ladder needs `menu`.
+`System_Architecture` §5 and D-044. Group 3's markdown ladder needs `menu`.
 
 ## Intent
 
@@ -45,4 +45,4 @@ stateDiagram-v2
 
 **No silent terminal state on the rejection paths.** Both rejections become a fresh
 decision request the retailer sees. Expiry windows per intent type are tabulated in
-Waymark_Sync_Design §6.3.
+`../sync-design.md` §6.3.

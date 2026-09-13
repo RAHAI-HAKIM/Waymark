@@ -15,7 +15,7 @@ namespace Waymark.Contracts.Recommendations;
 /// </para>
 /// <para>
 /// A judge asking "why does the safety-stock formula use that z-score" is
-/// answered from <see cref="Factors"/>, not from the headline (CLAUDE.md §7.4).
+/// answered from <see cref="Factors"/>, not from the headline (CLAUDE.md §7).
 /// </para>
 /// </summary>
 /// <param name="Key">

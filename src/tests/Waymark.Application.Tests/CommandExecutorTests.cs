@@ -43,11 +43,22 @@ public sealed class CommandExecutorTests
     {
         public int Commits { get; private set; }
 
+        public int Discards { get; private set; }
+
+        public bool FailCommit { get; init; }
+
         public Task<int> CommitAsync(CancellationToken cancellationToken = default)
         {
+            if (FailCommit)
+            {
+                throw new InvalidDataException("the commit failed");
+            }
+
             Commits++;
             return Task.FromResult(0);
         }
+
+        public void Discard() => Discards++;
     }
 
     private sealed record Probe(Func<CommandContext, Task> Work) : ICommand<string>;
@@ -125,9 +136,34 @@ public sealed class CommandExecutorTests
 
         Assert.Equal(0, work.Commits);
 
-        // The entry was staged. It is the absent commit that discards it, which
-        // is why IProcessingLog stages instead of writing.
+        // The entry was staged, so withholding the commit is not enough: the
+        // staged work has to be thrown away, or the next command's commit on the
+        // same unit of work writes it.
         Assert.Single(log.Entries);
+        Assert.Equal(1, work.Discards);
+    }
+
+    [Fact]
+    public async Task A_commit_that_throws_discards_the_staged_work()
+    {
+        var ids = new CountingIds();
+        var work = new RecordingUnitOfWork { FailCommit = true };
+        var executor = new CommandExecutor(work, ids, new RecordingLog());
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            executor.ExecuteAsync(new ProbeHandler(), new Probe(_ => Task.CompletedTask)));
+
+        Assert.Equal(1, work.Discards);
+    }
+
+    [Fact]
+    public async Task A_successful_command_discards_nothing()
+    {
+        var (executor, _, _, work) = Build();
+
+        await executor.ExecuteAsync(new ProbeHandler(), new Probe(_ => Task.CompletedTask));
+
+        Assert.Equal(0, work.Discards);
     }
 
     [Fact]

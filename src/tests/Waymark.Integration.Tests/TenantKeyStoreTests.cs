@@ -41,6 +41,29 @@ public sealed class TenantKeyStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_key_is_written_aside_and_moved_into_place_leaving_nothing_else()
+    {
+        // The key file must be absent or complete. A truncated one from a crash
+        // mid-write carries an error telling the reader never to delete it.
+        // What is left of an interrupted creation is a temp file nobody reads,
+        // and it must not stop the next start from creating the key.
+        var keys = NewKeysDirectory();
+        Directory.CreateDirectory(keys);
+        var interrupted = Path.Combine(keys, TenantKeyStore.FileName + ".crashed" + TenantKeyStore.TemporarySuffix);
+        File.WriteAllBytes(interrupted, [1, 2, 3]);
+
+        using var pseudonymiser = TenantKeyStore.OpenOrCreate(
+            keys, InstallId, new EntropyBindingProtector());
+
+        Assert.Equal(
+            [TenantKeyStore.FileName, Path.GetFileName(interrupted)],
+            Directory.GetFiles(keys).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            32 + TenantKeyStore.KeyBytes,
+            File.ReadAllBytes(Path.Combine(keys, TenantKeyStore.FileName)).Length);
+    }
+
+    [Fact]
     public void A_generated_key_is_32_bytes_and_not_a_constant()
     {
         // 32 bytes from RandomNumberGenerator (D-042). Two installs must not

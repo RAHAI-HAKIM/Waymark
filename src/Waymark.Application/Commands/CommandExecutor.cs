@@ -62,16 +62,26 @@ public sealed class CommandExecutor(
 
         var context = new CommandContext(ids, processingLog);
 
-        // No try/finally around this. A handler that throws must leave the
-        // transaction uncommitted, and sealing the context on the way out would
-        // only tidy up an object nobody can reach any more.
-        var result = await handler.HandleAsync(command, context, cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            var result = await handler.HandleAsync(command, context, cancellationToken)
+                .ConfigureAwait(false);
 
-        context.Seal();
+            context.Seal();
 
-        await unitOfWork.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await unitOfWork.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return result;
+            return result;
+        }
+        catch
+        {
+            // Not committing is not the same as discarding. The staged rows are
+            // still held by the unit of work, and the next command's commit
+            // would write them — a failed operation's processing_log entry
+            // included. Throw them away before the exception leaves.
+            context.Seal();
+            unitOfWork.Discard();
+            throw;
+        }
     }
 }

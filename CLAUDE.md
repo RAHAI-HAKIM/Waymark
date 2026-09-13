@@ -48,7 +48,8 @@ opens the store database directly.
 ### 2.3 Handlers stage. The executor commits. — D-050
 
 A handler never saves: it stages and returns, and `CommandExecutor` seals the context and
-calls `IUnitOfWork.CommitAsync` **once**, so everything commits together or not at all. Ids
+calls `IUnitOfWork.CommitAsync` **once**, so everything commits together or not at all; on
+any failure it calls `Discard()`, so nothing staged survives into the next command. Ids
 and log entries come from `CommandContext`, which belongs to one unit of work and throws
 once that closes. Wanting to save inside a handler means it is a second command.
 
@@ -63,7 +64,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **`Money` carries its currency and throws on mismatch.** No implicit conversion, ever. Conversion is a recorded event with a rate and a date, and is presentation-only.
 - **No arithmetic that can round exists as an operator.** `Times`, `Percent`, `Allocate` take an explicit policy, so grepping them enumerates every site where a centime can be created. **Never add `operator *(Money, decimal)`.**
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
-- **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row.
+- **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. Neither column exists yet (O-22).
 - **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
 - **TVA is extracted per line from the TTC price by subtraction**: `ht = round(ttc/(1+r))`, then `tva = ttc − ht`. Never round `tva` independently (D-033). Displayed prices are TTC under Law No. 04-02.
 - **Division by zero throws**, always; callers expecting zero use the nullable variant. **Absence is never zero** (D-037).
