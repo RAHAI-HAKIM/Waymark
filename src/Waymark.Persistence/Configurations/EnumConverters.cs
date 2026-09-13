@@ -32,6 +32,9 @@ internal static class EnumConverters
     public static readonly ValueConverter<ActionOnExpiry, string> ActionOnExpiryConverter =
         new(value => ToDatabase(value), text => ToActionOnExpiry(text));
 
+    public static readonly ValueConverter<RoundingPolicies, string> RoundingPoliciesConverter =
+        new(value => ToDatabase(value), text => ToRoundingPolicies(text));
+
     public static readonly ValueConverter<ActionType, string> ActionTypeConverter =
         new(value => ToDatabase(value), text => ToActionType(text));
 
@@ -1650,6 +1653,22 @@ internal static class EnumConverters
         "half_up" => Rounding.HalfUp,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown Rounding value in the database.")
+    };
+
+    private static string ToDatabase(RoundingPolicies value) => value switch
+    {
+        RoundingPolicies.HalfEven => "half_even",
+        RoundingPolicies.HalfUp => "half_up",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped RoundingPolicies.")
+    };
+
+    private static RoundingPolicies ToRoundingPolicies(string text) => text switch
+    {
+        "half_even" => RoundingPolicies.HalfEven,
+        "half_up" => RoundingPolicies.HalfUp,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown RoundingPolicies value in the database.")
     };
 
     private static string ToDatabase(VarianceReferenceType value) => value switch

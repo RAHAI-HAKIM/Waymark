@@ -39,6 +39,8 @@ public sealed class Transaction : IStoreScoped
     public string? InvoiceNumber { get; init; }
 
     public required DateTimeOffset OccurredAt { get; init; }
+    public RoundingPolicies RoundingPolicy {get; init;} = RoundingPolicies.HalfUp; // The best solution I could think of
+    // It's the default in for all retailers + we will oblige them to choose anyways.
 
     public Money Subtotal { get; init; }
 

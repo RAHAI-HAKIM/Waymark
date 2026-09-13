@@ -44,6 +44,8 @@ public sealed class Store : IStoreScoped
     public string Currency { get; init; } = "DZD";
 
     public string Timezone { get; init; } = "Africa/Algiers";
+    public RoundingPolicies RoundingPolicy {get; init;} = RoundingPolicies.HalfUp; // The best solution I could think of
+    // It's the default in for all retailers + we will oblige them to choose anyways.
 
     public string? TaxRegistrationNumber { get; init; }
 

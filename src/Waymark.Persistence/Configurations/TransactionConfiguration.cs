@@ -42,6 +42,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             table.HasCheckConstraint(
                 "ck_transactions_status_3",
                 @"status <> 'completed' OR invoice_number IS NOT NULL");
+            table.HasCheckConstraint(
+                "ck_store_rounding_policy",
+                @"rounding_policy IN ('half_even','half_up')");
         });
 
         builder.HasKey(x => x.TransactionId);
@@ -79,6 +82,11 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             .HasColumnName("currency")
             .HasDefaultValue("DZD")
             .HasSentinel("DZD");
+        builder.Property(x => x.RoundingPolicy)
+            .HasColumnName("rounding_policy")
+            .HasConversion(EnumConverters.RoundingPoliciesConverter)
+            .HasDefaultValue(RoundingPolicies.HalfUp)
+            .HasSentinel(RoundingPolicies.HalfUp);
         builder.Property(x => x.EcommerceFlag)
             .HasColumnName("ecommerce_flag")
             .HasDefaultValue(false)
