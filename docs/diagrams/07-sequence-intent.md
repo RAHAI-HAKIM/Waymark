@@ -40,9 +40,9 @@ sequenceDiagram
 ```
 
 **Why re-confirmation was rejected.** If the store is offline, the Cloud Admin the
-retailer is looking at is already stale. Asking him to re-confirm gives him a second chance
+retailer is looking at is already stale. Asking them to re-confirm gives them a second chance
 to decide on the same stale picture. Fixed expiry windows per intent type instead — see
-Waymark_Sync_Design §6.3.
+`../sync-design.md` §6.3.
 
 **Idempotency.** If the same recommendation is decided both in Cloud Admin and at the
 store, `recommendation_id` is the key: first decision wins, second is a no-op with a

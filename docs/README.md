@@ -1,108 +1,70 @@
 # Waymark — documentation index
 
-Which document answers which question, which one wins when two disagree, and where a new
-piece of writing belongs. Start here rather than guessing.
+Which document answers which question, which wins when two disagree, and where new writing
+goes.
 
----
+## Authorities: these decide
 
-## The documents
+| Document | Decides |
+| :---- | :---- |
+| `Waymark_Operating_Rules.md` | Commercial, legal, privacy. **Wins over everything** |
+| `Waymark_DPIA_v1.md` | What is promised to the ANPDP. Breaking it is a legal problem, not a bug. Edited only by Hakim |
+| `decisions.md` | Every non-obvious choice since 01/09. **Beats the three below on anything decided later** |
+| `System_Architecture.md` | What the modules are: operations catalogue, statistics, engine departments, Integration Layer |
+| `Waymark_Implementation.md` | How it is built: stack, data stores, surfaces, hardware, layout, division of work |
+| `sync-design.md` | Store↔cloud and terminal↔server sync, intents, erasure, transport |
+| `Waymark_Build_Plan.md` | Phase contents and definitions of done |
+| `../CLAUDE.md` | The short form of every rule that reaches code. If it disagrees with a decision, the decision is right and CLAUDE.md is stale |
 
-### Authorities — these decide things
-
-| Document | Decides | Owner |
-| :---- | :---- | :---- |
-| `Waymark_Operating_Rules.md` | Commercial, legal and privacy. **Wins over everything** | Hakim |
-| `System_Architecture.md` | Module and data design — what the parts are and what they hold | Hakim |
-| `Waymark_Implementation.md` | How the software is built — stack, layout, sequencing | Hakim |
-| `Waymark_Build_Plan.md` | Phase contents and definitions of done | Hakim |
-| `decisions.md` | Every non-obvious choice, why, and what was rejected | Both |
-| `Waymark_DPIA_v1.md` | What is promised to the ANPDP. Breaking one of its commitments is a legal problem, not a bug | Hakim |
-| `../CLAUDE.md` | The short form of every rule that reaches code | Hakim |
-
-**Precedence.** `Waymark_Operating_Rules` beats everything. `System_Architecture` beats
-`Waymark_Implementation` on what the modules are; `Waymark_Implementation` beats it on how
-they are built. `decisions.md` beats all of them on anything decided *after* they were
-written — which by now is most of the data layer.
-
-`CLAUDE.md` is not a fifth authority. It is the short form, and every rule in it points at
-the decision that produced it. If the two disagree, the decision is right and `CLAUDE.md`
-is stale.
-
-### Working documents — these track things
+## Working documents: these track
 
 | Document | Tracks |
 | :---- | :---- |
-| `phase-0-plan.md` | What is left in Phase 0, in build order, with what blocks each piece |
-| `schema-changes.md` | How to change the schema without breaking it. Read before any migration |
-| `Project_Organization.md` | The roadmap and Hakim's running log |
-| `diagrams/` | Eight architecture diagrams, as Mermaid. `diagrams/README.md` indexes them |
+| `status.md` | Where the work stands, the findings register, what is next. **Read this first each session** |
+| `schema-changes.md` | How to change the schema. Read before any migration |
+| `Project_Organization.md` | Hakim's stage roadmap and log |
+| `diagrams/` | Eight Mermaid diagrams, indexed in `diagrams/README.md` |
+| `Waymark_Brand_Identity.pptx` | Visual identity. Its locked rules are in CLAUDE.md §6 |
 
-### Held outside the repository
+`DB_design_v5` (outside the repository) is the schema's ancestor, superseded by
+`src/Waymark.Persistence/schema_v7_1.sql` (frozen) and `schema_current.sql` (live).
 
-Referenced by name in the documents above, but not files here:
-
-| Document | Why it matters |
-| :---- | :---- |
-| `Waymark_Sync_Design` | The authority behind diagrams 4, 7 and 8, and every sync window |
-| `Waymark_Brand_Identity` | Present as a `.pptx`. The seven locked lines are summarised in `CLAUDE.md` §6 |
-| `DB_design_v5` | The schema's ancestor. Superseded in the repository by `src/Waymark.Persistence/schema_v7_1.sql`, which is frozen |
-
-*`Waymark_DPIA_v1` is now in the repository, under `Waymark_DPIA_v1.md`, and the amendment
-pending since D-039 has been made (D-048).*
-
----
-
-## Where a new piece of writing goes
+## Where new writing goes
 
 | If it is… | It goes in |
 | :---- | :---- |
-| A choice with a rejected alternative | `decisions.md`, as the next `D-` entry |
-| A question only Hakim can answer | `decisions.md`, as the next `O-` entry, saying what it blocks |
+| A choice with a rejected alternative | `decisions.md`, the next `D-` entry |
+| A question only Hakim can answer | `decisions.md`, the next `O-` entry, saying what it blocks |
 | A rule that reaches code | `CLAUDE.md`, one or two lines, pointing at its decision |
-| A procedure somebody will follow later | Its own file — `schema-changes.md` is the model |
-| Progress, or what to do next | `phase-0-plan.md` |
-| A drawing | `diagrams/`, plus a row in `diagrams/README.md` |
+| A defect or gap found in review | `status.md` findings register |
+| Progress, or what to do next | `status.md` |
+| A procedure to follow later | Its own file; `schema-changes.md` is the model |
+| A drawing | `diagrams/`, plus a row in its README |
 
-If it does not fit any row, it is probably a decision that has not been written down yet.
+## How documents change
 
----
+**Edit in place to say what is true now. Git keeps the history.** Documents are not
+archives: superseded text is removed, not banner-marked, and a replaced decision's entry is
+rewritten to the current rule with a one-line pointer to what replaced it. The last
+long-form versions are at commit `c3531bf`. Two exceptions: the DPIA and the Operating
+Rules are only changed by Hakim, since they carry external commitments.
 
-## How a document changes
+In one commit: the decision, the documents it changes, and any diagram it makes wrong. A
+diagram that contradicts `decisions.md` is worse than none, because it is read as current.
 
-**Superseded in place, dated, with the old text kept and marked.** Never silently
-rewritten. The reasoning behind a rejected decision is the most useful thing in these
-files — it is what stops the same idea being re-proposed in six months — so it stays, with
-a banner saying what replaced it and when.
+## Reading order
 
-The pattern, as used through `Waymark_Implementation` §9.7 and §9.9:
-
-```markdown
-> **SUPERSEDED 11/09/2026 by decisions.md D-039.** What is true now, in two or three
-> sentences, and which parts of the text below still stand.
-```
-
-Three things go together in one commit: the decision entry, the documents it changes, and
-any diagram it makes wrong. A diagram that contradicts `decisions.md` is worse than no
-diagram, because it is read as current.
-
----
-
-## Reading order, if you are new to this
-
-1. `../README.md` — what the repository is and how to build it
-2. `../CLAUDE.md` — the rules, in about ten minutes
-3. `diagrams/02-container.md` — the store/cloud split, which is the shape of everything
-4. `diagrams/05-solution-dependencies.md` — the nine projects and what may reference what
-5. `phase-0-plan.md` — where the work actually stands
-6. `decisions.md` — not front to back. Search it when you want to know *why*
-
----
+1. `../CLAUDE.md`: the rules
+2. `status.md`: where things stand
+3. `diagrams/02-container.md` and `05-solution-dependencies.md`: the shape of everything
+4. `decisions.md`: search it for the *why*; don't read it front to back
 
 ## Conventions
 
-- **Dates are `DD/MM/YYYY`**, and every superseding note carries one.
-- **Decisions are referenced by number** — `D-034`, `O-2` — never by description.
-- **Schema objects are in backticks** and named exactly as the schema names them:
-  `stock_movements.quantity_changed`, not "the stock movement quantity".
-- **Nothing is asserted about the code that a test does not enforce.** Where a document
-  claims a guarantee, it names the test or the constraint that produces it.
+- Dates are `DD/MM/YYYY`.
+- Decisions are cited by number (`D-034`, `O-18`), never by description. Numbers are never
+  reused.
+- Schema objects in backticks, named exactly as the schema names them:
+  `stock_movements.quantity_changed`.
+- Nothing is asserted about the code that a test does not enforce. Where a document claims
+  a guarantee, it names the test or constraint, or says plainly that none exists yet.

@@ -8,7 +8,8 @@ compiles, the tests pass, and the damage appears months later.
 
 This file is the rule; the `D-nnn` beside it is the argument, in `/docs/decisions.md`.
 Follow a reference only when you need the reasoning or are about to change the rule.
-`/docs/README.md` is the index and says which documents live outside this repository.
+**Start each session with `/docs/status.md`**: where the work stands, the open findings,
+and what is next. `/docs/README.md` is the index.
 
 ---
 
@@ -82,8 +83,8 @@ leakage is DPIA risk R9.
 
 ### 3.4 Files — D-013, D-042, D-043
 
-- **Three SQLite files, never merged**: `waymark-store.db` (SQLCipher, backed up, pseudonymised data only), the POS Level-2 cache (never backed up), and the cloud.
-- **Statistics tier 2 is local**, in DuckDB. The outbox carries two streams that must never re-join: an anonymous basket record with no customer column, and a customer period record at monthly grain.
+- **Two local SQLite files, never merged**: `waymark-store.db` (operational data and statistics tier 1, identified; SQLCipher; backed up) and the POS Level-2 cache (own schema, never backed up). The database key is not implemented yet, so the file is plaintext today (O-20).
+- **Statistics tier 2 is local**, in DuckDB. The cloud is Postgres plus per-tenant DuckDB (tier 3). The outbox carries two streams that must never re-join: an anonymous basket record with no customer column, and a customer period record at monthly grain.
 - **Keys live in `%ProgramData%\Waymark\keys`, never in `data`.** The backup set is an allowlist of directories.
 
 ### 3.5 Pseudonymisation — D-039, D-042, D-045, D-051
@@ -204,10 +205,11 @@ logic. **Low priority:** UI rendering, CRUD screens, styling.
 | :---- | :---- |
 | `Waymark_Operating_Rules` | Commercial, legal, privacy. **Wins over everything** |
 | `Waymark_DPIA_v1` | What is promised to the regulator |
-| `System_Architecture` | Module and data design |
+| `/docs/decisions.md` | Every non-obvious choice, what was rejected, open questions. Beats the three below on anything decided later |
+| `System_Architecture` | Module design: operations, statistics, engine, Integration Layer |
 | `Waymark_Implementation` | How the software is built |
+| `/docs/sync-design.md` | Sync, intents, erasure, transport |
 | `Waymark_Build_Plan` | Phase contents and definitions of done |
-| `/docs/decisions.md` | Every non-obvious choice, and what was rejected |
-| `/docs/phase-0-plan.md` | What is left in Phase 0, and what blocks each piece |
+| `/docs/status.md` | Where things stand, findings register, next steps |
 | `/docs/schema-changes.md` | How to change the schema without breaking it |
 | `/docs/diagrams` | The eight architecture diagrams |

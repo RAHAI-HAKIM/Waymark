@@ -1,218 +1,12 @@
 # **Waymark — Operating Rules**
 
-The authoritative source for Waymark's commercial, legal and operational rules. Owner: Hakim. Last reviewed: 01/09/2026.
+The authoritative source for Waymark's commercial, legal and operational rules. Owner: Hakim. Last reviewed: 01/09/2026. Tidied 13/09/2026 (pasted table of contents removed; architecture statements aligned with decisions.md D-039 and D-043 — no commercial or legal rule changed).
 
 **Scope.** What Waymark sells, on what terms, under what obligations, and how it is described. Not a roadmap — that is Project\_Organization. Not architecture — that is System\_Architecture. Not visual identity — that is Waymark\_Brand\_Identity.
 
 **Precedence.** Where this document conflicts with any other project document, this one wins. Where it conflicts with the law, the law wins and this document is corrected.
 
 **How a rule changes.** A decided rule is not silently edited. It is superseded in place, dated, with the old rule kept and marked superseded — as in §3 of the Commercial model, where the earlier "list and decline" posture was replaced on 31/08.
-
-# 
-
-[**Waymark — Operating Rules	1**](#waymark-—-operating-rules)
-
-[**Waymark — Commercial model decisions	4**](#waymark-—-commercial-model-decisions)
-
-[1\. Metering and pricing model —	4](#1.-metering-and-pricing-model-—)
-
-[2\. Tier definitions —	5](#2.-tier-definitions-—)
-
-[Basic — single-till shop (épicerie, boutique, quincaillerie)	5](#basic-—-single-till-shop-\(épicerie,-boutique,-quincaillerie\))
-
-[Pro — supermarket or multi-department store	5](#pro-—-supermarket-or-multi-department-store)
-
-[Enterprise — multi-store	6](#enterprise-—-multi-store)
-
-[3\. Enterprise posture, year one —  (revised 31/08)	6](#3.-enterprise-posture,-year-one-—-\(revised-31/08\))
-
-[4\. Verticals —	7](#4.-verticals-—)
-
-[5\. Parameters	7](#5.-parameters)
-
-[6\. Billing cycle	8](#6.-billing-cycle)
-
-[**Waymark — Offline behaviour & hosting	9**](#waymark-—-offline-behaviour-&-hosting)
-
-[1\. Architecture confirmation — hybrid, store-authoritative	9](#1.-architecture-confirmation-—-hybrid,-store-authoritative)
-
-[2\. Store server hosting —  (tier-shaped)	9](#2.-store-server-hosting-—-\(tier-shaped\))
-
-[3\. Offline has two levels	10](#3.-offline-has-two-levels)
-
-[4\. Level-2 behaviour —	11](#4.-level-2-behaviour-—)
-
-[5\. Engine timing —	12](#5.-engine-timing-—)
-
-[6\. Operator-visible behaviour	12](#6.-operator-visible-behaviour)
-
-[7\. Hosting	12](#7.-hosting)
-
-[8\. Why this architecture is the right one for a global market	13](#8.-why-this-architecture-is-the-right-one-for-a-global-market)
-
-[**Waymark — Customer lifecycle: founding programme, data rights, lapse	14**](#waymark-—-customer-lifecycle:-founding-programme,-data-rights,-lapse)
-
-[1\. The collision, and how it was resolved	14](#1.-the-collision,-and-how-it-was-resolved)
-
-[2\. Naming —	14](#2.-naming-—)
-
-[3\. Data programme —	15](#3.-data-programme-—)
-
-[4\. Renewal —	15](#4.-renewal-—)
-
-[Free-period expiry	15](#free-period-expiry)
-
-[5\. Lapsed payment ladder —	16](#5.-lapsed-payment-ladder-—)
-
-[6\. Founding programme selection criteria —	17](#6.-founding-programme-selection-criteria-—)
-
-[Portfolio requirements — what the engine and the architecture need tested	17](#portfolio-requirements-—-what-the-engine-and-the-architecture-need-tested)
-
-[Per-store eligibility	18](#per-store-eligibility)
-
-[Excluded (from the privacy rules)	18](#excluded-\(from-the-privacy-rules\))
-
-[What the participant commits to	19](#what-the-participant-commits-to)
-
-[Admission mechanism	19](#admission-mechanism)
-
-[7\. Reference customer / case study clause —	19](#7.-reference-customer-/-case-study-clause-—)
-
-[8\. Remaining in this item	20](#8.-remaining-in-this-item)
-
-[**Waymark — Legal vehicle and payment collection	21**](#waymark-—-legal-vehicle-and-payment-collection)
-
-[1\. How the ANAE auto-entrepreneur card works	21](#1.-how-the-anae-auto-entrepreneur-card-works)
-
-[Legal basis	21](#legal-basis)
-
-[Is Waymark's activity eligible?	21](#is-waymark's-activity-eligible?)
-
-[Eligibility	21](#eligibility)
-
-[Getting the card	21](#getting-the-card)
-
-[What it costs	22](#what-it-costs)
-
-[Obligations after registration	23](#obligations-after-registration)
-
-[The ceiling	23](#the-ceiling)
-
-[2\. Decision: Choosing the card — with conversion triggers	23](#2.-decision:-choosing-the-card-—-with-conversion-triggers)
-
-[The three real limits	24](#the-three-real-limits)
-
-[Conversion triggers — write these down now	24](#conversion-triggers-—-write-these-down-now)
-
-[Startup Label	24](#startup-label)
-
-[3\. Payment collection	25](#3.-payment-collection)
-
-[The finding	25](#the-finding)
-
-[Why it does not matter in year one	25](#why-it-does-not-matter-in-year-one)
-
-[When a gateway becomes necessary	26](#when-a-gateway-becomes-necessary)
-
-[Invoicing mechanics	26](#invoicing-mechanics)
-
-[4\. October action items	27](#4.-october-action-items)
-
-[5\. Global market — how it affects the above	27](#5.-global-market-—-how-it-affects-the-above)
-
-[The core point	27](#the-core-point)
-
-[What global actually requires, in order	27](#what-global-actually-requires,-in-order)
-
-[The realistic international path	28](#the-realistic-international-path)
-
-[What global changes in already-locked decisions	29](#what-global-changes-in-already-locked-decisions)
-
-[Why the architecture already chosen is the right one for global	29](#why-the-architecture-already-chosen-is-the-right-one-for-global)
-
-[Note on global-readiness	29](#note-on-global-readiness)
-
-[**Waymark — Privacy rules	30**](#waymark-—-privacy-rules)
-
-[**Waymark — Liability limitation & data ownership/portability	31**](#waymark-—-liability-limitation-&-data-ownership/portability)
-
-[Part A — Liability limitation	31](#part-a-—-liability-limitation)
-
-[A1. The nature of what Waymark produces	31](#a1.-the-nature-of-what-waymark-produces)
-
-[A2. Decisions remain the retailer's	31](#a2.-decisions-remain-the-retailer's)
-
-[A3. What Waymark is responsible for	32](#a3.-what-waymark-is-responsible-for)
-
-[A4. What is excluded	32](#a4.-what-is-excluded)
-
-[A5. The cap —	32](#a5.-the-cap-—)
-
-[A6. The retailer's own obligations	33](#a6.-the-retailer's-own-obligations)
-
-[Part B — Data ownership & portability	33](#part-b-—-data-ownership-&-portability)
-
-[B1. The retailer owns their data —	33](#b1.-the-retailer-owns-their-data-—)
-
-[B2. What Waymark owns —	34](#b2.-what-waymark-owns-—)
-
-[B3. Export —	34](#b3.-export-—)
-
-[B4. The absolute promise —	34](#b4.-the-absolute-promise-—)
-
-[B5. On termination	35](#b5.-on-termination)
-
-[B6. No lock-in — stated as commitments	35](#b6.-no-lock-in-—-stated-as-commitments)
-
-[B7. Deletion on request	35](#b7.-deletion-on-request)
-
-[Open items	35](#open-items)
-
-[**Waymark — Positioning & messaging hierarchy	36**](#waymark-—-positioning-&-messaging-hierarchy)
-
-[1\. Positioning statement	36](#1.-positioning-statement)
-
-[2\. Messaging hierarchy —	37](#2.-messaging-hierarchy-—)
-
-[Claim 1 — Stop paying for spoilage and stockouts	37](#claim-1-—-stop-paying-for-spoilage-and-stockouts)
-
-[Claim 2 — Every suggestion explains itself, and you decide	37](#claim-2-—-every-suggestion-explains-itself,-and-you-decide)
-
-[Claim 3 — It keeps working when the internet doesn't, and your data is always yours	38](#claim-3-—-it-keeps-working-when-the-internet-doesn't,-and-your-data-is-always-yours)
-
-[3\. What NOT to lead with	38](#3.-what-not-to-lead-with)
-
-[4\. Language	39](#4.-language)
-
-[5\. How this maps to the tiers	39](#5.-how-this-maps-to-the-tiers)
-
-[6\. Open	39](#6.-open)
-
-[**Waymark — Remaining & deferred	41**](#waymark-—-remaining-&-deferred)
-
-[1\. Policies not yet written	41](#1.-policies-not-yet-written)
-
-[2\. Values missing from decided rules	41](#2.-values-missing-from-decided-rules)
-
-[3\. Owed to System\_Architecture	41](#3.-owed-to-system_architecture)
-
-[4\. October actions	41](#4.-october-actions)
-
-[5\. To be verified	42](#5.-to-be-verified)
-
-[6\. Needs a lawyer	42](#6.-needs-a-lawyer)
-
-[7\. Before any material is printed	42](#7.-before-any-material-is-printed)
-
-[8\. Deferred, with triggers	42](#8.-deferred,-with-triggers)
-
-# 
-
-# 
-
-# 
-
-# 
 
 # Waymark — Commercial model decisions
 
@@ -331,22 +125,19 @@ Billing is by season (3 months) or by year, with a discount for the yearly optio
 Still to decide in the commercial/legal section  
 Deferred: price points · SLA (after hosting) · backup/DR and incident response (after hosting) · update/versioning and deprecation · sales channel · full ToS/CGU and DPA drafting · AUP.
 
-# 
-
 # Waymark — Offline behaviour & hosting
 
-Locked 31/08/2026. Companion to System\_Architecture and to   
+Locked 31/08/2026. Companion to System\_Architecture and sync-design.
 ---
 
 ## 1\. Architecture confirmation — hybrid, store-authoritative
 
 The System\_Architecture "Data placement" section already committed to this; it is now explicit.
 
-**Store side (authoritative for all operational data):** Full operational DB — products, prices, inventory, batches, transactions. Direct identifiers (customer name, phone, email, address), staff identifiers, the **tenant key** that derives `pseudonym_key` from `customer_id`, consent records and notice versions. Statistics **tier 1**.
+**Store side (authoritative for all operational data):** Full operational DB — products, prices, inventory, batches, transactions. Direct identifiers (customer name, phone, email), staff identifiers, the **tenant key** from which pseudonyms are derived, consent records and notice versions. Statistics **tier 1** and **tier 2** (pseudonymised, local — D-043).
 
-*Revised 11/09/2026 (decisions.md D-039): this said "the `customer_id ↔ pseudonym_key` mapping table". There is no mapping table and no second database. The pseudonym is a keyed hash, so the separately-kept information is the key. Every commitment in this section is unchanged — what crosses the boundary, and what does not, is the same.*
 
-**Cloud side:** Statistics **tiers 2–3** (pseudonymised), transaction history keyed by pseudonym, products/batches/suppliers/POs, the Analytical Engine (all five departments), backups.
+**Cloud side:** Statistics **tier 3**, built from two shaped record streams (an anonymous basket record, and a monthly customer record keyed by pseudonym — D-043), products/batches/suppliers/POs, the Analytical Engine (all five departments), backups.
 
 **Boundary:** Statistics tier 1 → tier 2\. Pseudonymisation happens on the way out of the store. Nothing carrying a direct identifier crosses.  
 ---
@@ -1093,7 +884,7 @@ Level-2 credit ceiling · Basic backup frequency and retention · recommended mi
 
 ## 3\. Owed to System\_Architecture
 
-The store holds the operational DB, not a "replica" — the store is authoritative. And the Integration Layer must be split into a cloud half and a store half.
+Done 13/09/2026: the store is described as authoritative, and the Integration Layer is split into cloud and store halves (System\_Architecture §5).
 
 ## 4\. October actions
 

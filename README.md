@@ -17,7 +17,7 @@ range. Code that cannot be explained does not ship.
 
 | Path | Contents |
 | :---- | :---- |
-| `src/` | The .NET solution — nine projects, three test projects |
+| `src/` | The .NET solution — nine projects, four test projects |
 | `waymark-admin/` | React + TypeScript Admin. One codebase, two surfaces (local and cloud) |
 | `waymark-engine/` | Almanac. Python, runs nightly in the cloud |
 | `docs/` | Architecture, build plan, operating rules, diagrams, decision log |
@@ -48,12 +48,12 @@ Two absences are load-bearing:
 
 - **`Waymark.Sync` never references `Waymark.Pseudonymisation`.** That missing
   edge is a legal boundary. What reaches the outbox is already pseudonymised;
-  sync is structurally incapable of reaching the mapping.
+  sync is structurally incapable of reaching the tenant key. Asserted in
+  `src/tests/Waymark.Integration.Tests/ArchitectureTests.cs`, which must *fail*
+  when a forbidden reference is added.
 - **The POS never opens the store database.** It talks HTTP to StoreServer even
-  at Basic tier where both run on one machine. One code path, not two.
-
-Both are asserted in `src/tests/Waymark.Integration.Tests/ArchitectureTests.cs`
-and must *fail* when a forbidden reference is added.
+  at Basic tier where both run on one machine. One code path, not two. *Not yet
+  asserted by a test (`docs/status.md`).*
 
 ---
 
@@ -67,8 +67,8 @@ dotnet build src/Waymark.sln
 dotnet test src/Waymark.sln
 ```
 
-Requires the .NET 10 SDK (current LTS). Verified against 10.0.400: twelve
-projects, zero warnings, six architecture tests green. Node and the Python engine environment
+Requires the .NET 10 SDK (current LTS). Verified against 10.0.400: thirteen
+projects, zero warnings, all tests green. Node and the Python engine environment
 arrive with Phases 1 and 2 respectively.
 
 ---
@@ -79,7 +79,7 @@ Read **`CLAUDE.md`** at the repository root. It is short and it is the
 authority on layering, money, identity, store scoping and the privacy
 boundary. The reasoning behind each rule lives in `/docs`.
 
-Four rules are worth repeating here, because each is silently wrong when
+Five rules are worth repeating here, because each is silently wrong when
 broken — the code compiles, the tests pass, and the damage appears months
 later:
 
@@ -102,13 +102,13 @@ later:
 
 | Document | Authority on |
 | :---- | :---- |
+| `docs/status.md` | Where the work stands, known flaws, what is next |
 | `docs/Waymark_Operating_Rules.md` | Commercial, legal, privacy. **Wins over everything** |
-| `docs/System_Architecture.md` | Module and data design |
-| `docs/Waymark_Implementation.md` | How the software is built |
-| `docs/Waymark_Build_Plan.md` | Phase contents and definitions of done |
-| `docs/Project_Organization.md` | The roadmap and its running log |
 | `docs/decisions.md` | Every non-obvious choice, and why |
-| `docs/phase-0-plan.md` | What is left in Phase 0, and what blocks each piece |
+| `docs/System_Architecture.md` | Module design |
+| `docs/Waymark_Implementation.md` | How the software is built |
+| `docs/sync-design.md` | Sync, intents, erasure |
+| `docs/Waymark_Build_Plan.md` | Phase contents and definitions of done |
 | `docs/schema-changes.md` | How to change the schema without breaking it |
 | `docs/diagrams/` | The eight architecture diagrams |
 
@@ -119,8 +119,6 @@ which wins when two disagree, and where a new piece of writing belongs.
 
 ## Status
 
-**Phase 0 — Foundation.** No demo. Repository, solution layout, schema,
-migrations, value objects, the pseudonymisation boundary, the synthetic store
-generator. Everything after this assumes it exists.
-
-Progress and phase definitions: `docs/Waymark_Build_Plan.md`.
+**Phase 0 — Foundation.** No demo. Everything is in place except the synthetic
+store generator (W10). Progress: `docs/status.md`; phase definitions:
+`docs/Waymark_Build_Plan.md`.

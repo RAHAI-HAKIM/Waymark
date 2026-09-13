@@ -9,8 +9,8 @@ flowchart TB
         pos["Waymark.Pos<br/>Avalonia desktop"]
         server["Waymark.StoreServer<br/>ASP.NET Core"]
         localadmin["Local Admin<br/>TypeScript web app"]
-        storedb[("waymark-store.db<br/>SQLite<br/>operational + stats tier 1")]
-        tenantkey["Tenant key<br/>HMAC-SHA256<br/>held by Waymark.Pseudonymisation"]
+        storedb[("waymark-store.db<br/>SQLite, SQLCipher<br/>operational + stats tier 1")]
+        tenantkey["keys\ directory<br/>tenant key + database key<br/>DPAPI-wrapped"]
         tier2[("Statistics tier 2<br/>DuckDB<br/>pseudonymised, transaction grain")]
         poscache[("POS Level-2 cache<br/>SQLite")]
         backup[("Local nightly backup<br/>second device")]
@@ -32,7 +32,7 @@ flowchart TB
     server --> tier2
     server --> tenantkey
     server --> backup
-    tenantkey -.->|"local backup only"| backup
+    tenantkey -.->|"local backup only, never cloud"| backup
 
     server <-->|"mTLS, store-initiated, both directions in one round trip"| api
 
@@ -50,11 +50,9 @@ flowchart TB
 ```
 
 **Reading it.** Only one arrow crosses between the two boxes, and it is store-initiated.
-The tenant key is highlighted because it is the one thing that must never cross — not over
-sync, not over backup. *(Was `waymark-identity.db`; removed by decisions.md D-039. The
-pseudonym is now a keyed hash, so what is kept separately is the key rather than a mapping
-table — and the exclusion is enforced by a test rather than by the file simply not being
-in the backup set.)*
+The keys are highlighted because they must never cross, over sync or the cloud backup
+(D-039, D-042). `waymark-store.db` is SQLCipher-encrypted by design; the database key is
+not implemented yet (O-20).
 
 **Absent from the cloud by design:** any screen or table showing a customer name, phone or
 email.

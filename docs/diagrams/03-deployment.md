@@ -41,4 +41,4 @@ down the primary — without imposing cost on anyone who cannot carry it.
 
 **Promotion is manual, never automatic.** Automatic failover across a partitioned LAN
 produces split-brain, the only genuine data-loss scenario in the design. See
-Waymark_Sync_Design §11.3.
+`../sync-design.md` §11.3.

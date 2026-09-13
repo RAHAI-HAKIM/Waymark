@@ -1,8 +1,7 @@
 # Working with the schema
 
 Everything about how the database is defined, created, changed and checked. The
-short rules are CLAUDE.md §3.7; the reasoning is decisions.md D-016, D-019,
-D-021 to D-029.
+short rules are CLAUDE.md §3.7; the reasoning is decisions.md D-016 and D-019 to D-029.
 
 ---
 
@@ -11,11 +10,11 @@ D-021 to D-029.
 | File | Role |
 | :---- | :---- |
 | `src/Waymark.Persistence/schema_v7_1.sql` | **Frozen.** The hand-written schema, reviewed once. Never edited, never executed on a store. It is the reference side of the fidelity comparison |
-| `src/Waymark.Persistence/triggers.sql` | The 11 append-only triggers. Not in the EF model and cannot be. Idempotent — every statement drops before it creates |
+| `src/Waymark.Persistence/triggers.sql` | The append-only triggers (13). Not in the EF model and cannot be. Idempotent — every statement drops before it creates |
 | `src/Waymark.Persistence/schema_current.sql` | **Generated documentation.** What the database looks like now. Committed, read, never executed |
 | `src/Waymark.Persistence/Migrations/` | EF migrations. `InitialSchema` is the baseline; everything after is a change |
-| `src/Waymark.Domain/**` | 58 entities and 70 enums. Plain classes, no EF, no attributes |
-| `src/Waymark.Persistence/Configurations/` | One `IEntityTypeConfiguration` per entity — column names, converters, defaults, sentinels, CHECKs, indexes, keys |
+| `src/Waymark.Domain/**` | The entities and enums. Plain classes, no EF, no attributes |
+| `src/Waymark.Persistence/Configurations/` | One `IEntityTypeConfiguration` per entity — column names, enum converters, defaults, sentinels, CHECKs, indexes, keys. `Money` converters and store filters are applied centrally in `WaymarkDbContext` |
 | `tools/generate-model/` | The one-shot generator that produced the model. Kept for provenance. **Do not re-run** |
 
 Three of these are not obvious and are worth knowing about.
@@ -203,8 +202,7 @@ operational event to be planned, not slipped into a routine update.
 
 ## 5. What the tests catch
 
-58 tests. These are the ones that exist because the failure they catch is
-silent.
+The suites that exist because the failure they catch is silent.
 
 | Suite | Catches |
 | :---- | :---- |
@@ -216,6 +214,7 @@ silent.
 | `DefaultValueSentinelTests` | an explicitly set value being swallowed by a database default |
 | `SchemaInvariantTests` | a table that is not STRICT, a REAL column, a money column that is not INTEGER, a rowid-alias primary key |
 | `EntityMappingTests` | a converter writing the wrong thing — enum spelling, timestamp format, integer money |
+| `MoneyMappingTests` | a money column mapped as bare `long`, or a non-ledger currency in a currency column |
 | `ArchitectureTests` | `Sync` reaching `Pseudonymisation`, EF Core or HTTP below the hosts |
 
 Two habits worth keeping, because both caught real defects here.
@@ -334,9 +333,9 @@ SQLCipher gives the application 3.39.2 (D-015). DDL that works at the prompt can
 still fail at runtime. `dotnet ef` is the authority.
 
 **A database created before the baseline has no migration history.** If you have
-an old `waymark-store.db` built by running `schema_v7_1.sql` through the CLI,
-`Migrate()` will try to create tables that already exist and fail. Delete it and
-let the application build it.
+an old `waymark-store.db` built by running `schema_v7_1.sql` through the CLI (which is
+what `tools/create-database.ps1` does, and why it is due for deletion), `Migrate()` will try to create tables that
+already exist and fail. Delete it and let the application build it.
 
 **Do not re-run the generator.** `tools/generate-model` rewrites all 58
 configurations from the frozen schema. It would undo every migration's worth of
