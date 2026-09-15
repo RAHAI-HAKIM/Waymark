@@ -702,9 +702,15 @@ into `interview`. Resolves O-17.
 How it was built is D-054.
 
 ### D-054 — The generator as built (W10)
-Recorded step by step; S0–S9 so far (the simulated clock, randomness, calendar,
-configuration, catalogue, commissioning, trading days, supply, the mess, connectivity,
-outputs). S10 is Hakim's review.
+Complete (15/09/2026): S0–S10, recorded step by step:
+- the simulated clock, randomness, calendar;
+- configuration, catalogue, commissioning;
+- trading days, supply, the mess;
+- connectivity and outputs;
+- Hakim's review of a full year's `report.md` (S10).
+
+How to run and use it is `src/Waymark.Generator/README.md`; the phase history is
+`docs/recaps/phase-0.md`.
 
 **Where and how it writes.** `src/Waymark.Generator` (console host) and
 `src/tests/Waymark.Generator.Tests`. It references Domain, Application, Persistence and

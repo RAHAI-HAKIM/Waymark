@@ -22,6 +22,8 @@ goes.
 | :---- | :---- |
 | `status.md` | Where the work stands, the findings register, what is next. **Read this first each session** |
 | `schema-changes.md` | How to change the schema. Read before any migration |
+| `recaps/` | One snapshot per finished phase: what was built, decided and found. **Not session reading**; open when a question reaches back into a finished phase |
+| `../src/Waymark.Generator/README.md` | The synthetic store generator: how a run works, its inputs and parameters, its outputs, and its use in later phases |
 | `Project_Organization.md` | Hakim's stage roadmap and log |
 | `diagrams/` | Eight Mermaid diagrams, indexed in `diagrams/README.md` |
 | `Waymark_Brand_Identity.pptx` | Visual identity. Its locked rules are in CLAUDE.md §6 |
@@ -40,6 +42,8 @@ goes.
 | Progress, or what to do next | `status.md` |
 | A procedure to follow later | Its own file; `schema-changes.md` is the model |
 | A drawing | `diagrams/`, plus a row in its README |
+| The close of a phase | `recaps/phase-N.md`, plus a row in `recaps/README.md`. Written once, not kept current |
+| How a tool works and how to use it | A `README.md` beside the tool; `src/Waymark.Generator/README.md` is the model |
 
 ## How documents change
 

@@ -120,6 +120,10 @@ which wins when two disagree, and where a new piece of writing belongs.
 
 ## Status
 
-**Phase 0 — Foundation.** No demo. Everything is in place except the synthetic
-store generator (W10). Progress: `docs/status.md`; phase definitions:
+**Phase 0 — Foundation: build complete** (15/09/2026). No demo. What remains before
+Phase 0.5 is a final test and the resolution of the open findings in `docs/status.md`.
+The phase recap is `docs/recaps/phase-0.md`; phase definitions are in
 `docs/Waymark_Build_Plan.md`.
+
+The synthetic store generator makes a deterministic year of a fake épicerie for
+development, testing and the engine; see `src/Waymark.Generator/README.md`.

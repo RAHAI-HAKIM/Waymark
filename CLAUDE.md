@@ -10,6 +10,8 @@ This file is the rule; the `D-nnn` beside it is the argument, in `/docs/decision
 Follow a reference only when you need the reasoning or are about to change the rule.
 **Start each session with `/docs/status.md`**: where the work stands, the open findings,
 and what is next. `/docs/README.md` is the index.
+**Do not read `/docs/recaps/` at the start of a session.** A recap is a long snapshot of a
+finished phase; open one only when a question reaches back into that phase.
 
 ---
 
@@ -214,5 +216,7 @@ logic. **Low priority:** UI rendering, CRUD screens, styling.
 | `/docs/sync-design.md` | Sync, intents, erasure, transport |
 | `Waymark_Build_Plan` | Phase contents and definitions of done |
 | `/docs/status.md` | Where things stand, findings register, next steps |
+| `/docs/recaps/` | One snapshot per finished phase. Only when needed, never at session start |
+| `src/Waymark.Generator/README.md` | How the synthetic store generator works, its parameters, and using it in later phases |
 | `/docs/schema-changes.md` | How to change the schema without breaking it |
 | `/docs/diagrams` | The eight architecture diagrams |
