@@ -54,7 +54,9 @@ internal sealed class ParameterRegistryEntryConfiguration : IEntityTypeConfigura
         builder.Property(x => x.ScopeId)
             .HasColumnName("scope_id")
             .HasDefaultValue("")
-            .HasSentinel("");
+            .HasSentinel("")
+            // Part of the primary key: always supplied, never generated (see PriceConfiguration).
+            .ValueGeneratedNever();
         builder.Property(x => x.Version)
             .HasColumnName("version");
         builder.Property(x => x.ValueNumber)

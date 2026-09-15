@@ -18,7 +18,7 @@ Open questions (`O-nn`) are at the end.
 | Money, quantity, identity | D-031–D-038, D-041, D-053 |
 | Privacy, keys, pseudonymisation | D-039, D-040, D-042, D-043, D-045, D-051 |
 | Contracts and application | D-044, D-048, D-049, D-050 |
-| Synthetic generator | D-046 |
+| Synthetic generator | D-046, D-054 |
 | Hardware | D-052 |
 | Testing | D-018, D-047 |
 
@@ -246,6 +246,13 @@ reads the raw column, because a round trip through EF hides the swap. `Money` ne
 explicit sentinel (D-041). **Rejected.** Dropping `HasDefaultValue`, which loses the
 DEFAULT on the next rebuild.
 
+**A primary-key column with a default is also `ValueGeneratedNever()`.** `prices.price_type`
+and `parameter_registry.scope_id` are both. EF read a key equal to its sentinel as unset
+and substituted a temporary key value, so no *retail* price could ever be inserted; the
+converter threw. Nothing had inserted a price until the generator did (D-054).
+`DefaultValueSentinelTests.No_key_column_is_generated_by_the_store` now fails on any key
+EF may generate.
+
 ### D-028 — StoreServer initialises the database at startup, or does not start
 StoreServer resolves the data directory (D-013), registers the context through
 `UseWaymarkSqlite`, and calls `MigrateAndApplyTriggers()` before serving. It also refuses
@@ -362,10 +369,10 @@ have an explicit "insufficient data" state instead.
 
 ### D-038 — ULIDs come from a port
 `IIdGenerator` is declared in Domain. `UlidGenerator` (in Application, where the `Ulid`
-package lives) is a singleton in StoreServer. `SeededIdGenerator(seed, clockStart)` is for
-tests and the generator. **Never `Ulid.NewUlid()` in an entity**, because a static call
+package lives) is a singleton in StoreServer. `SeededIdGenerator(seed, TimeProvider)` is for
+tests and the generator: it stamps ids with the clock it is given (the generator's simulated
+one) and stays monotonic within a millisecond, as the ULID specification describes. **Never `Ulid.NewUlid()` in an entity**, because a static call
 cannot be seeded. The Domain package allowlist exists and is **empty**. Resolves O-1.
-`SeededIdGenerator` must follow W10's simulated clock before the generator uses it (D-046).
 
 ### D-041 — `Money` is wired into the model; `Quantity` cannot be
 **32 money columns are `Money`**, converted centrally by CLR type in `OnModelCreating`.
@@ -635,11 +642,7 @@ and master seed. Every behavioural number lives in it, each with a
 **Randomness.** No shared sequential RNG. Draws come from `Draw(stream, coords…)`, a hash
 of the master seed and the coordinates. Fixed streams: `demand(variant, day)`,
 `arrivals(day, slot)`, `lead(supplier, order)`, `spoil(batch)`, `error(staff, day, i)`. All
-ids come from `SeededIdGenerator`.
-**Before building W10:** today `SeededIdGenerator` advances 1 ms per id from `clockStart`
-and ignores the simulated clock, so a generated year would get ULID timestamps packed into
-its first minutes. Rework it to read the generator's `TimeProvider`, staying monotonic
-within a tick, so ids carry the simulated time.
+ids come from `SeededIdGenerator`, driven by the simulated clock.
 
 **Demand.** A base rate multiplied by weekday, month, Ramadan, payday and promotion
 effects.
@@ -695,6 +698,229 @@ effects.
 
 **Outside the code.** Two afternoons with épiciers turn a dozen parameters from `guess`
 into `interview`. Resolves O-17.
+
+How it was built is D-054.
+
+### D-054 — The generator as built (W10)
+Recorded step by step; S0–S9 so far (the simulated clock, randomness, calendar,
+configuration, catalogue, commissioning, trading days, supply, the mess, connectivity,
+outputs). S10 is Hakim's review.
+
+**Where and how it writes.** `src/Waymark.Generator` (console host) and
+`src/tests/Waymark.Generator.Tests`. It references Domain, Application, Persistence and
+Contracts, and writes entities directly through `WaymarkDbContext` into a database built by
+`MigrateAndApplyTriggers()`, with foreign keys on. It simulates what happened; it is not the
+application, so it uses no handlers. Architecture tests: nothing that ships may reference it;
+it reaches none of Pseudonymisation, Sync, Hardware or the hosts; and it uses no
+cryptography. Inputs live under `inputs/`, because a `catalogues/` data folder shares a
+case-insensitive name with the `Catalogues/` code folder on Windows.
+
+**The catalogue is six files** (D-046 §4): `store.json` (identity, roles, staff, terminals,
+opening hours per day type, reason codes, notices), `units.csv`, `categories.csv`,
+`suppliers.csv`, `catalogue.csv` (variants, with prices as at commissioning) and
+`price_changes.csv`. Every column is required and nothing is defaulted at runtime.
+- **The VAT class lives on a subcategory**, because the schema holds a rate only on
+  `categories.tax_rate`. Products link to their subcategory as primary and to the top
+  category as well, so sensitive exclusion "across all links" has more than one to check.
+- **`grocery-dz` was enriched from Hakim's `docs/products.csv`** (399 real products, three
+  columns) by `tools/enrich-catalogue`, a seeded one-shot kept for provenance. Every added
+  value is a guess; the rules are at the top of the script. It fixed two source defects:
+  an unquoted comma in "Café, Thé & Petit Déjeuner", and a truncated category name.
+- **Barcodes use the in-store GS1 prefix 200**, so a synthetic code can never scan as a
+  real product. **Rejected:** Algeria's 613 prefix.
+
+**Configuration.** Every behavioural number is `{ value, source, note }`, and all three are
+required. Unknown fields, missing fields and enums given as numbers are errors. Validation
+covers ranges, key sets, and that the run is covered by configured Ramadans. It reports
+every problem at once, before anything is written. The manifest counts parameters by
+source.
+
+**Randomness.** A stream key is `SplitMix64(seed xor FNV-1a(name))`, and each coordinate is
+mixed in with another SplitMix64. The mixing is pinned by a golden value, recomputed
+independently. Distributions are pure functions of one uniform draw: Poisson by inversion
+up to a mean of 60, a normal approximation above. `Math` functions can differ in their last
+bits between operating systems, so golden stores are compared on the CI platform.
+**Rejected:** a shared sequential RNG; a cryptographic hash.
+
+**Clock and ids.** `SimulatedClock` only moves forward, and events are simulated in time
+order. `SeededIdGenerator(seed, TimeProvider)` (F-3) stamps ids with simulated time, so an
+id sorts where its row happened.
+
+**Commissioning.** At 08:00 on the commissioning date: the store, reference tables, staff
+(PIN hash `synthetic:no-login`), terminals, categories, suppliers, products, variants,
+supplier terms and every price row with its validity.
+- Customers enrol over the commissioning weeks, named `Client NNN (synthétique)`, under
+  legal basis `contract`.
+- Non-objectors get a processing consent event; a configured share also get a marketing
+  consent event.
+- Objectors have no consent and the objection flag set.
+- **No `processing_log` rows are written:** the generator is not an application access
+  site.
+
+**Opening stock.** One batch per product on the first day at 06:00. Quantity is base demand
+× drawn cover, capped at the batch's remaining shelf life, rounded up to whole cartons.
+`inventories` is written at the end from the in-memory lots.
+
+**Demand (S5).** `latent = Poisson(base_rate × weekday × month × Ramadan phase × events ×
+payday)`, one draw at `demand(variant, day)`. Nothing about stock enters it; a test starves
+the shelf and gets the same latent column. A closed day has no demand: a closure is not a
+stockout. No promotion factor, because the catalogue has no promotions.
+
+**Baskets.** The day's units form one pool, shuffled by hashing `(day, variant, unit)` and
+cut into baskets drawn from `sales.basket_units`. The pay cycle scales the size with
+stochastic rounding, so the scaled mean is exact. Footfall is therefore demand divided by
+basket size, never a second number that could disagree with it. Arrival: an hour drawn
+from the day type's traffic, then a uniform open second of it, so nobody arrives during the
+lunch, prayer or iftar closure. Terminal, customer (a share of baskets; regulars carry
+exponential visit weights) and payment method are drawn per basket. **Rejected:** drawing
+footfall and basket contents independently, which lets them disagree.
+
+**Serving.** Events run in time order: drawer opens, shifts start, customers served, drawer
+closes.
+- A line takes what is sellable (on hand, not past its expiry date, which is the last day of
+  sale), oldest lot first, one `transaction_items` row and one `sale` movement per variant
+  per batch.
+- An unmet line becomes a sibling variant of the same product with its tier's probability
+  (`sales.substitution_by_tier`); the rest is lost.
+- An empty basket makes no transaction.
+- **The generator never sells below zero**, although a real till can: D-046's invariant is
+  that nothing sells more than it received.
+
+**Money.** `SaleArithmetic.Line` is D-033 verbatim through the domain types, under the
+store's policy stamped on the transaction. **The payment row carries the invoice amount; the
+drawer receives the cash tender**, and the difference is a `rounding_variance` row
+(`cash_tender`, the transaction). So `Σpayments == total_amount` and D-034's invariant reads
+`expected = float + Σcash payments + Σvariance`. Sessions close counted = expected, variance
+0, until S7's discrepancies. Invoice numbers are `<store_code>-<year>-<nnnnnn>`, gapless
+per calendar year (the store keeps the default fiscal year). Staff take the day's opening
+intervals in turn, in store.json order, rotating daily, and each is written to `shifts`.
+**Tender rounding is exercised (Hakim, 14/09).** The enriched prices all sat on the 5 DZD
+step, so cash never rounded. `enrich.py` now adds 1–4 DZD, always upward, to every retail
+price of a quarter of the non-regulated variants (101 of 399); a re-run changed nothing else.
+Discounts also produce off-step totals. With 9% and 19% VAT an HT tie is impossible
+(`10000+rate` is odd), so the two policies still never produce different grocery lines.
+
+**Sales parameters (Hakim, 14/09).**
+- Basket sizes run 1–50 units with P(<7) = 0.45, P(7) = 0.10, P(>7) = 0.45. Hakim wrote 0.9
+  for both sides, which cannot sum to 1, so it was read as 0.45. The shape rises to 7,
+  mirrors down to 13, then a thin tail reaches 50. The mean is 7.2: equal mass either side
+  of 7 plus a real tail puts it above 7 unless the low side is flat. About 58 baskets a day.
+- Customer attach share 0.18; tender shares cash 0.95, card 0.04, wallet 0.01.
+
+**Supply (S6).** `NaiveShopkeeperPolicy` is its own pure class.
+- Pace is the mean of the last `memory_days` of sales, stockout days included, with the base
+  rate standing in for days before the history.
+- Reorder when sellable plus on-order is at or below `reorder_cover_days` of pace. Order up
+  to `order_up_to_cover_days`, rounded up to whole cartons, never less than one.
+- ×`ramadan_over_order` from `ramadan_lookahead_days` before the stock-up until Ramadan begins.
+- Below `slow_mover_rate`, reorder only at zero, one carton.
+
+Orders happen only at a supplier's visit, on its delivery days, mid-morning. Arrival is the
+stated lead time plus a triangular delay at `lead(supplier, day)`, moved to the next open
+day. Deliveries land in the morning window. Each line arrives in full with `fill_rate`,
+otherwise short (never backordered). One batch per product, with shelf life drawn fresh.
+
+**A purchase order is written once it is final:** at receipt (`received`,
+`partially_received`, or `cancelled` if nothing came), or at the end of the run as `sent`.
+Its id is minted when placed, so no row is ever updated. Expired lots are written off at
+opening the day after their last day of sale, as `expiry` movements.
+`batches.status` (`depleted`, `written_off`) and `customers.credit` / `last_order_date` are
+set at the end as final state. **Rejected:** `ExecuteUpdate` on purchase orders as they
+progress, which would leave half-written orders in a store that is meant to be a finished
+history.
+
+**The mess (S7).** Rates are in `mess`, and reason codes are named per event kind in
+`mess.reason_codes`, validated against store.json's `applies_to`, one drawn uniformly.
+- **Discounts:** a share of lines, a whole percent off the TTC gross (`Percent` under the
+  policy), always with a reason, and with the manager as `authorised_by` when the reason
+  requires one.
+- **Voids:** a share of baskets is first rung with one unit too many, voided with a reason
+  and no invoice, payment or movement, then rung correctly in the same second.
+- **Returns:** decided at sale for a later day.
+  - The refund is its own transaction (`original_transaction_id`, one negative line that
+    carries back a discount on a whole line), with its own invoice number in the same
+    sequence.
+  - A `returns` row points at the original line, with a `return_in` movement if restocked
+    (only unexpired lots).
+  - Refunds follow the original tender. A regular may take store credit instead, as does an
+    on-account or credit sale.
+  - The original becomes `refunded` or `partially_refunded` through `ExecuteUpdate`: the
+    one update of a written transaction, because its status genuinely changes later.
+- **Payments:** store credit is spent first if held (redeem movement), then on account for a
+  regular (`on_account_share` × payday effect), then the drawn tender.
+- **Cash:** occasional paid-in at opening and paid-out during the day. At the midday break,
+  a drop of whole thousands above the float once the threshold is passed. A miscount of
+  5 DZD steps at some closes, so `variance = counted − expected` is never tender rounding.
+- **Counts:** every `count_interval_days`, before opening, one subcategory in turn. Lots are
+  found short or over, posted with the manager as approver, and variances become `count`
+  movements.
+
+**Connectivity (S8).** Every completed sale emits one `anonymous_basket` on `A_statistics`
+at the moment of sale, with a gapless sequence number. The payload is the Contracts
+`AnonymousBasketRecord`:
+- date, local hour, weekday;
+- lines per product, with quantity and value as decimal strings;
+- a payment class (`mixed` for split tenders) and a discount flag;
+- a fresh `basket_id`, and `entity_type`/`entity_id` null.
+
+Nothing on it joins back to the till. Refunds and voids emit nothing (D-043: no field
+without a named consumer). Customer period records are not emitted: there is no
+spend-banding scheme (D-049), and the generator may not compute pseudonyms.
+
+The drain runs every `drain_interval_minutes` while the store is open, plus once at close.
+When the link is up it sends batch after batch until the outbox is empty (no catch-up
+mode, sync-design §10.3). When it is down, every queued row counts a failed attempt.
+Backoff is not modelled.
+- `always_on`: the link never fails.
+- `flaky`: the link is up per hour with `flaky_link_up_share`, drawn from its own stream.
+- `offline_stretch`: `offline_days` of no link from `offline_start_day`.
+- `--connectivity` overrides the configured profile.
+
+**The drain mints no id and draws nothing another step uses**, so every profile writes the
+same sales, byte for byte (tested on the canonical dump without `outbox` and `sync_state`).
+**The outbox is final state:** the rows still queued at the end, with attempts and
+`last_error`, plus `sync_state` (`last_sequence`, `last_acked_sequence`, `last_drain_at`,
+`last_attempt_at`). The daily backlog series goes to the manifest. **Rejected:** writing
+every emitted row and deleting acked ones as they drain, which does a year of inserts and
+deletes to reach the same end state, and would put an emitted-then-deleted row inside a
+day's `SaveChanges`.
+
+**Outputs (S9).**
+- `report.md` is read back from the finished database and CSV:
+  - trading figures;
+  - hourly shape on ordinary against Ramadan days, and a weekday index;
+  - basket sizes against the configured table;
+  - Ramadan phases and the pay cycle;
+  - demand against the shelf, by month;
+  - supply, spoilage and lead times;
+  - the payment mix, till figures and the outbox.
+- The manifest adds the connectivity profile, the outbox summary with its backlog series,
+  and FNV hashes of `latent-demand.csv` and `report.md`.
+- Same seed, same bytes for all three outputs (tested).
+- StoreServer starts on a generated year and answers `/health`.
+
+**Speed.** Generated entities are init-only and never modified after `Add`, so the context
+runs with `AutoDetectChangesEnabled = false`. In a 120-day run that halved `SaveChanges`,
+with every table, the CSV and the report identical. `SaveChanges` is still most of a run: a
+full year takes about 70 s on the development laptop.
+
+**Schema findings, deferred to the post-Phase 0 revision (F-16, F-17; Hakim, 15/09).**
+- **Nothing records an on-account debt being settled.** `credit_movements` is store credit,
+  so on-account sales accumulate with no repayment.
+- **`returns` has no column for its refund transaction.** The two link only through the
+  original line, and tests match them by moment, cashier and batch.
+
+**latent-demand.csv.** One row per variant per day, zeros included: `store_open`,
+`on_hand_open`, `latent`, `sold`, `substituted`, `lost`, `sold_as_substitute`,
+`on_hand_close`. Tests hold it to the database: `sold + sold_as_substitute` equals the
+day's sale movements, and `on_hand_close` equals the previous close plus the day's
+movements.
+
+**Inputs open elsewhere.** Inputs are read with shared access, so a catalogue open in Excel
+during a run still loads.
+
+**Determinism.** Proven on a canonical dump: tables by name, rows by key. Each output
+carries a manifest with the seed, FNV hashes of every input file, and row counts.
 
 ---
 

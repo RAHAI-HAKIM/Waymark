@@ -54,7 +54,11 @@ internal sealed class PriceConfiguration : IEntityTypeConfiguration<Price>
             .HasColumnName("price_type")
             .HasConversion(EnumConverters.PriceTypeConverter)
             .HasDefaultValue(PriceType.Retail)
-            .HasSentinel(PriceType.Retail);
+            .HasSentinel(PriceType.Retail)
+            // Part of the primary key. A key is always supplied, never generated: without this,
+            // EF reads Retail (the sentinel) as "unset", substitutes a temporary key value, and
+            // the enum converter throws — no retail price could be inserted (decisions.md D-027).
+            .ValueGeneratedNever();
         builder.Property(x => x.PriceValue)
             .HasColumnName("price");
         builder.Property(x => x.Currency)

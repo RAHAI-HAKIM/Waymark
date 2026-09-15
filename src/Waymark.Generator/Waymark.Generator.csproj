@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The synthetic store generator (W10, decisions.md D-046). A console tool that
+    simulates a year of an épicerie and writes it into a store database built by
+    MigrateAndApplyTriggers(), with every constraint enforced.
+
+    It writes entities directly through WaymarkDbContext rather than through
+    Application handlers: it simulates what happened, it is not the application.
+    Nothing ships to a store, and an architecture test fails if any production
+    project references this one.
+
+    References: Domain (value objects, entities), Application (SeededIdGenerator),
+    Persistence (the context and migrations), Contracts (the outbox payload).
+    Deliberately NOT Pseudonymisation, Sync, Hardware or either host.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Waymark.Domain\Waymark.Domain.csproj" />
+    <ProjectReference Include="..\Waymark.Application\Waymark.Application.csproj" />
+    <ProjectReference Include="..\Waymark.Persistence\Waymark.Persistence.csproj" />
+    <ProjectReference Include="..\Waymark.Contracts\Waymark.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- The catalogues and configurations travel with the tool, so a run from the
+       output directory needs nothing beside it. Kept under inputs/ so no data folder
+       can share a case-insensitive name with a code folder (Catalogues/). -->
+  <ItemGroup>
+    <None Include="inputs\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Waymark.Generator.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\Waymark.Pseudonymisation\Waymark.Pseudonymisation.csproj" />
     <ProjectReference Include="..\..\Waymark.Sync\Waymark.Sync.csproj" />
     <ProjectReference Include="..\..\Waymark.StoreServer\Waymark.StoreServer.csproj" />
+    <ProjectReference Include="..\..\Waymark.Generator\Waymark.Generator.csproj" />
   </ItemGroup>
 
   <ItemGroup>

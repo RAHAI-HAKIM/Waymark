@@ -1,6 +1,6 @@
 # 5 — Solution dependencies
 
-The nine .NET projects and their permitted references. This diagram *is* the layering
+The .NET projects and their permitted references. This diagram *is* the layering
 rule: a project's reference list is compiler-enforced architecture.
 
 Arrow means "references".
@@ -18,6 +18,7 @@ flowchart BT
 
     server["Waymark.StoreServer<br/>ASP.NET Core host"]
     posapp["Waymark.Pos<br/>Avalonia host"]
+    generator["Waymark.Generator<br/>synthetic store tool<br/>nothing references it"]
 
     app --> domain
     app --> contracts
@@ -32,6 +33,9 @@ flowchart BT
     server --> sync
     posapp --> contracts
     posapp --> hardware
+    generator --> app
+    generator --> persistence
+    generator --> contracts
 
     style domain fill:#EDE7FA,stroke:#5A3AA8,stroke-width:2px
     style pseudo fill:#FFEEED,stroke:#93292F,stroke-width:2px

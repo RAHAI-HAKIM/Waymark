@@ -1,0 +1,400 @@
+sku,barcode,category,subcategory,product_name,variant_name,net_content,selling_unit,retail_price_dzd,purchase_price_dzd,supplier_code,purchase_unit,units_per_purchase_unit,shelf_life_days,base_daily_rate,seasonality_profile,substitutability_tier
+GDZ-0001,2000000000015,Produits Laitiers & Crémerie,Laits & Lben,Lait UHT Candia,Grand Lait Entier Brique 1L,1000 ml,piece,143.00,105.60,SUP-LAIT,carton,12,120,5.165,dairy_stable,2
+GDZ-0002,2000000000022,Produits Laitiers & Crémerie,Laits & Lben,Lait UHT Candia,Grand Lait Demi-Écrémé Brique 1L,1000 ml,piece,134.00,101.02,SUP-LAIT,carton,12,120,4.492,dairy_stable,2
+GDZ-0003,2000000000039,Produits Laitiers & Crémerie,Laits & Lben,Lait UHT Candia,Silhouette Écrémé Brique 1L,1000 ml,piece,140.00,112.23,SUP-LAIT,carton,12,120,2.298,dairy_stable,2
+GDZ-0004,2000000000046,Produits Laitiers & Crémerie,Laits & Lben,Lait UHT Candia,Candia Chocolat Brique 1L,1000 ml,piece,131.00,98.46,SUP-LAIT,carton,12,120,2.059,dairy_stable,2
+GDZ-0005,2000000000053,Produits Laitiers & Crémerie,Laits & Lben,Lait UHT Candia,Candy Choco Brique 200ml,200 ml,piece,55.00,42.51,SUP-LAIT,carton,48,120,5.178,dairy_stable,2
+GDZ-0006,2000000000060,Produits Laitiers & Crémerie,Laits & Lben,Lait UHT Candia,Candy Fraise Brique 200ml,200 ml,piece,59.00,43.62,SUP-LAIT,carton,48,120,10.537,dairy_stable,2
+GDZ-0007,2000000000077,Produits Laitiers & Crémerie,Laits & Lben,Lait UHT Candia,Candia Croissance 1-3 ans 1L,1000 ml,piece,140.00,112.21,SUP-LAIT,carton,12,120,3.724,dairy_stable,2
+GDZ-0008,2000000000084,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Fort,Fraise Pot 100g,100 g,piece,27.00,19.23,SUP-LAIT,carton,24,25,2.091,dairy_fresh,1
+GDZ-0009,2000000000091,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Fort,Pêche Pot 100g,100 g,piece,30.00,24.05,SUP-LAIT,carton,24,25,1.453,dairy_fresh,1
+GDZ-0010,2000000000107,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Fort,Abricot Pot 100g,100 g,piece,30.00,23.37,SUP-LAIT,carton,24,25,1.335,dairy_fresh,1
+GDZ-0011,2000000000114,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Fort,Cerise Pot 100g,100 g,piece,30.00,23.34,SUP-LAIT,carton,24,25,3.236,dairy_fresh,1
+GDZ-0012,2000000000121,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Fort,Banane Pot 100g,100 g,piece,30.00,23.15,SUP-LAIT,carton,24,25,1.124,dairy_fresh,1
+GDZ-0013,2000000000138,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Fort,Vanille Pot 100g,100 g,piece,30.00,24.17,SUP-LAIT,carton,24,25,1.936,dairy_fresh,1
+GDZ-0014,2000000000145,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Mamou,Fraise Pot 80g,80 g,piece,27.00,19.37,SUP-LAIT,carton,30,25,3.355,dairy_fresh,1
+GDZ-0015,2000000000152,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Mamou,Pêche Pot 80g,80 g,piece,25.00,19.46,SUP-LAIT,carton,30,25,1.940,dairy_fresh,1
+GDZ-0016,2000000000169,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Mamou,Chocolat Pot 80g,80 g,piece,25.00,19.25,SUP-LAIT,carton,30,25,1.090,dairy_fresh,1
+GDZ-0017,2000000000176,Produits Laitiers & Crémerie,Yaourts & Crèmes,Yaourt Soummam Mamou,Vanille Pot 80g,80 g,piece,25.00,19.58,SUP-LAIT,carton,30,25,1.810,dairy_fresh,1
+GDZ-0018,2000000000183,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Le Berbère,Boîte 8 portions 120g,120 g,piece,190.00,136.49,SUP-LAIT,carton,48,180,1.347,dairy_stable,2
+GDZ-0019,2000000000190,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Le Berbère,Boîte 16 portions 240g,240 g,piece,300.00,206.92,SUP-LAIT,carton,24,180,0.853,dairy_stable,2
+GDZ-0020,2000000000206,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Le Berbère,Boîte 24 portions 360g,360 g,piece,430.00,310.72,SUP-LAIT,carton,20,180,0.381,dairy_stable,2
+GDZ-0021,2000000000213,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Le Berbère,Boîte 32 portions 480g,480 g,piece,530.00,368.56,SUP-LAIT,carton,12,180,0.583,dairy_stable,2
+GDZ-0022,2000000000220,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Le Berbère,Barquette Fondant 400g,400 g,piece,451.00,318.75,SUP-LAIT,carton,12,180,1.247,dairy_stable,2
+GDZ-0023,2000000000237,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Soummam,Boîte 8 portions 120g,120 g,piece,190.00,137.11,SUP-LAIT,carton,48,180,1.342,dairy_stable,2
+GDZ-0024,2000000000244,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Soummam,Boîte 16 portions 240g,240 g,piece,290.00,212.42,SUP-LAIT,carton,24,180,1.560,dairy_stable,2
+GDZ-0025,2000000000251,Produits Laitiers & Crémerie,Fromages,Fromage Fondu Soummam,Boîte 24 portions 360g,360 g,piece,431.00,312.80,SUP-LAIT,carton,20,180,0.485,dairy_stable,2
+GDZ-0026,2000000000268,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Fleurial Cevital,Barquette Tartine 250g,250 g,piece,144.00,110.49,SUP-CEVI,carton,24,150,0.890,staples,2
+GDZ-0027,2000000000275,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Fleurial Cevital,Barquette Tartine 500g,500 g,piece,243.00,181.60,SUP-CEVI,carton,12,150,0.957,staples,2
+GDZ-0028,2000000000282,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Fleurial Cevital,Plaquette Cuisson 250g,250 g,piece,120.00,96.18,SUP-CEVI,carton,24,150,0.727,staples,2
+GDZ-0029,2000000000299,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Fleurial Cevital,Plaquette Cuisson 500g,500 g,piece,250.00,194.05,SUP-CEVI,carton,12,150,0.907,staples,2
+GDZ-0030,2000000000305,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Sol,Barquette 250g,250 g,piece,130.00,103.85,SUP-EPIC,carton,24,150,1.966,staples,2
+GDZ-0031,2000000000312,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Sol,Barquette 500g,500 g,piece,230.00,180.99,SUP-EPIC,carton,12,150,0.672,staples,2
+GDZ-0032,2000000000329,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Mani,Barquette 250g,250 g,piece,132.00,99.43,SUP-EPIC,carton,24,150,2.302,staples,2
+GDZ-0033,2000000000336,Produits Laitiers & Crémerie,Margarine & Smen,Margarine Mani,Barquette 500g,500 g,piece,243.00,184.99,SUP-EPIC,carton,12,150,0.846,staples,2
+GDZ-0034,2000000000343,Produits Laitiers & Crémerie,Margarine & Smen,Smen Medina Cevital,Boîte Métal 500g,500 g,piece,570.00,460.00,SUP-CEVI,carton,24,540,0.446,ramadan_cooking,2
+GDZ-0035,2000000000350,Produits Laitiers & Crémerie,Margarine & Smen,Smen Medina Cevital,Boîte Métal 1kg,1000 g,piece,850.00,673.43,SUP-CEVI,carton,12,540,0.258,ramadan_cooking,2
+GDZ-0036,2000000000367,Produits Laitiers & Crémerie,Margarine & Smen,Smen Medina Cevital,Boîte Métal 2kg,2000 g,piece,1490.00,1121.24,SUP-CEVI,carton,6,540,0.388,ramadan_cooking,2
+GDZ-0037,2000000000374,Produits Laitiers & Crémerie,Margarine & Smen,Smen Al Baka,Boîte Métal 500g,500 g,piece,540.00,424.26,SUP-EPIC,carton,24,540,1.185,ramadan_cooking,2
+GDZ-0038,2000000000381,Produits Laitiers & Crémerie,Margarine & Smen,Smen Al Baka,Boîte Métal 1kg,1000 g,piece,860.00,656.14,SUP-EPIC,carton,12,540,0.469,ramadan_cooking,2
+GDZ-0039,2000000000398,Produits Laitiers & Crémerie,Laits & Lben,Lben Soummam,Sachet Plastique 1L,1000 ml,piece,90.00,70.25,SUP-LAIT,carton,12,10,3.063,ramadan_fresh,2
+GDZ-0040,2000000000404,Produits Laitiers & Crémerie,Laits & Lben,Lben Soummam,Bouteille 1L,1000 ml,piece,100.00,77.55,SUP-LAIT,carton,12,10,3.700,ramadan_fresh,2
+GDZ-0041,2000000000411,Produits Laitiers & Crémerie,Laits & Lben,Lben Candia,Bouteille 1L,1000 ml,piece,110.00,83.29,SUP-LAIT,carton,12,10,2.544,ramadan_fresh,2
+GDZ-0042,2000000000428,Produits Laitiers & Crémerie,Yaourts & Crèmes,Crème Fraîche Soummam,Pot 20cl 30% MG,200 ml,piece,140.00,110.86,SUP-LAIT,carton,12,30,0.752,ramadan_cooking,2
+GDZ-0043,2000000000435,Produits Laitiers & Crémerie,Yaourts & Crèmes,Crème Fraîche Soummam,Pot 40cl 30% MG,400 ml,piece,254.00,200.08,SUP-LAIT,carton,6,30,0.294,ramadan_cooking,2
+GDZ-0044,2000000000442,Produits Laitiers & Crémerie,Yaourts & Crèmes,Crème Liquide Soummam,Brique 20cl 30% MG,200 ml,piece,130.00,98.05,SUP-LAIT,carton,12,30,1.122,ramadan_cooking,2
+GDZ-0045,2000000000459,Produits Laitiers & Crémerie,Fromages,Fromage Tartino,Boîte 8 portions 120g,120 g,piece,194.00,132.27,SUP-LAIT,carton,48,180,1.656,dairy_stable,2
+GDZ-0046,2000000000466,Produits Laitiers & Crémerie,Fromages,Fromage Tartino,Boîte 16 portions 240g,240 g,piece,300.00,207.50,SUP-LAIT,carton,24,180,0.691,dairy_stable,2
+GDZ-0047,2000000000473,Produits Laitiers & Crémerie,Fromages,Fromage Tartino,Boîte 24 portions 360g,360 g,piece,430.00,312.77,SUP-LAIT,carton,20,180,0.610,dairy_stable,2
+GDZ-0048,2000000000480,Produits Laitiers & Crémerie,Fromages,Fromage Tartino,Bloc Rouge 400g,400 g,piece,430.00,305.09,SUP-LAIT,carton,12,180,0.357,dairy_stable,2
+GDZ-0049,2000000000497,Produits Laitiers & Crémerie,Fromages,Fromage Tartino,Bloc Rouge 800g,800 g,piece,872.00,617.82,SUP-LAIT,carton,6,180,0.559,dairy_stable,2
+GDZ-0050,2000000000503,Produits Laitiers & Crémerie,Fromages,Fromage Tartino,Sachet Râpé 200g,200 g,piece,260.00,185.33,SUP-LAIT,carton,30,180,0.631,dairy_stable,2
+GDZ-0051,2000000000510,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Sim,Spaghetti N°3 Pack 500g,500 g,piece,100.00,81.21,SUP-EPIC,carton,20,540,0.997,staples,1
+GDZ-0052,2000000000527,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Sim,Coquillettes Pack 500g,500 g,piece,100.00,81.15,SUP-EPIC,carton,20,540,0.808,staples,1
+GDZ-0053,2000000000534,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Sim,Macaroni Pack 500g,500 g,piece,98.00,75.12,SUP-EPIC,carton,20,540,1.157,staples,1
+GDZ-0054,2000000000541,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Sim,Coude Petit Pack 500g,500 g,piece,95.00,77.53,SUP-EPIC,carton,20,540,0.726,staples,1
+GDZ-0055,2000000000558,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Sim,Tlitli Langue d'Oiseau Pack 500g,500 g,piece,95.00,74.56,SUP-EPIC,carton,20,540,0.862,ramadan_staples,1
+GDZ-0056,2000000000565,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Sim,Vermicelle Cheveux d'Ange Pack 500g,500 g,piece,95.00,76.37,SUP-EPIC,carton,20,540,0.949,ramadan_staples,1
+GDZ-0057,2000000000572,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Sim,Penne Rigate Pack 500g,500 g,piece,100.00,79.01,SUP-EPIC,carton,20,540,0.753,staples,1
+GDZ-0058,2000000000589,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Amor Benamor,Spaghetti N°3 Pack 500g,500 g,piece,95.00,76.94,SUP-EPIC,carton,20,540,0.924,staples,1
+GDZ-0059,2000000000596,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Amor Benamor,Coquillettes Pack 500g,500 g,piece,100.00,79.96,SUP-EPIC,carton,20,540,0.714,staples,1
+GDZ-0060,2000000000602,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Amor Benamor,Plumes Penne Pack 500g,500 g,piece,95.00,75.37,SUP-EPIC,carton,20,540,1.410,staples,1
+GDZ-0061,2000000000619,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Amor Benamor,Langue d'Oiseau Pack 500g,500 g,piece,95.00,74.58,SUP-EPIC,carton,20,540,0.866,ramadan_staples,1
+GDZ-0062,2000000000626,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Amor Benamor,Tlitli Pack 500g,500 g,piece,100.00,81.56,SUP-EPIC,carton,20,540,0.808,ramadan_staples,1
+GDZ-0063,2000000000633,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Amor Benamor,Cheveux d'Ange Pack 500g,500 g,piece,95.00,74.87,SUP-EPIC,carton,20,540,0.614,ramadan_staples,1
+GDZ-0064,2000000000640,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Mama,Spaghetti Pack 500g,500 g,piece,100.00,82.01,SUP-EPIC,carton,20,540,1.127,staples,1
+GDZ-0065,2000000000657,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Mama,Coquillettes Pack 500g,500 g,piece,95.00,76.26,SUP-EPIC,carton,20,540,0.925,staples,1
+GDZ-0066,2000000000664,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Mama,Macaroni Pack 500g,500 g,piece,95.00,78.15,SUP-EPIC,carton,20,540,1.811,staples,1
+GDZ-0067,2000000000671,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Mama,Tlitli Pack 500g,500 g,piece,100.00,80.09,SUP-EPIC,carton,20,540,1.010,ramadan_staples,1
+GDZ-0068,2000000000688,Épicerie Salée,Pâtes & Couscous,Pâtes Alimentaires Mama,Cannelloni Boîte 250g,250 g,piece,170.00,133.95,SUP-EPIC,carton,20,540,0.157,staples,1
+GDZ-0069,2000000000695,Épicerie Salée,Pâtes & Couscous,Couscous Sim,Fin Sachet 1kg,1000 g,piece,190.00,150.24,SUP-EPIC,carton,10,540,0.850,staples,1
+GDZ-0070,2000000000701,Épicerie Salée,Pâtes & Couscous,Couscous Sim,Moyen Sachet 1kg,1000 g,piece,200.00,165.02,SUP-EPIC,carton,10,540,0.671,staples,1
+GDZ-0071,2000000000718,Épicerie Salée,Pâtes & Couscous,Couscous Sim,Gros Sachet 1kg,1000 g,piece,194.00,152.41,SUP-EPIC,carton,10,540,0.530,staples,1
+GDZ-0072,2000000000725,Épicerie Salée,Pâtes & Couscous,Couscous Sim,Moyen Sachet 500g,500 g,piece,140.00,109.21,SUP-EPIC,carton,20,540,1.245,staples,1
+GDZ-0073,2000000000732,Épicerie Salée,Pâtes & Couscous,Couscous Sim,Complet Orge Sachet 1kg,1000 g,piece,210.00,164.87,SUP-EPIC,carton,10,540,0.775,staples,1
+GDZ-0074,2000000000749,Épicerie Salée,Pâtes & Couscous,Couscous Mama,Fin Sachet 1kg,1000 g,piece,212.00,166.25,SUP-EPIC,carton,10,540,0.900,staples,1
+GDZ-0075,2000000000756,Épicerie Salée,Pâtes & Couscous,Couscous Mama,Moyen Sachet 1kg,1000 g,piece,200.00,160.88,SUP-EPIC,carton,10,540,1.051,staples,1
+GDZ-0076,2000000000763,Épicerie Salée,Pâtes & Couscous,Couscous Mama,Gros Sachet 1kg,1000 g,piece,200.00,158.98,SUP-EPIC,carton,10,540,0.587,staples,1
+GDZ-0077,2000000000770,Épicerie Salée,Pâtes & Couscous,Couscous Mama,Moyen Sachet 500g,500 g,piece,140.00,112.94,SUP-EPIC,carton,20,540,0.766,staples,1
+GDZ-0078,2000000000787,Épicerie Salée,Pâtes & Couscous,Couscous Amor Benamor,Fin Sachet 1kg,1000 g,piece,190.00,154.25,SUP-EPIC,carton,10,540,1.071,staples,1
+GDZ-0079,2000000000794,Épicerie Salée,Pâtes & Couscous,Couscous Amor Benamor,Moyen Sachet 1kg,1000 g,piece,204.00,159.81,SUP-EPIC,carton,10,540,1.202,staples,1
+GDZ-0080,2000000000800,Épicerie Salée,Pâtes & Couscous,Couscous Amor Benamor,Gros Sachet 1kg,1000 g,piece,192.00,149.53,SUP-EPIC,carton,10,540,0.958,staples,1
+GDZ-0081,2000000000817,Épicerie Salée,Semoule & Farine,Semoule Extra,Fine Sachet 1kg,1000 g,piece,110.00,87.87,SUP-EPIC,carton,10,270,2.932,ramadan_staples,1
+GDZ-0082,2000000000824,Épicerie Salée,Semoule & Farine,Semoule Extra,Moyenne Sachet 1kg,1000 g,piece,100.00,81.97,SUP-EPIC,carton,10,270,2.086,ramadan_staples,1
+GDZ-0083,2000000000831,Épicerie Salée,Semoule & Farine,Semoule Extra,Grossière Sachet 1kg,1000 g,piece,120.00,98.46,SUP-EPIC,carton,10,270,1.779,ramadan_staples,1
+GDZ-0084,2000000000848,Épicerie Salée,Semoule & Farine,Semoule Extra,Fine Sac 5kg,5000 g,piece,440.00,356.19,SUP-EPIC,carton,2,270,1.084,ramadan_staples,1
+GDZ-0085,2000000000855,Épicerie Salée,Semoule & Farine,Semoule Extra,Moyenne Sac 5kg,5000 g,piece,480.00,390.79,SUP-EPIC,carton,2,270,0.894,ramadan_staples,1
+GDZ-0086,2000000000862,Épicerie Salée,Semoule & Farine,Farine Sim,Super Supérieure T45 Pack 1kg,1000 g,piece,95.00,76.38,SUP-EPIC,carton,10,270,2.382,ramadan_baking,1
+GDZ-0087,2000000000879,Épicerie Salée,Semoule & Farine,Farine Sim,Super Supérieure T45 Pack 2kg,2000 g,piece,180.00,141.81,SUP-EPIC,carton,6,270,0.665,ramadan_baking,1
+GDZ-0088,2000000000886,Épicerie Salée,Semoule & Farine,Farine Sim,Super Supérieure T45 Sac 5kg,5000 g,piece,400.00,327.24,SUP-EPIC,carton,2,270,0.385,ramadan_baking,1
+GDZ-0089,2000000000893,Épicerie Salée,Huiles,Huile de Table Fleurial Cevital,Bouteille PET 1L,1000 ml,piece,125.00,108.18,SUP-CEVI,carton,12,365,2.877,staples,1
+GDZ-0090,2000000000909,Épicerie Salée,Huiles,Huile de Table Fleurial Cevital,Bouteille PET 2L,2000 ml,piece,250.00,216.35,SUP-CEVI,carton,6,365,2.004,staples,1
+GDZ-0091,2000000000916,Épicerie Salée,Huiles,Huile de Table Fleurial Cevital,Bidon PET 5L,5000 ml,piece,650.00,563.81,SUP-CEVI,carton,2,365,1.304,staples,1
+GDZ-0092,2000000000923,Épicerie Salée,Huiles,Huile de Table El Kseur,Bouteille PET 1L,1000 ml,piece,125.00,108.12,SUP-EPIC,carton,12,365,1.880,staples,1
+GDZ-0093,2000000000930,Épicerie Salée,Huiles,Huile de Table El Kseur,Bidon PET 5L,5000 ml,piece,650.00,555.46,SUP-EPIC,carton,2,365,0.630,staples,1
+GDZ-0094,2000000000947,Épicerie Salée,Huiles,Huile d'Olive Safia Cevital,Bouteille Verre 500ml,500 ml,piece,770.00,619.24,SUP-CEVI,carton,24,540,0.644,ramadan_cooking,3
+GDZ-0095,2000000000954,Épicerie Salée,Huiles,Huile d'Olive Safia Cevital,Bouteille Verre 750ml,750 ml,piece,970.00,790.48,SUP-CEVI,carton,20,540,0.360,ramadan_cooking,3
+GDZ-0096,2000000000961,Épicerie Salée,Huiles,Huile d'Olive Safia Cevital,Bouteille PET 1L,1000 ml,piece,1160.00,908.18,SUP-CEVI,carton,12,540,0.453,ramadan_cooking,3
+GDZ-0097,2000000000978,Épicerie Salée,Légumes Secs,Légumes Secs Borjot,Lentilles Brunes Sachet 500g,500 g,piece,200.00,156.34,SUP-EPIC,carton,20,540,0.946,ramadan_staples,1
+GDZ-0098,2000000000985,Épicerie Salée,Légumes Secs,Légumes Secs Borjot,Haricots Blancs Sachet 500g,500 g,piece,220.00,172.15,SUP-EPIC,carton,20,540,0.638,ramadan_staples,1
+GDZ-0099,2000000000992,Épicerie Salée,Légumes Secs,Légumes Secs Borjot,Pois Chiches Sachet 500g,500 g,piece,270.00,218.52,SUP-EPIC,carton,20,540,0.672,ramadan_staples,1
+GDZ-0100,2000000001005,Épicerie Salée,Légumes Secs,Légumes Secs Borjot,Lentilles Rouges Sachet 500g,500 g,piece,200.00,160.63,SUP-EPIC,carton,20,540,0.760,ramadan_staples,1
+GDZ-0101,2000000001012,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Bimo,Senior Original Biscuit au Lait 200g,200 g,piece,130.00,79.19,SUP-BOIS,carton,12,270,1.665,snacks,1
+GDZ-0102,2000000001029,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Bimo,Macao Biscuits Chocolat 100g,100 g,piece,70.00,41.77,SUP-BOIS,carton,24,270,1.002,snacks,1
+GDZ-0103,2000000001036,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Bimo,Macao Biscuits Vanille 100g,100 g,piece,75.00,47.56,SUP-BOIS,carton,24,270,1.901,snacks,1
+GDZ-0104,2000000001043,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Bimo,Tango Biscuits Enrobés Chocolat 255g,255 g,piece,160.00,100.09,SUP-BOIS,carton,10,270,0.772,snacks,1
+GDZ-0105,2000000001050,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Bimo,Brino Biscuits Crème Cacao 105g,105 g,piece,75.00,50.27,SUP-BOIS,carton,24,270,2.765,snacks,1
+GDZ-0106,2000000001067,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Bimo,Petit Beurre Beurre Pur 150g,150 g,piece,101.00,65.62,SUP-BOIS,carton,20,270,1.027,snacks,1
+GDZ-0107,2000000001074,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Gaufrettes Bimo Best Of,Best Of Crème Vanille 120g,120 g,piece,100.00,62.43,SUP-BOIS,carton,24,270,1.778,snacks,1
+GDZ-0108,2000000001081,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Gaufrettes Bimo Best Of,Best Of Crème Chocolat 120g,120 g,piece,100.00,62.84,SUP-BOIS,carton,24,270,0.594,snacks,1
+GDZ-0109,2000000001098,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Gaufrettes Bimo Best Of,Best Of Crème Noisette 120g,120 g,piece,95.00,58.02,SUP-BOIS,carton,24,270,0.964,snacks,1
+GDZ-0110,2000000001104,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Gaufrettes Bimo Double Mix,Double Mix Vanille-Pistache 200g,200 g,piece,160.00,103.79,SUP-BOIS,carton,12,270,0.689,snacks,1
+GDZ-0111,2000000001111,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Gaufrettes Bimo Double Mix,Double Mix Chocolat-Noisette 200g,200 g,piece,150.00,93.41,SUP-BOIS,carton,12,270,0.381,snacks,1
+GDZ-0112,2000000001128,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Pâte à Tartiner El Mordjene CEBON,Pâte Noisette Grillée Bocal 350g,350 g,piece,750.00,451.22,SUP-BOIS,carton,12,365,0.671,sweets,3
+GDZ-0113,2000000001135,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Pâte à Tartiner El Mordjene CEBON,Pâte Noisette Grillée Bocal 700g,700 g,piece,1370.00,917.86,SUP-BOIS,carton,6,365,0.188,sweets,3
+GDZ-0114,2000000001142,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Pâte à Tartiner El Mordjene CEBON,Pâte Rocher Noisette Bocal 600g,600 g,piece,1100.00,686.19,SUP-BOIS,carton,6,365,0.465,sweets,3
+GDZ-0115,2000000001159,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Pâte à Tartiner El Mordjene CEBON,Crème Bueno Blanc Bocal 350g,350 g,piece,724.00,458.54,SUP-BOIS,carton,12,365,0.902,sweets,3
+GDZ-0116,2000000001166,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Pâte à Tartiner El Mordjene CEBON,Crème Bueno Blanc Bocal 700g,700 g,piece,1363.00,906.92,SUP-BOIS,carton,6,365,0.218,sweets,3
+GDZ-0117,2000000001173,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Palmary,Kool Supreme Biscuits 40g,40 g,piece,45.00,29.39,SUP-BOIS,carton,48,270,1.859,snacks,1
+GDZ-0118,2000000001180,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Palmary,Kool Cream Chocolat Sachet 220g,220 g,piece,140.00,89.14,SUP-BOIS,carton,10,270,0.524,snacks,1
+GDZ-0119,2000000001197,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Palmary,Kool Cream Vanille Sachet 220g,220 g,piece,140.00,90.03,SUP-BOIS,carton,10,270,1.260,snacks,1
+GDZ-0120,2000000001203,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Palmary,Break Kool Gaufrette Chocolat 35g,35 g,piece,40.00,24.63,SUP-BOIS,carton,48,270,2.830,snacks,1
+GDZ-0121,2000000001210,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Palmary,Maxon Galette au Lait 340g,340 g,piece,200.00,131.58,SUP-BOIS,carton,6,270,0.775,snacks,1
+GDZ-0122,2000000001227,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Palmary,Sando Chocolat Enrobé 30g,30 g,piece,35.00,23.21,SUP-BOIS,carton,48,270,3.117,snacks,1
+GDZ-0123,2000000001234,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Palmary Moment,Moment Chocolat au Lait 100g,100 g,piece,204.00,124.65,SUP-BOIS,carton,24,365,0.752,snacks,2
+GDZ-0124,2000000001241,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Palmary Moment,Moment Noisette Éclats 100g,100 g,piece,210.00,136.71,SUP-BOIS,carton,24,365,1.089,snacks,2
+GDZ-0125,2000000001258,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Palmary Moment,Moment Pistache Évasion 95g,95 g,piece,190.00,112.76,SUP-BOIS,carton,24,365,0.877,snacks,2
+GDZ-0126,2000000001265,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Palmary Moment,Moment Djazair Kunafa Pistache 150g,150 g,piece,492.00,303.89,SUP-BOIS,carton,20,365,0.887,snacks,2
+GDZ-0127,2000000001272,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Palmary Moment,Moment Djazair Makrout Ellouz 150g,150 g,piece,470.00,287.43,SUP-BOIS,carton,20,365,0.457,snacks,2
+GDZ-0128,2000000001289,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Nounours,Gaufrette Nounours Chocolat 150g,150 g,piece,100.00,66.25,SUP-BOIS,carton,20,270,1.173,snacks,1
+GDZ-0129,2000000001296,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Nounours,Gaufrette Nounours Citron 150g,150 g,piece,110.00,72.99,SUP-BOIS,carton,20,270,0.738,snacks,1
+GDZ-0130,2000000001302,Épicerie Sucrée & Biscuiterie,Biscuits & Gaufrettes,Biscuits Nounours,Petit Beurre Nounours 200g,200 g,piece,122.00,72.88,SUP-BOIS,carton,12,270,1.027,snacks,1
+GDZ-0131,2000000001319,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Bifa Story,Story Tablette Pistache Kunafa 115g,115 g,piece,370.00,242.43,SUP-BOIS,carton,20,365,2.526,snacks,2
+GDZ-0132,2000000001326,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Bifa Story,Story Barre Pistache Kunafa 37g,37 g,piece,170.00,114.08,SUP-BOIS,carton,48,365,1.971,snacks,2
+GDZ-0133,2000000001333,Épicerie Sucrée & Biscuiterie,Chocolat & Pâtes à Tartiner,Chocolat Bifa Story,Story Tablette Chocolat au Lait 100g,100 g,piece,210.00,127.04,SUP-BOIS,carton,24,365,0.781,snacks,2
+GDZ-0134,2000000001340,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Halwa Chamia Al Ghazal,Halwa Nature Barquette 100g,100 g,piece,140.00,92.57,SUP-BOIS,carton,48,365,0.682,ramadan_sweets,2
+GDZ-0135,2000000001357,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Halwa Chamia Al Ghazal,Halwa aux Pistaches Barquette 200g,200 g,piece,220.00,144.63,SUP-BOIS,carton,24,365,0.512,ramadan_sweets,2
+GDZ-0136,2000000001364,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Halwa Chamia Al Ghazal,Halwa aux Noisettes Barquette 200g,200 g,piece,223.00,142.52,SUP-BOIS,carton,24,365,0.726,ramadan_sweets,2
+GDZ-0137,2000000001371,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Halwa Chamia La Rose,Halwa Nature Boîte 400g,400 g,piece,410.00,249.66,SUP-BOIS,carton,12,365,0.312,ramadan_sweets,2
+GDZ-0138,2000000001388,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Halwa Chamia La Rose,Halwa Nature Boîte 800g,800 g,piece,770.00,479.93,SUP-BOIS,carton,6,365,0.184,ramadan_sweets,2
+GDZ-0139,2000000001395,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Confiture Cevital,Confiture de Fraise Pot Verre 450g,450 g,piece,250.00,163.72,SUP-CEVI,carton,12,540,0.420,staples,2
+GDZ-0140,2000000001401,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Confiture Cevital,Confiture d'Abricot Pot Verre 450g,450 g,piece,251.00,157.79,SUP-CEVI,carton,12,540,0.474,staples,2
+GDZ-0141,2000000001418,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Confiture Cevital,Confiture de Figue Pot Verre 450g,450 g,piece,270.00,172.37,SUP-CEVI,carton,12,540,0.597,staples,2
+GDZ-0142,2000000001425,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Confiture Cevital,Confiture d'Orange Pot Verre 450g,450 g,piece,280.00,169.76,SUP-CEVI,carton,12,540,0.605,staples,2
+GDZ-0143,2000000001432,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Confiture Cevital,Confiture d'Abricot Seau 1kg,1000 g,piece,540.00,335.21,SUP-CEVI,carton,6,540,0.334,staples,2
+GDZ-0144,2000000001449,Épicerie Sucrée & Biscuiterie,Halwa & Confitures,Confiture Cevital,Confiture de Fraise Seau 1kg,1000 g,piece,500.00,307.78,SUP-CEVI,carton,6,540,0.226,staples,2
+GDZ-0145,2000000001456,Épicerie Sucrée & Biscuiterie,Chips & Snacks,Snacks & Chips Algérie,Flash Puffs Fromage Sachet 30g,30 g,piece,35.00,23.47,SUP-BOIS,carton,30,180,2.421,snacks,1
+GDZ-0146,2000000001463,Épicerie Sucrée & Biscuiterie,Chips & Snacks,Snacks & Chips Algérie,Flash Puffs Piment Fort Sachet 30g,30 g,piece,31.00,20.06,SUP-BOIS,carton,30,180,1.513,snacks,1
+GDZ-0147,2000000001470,Épicerie Sucrée & Biscuiterie,Chips & Snacks,Snacks & Chips Algérie,Spooka Chips Sel Sachet 40g,40 g,piece,40.00,26.73,SUP-BOIS,carton,24,180,1.758,snacks,1
+GDZ-0148,2000000001487,Épicerie Sucrée & Biscuiterie,Chips & Snacks,Snacks & Chips Algérie,Spooka Chips Paprika Sachet 40g,40 g,piece,42.00,24.72,SUP-BOIS,carton,24,180,1.713,snacks,1
+GDZ-0149,2000000001494,Épicerie Sucrée & Biscuiterie,Chips & Snacks,Snacks & Chips Algérie,Mahbool Chips Ketchup Sachet 35g,35 g,piece,35.00,22.18,SUP-BOIS,carton,30,180,3.199,snacks,1
+GDZ-0150,2000000001500,Épicerie Sucrée & Biscuiterie,Chips & Snacks,Snacks & Chips Algérie,Mahbool Chips Harissa Sachet 35g,35 g,piece,35.00,23.51,SUP-BOIS,carton,30,180,2.558,snacks,1
+GDZ-0151,2000000001517,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Selecto Canette 33cl,330 ml,piece,60.00,40.18,SUP-BOIS,carton,30,270,3.394,beverages_summer,2
+GDZ-0152,2000000001524,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Selecto Bouteille PET 1L,1000 ml,piece,130.00,92.14,SUP-BOIS,carton,12,270,2.806,beverages_summer,2
+GDZ-0153,2000000001531,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Selecto Bouteille PET 2L,2000 ml,piece,230.00,158.58,SUP-BOIS,carton,6,270,0.542,beverages_summer,2
+GDZ-0154,2000000001548,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Hamoud La Blanche Canette 33cl,330 ml,piece,60.00,40.72,SUP-BOIS,carton,30,270,3.286,beverages_summer,2
+GDZ-0155,2000000001555,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Hamoud La Blanche Bouteille PET 1L,1000 ml,piece,121.00,85.34,SUP-BOIS,carton,12,270,1.236,beverages_summer,2
+GDZ-0156,2000000001562,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Hamoud La Blanche Bouteille PET 2L,2000 ml,piece,230.00,159.28,SUP-BOIS,carton,6,270,1.101,beverages_summer,2
+GDZ-0157,2000000001579,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Slim Citron Bouteille PET 1L,1000 ml,piece,122.00,82.32,SUP-BOIS,carton,12,270,1.431,beverages_summer,2
+GDZ-0158,2000000001586,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Slim Orange Bouteille PET 1L,1000 ml,piece,120.00,80.03,SUP-BOIS,carton,12,270,1.338,beverages_summer,2
+GDZ-0159,2000000001593,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Slim Pomme Bouteille PET 1L,1000 ml,piece,120.00,81.95,SUP-BOIS,carton,12,270,1.439,beverages_summer,2
+GDZ-0160,2000000001609,Boissons & Jus,Sodas & Boissons Gazeuses,Sodas Hamoud Boualem,Slim Ananas Bouteille PET 2L,2000 ml,piece,210.00,146.08,SUP-BOIS,carton,6,270,1.343,beverages_summer,2
+GDZ-0161,2000000001616,Boissons & Jus,Eaux Minérales,Eau Minérale Ifri,Bouteille PET 33cl,330 ml,piece,20.00,14.57,SUP-BOIS,carton,30,540,10.837,water_summer,1
+GDZ-0162,2000000001623,Boissons & Jus,Eaux Minérales,Eau Minérale Ifri,Bouteille PET 50cl,500 ml,piece,25.00,18.85,SUP-BOIS,carton,20,540,5.021,water_summer,1
+GDZ-0163,2000000001630,Boissons & Jus,Eaux Minérales,Eau Minérale Ifri,Bouteille PET 1.5L,1500 ml,piece,47.00,32.86,SUP-BOIS,carton,6,540,4.650,water_summer,1
+GDZ-0164,2000000001647,Boissons & Jus,Eaux Minérales,Eau Minérale Ifri,Bouteille PET 2L,2000 ml,piece,60.00,45.98,SUP-BOIS,carton,4,540,2.163,water_summer,1
+GDZ-0165,2000000001654,Boissons & Jus,Eaux Minérales,Eau Minérale Ifri,Bidon PET 5L,5000 ml,piece,130.00,94.43,SUP-BOIS,carton,2,540,1.887,water_summer,1
+GDZ-0166,2000000001661,Boissons & Jus,Eaux Minérales,Eau Minérale Ifri,Eau Gazéifiée Bouteille 1L,1000 ml,piece,71.00,53.22,SUP-BOIS,carton,6,540,1.141,water_summer,1
+GDZ-0167,2000000001678,Boissons & Jus,Jus & Nectars,Jus Ramy,Nectar Orange Bouteille PET 1L,1000 ml,piece,201.00,139.20,SUP-BOIS,carton,12,270,0.703,juice,2
+GDZ-0168,2000000001685,Boissons & Jus,Jus & Nectars,Jus Ramy,Nectar Pêche-Abricot Bouteille PET 1L,1000 ml,piece,190.00,124.84,SUP-BOIS,carton,12,270,0.801,juice,2
+GDZ-0169,2000000001692,Boissons & Jus,Jus & Nectars,Jus Ramy,Nectar Cocktail Tropical Bouteille PET 1L,1000 ml,piece,190.00,132.84,SUP-BOIS,carton,12,270,1.293,juice,2
+GDZ-0170,2000000001708,Boissons & Jus,Jus & Nectars,Jus Ramy,Nectar Ananas-Mangue Bouteille PET 1L,1000 ml,piece,190.00,133.46,SUP-BOIS,carton,12,270,0.721,juice,2
+GDZ-0171,2000000001715,Boissons & Jus,Jus & Nectars,Jus Ramy,Nectar Pomme Bouteille PET 1L,1000 ml,piece,200.00,135.09,SUP-BOIS,carton,12,270,0.731,juice,2
+GDZ-0172,2000000001722,Boissons & Jus,Jus & Nectars,Jus Ramy,Pack Enfant Orange Brique 200ml,200 ml,piece,70.00,48.12,SUP-BOIS,carton,48,270,2.266,juice,2
+GDZ-0173,2000000001739,Boissons & Jus,Jus & Nectars,Jus Ramy,Pack Enfant Pêche Brique 200ml,200 ml,piece,70.00,47.67,SUP-BOIS,carton,48,270,1.643,juice,2
+GDZ-0174,2000000001746,Boissons & Jus,Jus & Nectars,Jus Rouiba,Nectar Pêche Bouteille PET 1L,1000 ml,piece,180.00,118.72,SUP-BOIS,carton,12,270,1.033,juice,2
+GDZ-0175,2000000001753,Boissons & Jus,Jus & Nectars,Jus Rouiba,Nectar Orange-Carotte Bouteille PET 1L,1000 ml,piece,190.00,126.07,SUP-BOIS,carton,12,270,0.768,juice,2
+GDZ-0176,2000000001760,Boissons & Jus,Jus & Nectars,Jus Rouiba,Nectar Cocktail Bouteille PET 1L,1000 ml,piece,180.00,119.73,SUP-BOIS,carton,12,270,0.782,juice,2
+GDZ-0177,2000000001777,Boissons & Jus,Jus & Nectars,Jus Rouiba,Nectar Poire Bouteille PET 1L,1000 ml,piece,200.00,138.73,SUP-BOIS,carton,12,270,0.818,juice,2
+GDZ-0178,2000000001784,Boissons & Jus,Jus & Nectars,Jus Rouiba,Nectar Abricot Brique 200ml,200 ml,piece,75.00,50.58,SUP-BOIS,carton,48,270,1.506,juice,2
+GDZ-0179,2000000001791,Boissons & Jus,Jus & Nectars,Jus Rouiba,Nectar Orange Brique 200ml,200 ml,piece,75.00,52.33,SUP-BOIS,carton,48,270,1.016,juice,2
+GDZ-0180,2000000001807,Boissons & Jus,Sodas & Boissons Gazeuses,Boissons Gazeuses Ifri,Ifruit Pomme-Pêche Bouteille 1.25L,1250 ml,piece,140.00,91.80,SUP-BOIS,carton,10,270,1.602,beverages_summer,2
+GDZ-0181,2000000001814,Boissons & Jus,Sodas & Boissons Gazeuses,Boissons Gazeuses Ifri,Ifruit Agrumes Bouteille 1.25L,1250 ml,piece,140.00,96.12,SUP-BOIS,carton,10,270,1.151,beverages_summer,2
+GDZ-0182,2000000001821,Boissons & Jus,Sodas & Boissons Gazeuses,Boissons Gazeuses Ifri,Ifri Gazouz Cola Bouteille 1.5L,1500 ml,piece,173.00,114.67,SUP-BOIS,carton,10,270,1.306,beverages_summer,2
+GDZ-0183,2000000001838,Boissons & Jus,Sodas & Boissons Gazeuses,Boissons Gazeuses Ifri,Ifri Gazouz Citron Bouteille 1.5L,1500 ml,piece,171.00,120.39,SUP-BOIS,carton,10,270,2.533,beverages_summer,2
+GDZ-0184,2000000001845,Boissons & Jus,Eaux Minérales,Eau Minérale Saïda,Bouteille PET 50cl,500 ml,piece,21.00,15.20,SUP-BOIS,carton,20,540,5.557,water_summer,1
+GDZ-0185,2000000001852,Boissons & Jus,Eaux Minérales,Eau Minérale Saïda,Bouteille PET 1.5L,1500 ml,piece,45.00,32.31,SUP-BOIS,carton,6,540,7.765,water_summer,1
+GDZ-0186,2000000001869,Boissons & Jus,Eaux Minérales,Eau Minérale Saïda,Bidon PET 5L,5000 ml,piece,130.00,98.38,SUP-BOIS,carton,2,540,2.046,water_summer,1
+GDZ-0187,2000000001876,Boissons & Jus,Eaux Minérales,Eau Minérale Algérie,Lalla Khedidja Bouteille PET 1.5L,1500 ml,piece,45.00,32.49,SUP-BOIS,carton,6,540,6.660,water_summer,1
+GDZ-0188,2000000001883,Boissons & Jus,Eaux Minérales,Eau Minérale Algérie,Batna Eau Minérale Bouteille PET 1.5L,1500 ml,piece,45.00,34.92,SUP-BOIS,carton,6,540,5.113,water_summer,1
+GDZ-0189,2000000001890,Boissons & Jus,Boissons Énergisantes,Boissons Énergisantes,Izem Energy Canette 250ml,250 ml,piece,112.00,76.88,SUP-BOIS,carton,24,365,0.378,beverages_summer,3
+GDZ-0190,2000000001906,Boissons & Jus,Boissons Énergisantes,Boissons Énergisantes,Red Bull Canette 250ml,250 ml,piece,280.00,194.69,SUP-BOIS,carton,24,365,0.131,beverages_summer,3
+GDZ-0191,2000000001913,Boissons & Jus,Jus & Nectars,Jus Tchin Candia,Tchin Nectar Orange Brique 1L,1000 ml,piece,201.00,136.77,SUP-LAIT,carton,12,270,1.126,juice,2
+GDZ-0192,2000000001920,Boissons & Jus,Jus & Nectars,Jus Tchin Candia,Tchin Nectar Pêche Brique 1L,1000 ml,piece,204.00,141.13,SUP-LAIT,carton,12,270,1.409,juice,2
+GDZ-0193,2000000001937,Boissons & Jus,Jus & Nectars,Jus Tchin Candia,Tchin Multivitamine Brique 1L,1000 ml,piece,190.00,132.06,SUP-LAIT,carton,12,270,0.826,juice,2
+GDZ-0194,2000000001944,Boissons & Jus,Jus & Nectars,Jus Tchin Candia,Tchin Pomme Brique 200ml,200 ml,piece,70.00,48.38,SUP-LAIT,carton,48,270,1.657,juice,2
+GDZ-0195,2000000001951,Boissons & Jus,Sirops & Eaux Florales,Sirops & Arômes Casbah,Sirop de Menthe Bouteille Verre 75cl,750 ml,piece,360.00,250.62,SUP-BOIS,carton,12,540,0.347,ramadan_sweets,2
+GDZ-0196,2000000001968,Boissons & Jus,Sirops & Eaux Florales,Sirops & Arômes Casbah,Sirop de Grenadine Bouteille Verre 75cl,750 ml,piece,363.00,245.11,SUP-BOIS,carton,12,540,0.223,ramadan_sweets,2
+GDZ-0197,2000000001975,Boissons & Jus,Sirops & Eaux Florales,Sirops & Arômes Casbah,Sirop de Citron Bouteille Verre 75cl,750 ml,piece,380.00,264.13,SUP-BOIS,carton,12,540,0.264,ramadan_sweets,2
+GDZ-0198,2000000001982,Boissons & Jus,Sirops & Eaux Florales,Sirops & Arômes Casbah,Sirop d'Orgeat Bouteille Verre 75cl,750 ml,piece,381.00,260.92,SUP-BOIS,carton,12,540,0.312,ramadan_sweets,2
+GDZ-0199,2000000001999,Boissons & Jus,Sirops & Eaux Florales,Sirops & Arômes Casbah,Eau de Fleur d'Oranger Bouteille 500ml,500 ml,piece,180.00,121.78,SUP-BOIS,carton,12,540,0.256,ramadan_sweets,2
+GDZ-0200,2000000002002,Boissons & Jus,Sirops & Eaux Florales,Sirops & Arômes Casbah,Eau de Rose Bouteille 500ml,500 ml,piece,180.00,121.80,SUP-BOIS,carton,12,540,0.364,ramadan_sweets,2
+GDZ-0201,2000000002019,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Amor Benamor,Boîte Métal 400g,400 g,piece,164.00,127.94,SUP-EPIC,carton,24,730,2.689,ramadan_staples,1
+GDZ-0202,2000000002026,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Amor Benamor,Boîte Métal 800g,800 g,piece,270.00,217.76,SUP-EPIC,carton,12,730,1.503,ramadan_staples,1
+GDZ-0203,2000000002033,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Amor Benamor,Tube 135g,135 g,piece,75.00,60.23,SUP-EPIC,carton,48,730,2.441,ramadan_staples,1
+GDZ-0204,2000000002040,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Amor Benamor,Bocal Verre 370g,370 g,piece,150.00,120.93,SUP-EPIC,carton,24,730,2.109,ramadan_staples,1
+GDZ-0205,2000000002057,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Izdiher,Boîte Métal 400g,400 g,piece,150.00,122.63,SUP-EPIC,carton,24,730,2.733,ramadan_staples,1
+GDZ-0206,2000000002064,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Izdiher,Boîte Métal 800g,800 g,piece,270.00,211.35,SUP-EPIC,carton,12,730,1.630,ramadan_staples,1
+GDZ-0207,2000000002071,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Izdiher,Seau Plastique 4kg,4000 g,piece,1150.00,921.82,SUP-EPIC,carton,2,730,0.503,ramadan_staples,1
+GDZ-0208,2000000002088,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Djurdjura,Boîte Métal 400g,400 g,piece,150.00,117.14,SUP-EPIC,carton,24,730,3.093,ramadan_staples,1
+GDZ-0209,2000000002095,Conserves & Condiments,Tomate & Harissa,Double Concentré de Tomate Djurdjura,Boîte Métal 800g,800 g,piece,270.00,216.11,SUP-EPIC,carton,12,730,0.928,ramadan_staples,1
+GDZ-0210,2000000002101,Conserves & Condiments,Tomate & Harissa,Harissa Piquante Amor Benamor,Tube Aluminium 70g,70 g,piece,60.00,48.09,SUP-EPIC,carton,48,540,0.609,ramadan_cooking,2
+GDZ-0211,2000000002118,Conserves & Condiments,Tomate & Harissa,Harissa Piquante Amor Benamor,Boîte Métal 135g,135 g,piece,90.00,71.00,SUP-EPIC,carton,24,540,0.658,ramadan_cooking,2
+GDZ-0212,2000000002125,Conserves & Condiments,Tomate & Harissa,Harissa Piquante Amor Benamor,Boîte Métal 380g,380 g,piece,230.00,186.68,SUP-EPIC,carton,10,540,0.401,ramadan_cooking,2
+GDZ-0213,2000000002132,Conserves & Condiments,Tomate & Harissa,Harissa Piquante Petit Paris,Bocal Verre 200g,200 g,piece,130.00,105.34,SUP-EPIC,carton,20,540,0.902,ramadan_cooking,2
+GDZ-0214,2000000002149,Conserves & Condiments,Sauces & Condiments,Sauces & Condiments Fleurial,Moutarde Douce Pot 150g,150 g,piece,130.00,85.85,SUP-CEVI,carton,24,270,0.685,sauces,2
+GDZ-0215,2000000002156,Conserves & Condiments,Sauces & Condiments,Sauces & Condiments Fleurial,Moutarde Douce Pot 350g,350 g,piece,231.00,143.60,SUP-CEVI,carton,10,270,0.578,sauces,2
+GDZ-0216,2000000002163,Conserves & Condiments,Sauces & Condiments,Sauces & Condiments Fleurial,Ketchup Daily Sauce Flacon 280g,280 g,piece,200.00,117.96,SUP-CEVI,carton,12,270,0.457,sauces,2
+GDZ-0217,2000000002170,Conserves & Condiments,Sauces & Condiments,Sauces & Condiments Fleurial,Ketchup Daily Sauce Flacon 500g,500 g,piece,323.00,210.77,SUP-CEVI,carton,6,270,0.257,sauces,2
+GDZ-0218,2000000002187,Conserves & Condiments,Sauces & Condiments,Sauces & Condiments Fleurial,Mayonnaise Onctueuse Pot 250g,250 g,piece,190.00,113.58,SUP-CEVI,carton,12,270,0.429,sauces,2
+GDZ-0219,2000000002194,Conserves & Condiments,Sauces & Condiments,Sauces & Condiments Fleurial,Mayonnaise Onctueuse Pot 500g,500 g,piece,310.00,190.88,SUP-CEVI,carton,6,270,0.396,sauces,2
+GDZ-0220,2000000002200,Conserves & Condiments,Sauces & Condiments,Sauces & Condiments Fleurial,Sauce Salade Ciboulette Bouteille 500ml,500 ml,piece,200.00,119.72,SUP-CEVI,carton,12,270,0.762,sauces,2
+GDZ-0221,2000000002217,Conserves & Condiments,Sauces & Condiments,Sauces Foody's Algérie,Sauce Samouraï Flacon Squeeze 900g,900 g,piece,530.00,339.36,SUP-EPIC,carton,4,270,0.196,sauces,2
+GDZ-0222,2000000002224,Conserves & Condiments,Sauces & Condiments,Sauces Foody's Algérie,Sauce Algérienne Flacon Squeeze 900g,900 g,piece,553.00,338.70,SUP-EPIC,carton,4,270,0.197,sauces,2
+GDZ-0223,2000000002231,Conserves & Condiments,Sauces & Condiments,Sauces Casbah,Sauce Barbecue Bouteille 350g,350 g,piece,220.00,130.17,SUP-EPIC,carton,10,270,1.074,sauces,2
+GDZ-0224,2000000002248,Conserves & Condiments,Thon & Poisson,Thon en Conserve Maratun,Thon Entier Huile Végétale Boîte 160g,160 g,piece,390.00,292.12,SUP-EPIC,carton,24,1095,1.558,ramadan_cooking,2
+GDZ-0225,2000000002255,Conserves & Condiments,Thon & Poisson,Thon en Conserve Maratun,Thon Entier Sauce Tomate Boîte 160g,160 g,piece,362.00,258.40,SUP-EPIC,carton,24,1095,0.606,ramadan_cooking,2
+GDZ-0226,2000000002262,Conserves & Condiments,Thon & Poisson,Thon en Conserve Maratun,Thon au Naturel Boîte 160g,160 g,piece,400.00,298.42,SUP-EPIC,carton,24,1095,0.601,ramadan_cooking,2
+GDZ-0227,2000000002279,Conserves & Condiments,Thon & Poisson,Thon en Conserve Maratun,Trio Miettes de Thon Tomate 3x65g,195 g,piece,480.00,360.83,SUP-EPIC,carton,20,1095,0.691,ramadan_cooking,2
+GDZ-0228,2000000002286,Conserves & Condiments,Thon & Poisson,Thon en Conserve Ricamar,Trio Thon à l'Huile Végétale 3x65g,195 g,piece,480.00,348.85,SUP-EPIC,carton,20,1095,0.832,ramadan_cooking,2
+GDZ-0229,2000000002293,Conserves & Condiments,Thon & Poisson,Thon en Conserve Ricamar,Trio Thon Sauce Tomate 3x65g,195 g,piece,453.00,327.09,SUP-EPIC,carton,20,1095,1.080,ramadan_cooking,2
+GDZ-0230,2000000002309,Conserves & Condiments,Thon & Poisson,Thon en Conserve Ricamar,Trio Thon au Naturel 3x65g,195 g,piece,450.00,324.44,SUP-EPIC,carton,20,1095,0.578,ramadan_cooking,2
+GDZ-0231,2000000002316,Conserves & Condiments,Thon & Poisson,Thon en Conserve Ricamar,Thon Entier Huile d'Olive Boîte 160g,160 g,piece,390.00,285.19,SUP-EPIC,carton,24,1095,0.500,ramadan_cooking,2
+GDZ-0232,2000000002323,Conserves & Condiments,Thon & Poisson,Thon en Conserve Afia,Trio Thon Huile Végétale 3x65g,195 g,piece,450.00,334.56,SUP-EPIC,carton,20,1095,0.766,ramadan_cooking,2
+GDZ-0233,2000000002330,Conserves & Condiments,Thon & Poisson,Thon en Conserve Atlantic,Trio Miettes de Thon Tomate 3x65g,195 g,piece,453.00,338.21,SUP-EPIC,carton,20,1095,1.000,ramadan_cooking,2
+GDZ-0234,2000000002347,Conserves & Condiments,Thon & Poisson,Thon en Conserve Atlantic,Thon Entier Huile Végétale 160g,160 g,piece,370.00,270.42,SUP-EPIC,carton,24,1095,1.080,ramadan_cooking,2
+GDZ-0235,2000000002354,Conserves & Condiments,"Olives, Pickles & Vinaigres",Olives & Pickles El Kseur,Olives Vertes Dénoyautées Bocal 370g,370 g,piece,260.00,196.29,SUP-EPIC,carton,12,540,0.428,ramadan_cooking,2
+GDZ-0236,2000000002361,Conserves & Condiments,"Olives, Pickles & Vinaigres",Olives & Pickles El Kseur,Olives Noires Enchautées Bocal 370g,370 g,piece,280.00,201.81,SUP-EPIC,carton,12,540,0.374,ramadan_cooking,2
+GDZ-0237,2000000002378,Conserves & Condiments,"Olives, Pickles & Vinaigres",Olives & Pickles El Kseur,Cornichons au Vinaigre Bocal 370g,370 g,piece,282.00,206.34,SUP-EPIC,carton,12,540,0.354,ramadan_cooking,2
+GDZ-0238,2000000002385,Conserves & Condiments,"Olives, Pickles & Vinaigres",Olives & Pickles El Kseur,Câpres au Vinaigre Bocal 200g,200 g,piece,184.00,129.50,SUP-EPIC,carton,24,540,0.513,ramadan_cooking,2
+GDZ-0239,2000000002392,Conserves & Condiments,"Olives, Pickles & Vinaigres",Olives & Pickles El Kseur,Piments Forts Confits Bocal 500g,500 g,piece,332.00,241.23,SUP-EPIC,carton,10,540,0.612,ramadan_cooking,2
+GDZ-0240,2000000002408,Conserves & Condiments,"Olives, Pickles & Vinaigres",Vinaigre GVC Boulmerka,Vinaigre Blanc d'Alcool Bouteille 1L,1000 ml,piece,100.00,72.82,SUP-EPIC,carton,12,1095,0.789,staples,1
+GDZ-0241,2000000002415,Conserves & Condiments,"Olives, Pickles & Vinaigres",Vinaigre GVC Boulmerka,Vinaigre Aromatisé Estragon Bouteille 1L,1000 ml,piece,104.00,73.80,SUP-EPIC,carton,12,1095,0.335,staples,1
+GDZ-0242,2000000002422,Conserves & Condiments,"Olives, Pickles & Vinaigres",Vinaigre GVC Boulmerka,Vinaigre de Cidre Bouteille 500ml,500 ml,piece,251.00,178.99,SUP-EPIC,carton,24,1095,0.631,staples,1
+GDZ-0243,2000000002439,Conserves & Condiments,"Olives, Pickles & Vinaigres",Vinaigre El Kseur,Vinaigre d'Alcool Bouteille 1.5L,1500 ml,piece,150.00,112.05,SUP-EPIC,carton,10,1095,0.302,staples,1
+GDZ-0244,2000000002446,Conserves & Condiments,Épices,Épices Moulues El Baraka,Poivre Noir Moulu Sachet 100g,100 g,piece,274.00,217.04,SUP-EPIC,carton,20,540,0.826,spices,1
+GDZ-0245,2000000002453,Conserves & Condiments,Épices,Épices Moulues El Baraka,Cumin Moulu Sachet 100g,100 g,piece,200.00,160.97,SUP-EPIC,carton,20,540,0.511,spices,1
+GDZ-0246,2000000002460,Conserves & Condiments,Épices,Épices Moulues El Baraka,Ras El Hanout Sachet 100g,100 g,piece,160.00,128.44,SUP-EPIC,carton,20,540,0.745,spices,1
+GDZ-0247,2000000002477,Conserves & Condiments,Épices,Épices Moulues El Baraka,Paprika Doux Sachet 100g,100 g,piece,141.00,111.87,SUP-EPIC,carton,20,540,0.605,spices,1
+GDZ-0248,2000000002484,Conserves & Condiments,Épices,Épices Moulues El Baraka,Curcuma Moulu Sachet 100g,100 g,piece,144.00,112.15,SUP-EPIC,carton,20,540,0.511,spices,1
+GDZ-0249,2000000002491,Conserves & Condiments,Épices,Épices Moulues El Baraka,Ail Séché Poudre Sachet 100g,100 g,piece,150.00,119.99,SUP-EPIC,carton,20,540,0.379,spices,1
+GDZ-0250,2000000002507,Conserves & Condiments,Épices,Épices Moulues El Baraka,Carvi Moulu Sachet 100g,100 g,piece,150.00,121.78,SUP-EPIC,carton,20,540,0.259,spices,1
+GDZ-0251,2000000002514,"Café, Thé & Petit Déjeuner",Café,Café Moulu Facto,Facto Paquet Rouge 250g,250 g,piece,480.00,326.07,SUP-EPIC,carton,20,365,2.372,coffee_tea,3
+GDZ-0252,2000000002521,"Café, Thé & Petit Déjeuner",Café,Café Moulu Facto,Facto Expresso Paquet 250g,250 g,piece,483.00,327.83,SUP-EPIC,carton,20,365,1.349,coffee_tea,3
+GDZ-0253,2000000002538,"Café, Thé & Petit Déjeuner",Café,Café Moulu Facto,Facto Familial Paquet 500g,500 g,piece,870.00,597.86,SUP-EPIC,carton,10,365,1.362,coffee_tea,3
+GDZ-0254,2000000002545,"Café, Thé & Petit Déjeuner",Café,Café Moulu Famico,Famico Exclusive Arabica Paquet 250g,250 g,piece,480.00,341.67,SUP-EPIC,carton,20,365,3.555,coffee_tea,3
+GDZ-0255,2000000002552,"Café, Thé & Petit Déjeuner",Café,Café Moulu Famico,Famico Premium Blend Paquet 250g,250 g,piece,440.00,301.73,SUP-EPIC,carton,20,365,1.514,coffee_tea,3
+GDZ-0256,2000000002569,"Café, Thé & Petit Déjeuner",Café,Café Moulu Boukhari,Boukhari Mélange Arabica-Robusta 250g,250 g,piece,450.00,299.94,SUP-EPIC,carton,20,365,1.006,coffee_tea,3
+GDZ-0257,2000000002576,"Café, Thé & Petit Déjeuner",Café,Café Moulu Boukhari,Boukhari Familial Paquet 500g,500 g,piece,850.00,596.78,SUP-EPIC,carton,10,365,1.052,coffee_tea,3
+GDZ-0258,2000000002583,"Café, Thé & Petit Déjeuner",Café,Café Moulu Bounab,Bounab Tradition Paquet 250g,250 g,piece,440.00,304.85,SUP-EPIC,carton,20,365,1.199,coffee_tea,3
+GDZ-0259,2000000002590,"Café, Thé & Petit Déjeuner",Café,Café Moulu Taj Mahal,Taj Mahal Paquet 250g,250 g,piece,450.00,310.60,SUP-EPIC,carton,20,365,1.134,coffee_tea,3
+GDZ-0260,2000000002606,"Café, Thé & Petit Déjeuner",Café,Café Soluble Nescafé DZ,Nescafé Classic Bocal 50g,50 g,piece,512.00,358.51,SUP-EPIC,carton,24,540,0.740,coffee_tea,3
+GDZ-0261,2000000002613,"Café, Thé & Petit Déjeuner",Café,Café Soluble Nescafé DZ,Nescafé Classic Bocal 100g,100 g,piece,720.00,504.90,SUP-EPIC,carton,12,540,0.171,coffee_tea,3
+GDZ-0262,2000000002620,"Café, Thé & Petit Déjeuner",Café,Café Soluble Nescafé DZ,Nescafé Classic Bocal 200g,200 g,piece,1390.00,942.52,SUP-EPIC,carton,6,540,0.253,coffee_tea,3
+GDZ-0263,2000000002637,"Café, Thé & Petit Déjeuner",Café,Café Soluble Nescafé DZ,Nescafé 3in1 Stick Sachet 18g,18 g,piece,40.00,27.62,SUP-EPIC,carton,12,540,0.292,coffee_tea,3
+GDZ-0264,2000000002644,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Vert de Chine Ahmed Abdi,Thé Vert Vertus Boîte 200g,200 g,piece,293.00,195.15,SUP-EPIC,carton,24,730,0.984,coffee_tea,3
+GDZ-0265,2000000002651,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Vert de Chine Ahmed Abdi,Thé Vert Nouveauté Boîte 250g,250 g,piece,310.00,220.52,SUP-EPIC,carton,20,730,0.459,coffee_tea,3
+GDZ-0266,2000000002668,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Vert El Badr,Thé Vert Extra Boîte 250g,250 g,piece,310.00,214.41,SUP-EPIC,carton,20,730,0.712,coffee_tea,3
+GDZ-0267,2000000002675,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Vert La Boussole,Thé Vert Chine Graines Boîte 250g,250 g,piece,341.00,229.05,SUP-EPIC,carton,20,730,0.518,coffee_tea,3
+GDZ-0268,2000000002682,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Vert El Ghaf,Thé Vert Traditionnel Boîte 250g,250 g,piece,323.00,214.81,SUP-EPIC,carton,20,730,0.779,coffee_tea,3
+GDZ-0269,2000000002699,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Noir & Infusions Lipton,Thé Noir Yellow Label Boîte 25 Sachets,25 pcs,piece,180.00,120.54,SUP-EPIC,carton,24,730,0.533,coffee_tea,2
+GDZ-0270,2000000002705,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Noir & Infusions Lipton,Thé Noir Yellow Label Boîte 100 Sachets,100 pcs,piece,660.00,438.32,SUP-EPIC,carton,6,730,0.255,coffee_tea,2
+GDZ-0271,2000000002712,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Noir & Infusions El Baraka,Infusion Verveine Boîte 20 Sachets,20 pcs,piece,150.00,101.59,SUP-EPIC,carton,24,730,0.460,coffee_tea,2
+GDZ-0272,2000000002729,"Café, Thé & Petit Déjeuner",Thé & Infusions,Thé Noir & Infusions El Baraka,Infusion Camomille Boîte 20 Sachets,20 pcs,piece,150.00,101.57,SUP-EPIC,carton,24,730,0.291,coffee_tea,2
+GDZ-0273,2000000002736,"Café, Thé & Petit Déjeuner",Sucre & Édulcorants,Sucre Blanc Cevital,Sucre Cristallisé Sachet 1kg,1000 g,piece,95.00,81.79,SUP-CEVI,carton,10,1095,3.140,ramadan_staples,1
+GDZ-0274,2000000002743,"Café, Thé & Petit Déjeuner",Sucre & Édulcorants,Sucre Blanc Cevital,Sucre Cristallisé Sachet 2kg,2000 g,piece,185.00,159.89,SUP-CEVI,carton,6,1095,1.844,ramadan_staples,1
+GDZ-0275,2000000002750,"Café, Thé & Petit Déjeuner",Sucre & Édulcorants,Sucre Blanc Cevital,Sucre Cristallisé Sac 5kg,5000 g,piece,450.00,385.38,SUP-CEVI,carton,2,1095,0.996,ramadan_staples,1
+GDZ-0276,2000000002767,"Café, Thé & Petit Déjeuner",Sucre & Édulcorants,Sucre Roux Skor Cevital,Skor Roux Doypack 500g,500 g,piece,130.00,106.31,SUP-CEVI,carton,20,1095,0.380,coffee_tea,2
+GDZ-0277,2000000002774,"Café, Thé & Petit Déjeuner",Sucre & Édulcorants,Sucre en Morceaux Cevital,Sucre Morceaux Enveloppé Boîte 1kg,1000 g,piece,262.00,212.04,SUP-CEVI,carton,10,1095,0.267,coffee_tea,2
+GDZ-0278,2000000002781,"Café, Thé & Petit Déjeuner",Sucre & Édulcorants,Sucre en Morceaux Cevital,Sucre Morceaux Boîte 500g,500 g,piece,140.00,111.62,SUP-CEVI,carton,20,1095,0.527,coffee_tea,2
+GDZ-0279,2000000002798,"Café, Thé & Petit Déjeuner",Sucre & Édulcorants,Édulcorant MagiLight,Substitut de Sucre Poudre 100g,100 g,piece,252.00,206.25,SUP-EPIC,carton,20,1095,0.338,coffee_tea,2
+GDZ-0280,2000000002804,"Café, Thé & Petit Déjeuner",Miel & Sirop de Glucose,Miel Naturel Raby,Miel de Fleurs Bocal 250g,250 g,piece,884.00,547.94,SUP-EPIC,carton,24,730,0.204,ramadan_sweets,3
+GDZ-0281,2000000002811,"Café, Thé & Petit Déjeuner",Miel & Sirop de Glucose,Miel Naturel Raby,Miel de Fleurs Bocal 500g,500 g,piece,1260.00,743.04,SUP-EPIC,carton,12,730,0.219,ramadan_sweets,3
+GDZ-0282,2000000002828,"Café, Thé & Petit Déjeuner",Miel & Sirop de Glucose,Miel El Badr,Miel Pur Bocal 375g,375 g,piece,1080.00,725.13,SUP-EPIC,carton,20,730,0.247,ramadan_sweets,3
+GDZ-0283,2000000002835,"Café, Thé & Petit Déjeuner",Miel & Sirop de Glucose,Sirop de Glucose Cevital,Sirop de Glucose Pot 500g,500 g,piece,251.00,184.17,SUP-CEVI,carton,12,540,0.290,ramadan_baking,2
+GDZ-0284,2000000002842,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Céréales Ringosso,Ringosso Chocolat Boîte 375g,375 g,piece,430.00,254.15,SUP-EPIC,carton,12,270,0.485,breakfast,2
+GDZ-0285,2000000002859,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Céréales Ringosso,Ringosso Miel Boîte 375g,375 g,piece,480.00,291.50,SUP-EPIC,carton,12,270,0.223,breakfast,2
+GDZ-0286,2000000002866,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Céréales Bimo,Choco Pops Bimo Boîte 250g,250 g,piece,370.00,229.09,SUP-EPIC,carton,20,270,0.624,breakfast,2
+GDZ-0287,2000000002873,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Céréales Fula,Corn Flakes Fula Boîte 300g,300 g,piece,390.00,231.25,SUP-EPIC,carton,12,270,0.565,breakfast,2
+GDZ-0288,2000000002880,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Céréales Fitness DZ,Fitness Nature Boîte 375g,375 g,piece,481.00,311.26,SUP-EPIC,carton,12,270,0.305,breakfast,2
+GDZ-0289,2000000002897,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Poudre Chocolatée Nesquik,Nesquik Chocolat Poudre Boîte 250g,250 g,piece,463.00,303.73,SUP-EPIC,carton,20,365,0.382,breakfast,2
+GDZ-0290,2000000002903,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Poudre Chocolatée Nesquik,Nesquik Chocolat Poudre Boîte 450g,450 g,piece,720.00,445.79,SUP-EPIC,carton,10,365,0.216,breakfast,2
+GDZ-0291,2000000002910,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Poudre Chocolatée Bimo,Choco Poudre Bimo Sachet 250g,250 g,piece,254.00,159.74,SUP-EPIC,carton,12,365,0.536,breakfast,2
+GDZ-0292,2000000002927,"Café, Thé & Petit Déjeuner",Céréales & Poudres Chocolatées,Poudre Chocolatée Poulain,Chocolat en Poudre Boîte 400g,400 g,piece,633.00,415.70,SUP-EPIC,carton,12,365,0.613,breakfast,2
+GDZ-0293,2000000002934,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Alimentation Bébé Blédilait,Blédilait 1er Âge Boîte 400g,400 g,piece,1121.00,907.57,SUP-EPIC,carton,12,540,0.234,baby,3
+GDZ-0294,2000000002941,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Alimentation Bébé Blédilait,Blédilait 2ème Âge Boîte 400g,400 g,piece,1200.00,974.11,SUP-EPIC,carton,12,540,0.255,baby,3
+GDZ-0295,2000000002958,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Alimentation Bébé Blédilait,Blédilait Croissance 3ème Âge 400g,400 g,piece,1180.00,969.66,SUP-EPIC,carton,12,540,0.234,baby,3
+GDZ-0296,2000000002965,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Alimentation Bébé Guigoz,Guigoz 1er Âge Boîte 400g,400 g,piece,1380.00,1124.22,SUP-EPIC,carton,12,540,0.256,baby,3
+GDZ-0297,2000000002972,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Alimentation Bébé Guigoz,Guigoz 2ème Âge Boîte 400g,400 g,piece,1400.00,1109.90,SUP-EPIC,carton,12,540,0.343,baby,3
+GDZ-0298,2000000002989,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Céréales Bébé Cérélac,Cérélac Blé Lacté Boîte 250g,250 g,piece,440.00,349.78,SUP-EPIC,carton,12,365,0.362,baby,3
+GDZ-0299,2000000002996,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Céréales Bébé Cérélac,Cérélac Blé-Miel Boîte 250g,250 g,piece,422.00,334.69,SUP-EPIC,carton,12,365,0.222,baby,3
+GDZ-0300,2000000003009,"Café, Thé & Petit Déjeuner",Alimentation Bébé,Compotes Bébé Blédina,Compote Pomme-Banane Pot 130g,130 g,piece,133.00,104.01,SUP-EPIC,carton,12,365,0.410,baby,3
+GDZ-0301,2000000003016,Hygiène & Soins Personnels,Soins Cheveux,Shampooing Venus Sidal,Shampooing Khouzama Lavande 400ml,400 ml,piece,340.00,219.83,SUP-DROG,carton,12,,0.473,hygiene,2
+GDZ-0302,2000000003023,Hygiène & Soins Personnels,Soins Cheveux,Shampooing Venus Sidal,Shampooing Protéines d'Œuf 400ml,400 ml,piece,340.00,214.73,SUP-DROG,carton,12,,0.344,hygiene,2
+GDZ-0303,2000000003030,Hygiène & Soins Personnels,Soins Cheveux,Shampooing Venus Sidal,Shampooing Antipelliculaire 400ml,400 ml,piece,341.00,227.74,SUP-DROG,carton,12,,0.353,hygiene,2
+GDZ-0304,2000000003047,Hygiène & Soins Personnels,Soins Cheveux,Shampooing Venus Sidal,Shampooing Beurre de Karité 400ml,400 ml,piece,350.00,207.32,SUP-DROG,carton,12,,0.315,hygiene,2
+GDZ-0305,2000000003054,Hygiène & Soins Personnels,Soins Cheveux,Shampooing Venus Sidal,Shampooing Doux Enfant 250ml,250 ml,piece,243.00,143.46,SUP-DROG,carton,20,,0.488,hygiene,2
+GDZ-0306,2000000003061,Hygiène & Soins Personnels,Soins Cheveux,Après-Shampooing & Masque Venus,Après-Shampooing Argan 400ml,400 ml,piece,320.00,207.93,SUP-DROG,carton,12,,0.527,hygiene,2
+GDZ-0307,2000000003078,Hygiène & Soins Personnels,Soins Cheveux,Après-Shampooing & Masque Venus,Masque Capillaire Nourrissant 300ml,300 ml,piece,340.00,226.58,SUP-DROG,carton,20,,0.215,hygiene,2
+GDZ-0308,2000000003085,Hygiène & Soins Personnels,Soins Cheveux,Shampooing & Gel Douche Swalis,Shampooing Huile d'Argan 400ml,400 ml,piece,343.00,218.75,SUP-DROG,carton,12,,0.416,hygiene,2
+GDZ-0309,2000000003092,Hygiène & Soins Personnels,Soins Cheveux,Shampooing & Gel Douche Swalis,Shampooing Noix de Coco 400ml,400 ml,piece,320.00,207.27,SUP-DROG,carton,12,,0.517,hygiene,2
+GDZ-0310,2000000003108,Hygiène & Soins Personnels,Soins Cheveux,Shampooing & Gel Douche Swalis,Gel Douche Parfum Mangue 500ml,500 ml,piece,314.00,189.47,SUP-DROG,carton,12,,0.375,hygiene,2
+GDZ-0311,2000000003115,Hygiène & Soins Personnels,Soins Cheveux,Shampooing & Gel Douche Swalis,Gel Douche Parfum Vanille 500ml,500 ml,piece,290.00,193.45,SUP-DROG,carton,12,,0.281,hygiene,2
+GDZ-0312,2000000003122,Hygiène & Soins Personnels,Savons & Gels Douche,Savon de Toilette Astra,Savon Astra Parfum Rose 100g,100 g,piece,60.00,35.59,SUP-DROG,carton,48,,1.255,hygiene,1
+GDZ-0313,2000000003139,Hygiène & Soins Personnels,Savons & Gels Douche,Savon de Toilette Astra,Savon Astra Parfum Lavande 100g,100 g,piece,65.00,42.70,SUP-DROG,carton,48,,0.677,hygiene,1
+GDZ-0314,2000000003146,Hygiène & Soins Personnels,Savons & Gels Douche,Savon de Toilette Astra,Savon Astra Parfum Jasmin 100g,100 g,piece,70.00,44.59,SUP-DROG,carton,48,,0.499,hygiene,1
+GDZ-0315,2000000003153,Hygiène & Soins Personnels,Savons & Gels Douche,Savon Marseille Le Chat DZ,Savon Pur Marseille Pain 150g,150 g,piece,99.00,62.31,SUP-DROG,carton,30,,0.710,hygiene,1
+GDZ-0316,2000000003160,Hygiène & Soins Personnels,Savons & Gels Douche,Savon de Toilette Palmolive,Savon Palmolive Olive 90g,90 g,piece,110.00,72.88,SUP-DROG,carton,48,,0.662,hygiene,1
+GDZ-0317,2000000003177,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Dentifrice Signal,Dentifrice Integral 8 Tube 75ml,75 ml,piece,240.00,159.10,SUP-DROG,carton,12,,0.498,hygiene,2
+GDZ-0318,2000000003184,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Dentifrice Signal,Dentifrice White Now Tube 75ml,75 ml,piece,260.00,170.67,SUP-DROG,carton,12,,0.371,hygiene,2
+GDZ-0319,2000000003191,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Dentifrice Dentex,Dentifrice Herbal Tube 100ml,100 ml,piece,152.00,98.36,SUP-DROG,carton,12,,0.726,hygiene,2
+GDZ-0320,2000000003207,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Dentifrice Colgate,Dentifrice Triple Action Tube 75ml,75 ml,piece,240.00,143.88,SUP-DROG,carton,12,,0.351,hygiene,2
+GDZ-0321,2000000003214,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Dentifrice Colgate,Dentifrice Max Fresh Tube 75ml,75 ml,piece,241.00,142.93,SUP-DROG,carton,12,,0.407,hygiene,2
+GDZ-0322,2000000003221,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Brosses à Dents Signal,Brosse à Dents Souple 1 pièce,1 pcs,piece,140.00,85.65,SUP-DROG,carton,12,,0.165,hygiene,2
+GDZ-0323,2000000003238,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Brosses à Dents Signal,Brosse à Dents Moyenne 1 pièce,1 pcs,piece,153.00,97.20,SUP-DROG,carton,12,,0.232,hygiene,2
+GDZ-0324,2000000003245,Hygiène & Soins Personnels,Hygiène Bucco-Dentaire,Brosses à Dents Jordan,Brosse à Dents Medium 1 pièce,1 pcs,piece,130.00,85.72,SUP-DROG,carton,12,,0.410,hygiene,2
+GDZ-0325,2000000003252,Hygiène & Soins Personnels,Déodorants,Déodorants Venus,Roll-On Fraîcheur Extrême 50ml,50 ml,piece,290.00,182.70,SUP-DROG,carton,12,,0.250,hygiene_summer,2
+GDZ-0326,2000000003269,Hygiène & Soins Personnels,Déodorants,Déodorants Venus,Roll-On Invisible Anti-Traces 50ml,50 ml,piece,280.00,175.46,SUP-DROG,carton,12,,0.259,hygiene_summer,2
+GDZ-0327,2000000003276,Hygiène & Soins Personnels,Déodorants,Déodorants Fa,Spray Pink Passion 150ml,150 ml,piece,461.00,277.54,SUP-DROG,carton,12,,0.270,hygiene_summer,2
+GDZ-0328,2000000003283,Hygiène & Soins Personnels,Déodorants,Déodorants Fa,Spray Sport Energy 150ml,150 ml,piece,460.00,290.28,SUP-DROG,carton,12,,0.219,hygiene_summer,2
+GDZ-0329,2000000003290,Hygiène & Soins Personnels,Hygiène Bébé,Couches Bébé Dalaa,Dalaa Taille 2 Mini Paquet 40p,40 pcs,piece,1193.00,888.63,SUP-DROG,carton,6,,0.359,baby,3
+GDZ-0330,2000000003306,Hygiène & Soins Personnels,Hygiène Bébé,Couches Bébé Dalaa,Dalaa Taille 3 Midi Paquet 44p,44 pcs,piece,1410.00,1060.90,SUP-DROG,carton,6,,0.550,baby,3
+GDZ-0331,2000000003313,Hygiène & Soins Personnels,Hygiène Bébé,Couches Bébé Dalaa,Dalaa Taille 4 Maxi Paquet 40p,40 pcs,piece,1280.00,959.49,SUP-DROG,carton,6,,0.218,baby,3
+GDZ-0332,2000000003320,Hygiène & Soins Personnels,Hygiène Bébé,Couches Bébé Dalaa,Dalaa Taille 5 Junior Paquet 36p,36 pcs,piece,1140.00,831.50,SUP-DROG,carton,6,,0.257,baby,3
+GDZ-0333,2000000003337,Hygiène & Soins Personnels,Hygiène Bébé,Couches Bébé Molfix,Molfix Taille 3 Midi Paquet 42p,42 pcs,piece,1620.00,1206.58,SUP-DROG,carton,6,,0.421,baby,3
+GDZ-0334,2000000003344,Hygiène & Soins Personnels,Hygiène Bébé,Couches Bébé Molfix,Molfix Taille 4 Maxi Paquet 38p,38 pcs,piece,1380.00,1041.24,SUP-DROG,carton,6,,0.184,baby,3
+GDZ-0335,2000000003351,Hygiène & Soins Personnels,Hygiène Bébé,Lingettes Bébé Dalaa,Lingettes Douces Paquet 72p,72 pcs,piece,253.00,155.39,SUP-DROG,carton,24,,0.284,baby,2
+GDZ-0336,2000000003368,Hygiène & Soins Personnels,Hygiène Bébé,Lingettes Bébé Venus,Lingettes Bébé Apaisantes Paquet 80p,80 pcs,piece,274.00,165.96,SUP-DROG,carton,20,,0.694,baby,2
+GDZ-0337,2000000003375,Hygiène & Soins Personnels,Hygiène Bébé,Lingettes Bébé Fresh,Lingettes Fresh Paquet 64p,64 pcs,piece,240.00,154.68,SUP-DROG,carton,30,,0.341,baby,2
+GDZ-0338,2000000003382,Hygiène & Soins Personnels,Protections Féminines,Protections Féminines Molped,Molped Maxi Normal Paquet 10p,10 pcs,piece,204.00,120.94,SUP-DROG,carton,24,,0.750,flat,3
+GDZ-0339,2000000003399,Hygiène & Soins Personnels,Protections Féminines,Protections Féminines Molped,Molped Longue Paquet 8p,8 pcs,piece,170.00,113.22,SUP-DROG,carton,30,,0.445,flat,3
+GDZ-0340,2000000003405,Hygiène & Soins Personnels,Protections Féminines,Protections Féminines Molped,Molped Nuit Paquet 7p,7 pcs,piece,160.00,98.66,SUP-DROG,carton,30,,0.501,flat,3
+GDZ-0341,2000000003412,Hygiène & Soins Personnels,Protections Féminines,Protections Féminines Always,Always Ultra Normal Paquet 10p,10 pcs,piece,290.00,170.62,SUP-DROG,carton,24,,0.822,flat,3
+GDZ-0342,2000000003429,Hygiène & Soins Personnels,Protections Féminines,Protections Féminines Always,Always Night Paquet 8p,8 pcs,piece,230.00,143.04,SUP-DROG,carton,30,,0.710,flat,3
+GDZ-0343,2000000003436,Hygiène & Soins Personnels,Papier & Emballage,Papier Toilette & Mouchoirs Fine,Papier Toilette 2 Épaisseurs 4 Rouleaux,4 pcs,piece,204.00,122.90,SUP-DROG,carton,12,,0.841,hygiene,1
+GDZ-0344,2000000003443,Hygiène & Soins Personnels,Papier & Emballage,Papier Toilette & Mouchoirs Fine,Papier Toilette 2 Épaisseurs 12 Rouleaux,12 pcs,piece,490.00,309.90,SUP-DROG,carton,4,,0.369,hygiene,1
+GDZ-0345,2000000003450,Hygiène & Soins Personnels,Papier & Emballage,Papier Toilette & Mouchoirs Fine,Mouchoirs Boîte 100p,100 pcs,piece,130.00,86.75,SUP-DROG,carton,12,,0.472,hygiene,1
+GDZ-0346,2000000003467,Hygiène & Soins Personnels,Papier & Emballage,Papier Toilette & Mouchoirs Fine,Mouchoirs Pochette 10x10p,100 pcs,piece,110.00,71.63,SUP-DROG,carton,12,,0.375,hygiene,1
+GDZ-0347,2000000003474,Hygiène & Soins Personnels,Papier & Emballage,Essuie-tout & Aluminium Fine,Essuie-tout Ménager 2 Rouleaux,2 pcs,piece,180.00,115.61,SUP-DROG,carton,12,,0.523,hygiene,1
+GDZ-0348,2000000003481,Hygiène & Soins Personnels,Papier & Emballage,Essuie-tout & Aluminium Fine,Papier Aluminium 10 mètres,10 m,piece,250.00,147.72,SUP-DROG,carton,12,,0.186,hygiene,1
+GDZ-0349,2000000003498,Hygiène & Soins Personnels,Papier & Emballage,Essuie-tout & Aluminium Fine,Film Étirable Transparent 30 mètres,30 m,piece,212.00,126.72,SUP-DROG,carton,12,,0.091,hygiene,1
+GDZ-0350,2000000003504,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Isis ENAD,Isis Poudre Lavage Main Sachet 500g,500 g,piece,202.00,131.16,SUP-DROG,carton,24,,0.759,cleaning,2
+GDZ-0351,2000000003511,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Isis ENAD,Isis Poudre Lavage Main Sachet 1kg,1000 g,piece,300.00,204.80,SUP-DROG,carton,12,,0.441,cleaning,2
+GDZ-0352,2000000003528,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Isis ENAD,Isis Poudre Automatique Sac 3kg,3000 g,piece,800.00,540.57,SUP-DROG,carton,4,,0.338,cleaning,2
+GDZ-0353,2000000003535,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Isis ENAD,Isis Poudre Automatique Sac 5kg,5000 g,piece,1153.00,745.41,SUP-DROG,carton,2,,0.128,cleaning,2
+GDZ-0354,2000000003542,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Isis ENAD,Isis Poudre Rose Parfumée 500g,500 g,piece,204.00,124.92,SUP-DROG,carton,24,,0.378,cleaning,2
+GDZ-0355,2000000003559,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Le Chat DZ,Le Chat Poudre Main Sachet 500g,500 g,piece,220.00,146.16,SUP-DROG,carton,24,,0.901,cleaning,2
+GDZ-0356,2000000003566,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Le Chat DZ,Le Chat Automatique Sac 3kg,3000 g,piece,850.00,537.53,SUP-DROG,carton,4,,0.452,cleaning,2
+GDZ-0357,2000000003573,Détergents & Produits d'Entretien,Lessives,Lessive en Poudre Le Chat DZ,Le Chat Automatique Sac 6kg,6000 g,piece,1730.00,1130.65,SUP-DROG,carton,2,,0.219,cleaning,2
+GDZ-0358,2000000003580,Détergents & Produits d'Entretien,Lessives,Lessive Liquide Omo,Omo Liquide Concentré Bidon 2.5L,2500 ml,piece,1060.00,679.96,SUP-DROG,carton,4,,0.255,cleaning,3
+GDZ-0359,2000000003597,Détergents & Produits d'Entretien,Lessives,Lessive Liquide Nadhif,Nadhif Gel Automatique Bidon 3L,3000 ml,piece,800.00,505.24,SUP-DROG,carton,4,,0.176,cleaning,3
+GDZ-0360,2000000003603,Détergents & Produits d'Entretien,Lessives,Lessive Liquide Le Chat DZ,Le Chat Gel Savon de Marseille 2.5L,2500 ml,piece,1044.00,661.34,SUP-DROG,carton,4,,0.337,cleaning,3
+GDZ-0361,2000000003610,Détergents & Produits d'Entretien,Vaisselle,Liquide Vaisselle Groom,Groom Liquide Vaisselle Citron 750ml,750 ml,piece,190.00,122.92,SUP-DROG,carton,12,,1.056,cleaning,2
+GDZ-0362,2000000003627,Détergents & Produits d'Entretien,Vaisselle,Liquide Vaisselle Groom,Groom Liquide Vaisselle Pomme 750ml,750 ml,piece,200.00,134.62,SUP-DROG,carton,12,,1.141,cleaning,2
+GDZ-0363,2000000003634,Détergents & Produits d'Entretien,Vaisselle,Liquide Vaisselle Groom,Groom Liquide Vaisselle Citron 1.5L,1500 ml,piece,370.00,230.50,SUP-DROG,carton,6,,0.543,cleaning,2
+GDZ-0364,2000000003641,Détergents & Produits d'Entretien,Vaisselle,Liquide Vaisselle Pril Isis,Pril Isis Concentré Citron 650ml,650 ml,piece,180.00,113.65,SUP-DROG,carton,12,,0.584,cleaning,2
+GDZ-0365,2000000003658,Détergents & Produits d'Entretien,Vaisselle,Liquide Vaisselle Pril Isis,Pril Isis Concentré Pomme 650ml,650 ml,piece,170.00,114.46,SUP-DROG,carton,12,,1.022,cleaning,2
+GDZ-0366,2000000003665,Détergents & Produits d'Entretien,Vaisselle,Liquide Vaisselle Pril Isis,Pril Isis Concentré Citron 1.25L,1250 ml,piece,280.00,186.80,SUP-DROG,carton,6,,0.789,cleaning,2
+GDZ-0367,2000000003672,Détergents & Produits d'Entretien,Javel & Nettoyants,Eau de Javel Berrek,Javel Berrek Concentrée Bouteille 1L,1000 ml,piece,85.00,56.28,SUP-DROG,carton,12,,1.166,cleaning,1
+GDZ-0368,2000000003689,Détergents & Produits d'Entretien,Javel & Nettoyants,Eau de Javel Berrek,Javel Berrek Concentrée Bouteille 2L,2000 ml,piece,170.00,115.30,SUP-DROG,carton,6,,1.004,cleaning,1
+GDZ-0369,2000000003696,Détergents & Produits d'Entretien,Javel & Nettoyants,Eau de Javel Berrek,Javel Berrek Concentrée Bidon 5L,5000 ml,piece,340.00,218.53,SUP-DROG,carton,2,,0.262,cleaning,1
+GDZ-0370,2000000003702,Détergents & Produits d'Entretien,Javel & Nettoyants,Eau de Javel Berrek,Javel Parfumée Citron Bouteille 1L,1000 ml,piece,85.00,56.03,SUP-DROG,carton,12,,0.827,cleaning,1
+GDZ-0371,2000000003719,Détergents & Produits d'Entretien,Javel & Nettoyants,Eau de Javel Croix,Javel Croix Bouteille 1L,1000 ml,piece,85.00,53.23,SUP-DROG,carton,12,,1.671,cleaning,1
+GDZ-0372,2000000003726,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyant Sol Groom,Nettoyant Sol Lavande Bouteille 1L,1000 ml,piece,181.00,116.13,SUP-DROG,carton,12,,1.146,cleaning,2
+GDZ-0373,2000000003733,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyant Sol Groom,Nettoyant Sol Jasmin Bouteille 1L,1000 ml,piece,190.00,130.28,SUP-DROG,carton,12,,0.226,cleaning,2
+GDZ-0374,2000000003740,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyant Sol Groom,Nettoyant Sol Pin Bouteille 1L,1000 ml,piece,182.00,122.48,SUP-DROG,carton,12,,0.424,cleaning,2
+GDZ-0375,2000000003757,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyant Sol Maxis,Nettoyant Sol Citron Bouteille 1.5L,1500 ml,piece,260.00,167.07,SUP-DROG,carton,10,,0.461,cleaning,2
+GDZ-0376,2000000003764,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyant Sol Maxis,Nettoyant Sol Fraîcheur Marine 1.5L,1500 ml,piece,250.00,165.45,SUP-DROG,carton,10,,0.442,cleaning,2
+GDZ-0377,2000000003771,Détergents & Produits d'Entretien,Accessoires Ménagers,Accessoires Ménage Algérie,Éponges Grattantes Pack 3p,3 pcs,piece,96.00,61.63,SUP-DROG,carton,24,,0.585,cleaning,1
+GDZ-0378,2000000003788,Détergents & Produits d'Entretien,Accessoires Ménagers,Accessoires Ménage Algérie,Éponge Spirale Inox Pack 2p,2 pcs,piece,80.00,54.52,SUP-DROG,carton,24,,0.302,cleaning,1
+GDZ-0379,2000000003795,Détergents & Produits d'Entretien,Accessoires Ménagers,Accessoires Ménage Algérie,Gants Ménagers Latex Taille M,1 pcs,piece,211.00,131.21,SUP-DROG,carton,24,,0.445,cleaning,1
+GDZ-0380,2000000003801,Détergents & Produits d'Entretien,Accessoires Ménagers,Accessoires Ménage Algérie,Gants Ménagers Latex Taille L,1 pcs,piece,200.00,135.56,SUP-DROG,carton,24,,0.206,cleaning,1
+GDZ-0381,2000000003818,Détergents & Produits d'Entretien,Accessoires Ménagers,Accessoires Ménage Algérie,Serpillère Microfibre 1 pièce,1 pcs,piece,264.00,172.47,SUP-DROG,carton,24,,0.095,cleaning,1
+GDZ-0382,2000000003825,Détergents & Produits d'Entretien,Accessoires Ménagers,Accessoires Ménage Algérie,Sachets Poubelle 30L Rouleau 10p,10 pcs,piece,130.00,86.51,SUP-DROG,carton,24,,0.508,cleaning,1
+GDZ-0383,2000000003832,Détergents & Produits d'Entretien,Accessoires Ménagers,Accessoires Ménage Algérie,Sachets Poubelle 50L Rouleau 10p,10 pcs,piece,160.00,100.81,SUP-DROG,carton,24,,0.283,cleaning,1
+GDZ-0384,2000000003849,Détergents & Produits d'Entretien,Désodorisants,Désodorisant d'Intérieur Groom,Spray Désodorisant Jasmin 300ml,300 ml,piece,310.00,192.79,SUP-DROG,carton,12,,0.247,cleaning,1
+GDZ-0385,2000000003856,Détergents & Produits d'Entretien,Désodorisants,Désodorisant d'Intérieur Groom,Spray Désodorisant Rose 300ml,300 ml,piece,300.00,194.23,SUP-DROG,carton,12,,0.224,cleaning,1
+GDZ-0386,2000000003863,Détergents & Produits d'Entretien,Désodorisants,Désodorisant d'Intérieur Groom,Spray Désodorisant Lavande 300ml,300 ml,piece,324.00,216.09,SUP-DROG,carton,12,,0.170,cleaning,1
+GDZ-0387,2000000003870,Détergents & Produits d'Entretien,Désodorisants,Désodorisant d'Intérieur Air Wick,Spray Désodorisant 300ml,300 ml,piece,540.00,367.02,SUP-DROG,carton,12,,0.076,cleaning,1
+GDZ-0388,2000000003887,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyants Spécifiques,Nettoyant Vitres Groom Spray 500ml,500 ml,piece,270.00,184.52,SUP-DROG,carton,12,,0.159,cleaning,2
+GDZ-0389,2000000003894,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyants Spécifiques,Nettoyant Vitres Poly Star Spray 500ml,500 ml,piece,253.00,162.37,SUP-DROG,carton,12,,0.189,cleaning,2
+GDZ-0390,2000000003900,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyants Spécifiques,Gel Déboucheur Ouragan 1L,1000 ml,piece,344.00,216.21,SUP-DROG,carton,12,,0.121,cleaning,2
+GDZ-0391,2000000003917,Détergents & Produits d'Entretien,Javel & Nettoyants,Nettoyants Spécifiques,Déboucheur Canalisations Poly Star 1L,1000 ml,piece,310.00,198.58,SUP-DROG,carton,12,,0.137,cleaning,2
+GDZ-0392,2000000003924,Détergents & Produits d'Entretien,Insecticides,Insecticides Cobra,Cobra Spray Insectes Volants 300ml,300 ml,piece,460.00,294.44,SUP-DROG,carton,12,,0.269,insecticide_summer,2
+GDZ-0393,2000000003931,Détergents & Produits d'Entretien,Insecticides,Insecticides Cobra,Cobra Spray Insectes Rampants 300ml,300 ml,piece,470.00,294.40,SUP-DROG,carton,12,,0.161,insecticide_summer,2
+GDZ-0394,2000000003948,Détergents & Produits d'Entretien,Insecticides,Insecticides Riad,Riad Spray Multi-Insectes 300ml,300 ml,piece,460.00,306.91,SUP-DROG,carton,12,,0.250,insecticide_summer,2
+GDZ-0395,2000000003955,Détergents & Produits d'Entretien,Insecticides,Insecticides Pif Paf,Pif Paf Diffuseur Électrique 30 nuits,1 pcs,piece,640.00,410.88,SUP-DROG,carton,12,,0.431,insecticide_summer,2
+GDZ-0396,2000000003962,Détergents & Produits d'Entretien,Insecticides,Insecticides Pif Paf,Pif Paf Recharge Liquide 30 nuits,1 pcs,piece,440.00,274.40,SUP-DROG,carton,12,,0.245,insecticide_summer,2
+GDZ-0397,2000000003979,Détergents & Produits d'Entretien,Insecticides,Insecticides Algérie,Poudre Anti-Fourmis Sachet 100g,100 g,piece,150.00,97.55,SUP-DROG,carton,12,,0.207,insecticide_summer,2
+GDZ-0398,2000000003986,Détergents & Produits d'Entretien,Insecticides,Insecticides Algérie,Serpatout Raticide Sachet 150g,150 g,piece,210.00,137.81,SUP-DROG,carton,12,,0.225,insecticide_summer,2
+GDZ-0399,2000000003993,Détergents & Produits d'Entretien,Insecticides,Insecticides Algérie,Tablettes Moustiques Boîte 20p,20 pcs,piece,170.00,116.94,SUP-DROG,carton,12,,0.464,insecticide_summer,2

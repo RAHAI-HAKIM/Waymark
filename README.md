@@ -17,7 +17,7 @@ range. Code that cannot be explained does not ship.
 
 | Path | Contents |
 | :---- | :---- |
-| `src/` | The .NET solution — nine projects, four test projects |
+| `src/` | The .NET solution — nine projects that ship, the synthetic store generator, five test projects |
 | `waymark-admin/` | React + TypeScript Admin. One codebase, two surfaces (local and cloud) |
 | `waymark-engine/` | Almanac. Python, runs nightly in the cloud |
 | `docs/` | Architecture, build plan, operating rules, diagrams, decision log |
@@ -68,7 +68,7 @@ dotnet build src/Waymark.sln
 dotnet test src/Waymark.sln
 ```
 
-Requires the .NET 10 SDK (current LTS). Verified against 10.0.400: thirteen
+Requires the .NET 10 SDK (current LTS). Verified against 10.0.400: fifteen
 projects, zero warnings, all tests green. Node and the Python engine environment
 arrive with Phases 1 and 2 respectively.
 

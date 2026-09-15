@@ -1,0 +1,40 @@
+{
+
+  
+  "store_code": "MQ-001",
+  "store_name": "Quincaillerie de test",
+  "store_type": "hardware",
+  "currency": "DZD",
+  "rounding_policy": "half_even",
+  "utc_offset_hours": 1,
+  "terminals": [ "Comptoir" ],
+  "roles": [
+    { "code": "owner", "rank": 2, "label_fr": "Gérant", "label_ar": "المسير" },
+    { "code": "cashier", "rank": 1, "label_fr": "Vendeur", "label_ar": "بائع" }
+  ],
+  "manager_role": "owner",
+  "staff": [
+    { "name": "Gérant test", "role": "owner", "joined": "2020-01-01" },
+    { "name": "Vendeur test", "role": "cashier", "joined": "2023-01-01" }
+  ],
+  "opening_hours": {
+    "normal": [ "08:30-12:30", "14:00-18:30" ],
+    "friday": [],
+    "ramadan": [ "10:00-16:00" ],
+    "aid": [ "10:00-12:00" ]
+  },
+  "reason_codes": [
+    { "code": "REMISE", "applies_to": "discount", "label_fr": "Remise", "label_ar": "تخفيض", "requires_manager": true },
+    { "code": "ANNULATION", "applies_to": "void", "label_fr": "Annulation", "label_ar": "إلغاء" },
+    { "code": "RETOUR", "applies_to": "return", "label_fr": "Retour", "label_ar": "إرجاع", "requires_manager": true },
+    { "code": "SORTIE", "applies_to": "cash_movement", "label_fr": "Sortie de caisse", "label_ar": "سحب", "requires_note": true },
+    { "code": "APPORT", "applies_to": "cash_movement", "label_fr": "Apport", "label_ar": "إيداع" },
+    { "code": "DEPOT", "applies_to": "cash_movement", "label_fr": "Dépôt au coffre", "label_ar": "إيداع في الخزنة" },
+    { "code": "CASSE", "applies_to": "write_off", "label_fr": "Casse", "label_ar": "كسر" }
+  ],
+  "notices": [
+    { "code": "proc-fr-v1", "type": "processing", "language": "fr", "body": "Notice de test." },
+    { "code": "mkt-fr-v1", "type": "marketing", "language": "fr", "body": "Notice de test." },
+    { "code": "staff-fr-v1", "type": "staff", "language": "fr", "body": "Notice de test." }
+  ]
+}

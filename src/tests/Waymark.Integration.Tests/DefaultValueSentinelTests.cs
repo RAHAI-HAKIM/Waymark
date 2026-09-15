@@ -1,6 +1,8 @@
 using Waymark.Domain.Customers;
+using Waymark.Domain.Engine;
 using Waymark.Domain.Enums;
 using Waymark.Domain.Organisation;
+using Waymark.Domain.Pricing;
 using Waymark.Domain.Reference;
 using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
@@ -187,5 +189,67 @@ public sealed class DefaultValueSentinelTests : IClassFixture<MigratedDatabaseFi
         Assert.Equal(
             "half_even",
             RawValue("SELECT rounding_policy FROM transactions WHERE transaction_id = 'sentinel-tx-even'"));
+    }
+
+    [Fact]
+    public void A_key_column_equal_to_its_default_can_still_be_inserted()
+    {
+        // prices.price_type and parameter_registry.scope_id are part of their primary keys
+        // and also carry a DEFAULT. EF treats a key equal to its sentinel as unset and swaps
+        // in a temporary key value, so before ValueGeneratedNever a Retail price threw at
+        // SaveChanges and the table could not hold one. Found by the synthetic generator.
+        var moment = new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero);
+
+        using (var context = _database.NewContext(enforceForeignKeys: false, storeId: "sentinel-key-store"))
+        {
+            context.Prices.Add(new Price
+            {
+                VariantId = "sentinel-key-variant",
+                StoreId = "sentinel-key-store",
+                ValidFrom = "2026-01-01",
+                PriceType = PriceType.Retail,
+                PriceValue = Money.Zero(Currency.Dzd),
+                CreatedAt = moment
+            });
+            context.ParameterRegistry.Add(new ParameterRegistryEntry
+            {
+                ParameterCode = "sentinel-key-parameter",
+                ScopeType = ScopeType.Global,
+                ScopeId = "",
+                Version = 1,
+                ValueNumber = 1,
+                Method = "cold_start",
+                Source = ParameterRegistryEntrySource.ColdStartDefault,
+                ComputedAt = moment
+            });
+            context.SaveChanges();
+        }
+
+        Assert.Equal(
+            "retail",
+            RawValue("SELECT price_type FROM prices WHERE variant_id = 'sentinel-key-variant'"));
+        Assert.Equal(
+            "",
+            RawValue("SELECT scope_id FROM parameter_registry WHERE parameter_code = 'sentinel-key-parameter'"));
+    }
+
+    [Fact]
+    public void No_key_column_is_generated_by_the_store()
+    {
+        // Every primary key is supplied by the application (CLAUDE.md §3.2). A key property
+        // marked as generated on add is the shape of the bug above, whatever its type.
+        using var context = _database.NewContext(enforceForeignKeys: false);
+
+        var generated = context.Model.GetEntityTypes()
+            .SelectMany(entity => entity.FindPrimaryKey()!.Properties)
+            .Where(property => property.ValueGenerated != Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never)
+            .Select(property => $"{property.DeclaringType.ClrType.Name}.{property.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            generated.Count == 0,
+            "Primary key properties that EF may generate on add:\n  " + string.Join("\n  ", generated)
+            + "\n\nKeys are minted by the application; mark them ValueGeneratedNever().");
     }
 }

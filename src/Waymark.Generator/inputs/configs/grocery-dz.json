@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "catalogue": "../catalogues/grocery-dz",
+
+  "run": {
+    "master_seed": 42,
+    "start_date": "2025-01-01",
+    "history_months": 12,
+
+
+    "commissioning_days_before_start": 45
+  },
+
+  "customers": {
+    "initial_count": { "value": 120, "source": "guess", "note": "Regulars enrolled for credit or loyalty in a neighbourhood épicerie of ~170 baskets a day." },
+    "marketing_consent_share": { "value": 0.35, "source": "guess", "note": "Processing consent is universal among enrolled customers; marketing is the one people refuse." },
+    "objection_share": { "value": 0.03, "source": "guess", "note": "A few objectors, so the downgrade path (D-043) has data to test against." },
+    "french_language_share": { "value": 0.2, "source": "guess", "note": "Remainder prefers Arabic." }
+  },
+
+  "opening_stock": {
+    "cover_days": { "value": { "min": 7, "max": 21 }, "source": "guess", "note": "Days of base demand on the shelf on day one, rounded up to whole cartons." },
+    "remaining_shelf_life": { "value": { "min": 0.5, "max": 0.95 }, "source": "guess", "note": "Fraction of shelf life left on opening batches; they were delivered before the history starts." }
+  },
+
+  "calendar": {
+    "weekday_factors": {
+      "value": { "sunday": 1.0, "monday": 0.95, "tuesday": 0.95, "wednesday": 1.0, "thursday": 1.1, "friday": 0.85, "saturday": 1.05 },
+      "source": "guess",
+      "note": "Friday–Saturday weekend: Thursday evening restock, Friday dips around the prayer."
+    },
+
+
+
+    "hourly_traffic": {
+      "normal": { "value": [0, 0, 0, 0, 0, 0, 0, 0.6, 1.0, 1.0, 0.9, 1.0, 1.1, 0.7, 0.6, 0.7, 0.9, 1.3, 1.5, 1.4, 1.0, 0.6, 0, 0], "source": "guess", "note": "Morning bread-and-milk run, noon bump, evening peak after work." },
+      "friday": { "value": [0, 0, 0, 0, 0, 0, 0, 0.5, 1.2, 1.4, 1.3, 1.1, 0.6, 0, 0.5, 0.8, 1.0, 1.2, 1.3, 1.1, 0.8, 0.5, 0, 0], "source": "guess", "note": "Busy morning, closed around the Friday prayer." },
+      "ramadan": { "value": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0.4, 0.6, 0.8, 0.9, 1.0, 1.2, 1.6, 2.2, 2.6, 1.8, 0, 0, 0.6, 1.4, 1.1], "source": "guess", "note": "Inverted rhythm: late opening, pre-iftar peak 16–18h, closed at iftar, second wave after tarawih." },
+      "aid": { "value": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.6, 0.9, 1.0, 1.0, 0.8, 0.5, 0, 0, 0], "source": "guess", "note": "Open only in the afternoon, after family visits." }
+    },
+
+    "ramadan": {
+      "value": [
+        { "label": "1446", "start": "2025-03-01", "end": "2025-03-29", "aid_start": "2025-03-30", "aid_days": 2 },
+        { "label": "1447", "start": "2026-02-18", "end": "2026-03-19", "aid_start": "2026-03-20", "aid_days": 2 }
+      ],
+      "source": "literature",
+      "note": "Dates as announced in Algeria for 1446 and expected for 1447; both confirmed by Hakim (14/09/2026)."
+    },
+    "stock_up_days": { "value": 7, "source": "guess", "note": "Households stock up the week before Ramadan (D-046 §15)." },
+    "post_aid_quiet_days": { "value": 7, "source": "guess", "note": "The week after Aïd el-Fitr is quiet: pantries are full and budgets spent." },
+
+    "events": {
+      "value": [
+        { "name": "aid_al_adha_prep", "start": "2025-05-30", "days": 7 },
+        { "name": "aid_al_adha", "start": "2025-06-06", "days": 3, "day_type": "aid" },
+        { "name": "back_to_school", "start": "2025-09-14", "days": 14 },
+        { "name": "aid_al_adha_prep", "start": "2026-05-20", "days": 7 },
+        { "name": "aid_al_adha", "start": "2026-05-27", "days": 3, "day_type": "aid" },
+        { "name": "back_to_school", "start": "2026-09-13", "days": 14 }
+      ],
+      "source": "literature",
+      "note": "Aïd al-Adha 2025 as celebrated in Algeria, 2026 as expected; both confirmed by Hakim (14/09/2026). Rentrée dates approximate. Profiles set the demand effect."
+    },
+
+    "payday": {
+      "spike_last_days_of_month": { "value": 2, "source": "guess", "note": "D-046 §17: the spike covers roughly the last two days of the month…" },
+      "spike_first_days_of_month": { "value": 5, "source": "guess", "note": "…and the first five." },
+      "pre_payday_days": { "value": 7, "source": "guess", "note": "The week before the spike, when on-account buying rises." },
+      "trough_first_day": { "value": 10, "source": "guess", "note": "Mid-month trough, smaller baskets." },
+      "trough_last_day": { "value": 19, "source": "guess", "note": "Ends before the pre-payday week of the shortest month." },
+      "effects": {
+        "value": {
+          "normal": { "demand": 1.0, "basket_size": 1.0, "on_account": 1.0 },
+          "spike": { "demand": 1.12, "basket_size": 1.1, "on_account": 0.6 },
+          "pre_payday": { "demand": 0.97, "basket_size": 0.95, "on_account": 2.0 },
+          "trough": { "demand": 0.92, "basket_size": 0.88, "on_account": 1.2 }
+        },
+        "source": "guess",
+        "note": "Multipliers on demand, basket size and the share of on-account payments, per phase."
+      }
+    }
+  },
+
+
+  "sales": {
+    "basket_units": {
+      "value": [
+        0.05313, 0.06541, 0.07387, 0.08053, 0.08611, 0.09095, 0.09997, 0.09724, 0.08877, 0.0794,
+        0.06876, 0.05614, 0.0397, 0.0034, 0.00195, 0.00141, 0.00112, 0.00094, 0.00081, 0.00072,
+        0.00064, 0.00059, 0.00054, 0.0005, 0.00047, 0.00044, 0.00041, 0.00039, 0.00037, 0.00035,
+        0.00034, 0.00032, 0.00031, 0.0003, 0.00029, 0.00028, 0.00027, 0.00026, 0.00025, 0.00024,
+        0.00024, 0.00023, 0.00022, 0.00022, 0.00021, 0.00021, 0.0002, 0.0002, 0.00019, 0.00019
+      ],
+      "source": "guess",
+      "note": "Weights of a basket of 1 … 50 units (Hakim, 14/09): rising to 7, mirrored down to 13, then a thin tail to 50. P(<7) = 0.45, P(7) = 0.10, P(>7) = 0.45; mean 7.2; about 1 basket in 400 has 40 or more. ~420 units a day make ~58 baskets. The pay cycle scales the drawn size."
+    },
+    "substitution_by_tier": {
+      "value": { "1": 0.6, "2": 0.3, "3": 0.05 },
+      "source": "guess",
+      "note": "Chance an out-of-stock line is bought as another variant of the same product: another size of pasta, yes; another brand of coffee, rarely."
+    },
+    "payment_shares": {
+      "value": { "cash": 0.95, "card": 0.04, "mobile_wallet": 0.01 },
+      "source": "guess",
+      "note": "Hakim, 14/09: overwhelmingly cash, a few CIB/Edahabia cards, rare BaridiMob. The tender for whatever store credit and on-account (the mess section) do not cover."
+    },
+    "customer_attach_share": { "value": 0.18, "source": "guess", "note": "Hakim, 14/09: 15–20% of baskets are rung up against an enrolled regular. Regulars differ in how often they come." },
+    "opening_float": { "value": 5000, "source": "guess", "note": "DZD in the drawer at opening: enough change for the morning." }
+  },
+
+
+
+  "supply": {
+    "memory_days": { "value": 14, "source": "guess", "note": "The shopkeeper's sense of a product's pace is the last two weeks of what sold, stockout days included, which is exactly the bias a naive rule has." },
+    "reorder_cover_days": { "value": 4, "source": "guess", "note": "Eyeball threshold: reorder when the shelf plus what is on order would last about four days." },
+    "order_up_to_cover_days": { "value": 12, "source": "guess", "note": "Order enough for about twelve days, rounded up to whole cartons." },
+    "slow_mover_rate": { "value": 0.3, "source": "guess", "note": "Products selling under ~2 a week are not watched: reordered only when the shelf is empty." },
+    "ramadan_over_order": { "value": 1.5, "source": "guess", "note": "Before Ramadan the shopkeeper orders half as much again as usual, across the board." },
+    "ramadan_lookahead_days": { "value": 14, "source": "guess", "note": "Over-ordering starts two weeks before Ramadan and stops when it begins." },
+    "late_delivery_max_days": { "value": 2, "source": "guess", "note": "A delivery comes on its stated lead time or up to two days late, on time being the most likely." },
+    "fill_rate": { "value": 0.92, "source": "guess", "note": "Most order lines arrive in full; distributors run short on the rest." },
+    "short_delivery_fraction": { "value": { "min": 0, "max": 0.8 }, "source": "guess", "note": "A short line brings between none and most of its cartons." },
+    "delivered_shelf_life": { "value": { "min": 0.8, "max": 1.0 }, "source": "guess", "note": "Delivered stock is fresh: 80–100% of its shelf life remaining." },
+    "visit_minutes_after_opening": { "value": 90, "source": "guess", "note": "The distributor's representative passes mid-morning on the supplier's delivery days and takes the order." },
+    "delivery_window_minutes": { "value": 180, "source": "guess", "note": "Deliveries land in the first three hours after opening." }
+  },
+
+
+  "mess": {
+    "discount_line_share": { "value": 0.02, "source": "guess", "note": "About one line in fifty gets a discount: a regular, a short date, a gesture." },
+    "discount_percent": { "value": { "min": 5, "max": 20 }, "source": "guess", "note": "Small discounts, whole percent." },
+    "void_share": { "value": 0.01, "source": "guess", "note": "One basket in a hundred is rung wrongly, voided and rung again." },
+    "return_line_share": { "value": 0.003, "source": "guess", "note": "Returns are rare in an épicerie: a spoiled yoghurt, a wrong size." },
+    "return_delay_days": { "value": { "min": 1, "max": 5 }, "source": "guess", "note": "Brought back within the week." },
+    "restock_share": { "value": 0.4, "source": "guess", "note": "Most returned goods cannot be sold again." },
+    "store_credit_refund_share": { "value": 0.5, "source": "guess", "note": "A regular is often refunded in store credit rather than cash." },
+    "store_credit_use_share": { "value": 0.8, "source": "guess", "note": "A regular holding credit usually spends it on the next basket." },
+    "on_account_share": { "value": 0.15, "source": "guess", "note": "A regular's basket goes on the tab (le carnet) this often in an ordinary week; calendar.payday.effects scales it up before payday." },
+    "paid_out_daily_chance": { "value": 0.25, "source": "guess", "note": "Cash taken from the drawer for small purchases a couple of times a week." },
+    "paid_out_amount": { "value": { "min": 200, "max": 1500 }, "source": "guess", "note": "DZD: bread for the shop, a repair, a delivery tip." },
+    "paid_in_daily_chance": { "value": 0.05, "source": "guess", "note": "The float is occasionally topped up at opening." },
+    "paid_in_amount": { "value": { "min": 1000, "max": 3000 }, "source": "guess", "note": "DZD of change brought in." },
+    "drop_threshold": { "value": 20000, "source": "guess", "note": "At the midday break, cash beyond 20,000 DZD above the float goes to the safe." },
+    "cash_count_discrepancy_chance": { "value": 0.08, "source": "guess", "note": "About one close in twelve counts wrong." },
+    "cash_count_discrepancy_max": { "value": 300, "source": "guess", "note": "DZD either way, in 5 DZD steps: change given wrongly, a note miscounted." },
+    "count_interval_days": { "value": 7, "source": "guess", "note": "One subcategory is counted before opening once a week, in turn." },
+    "count_shrinkage_chance": { "value": 0.08, "source": "guess", "note": "A counted lot is found short by a unit or a few: theft, breakage, a mis-scan never corrected." },
+    "count_found_chance": { "value": 0.02, "source": "guess", "note": "Occasionally a unit turns up that the system did not know about." },
+    "reason_codes": {
+      "discount": [ "DISC-FIDELITE", "DISC-DATE-COURTE", "DISC-GESTE" ],
+      "void": [ "ANNUL-ERREUR", "ANNUL-CLIENT" ],
+      "return": [ "RETOUR-DEFECTUEUX", "RETOUR-PERIME", "RETOUR-AVIS" ],
+      "paid_out": [ "CAISSE-ACHAT" ],
+      "paid_in": [ "CAISSE-APPORT" ],
+      "drop": [ "CAISSE-DEPOT" ]
+    }
+  },
+
+
+
+
+  "connectivity": {
+    "profile": "always_on",
+    "drain_interval_minutes": { "value": 3, "source": "guess", "note": "sync-design §10.2: the idle poll. Backoff after a failure is not modelled; the cap (5 min) is close to this interval." },
+    "batch_size": { "value": 500, "source": "guess", "note": "sync-design §10.3: 500 events a round trip, with no separate catch-up mode." },
+    "flaky_link_up_share": { "value": 0.7, "source": "guess", "note": "A consumer 4G router: up about seven hours in ten, hour by hour." },
+    "offline_start_day": { "value": 150, "source": "guess", "note": "An outage early in June, away from Ramadan." },
+    "offline_days": { "value": 21, "source": "guess", "note": "sync-design §10.3's own example: three weeks offline." }
+  },
+
+
+
+  "seasonality_profiles": {
+    "flat": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1, "ramadan": 1, "aid": 1, "post_aid": 1 }, "events": {} }, "source": "guess", "note": "No seasonality: feminine hygiene." },
+    "staples": { "value": { "months": [1, 1, 1, 1, 1, 1, 0.95, 0.95, 1.05, 1, 1, 1], "ramadan": { "stock_up": 1.3, "ramadan": 1.15, "aid": 0.8, "post_aid": 0.9 }, "events": { "aid_al_adha_prep": 1.1 } }, "source": "guess", "note": "Pasta, couscous, oil, margarine: steady, stocked up before Ramadan." },
+    "ramadan_staples": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.8, "ramadan": 1.6, "aid": 0.7, "post_aid": 0.8 }, "events": { "aid_al_adha_prep": 1.2 } }, "source": "guess", "note": "Chorba and hrira base: vermicelli, chickpeas, tomato paste, semolina, sugar." },
+    "ramadan_cooking": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.5, "ramadan": 1.4, "aid": 0.9, "post_aid": 0.85 }, "events": { "aid_al_adha_prep": 1.5, "aid_al_adha": 1.2 } }, "source": "guess", "note": "Smen, cream, tuna, olives, harissa: bourek and iftar dishes." },
+    "ramadan_sweets": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.5, "ramadan": 2.0, "aid": 1.3, "post_aid": 0.6 }, "events": { "aid_al_adha_prep": 1.2 } }, "source": "guess", "note": "Halwa chamia, honey, syrups, orange-blossom water." },
+    "ramadan_baking": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.2, "ramadan": 1.5, "aid": 0.8, "post_aid": 0.7 }, "events": { "aid_al_adha_prep": 1.3 } }, "source": "guess", "note": "Flour and glucose for Aïd cakes, baked in the last days of Ramadan." },
+    "ramadan_fresh": { "value": { "months": [0.9, 0.9, 1, 1, 1.05, 1.15, 1.2, 1.2, 1.05, 1, 0.95, 0.9], "ramadan": { "stock_up": 1.1, "ramadan": 2.2, "aid": 1.0, "post_aid": 0.9 }, "events": {} }, "source": "guess", "note": "Lben at the iftar table, and in summer." },
+    "dairy_fresh": { "value": { "months": [0.95, 0.95, 1, 1, 1.05, 1.1, 1.1, 1.1, 1, 1, 0.95, 0.95], "ramadan": { "stock_up": 1.0, "ramadan": 1.3, "aid": 0.9, "post_aid": 0.95 }, "events": {} }, "source": "guess", "note": "Yoghurt: slightly up in summer and at suhur." },
+    "dairy_stable": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.15, "ramadan": 1.15, "aid": 0.9, "post_aid": 0.95 }, "events": {} }, "source": "guess", "note": "UHT milk and processed cheese." },
+    "beverages_summer": { "value": { "months": [0.8, 0.8, 0.9, 1, 1.15, 1.4, 1.55, 1.5, 1.2, 1, 0.85, 0.8], "ramadan": { "stock_up": 1.0, "ramadan": 1.3, "aid": 1.4, "post_aid": 1.0 }, "events": { "aid_al_adha": 1.3 } }, "source": "guess", "note": "Sodas and energy drinks: heat, iftar and family gatherings." },
+    "water_summer": { "value": { "months": [0.8, 0.8, 0.9, 1, 1.2, 1.5, 1.65, 1.6, 1.25, 1, 0.85, 0.8], "ramadan": { "stock_up": 1.0, "ramadan": 1.2, "aid": 1.2, "post_aid": 1.0 }, "events": {} }, "source": "guess", "note": "Bottled water tracks temperature." },
+    "juice": { "value": { "months": [0.9, 0.9, 1, 1, 1.1, 1.2, 1.25, 1.25, 1.1, 1, 0.95, 0.9], "ramadan": { "stock_up": 1.1, "ramadan": 1.8, "aid": 1.3, "post_aid": 0.9 }, "events": {} }, "source": "guess", "note": "Nectars are an iftar staple." },
+    "snacks": { "value": { "months": [1, 1, 1, 1, 1.05, 1.15, 1.2, 1.2, 1.05, 1, 1, 1], "ramadan": { "stock_up": 1.0, "ramadan": 0.7, "aid": 1.2, "post_aid": 1.1 }, "events": { "back_to_school": 1.2 } }, "source": "guess", "note": "Biscuits, chips, chocolate: daytime impulse buys fall while fasting." },
+    "sweets": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.0, "ramadan": 0.9, "aid": 1.1, "post_aid": 1.0 }, "events": {} }, "source": "guess", "note": "Spreads: household, not impulse." },
+    "sauces": { "value": { "months": [0.95, 0.95, 1, 1, 1.05, 1.15, 1.15, 1.15, 1, 1, 0.95, 0.95], "ramadan": { "stock_up": 1.1, "ramadan": 1.1, "aid": 0.9, "post_aid": 1.0 }, "events": {} }, "source": "guess", "note": "Mayonnaise and sauces: summer sandwiches." },
+    "spices": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.4, "ramadan": 1.3, "aid": 0.9, "post_aid": 0.9 }, "events": { "aid_al_adha_prep": 1.8, "aid_al_adha": 1.3 } }, "source": "guess", "note": "Ras el hanout, cumin: Ramadan cooking and the Aïd al-Adha meat." },
+    "coffee_tea": { "value": { "months": [1.1, 1.1, 1.05, 1, 0.95, 0.9, 0.85, 0.85, 0.95, 1, 1.05, 1.1], "ramadan": { "stock_up": 1.2, "ramadan": 1.1, "aid": 1.2, "post_aid": 0.95 }, "events": {} }, "source": "guess", "note": "Hot drinks: winter, Ramadan evenings, Aïd visits." },
+    "breakfast": { "value": { "months": [1, 1, 1, 1, 1, 0.95, 0.85, 0.9, 1.25, 1.1, 1, 1], "ramadan": { "stock_up": 0.9, "ramadan": 0.7, "aid": 1.0, "post_aid": 1.0 }, "events": { "back_to_school": 1.3 } }, "source": "guess", "note": "Cereals and chocolate powder: school breakfasts, none during the fast." },
+    "baby": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1, "ramadan": 1, "aid": 1, "post_aid": 1 }, "events": {} }, "source": "guess", "note": "Baby food and nappies do not follow the calendar." },
+    "hygiene": { "value": { "months": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.1, "ramadan": 1.0, "aid": 0.9, "post_aid": 1.0 }, "events": { "aid_al_adha_prep": 1.1 } }, "source": "guess", "note": "Soap, shampoo, paper: a small pre-Ramadan stock-up." },
+    "hygiene_summer": { "value": { "months": [0.8, 0.8, 0.9, 1, 1.1, 1.3, 1.4, 1.4, 1.1, 1, 0.85, 0.8], "ramadan": { "stock_up": 1, "ramadan": 1, "aid": 1, "post_aid": 1 }, "events": {} }, "source": "guess", "note": "Deodorant tracks temperature." },
+    "cleaning": { "value": { "months": [1, 1, 1.1, 1.1, 1, 1, 1, 1, 1, 1, 1, 1], "ramadan": { "stock_up": 1.5, "ramadan": 1.0, "aid": 0.8, "post_aid": 0.95 }, "events": { "aid_al_adha_prep": 1.3 } }, "source": "guess", "note": "The house is cleaned top to bottom before Ramadan and before Aïd al-Adha." },
+    "insecticide_summer": { "value": { "months": [0.3, 0.3, 0.5, 0.8, 1.3, 2.0, 2.5, 2.5, 1.6, 0.9, 0.5, 0.3], "ramadan": { "stock_up": 1, "ramadan": 1, "aid": 1, "post_aid": 1 }, "events": {} }, "source": "guess", "note": "Mosquitoes and flies: strongly seasonal." }
+  }
+}

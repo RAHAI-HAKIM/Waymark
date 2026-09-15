@@ -1,0 +1,3 @@
+unit_code,name_fr,name_ar,dimension,base_unit_code,factor_to_base,decimal_places
+piece,pièce,قطعة,count,,1000000,0
+carton,carton,كرتونة,count,,1000000,0

@@ -498,6 +498,98 @@ public sealed class ArchitectureTests
             + "Its Level-2 cache is its own SQLite file with its own schema, never the store's.");
     }
 
+    // -----------------------------------------------------------------------
+    // The synthetic store generator
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Nothing that ships depends on the generator (D-046).
+    ///
+    /// <para>
+    /// The generator is a simulator that writes rows the application never would —
+    /// a year of history in one run, entities built without handlers. A production
+    /// project that could call into it could fabricate store data. Only test
+    /// projects may reference it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Nothing_that_ships_references_the_generator()
+    {
+        var root = SourceRoot();
+
+        var offenders = Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories)
+            .Where(path => !IsUnder(path, Path.Combine(root, "tests")))
+            .Where(path => !string.Equals(Path.GetFileNameWithoutExtension(path), "Waymark.Generator", StringComparison.Ordinal))
+            .Where(path => !IsUnder(path, Path.Combine(root, "Waymark.Generator", "bin"))
+                           && !IsUnder(path, Path.Combine(root, "Waymark.Generator", "obj")))
+            .Where(path => ProjectClosure(path).ContainsKey("Waymark.Generator"))
+            .Select(Path.GetFileNameWithoutExtension)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "A production project can reach Waymark.Generator:\n  "
+            + string.Join("\n  ", offenders)
+            + "\n\nThe generator fabricates store history for tests and demos. Only test "
+            + "projects may reference it (D-046).");
+    }
+
+    /// <summary>
+    /// The generator reaches only what a simulated store needs.
+    ///
+    /// <para>
+    /// It writes a store database, so Domain, Application, Persistence and Contracts.
+    /// It must not hold the tenant key (Pseudonymisation), drive sync (Sync), open
+    /// hardware, or embed either host. Checked transitively on the project graph, as
+    /// for the POS rule above.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_generator_reaches_nothing_beyond_a_store_database()
+    {
+        string[] forbidden = ["Waymark.Pseudonymisation", "Waymark.Sync", "Waymark.Hardware", "Waymark.StoreServer", "Waymark.Pos"];
+
+        var generator = Path.Combine(SourceRoot(), "Waymark.Generator", "Waymark.Generator.csproj");
+
+        var offenders = ProjectClosure(generator).Keys
+            .Where(project => forbidden.Contains(project, StringComparer.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "Waymark.Generator can reach:\n  "
+            + string.Join("\n  ", offenders)
+            + "\n\nIt simulates a store database and nothing else (D-046).");
+    }
+
+    /// <summary>
+    /// The generator's randomness is not cryptography.
+    ///
+    /// <para>
+    /// <c>Draw(stream, coords)</c> is a plain mixing function, deliberately. A hash
+    /// primitive from <c>System.Security.Cryptography</c> would put a second
+    /// HMAC-capable place in the codebase next to the one that holds the tenant key,
+    /// which <see cref="Only_Pseudonymisation_may_compute_a_pseudonym"/> exists to
+    /// prevent everywhere else.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_generator_uses_no_cryptography()
+    {
+        var result = Types.InAssembly(typeof(Waymark.Generator.AssemblyMarker).Assembly)
+            .ShouldNot()
+            .HaveDependencyOn("System.Security.Cryptography")
+            .GetResult();
+
+        Assert.True(result.IsSuccessful, Explain(result, "Waymark.Generator reached for cryptography. Its randomness is a plain mixing function."));
+    }
+
+    private static bool IsUnder(string path, string directory) =>
+        Path.GetFullPath(path).StartsWith(
+            Path.GetFullPath(directory) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Every project reachable from <paramref name="csproj"/> by
     /// <c>ProjectReference</c>, itself included, mapped to the packages it references.

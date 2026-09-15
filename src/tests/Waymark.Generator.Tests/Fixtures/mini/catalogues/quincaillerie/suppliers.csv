@@ -1,0 +1,3 @@
+supplier_code,company_name,delivery_days,stated_lead_time_days,net_days
+Q-OUT,Outillage Grossiste,mon|wed,3,30
+Q-PEI,Peintures Distribution,sun,5,15

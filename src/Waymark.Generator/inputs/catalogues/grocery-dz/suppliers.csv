@@ -1,0 +1,6 @@
+supplier_code,company_name,delivery_days,stated_lead_time_days,net_days
+SUP-LAIT,Laiterie & Frais Distribution,sun|mon|tue|wed|thu|sat,1,0
+SUP-CEVI,Cevital Distribution Régionale,sun|wed,2,15
+SUP-EPIC,Grossiste Épicerie Générale,mon|thu,2,7
+SUP-BOIS,Boissons & Biscuiterie Distribution,tue|sat,1,0
+SUP-DROG,Droguerie & Hygiène Distribution,wed,3,15

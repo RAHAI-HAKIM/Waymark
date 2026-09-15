@@ -38,6 +38,7 @@ POS · StoreServer · Admin API → Application → Domain ← Persistence · Ha
 - Infrastructure implements interfaces **declared in Domain**. Domain never names SQLite.
 - **`Waymark.Sync` must never reference `Waymark.Pseudonymisation`, nor touch `Waymark.Domain.Privacy`.** A legal boundary, not a style preference (D-039, D-051).
 - No SQL, no EF Core types, no HTTP outside Persistence, Sync and the hosts.
+- **`Waymark.Generator` is a tool host** (D-054): nothing that ships references it, and it reaches none of Pseudonymisation, Sync, Hardware, the hosts or cryptography.
 - Adding a project reference is an architecture change. Ask first.
 
 ### 2.2 The POS talks HTTP to StoreServer
@@ -185,7 +186,7 @@ logic. **Low priority:** UI rendering, CRUD screens, styling.
 - **Prove a test can fail.** Break the code, watch the right test fail, restore. A mutation the *compiler* catches proves nothing about the test.
 - Domain tests need no database. Integration tests run against a real temporary SQLite file, never in-memory.
 - Architecture tests (NetArchTest) enforce §2 and must fail when a forbidden reference is added.
-- The synthetic store generator is deterministic from a seed. Tests depend on that.
+- The synthetic store generator is deterministic from a seed, **compared as a canonical dump, never file bytes**. Tests depend on that.
 - Plain xUnit `Assert`, no assertion library (D-047).
 
 ---

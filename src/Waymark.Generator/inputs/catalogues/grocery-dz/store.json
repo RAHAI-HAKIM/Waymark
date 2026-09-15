@@ -1,0 +1,65 @@
+{
+
+
+  "store_code": "GDZ-001",
+  "store_name": "Épicerie de démonstration Waymark",
+  "store_type": "grocery",
+  "address": "Adresse synthétique, Alger",
+  "currency": "DZD",
+  "rounding_policy": "half_up",
+
+  "utc_offset_hours": 1,
+
+  "terminals": [ "Caisse 1" ],
+
+  "roles": [
+    { "code": "owner", "rank": 3, "label_fr": "Gérant", "label_ar": "المسير" },
+    { "code": "manager", "rank": 2, "label_fr": "Responsable", "label_ar": "المسؤول" },
+    { "code": "cashier", "rank": 1, "label_fr": "Caissier", "label_ar": "أمين الصندوق" }
+  ],
+
+
+  "manager_role": "owner",
+  "staff": [
+    { "name": "Gérant (synthétique)", "role": "owner", "joined": "2019-06-01" },
+    { "name": "Caissier A (synthétique)", "role": "cashier", "joined": "2022-03-15" },
+    { "name": "Caissier B (synthétique)", "role": "cashier", "joined": "2024-09-01" }
+  ],
+
+
+
+  "opening_hours": {
+    "normal": [ "07:00-13:00", "14:00-22:00" ],
+    "friday": [ "07:00-12:15", "14:30-22:00" ],
+    "ramadan": [ "09:00-18:30", "20:30-24:00" ],
+    "aid": [ "15:00-21:00" ]
+  },
+
+  "reason_codes": [
+    { "code": "DISC-FIDELITE", "applies_to": "discount", "label_fr": "Remise fidélité", "label_ar": "تخفيض الوفاء" },
+    { "code": "DISC-DATE-COURTE", "applies_to": "discount", "label_fr": "Date courte", "label_ar": "تاريخ صلاحية قريب" },
+    { "code": "DISC-GESTE", "applies_to": "discount", "label_fr": "Geste commercial", "label_ar": "بادرة تجارية", "requires_manager": true },
+    { "code": "PRIX-ETIQUETTE", "applies_to": "price_override", "label_fr": "Erreur d'étiquette", "label_ar": "خطأ في الملصق", "requires_manager": true },
+    { "code": "AJUST-CASSE", "applies_to": "adjustment", "label_fr": "Casse constatée", "label_ar": "كسر" },
+    { "code": "AJUST-ERREUR", "applies_to": "adjustment", "label_fr": "Erreur de saisie", "label_ar": "خطأ في الإدخال", "requires_note": true },
+    { "code": "ANNUL-ERREUR", "applies_to": "void", "label_fr": "Erreur de saisie", "label_ar": "خطأ في الإدخال" },
+    { "code": "ANNUL-CLIENT", "applies_to": "void", "label_fr": "Client renonce", "label_ar": "تراجع الزبون" },
+    { "code": "RETOUR-DEFECTUEUX", "applies_to": "return", "label_fr": "Produit défectueux", "label_ar": "منتج معيب" },
+    { "code": "RETOUR-PERIME", "applies_to": "return", "label_fr": "Produit périmé", "label_ar": "منتج منتهي الصلاحية" },
+    { "code": "RETOUR-AVIS", "applies_to": "return", "label_fr": "Changement d'avis", "label_ar": "تغيير الرأي", "requires_manager": true },
+    { "code": "TIROIR-MONNAIE", "applies_to": "no_sale", "label_fr": "Faire de la monnaie", "label_ar": "صرف النقود", "requires_manager": true },
+    { "code": "CAISSE-DEPOT", "applies_to": "cash_movement", "label_fr": "Dépôt en banque", "label_ar": "إيداع في البنك" },
+    { "code": "CAISSE-ACHAT", "applies_to": "cash_movement", "label_fr": "Achat divers", "label_ar": "مشتريات متنوعة", "requires_note": true },
+    { "code": "CAISSE-APPORT", "applies_to": "cash_movement", "label_fr": "Apport de fond de caisse", "label_ar": "تزويد الصندوق" },
+    { "code": "PERTE-PEREMPTION", "applies_to": "write_off", "label_fr": "Produit périmé", "label_ar": "منتهي الصلاحية" },
+    { "code": "PERTE-CASSE", "applies_to": "write_off", "label_fr": "Casse", "label_ar": "كسر" },
+    { "code": "PERTE-VOL", "applies_to": "write_off", "label_fr": "Vol constaté", "label_ar": "سرقة", "requires_manager": true }
+  ],
+
+  
+  "notices": [
+    { "code": "processing-ar-v1", "type": "processing", "language": "ar", "body": "نص إشعار تركيبي لبيانات العرض فقط." },
+    { "code": "marketing-ar-v1", "type": "marketing", "language": "ar", "body": "نص إشعار تركيبي لبيانات العرض فقط." },
+    { "code": "staff-fr-v1", "type": "staff", "language": "fr", "body": "Texte de notice synthétique, pour les données de démonstration uniquement." }
+  ]
+}

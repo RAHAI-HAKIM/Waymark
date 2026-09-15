@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The synthetic store generator, tested by what it produces.
+
+    Its own project: runs here build whole simulated stores, which is neither the
+    no-database Domain suite nor the schema-invariant Integration suite. Most
+    tests use a small catalogue and a short history so the suite stays fast;
+    determinism is compared on a canonical dump, never on file bytes (D-046).
+  -->
+
+  <ItemGroup>
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Waymark.Generator\Waymark.Generator.csproj" />
+    <ProjectReference Include="..\..\Waymark.Domain\Waymark.Domain.csproj" />
+    <ProjectReference Include="..\..\Waymark.Persistence\Waymark.Persistence.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,7 @@
+sku,barcode,category,subcategory,product_name,variant_name,net_content,selling_unit,retail_price_dzd,purchase_price_dzd,supplier_code,purchase_unit,units_per_purchase_unit,shelf_life_days,base_daily_rate,seasonality_profile,substitutability_tier
+MQ-01,2990000000019,Outillage,Outils à main,Marteau Menuisier,Manche Bois 500g,500 g,piece,850.00,600.00,Q-OUT,boite,6,,0.6,tools,2
+MQ-02,2990000000026,Outillage,Outils à main,Marteau Menuisier,Manche Fibre 500g,500 g,piece,1100.00,760.00,Q-OUT,boite,6,,0.3,tools,2
+MQ-03,2990000000033,Outillage,Outils à main,Tournevis Plat,Lame 5mm,1 pcs,piece,250.00,170.00,Q-OUT,boite,12,,1.1,tools,1
+MQ-04,2990000000040,Outillage,Fixations,Vis à Bois,Boîte 100p 4x40,100 pcs,piece,322.50,210.00,Q-OUT,boite,20,,2.0,flat,1
+MQ-05,2990000000057,"Peinture, Colles",Peintures,Peinture Murale Blanche,Pot 5L,5000 ml,piece,3200.00,2300.00,Q-PEI,boite,4,720,0.4,flat,3
+MQ-06,2990000000064,"Peinture, Colles",Peintures,Peinture Murale Blanche,Pot 1L,1000 ml,piece,898.00,640.00,Q-PEI,boite,6,720,0.7,flat,3
