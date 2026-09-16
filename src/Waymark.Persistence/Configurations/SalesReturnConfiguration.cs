@@ -49,6 +49,8 @@ internal sealed class SalesReturnConfiguration : IEntityTypeConfiguration<SalesR
             .HasColumnName("return_id");
         builder.Property(x => x.TransactionItemId)
             .HasColumnName("transaction_item_id");
+        builder.Property(x => x.RefundTransactionItemId)
+            .HasColumnName("refund_transaction_item_id");
         builder.Property(x => x.StoreId)
             .HasColumnName("store_id");
         builder.Property(x => x.TerminalId)
@@ -116,6 +118,11 @@ internal sealed class SalesReturnConfiguration : IEntityTypeConfiguration<SalesR
         builder.HasOne<TransactionItem>()
             .WithMany()
             .HasForeignKey(x => x.TransactionItemId)
+            .HasPrincipalKey(x => x.TransactionItemId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<TransactionItem>()
+            .WithMany()
+            .HasForeignKey(x => x.RefundTransactionItemId)
             .HasPrincipalKey(x => x.TransactionItemId)
             .OnDelete(DeleteBehavior.NoAction);
     }

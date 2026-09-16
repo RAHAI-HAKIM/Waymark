@@ -80,6 +80,20 @@ BEGIN
     SELECT RAISE(ABORT, 'credit_movements is append-only');
 END;
 
+DROP TRIGGER IF EXISTS trg_receivable_movements_no_update;
+CREATE TRIGGER trg_receivable_movements_no_update
+BEFORE UPDATE ON receivable_movements
+BEGIN
+    SELECT RAISE(ABORT, 'receivable_movements is append-only: post a reversing movement');
+END;
+
+DROP TRIGGER IF EXISTS trg_receivable_movements_no_delete;
+CREATE TRIGGER trg_receivable_movements_no_delete
+BEFORE DELETE ON receivable_movements
+BEGIN
+    SELECT RAISE(ABORT, 'receivable_movements is append-only');
+END;
+
 DROP TRIGGER IF EXISTS trg_rec_decisions_no_update;
 CREATE TRIGGER trg_rec_decisions_no_update
 BEFORE UPDATE ON recommendation_decisions

@@ -674,6 +674,24 @@ CREATE TABLE "reason_codes" (
     CONSTRAINT "ck_reason_codes_requires_note" CHECK (requires_note IN (0,1))
 ) STRICT;
 
+CREATE TABLE "receivable_movements" (
+    "movement_id" TEXT NOT NULL CONSTRAINT "PK_receivable_movements" PRIMARY KEY,
+    "store_id" TEXT NOT NULL,
+    "customer_id" TEXT NOT NULL,
+    "movement_type" TEXT NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "occured_at" TEXT NOT NULL,
+    "payment_id" TEXT NULL,
+    "reason_code" TEXT NULL,
+    "staff_id" TEXT NULL,
+    CONSTRAINT "ck_credit_movements_amount" CHECK (amount <> 0),
+    CONSTRAINT "ck_receivable_movements_movement_type" CHECK (movement_type IN ('charge', 'payment', 'adjustment', 'write_off')),
+    CONSTRAINT "FK_receivable_movements_customers_customer_id" FOREIGN KEY ("customer_id") REFERENCES "customers" ("customer_id"),
+    CONSTRAINT "FK_receivable_movements_reason_codes_reason_code" FOREIGN KEY ("reason_code") REFERENCES "reason_codes" ("reason_code"),
+    CONSTRAINT "FK_receivable_movements_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id"),
+    CONSTRAINT "FK_receivable_movements_transaction_payments_payment_id" FOREIGN KEY ("payment_id") REFERENCES "transaction_payments" ("payment_id")
+) STRICT;
+
 CREATE TABLE "recommendation_decisions" (
     "decision_id" TEXT NOT NULL CONSTRAINT "PK_recommendation_decisions" PRIMARY KEY,
     "recommendation_id" TEXT NOT NULL,
@@ -755,19 +773,20 @@ CREATE TABLE "retention_policies" (
 
 CREATE TABLE "returns" (
     "return_id" TEXT NOT NULL CONSTRAINT "PK_returns" PRIMARY KEY,
-    "transaction_item_id" TEXT NOT NULL,
-    "store_id" TEXT NOT NULL,
-    "terminal_id" TEXT NULL,
-    "batch_id" TEXT NULL,
-    "staff_id" TEXT NOT NULL,
     "approved_by" TEXT NULL,
+    "batch_id" TEXT NULL,
+    "created_at" TEXT NOT NULL,
+    "note" TEXT NULL,
     "quantity_returned" INTEGER NOT NULL,
+    "reason_code" TEXT NOT NULL,
     "refund_amount" INTEGER NOT NULL,
     "refund_method" TEXT NOT NULL,
+    "refund_transaction_item_id" TEXT NULL,
     "restock_flag" INTEGER NOT NULL,
-    "reason_code" TEXT NOT NULL,
-    "note" TEXT NULL,
-    "created_at" TEXT NOT NULL,
+    "staff_id" TEXT NOT NULL,
+    "store_id" TEXT NOT NULL,
+    "terminal_id" TEXT NULL,
+    "transaction_item_id" TEXT NOT NULL,
     CONSTRAINT "ck_returns_quantity_returned" CHECK (quantity_returned > 0),
     CONSTRAINT "ck_returns_refund_amount" CHECK (refund_amount >= 0),
     CONSTRAINT "ck_returns_refund_method" CHECK (refund_method IN ('cash','card','store_credit','exchange')),
@@ -778,6 +797,7 @@ CREATE TABLE "returns" (
     CONSTRAINT "FK_returns_staff_staff_id" FOREIGN KEY ("staff_id") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_returns_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id"),
     CONSTRAINT "FK_returns_terminals_terminal_id" FOREIGN KEY ("terminal_id") REFERENCES "terminals" ("terminal_id"),
+    CONSTRAINT "FK_returns_transaction_items_refund_transaction_item_id" FOREIGN KEY ("refund_transaction_item_id") REFERENCES "transaction_items" ("transaction_item_id"),
     CONSTRAINT "FK_returns_transaction_items_transaction_item_id" FOREIGN KEY ("transaction_item_id") REFERENCES "transaction_items" ("transaction_item_id")
 ) STRICT;
 
@@ -1294,6 +1314,8 @@ CREATE INDEX "ix_rec_decisions_rec" ON "recommendation_decisions" ("recommendati
 
 CREATE INDEX "ix_rec_options_rec" ON "recommendation_options" ("recommendation_id");
 
+CREATE INDEX "ix_receivable_movements_customer_id_occured_at" ON "receivable_movements" ("customer_id", "occured_at");
+
 CREATE INDEX "ix_recs_dedupe" ON "recommendations" ("store_id", "recommendation_type", "subject_type", "subject_id");
 
 CREATE INDEX "ix_recs_pending" ON "recommendations" ("store_id", "status", "urgency") WHERE status IN ('pending','delivered');
@@ -1414,6 +1436,18 @@ BEFORE UPDATE ON recommendation_decisions
     WHEN OLD.applied_at IS NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'a decision cannot be changed once applied');
+END;
+
+CREATE TRIGGER trg_receivable_movements_no_delete
+BEFORE DELETE ON receivable_movements
+BEGIN
+    SELECT RAISE(ABORT, 'receivable_movements is append-only');
+END;
+
+CREATE TRIGGER trg_receivable_movements_no_update
+BEFORE UPDATE ON receivable_movements
+BEGIN
+    SELECT RAISE(ABORT, 'receivable_movements is append-only: post a reversing movement');
 END;
 
 CREATE TRIGGER trg_rounding_variance_no_delete

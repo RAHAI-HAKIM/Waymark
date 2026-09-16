@@ -188,6 +188,9 @@ internal static class EnumConverters
     public static readonly ValueConverter<ReasonCodeAppliesTo, string> ReasonCodeAppliesToConverter =
         new(value => ToDatabase(value), text => ToReasonCodeAppliesTo(text));
 
+    public static readonly ValueConverter<ReceivableMovementType, string> ReceivableMovementTypeConverter =
+        new(value => ToDatabase(value), text => ToReceivableMovementType(text));
+
     public static readonly ValueConverter<RecommendationStatus, string> RecommendationStatusConverter =
         new(value => ToDatabase(value), text => ToRecommendationStatus(text));
 
@@ -1280,6 +1283,26 @@ internal static class EnumConverters
         "write_off" => ReasonCodeAppliesTo.WriteOff,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown ReasonCodeAppliesTo value in the database.")
+    };
+
+    private static string ToDatabase(ReceivableMovementType value) => value switch
+    {
+        ReceivableMovementType.Charge => "charge",
+        ReceivableMovementType.Adjustment => "adjustment",
+        ReceivableMovementType.Payment => "payment",
+        ReceivableMovementType.WriteOff => "write_off",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped ReceivableMovementType.")
+    };
+
+    private static ReceivableMovementType ToReceivableMovementType(string text) => text switch
+    {
+        "charge" => ReceivableMovementType.Charge,
+        "adjustment" => ReceivableMovementType.Adjustment,
+        "payment" => ReceivableMovementType.Payment,
+        "write_off" => ReceivableMovementType.WriteOff,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown ReceivableMovementType value in the database.")
     };
 
     private static string ToDatabase(RecommendationStatus value) => value switch

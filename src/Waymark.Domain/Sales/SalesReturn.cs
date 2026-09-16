@@ -27,7 +27,7 @@ public sealed class SalesReturn : IStoreScoped
     public required string ReturnId { get; init; }
 
     public required string TransactionItemId { get; init; }
-
+    public string? RefundTransactionItemId { get; init; }
     public required string StoreId { get; init; }
 
     public string? TerminalId { get; init; }

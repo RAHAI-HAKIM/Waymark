@@ -6,7 +6,8 @@ These are constraints, not suggestions. Most are silently wrong if broken: the c
 compiles, the tests pass, and the damage appears months later.
 **If a rule here blocks a task, stop and ask. Do not work around it.**
 
-This file is the rule; the `D-nnn` beside it is the argument, in `/docs/decisions.md`.
+This file is the rule; the `D-nnn` beside it is the argument, in `/docs/decisions.md`
+However, a finished phases's decision has only a title and the reasoning lives in its recap file.
 Follow a reference only when you need the reasoning or are about to change the rule.
 **Start each session with `/docs/status.md`**: where the work stands, the open findings,
 and what is next. `/docs/README.md` is the index.
