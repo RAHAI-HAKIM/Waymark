@@ -206,8 +206,26 @@ internal static class DistributionReport
             ["Voided ringings", N(S(db, "SELECT count(*) FROM transactions WHERE status = 'voided'"))],
             ["Returns", $"{N(S(db, "SELECT count(*) FROM returns"))}, {M(S(db, "SELECT coalesce(sum(refund_amount), 0) FROM returns"))}, {Percent(Share(S(db, "SELECT count(*) FROM returns WHERE restock_flag = 1"), S(db, "SELECT count(*) FROM returns")))} restocked"],
             ["Store credit held at the end", M(S(db, "SELECT coalesce(sum(credit), 0) FROM customers"))],
-            ["On account (never settled: F-16)", M(S(db, "SELECT coalesce(sum(amount), 0) FROM transaction_payments WHERE payment_method = 'on_account'"))],
             ["Sales rung up against a regular", Percent(Share(S(db, "SELECT count(*) FROM transactions WHERE status <> 'voided' AND original_transaction_id IS NULL AND customer_id IS NOT NULL"), sales.Count))],
+        ]);
+
+        // ---------------------------------------------------------------- the tab
+        Line(md, "## The tab (on account)");
+        Line(md);
+        var payday = config.Calendar.Payday;
+        var repaid = Rows(db, "SELECT date(occurred_at) FROM receivable_movements WHERE movement_type = 'payment'")
+            .Select(r => DateOnly.ParseExact((string)r[0], "yyyy-MM-dd", Invariant)).ToList();
+        var inSpike = repaid.Count(day => day.Day <= payday.SpikeFirstDaysOfMonth.Value
+            || day.Day > DateTime.DaysInMonth(day.Year, day.Month) - payday.SpikeLastDaysOfMonth.Value);
+        Table(md, ["", "Value"], [
+            ["Customers with a tab", $"{N(S(db, "SELECT count(*) FROM customers WHERE credit_limit IS NOT NULL"))} of {N(S(db, "SELECT count(*) FROM customers"))}, limits {M(S(db, "SELECT coalesce(min(credit_limit), 0) FROM customers"))} to {M(S(db, "SELECT coalesce(max(credit_limit), 0) FROM customers"))}"],
+            ["Charged (sales)", $"{N(S(db, "SELECT count(*) FROM receivable_movements WHERE movement_type = 'charge' AND amount > 0"))}, {M(S(db, "SELECT coalesce(sum(amount), 0) FROM receivable_movements WHERE movement_type = 'charge' AND amount > 0"))}"],
+            ["Taken off by refunds", $"{N(S(db, "SELECT count(*) FROM receivable_movements WHERE movement_type = 'charge' AND amount < 0"))}, {M(-S(db, "SELECT coalesce(sum(amount), 0) FROM receivable_movements WHERE movement_type = 'charge' AND amount < 0"))}"],
+            ["Repaid", $"{N(repaid.Count)}, {M(-S(db, "SELECT coalesce(sum(amount), 0) FROM receivable_movements WHERE movement_type = 'payment'"))}, {Percent(Share(inSpike, repaid.Count))} in the payday spike"],
+            ["Change written off", $"{N(S(db, "SELECT count(*) FROM receivable_movements WHERE movement_type = 'write_off'"))}, {M(-S(db, "SELECT coalesce(sum(amount), 0) FROM receivable_movements WHERE movement_type = 'write_off'"))}"],
+            ["Owed at the end", $"{M(S(db, "SELECT coalesce(sum(amount), 0) FROM receivable_movements"))} by {N(S(db, "SELECT count(*) FROM (SELECT 1 FROM receivable_movements GROUP BY customer_id HAVING sum(amount) > 0)"))} customers"],
+            ["Tabs never repaid", N(S(db, "SELECT count(*) FROM (SELECT 1 FROM receivable_movements GROUP BY customer_id HAVING sum(movement_type = 'payment') = 0 AND sum(amount) > 0)"))],
+            ["Tabs at 90% of their limit or more at the end", N(S(db, "SELECT count(*) FROM customers c WHERE c.credit_limit IS NOT NULL AND (SELECT coalesce(sum(amount), 0) FROM receivable_movements m WHERE m.customer_id = c.customer_id) * 10 >= c.credit_limit * 9"))],
         ]);
 
         // ---------------------------------------------------------------- sync

@@ -31,7 +31,7 @@ A phase is done only when:
 
 ---
 
-## Phase 0 — Foundation *(in progress; see `status.md`)*
+## Phase 0 — Foundation *(complete 17/09/2026; see `recaps/phase-0.md`)*
 
 No demo. The repository, nine projects with tests and CI; the whole schema including dark
 features; `Money`, `Quantity`, the rounding mechanisms and ULIDs; store scoping; the
@@ -64,7 +64,7 @@ One product, one store, one department, ugly UI. Its job is to prove the archite
 holds end to end before 40 screens are built on it.
 
 **Done when** the whole path runs and every hop can be explained. The hop-by-hop gap list
-is in `status.md` §6.
+is in `status.md` §6 (Phase 0.5 is next).
 
 ---
 

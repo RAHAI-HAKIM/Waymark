@@ -8,7 +8,7 @@
 namespace Waymark.Domain.Enums;
 
 /// <summary>
-/// Stored as TEXT with a CHECK constraint: 'cash', 'card', 'store_credit', 'exchange'.
+/// Stored as TEXT with a CHECK constraint: 'cash', 'card', 'store_credit', 'exchange', 'on_account'.
 /// </summary>
 public enum RefundMethod
 {
@@ -22,5 +22,8 @@ public enum RefundMethod
     StoreCredit,
 
     /// <summary>Stored as <c>exchange</c>.</summary>
-    Exchange
+    Exchange,
+
+    /// <summary>Stored as <c>on_account</c>. Credits the customer's tab rather than paying out (F-16).</summary>
+    OnAccount
 }

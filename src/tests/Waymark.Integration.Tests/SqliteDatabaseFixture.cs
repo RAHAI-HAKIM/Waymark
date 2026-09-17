@@ -42,7 +42,7 @@ public abstract class SqliteDatabaseFixture : IDisposable
     public WaymarkDbContext NewContext(bool enforceForeignKeys = true, string? storeId = null)
     {
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseWaymarkSqlite(DatabasePath, enforceForeignKeys)
+            .UseWaymarkSqlite(DatabasePath, keyProvider: null, enforceForeignKeys)
             .Options;
 
         return new WaymarkDbContext(

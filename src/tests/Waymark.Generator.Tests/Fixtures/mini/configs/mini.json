@@ -69,7 +69,7 @@
     "restock_share": { "value": 0.5, "source": "guess", "note": "test" },
     "store_credit_refund_share": { "value": 0.8, "source": "guess", "note": "test" },
     "store_credit_use_share": { "value": 0, "source": "guess", "note": "test: never spent, so credit is still held at the end and the cache is tested; the grocery run tests redemption" },
-    "on_account_share": { "value": 0.3, "source": "guess", "note": "test" },
+    "on_account_share": { "value": 0.6, "source": "guess", "note": "test: high, so on-account sales are refunded within the run" },
     "paid_out_daily_chance": { "value": 0.3, "source": "guess", "note": "test" },
     "paid_out_amount": { "value": { "min": 100, "max": 500 }, "source": "guess", "note": "test" },
     "paid_in_daily_chance": { "value": 0.2, "source": "guess", "note": "test" },
@@ -87,6 +87,19 @@
       "paid_out": [ "SORTIE" ],
       "paid_in": [ "APPORT" ],
       "drop": [ "DEPOT" ]
+    }
+  },
+  "receivables": {
+    "enrolled_share": { "value": 0.8, "source": "guess", "note": "test" },
+    "credit_limit": { "value": { "min": 2000, "max": 6000 }, "source": "guess", "note": "test: low, so tabs reach their limit within the run" },
+    "credit_limit_step": { "value": 500, "source": "guess", "note": "test" },
+    "never_settle_share": { "value": 0.3, "source": "guess", "note": "test" },
+    "payday_repayment_daily_chance": { "value": 0.4, "source": "guess", "note": "test" },
+    "other_repayment_daily_chance": { "value": 0.05, "source": "guess", "note": "test" },
+    "partial_repayment_share": { "value": 0.4, "source": "guess", "note": "test" },
+    "reason_codes": {
+      "repayment": [ "REGLEMENT" ],
+      "write_off": [ "APPOINT" ]
     }
   },
   "connectivity": {

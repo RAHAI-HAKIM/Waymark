@@ -18,7 +18,7 @@ internal static class ConfigValidator
     /// <summary>The largest basket the size table may describe.</summary>
     public const int MaxBasketUnits = 100;
 
-    /// <summary>The payment methods S5 sells with. Store credit and on-account arrive with S7.</summary>
+    /// <summary>The tender a basket is drawn with. Store credit and on-account are decided per customer (S7, F-16).</summary>
     public static readonly IReadOnlyList<string> PaymentKeys = ["cash", "card", "mobile_wallet"];
 
     /// <summary>The substitutability tiers a catalogue variant may carry.</summary>
@@ -58,6 +58,7 @@ internal static class ConfigValidator
         ValidateSales(config.Sales, problems);
         ValidateSupply(config.Supply, problems);
         ValidateMess(config.Mess, store, problems);
+        ValidateReceivables(config.Receivables, store, problems);
 
         var link = config.Connectivity;
         Check(link.DrainIntervalMinutes.Value is >= 1 and <= 60, $"connectivity.drain_interval_minutes is {link.DrainIntervalMinutes.Value}; expected 1 to 60.");
@@ -114,27 +115,59 @@ internal static class ConfigValidator
         Check(mess.CashCountDiscrepancyMax.Value is >= 5 and <= 100_000, $"mess.cash_count_discrepancy_max is {mess.CashCountDiscrepancyMax.Value}; expected 5 to 100000.");
         Check(mess.CountIntervalDays.Value is >= 1 and <= 90, $"mess.count_interval_days is {mess.CountIntervalDays.Value}; expected 1 to 90.");
 
-        var codes = store.ReasonCodes.ToDictionary(code => code.Code, StringComparer.Ordinal);
-        foreach (var (kind, list, appliesTo) in new[]
-        {
+        CheckReasonCodes(problems, store, "mess.reason_codes", [
             ("discount", mess.ReasonCodes.Discount, Domain.Enums.ReasonCodeAppliesTo.Discount),
             ("void", mess.ReasonCodes.Void, Domain.Enums.ReasonCodeAppliesTo.Void),
             ("return", mess.ReasonCodes.Return, Domain.Enums.ReasonCodeAppliesTo.Return),
             ("paid_out", mess.ReasonCodes.PaidOut, Domain.Enums.ReasonCodeAppliesTo.CashMovement),
             ("paid_in", mess.ReasonCodes.PaidIn, Domain.Enums.ReasonCodeAppliesTo.CashMovement),
             ("drop", mess.ReasonCodes.Drop, Domain.Enums.ReasonCodeAppliesTo.CashMovement),
+        ]);
+    }
+
+    private static void ValidateReceivables(ReceivableSettings receivables, StoreProfile store, List<string> problems)
+    {
+        foreach (var (name, share) in new[]
+        {
+            ("enrolled_share", receivables.EnrolledShare.Value), ("never_settle_share", receivables.NeverSettleShare.Value),
+            ("payday_repayment_daily_chance", receivables.PaydayRepaymentDailyChance.Value),
+            ("other_repayment_daily_chance", receivables.OtherRepaymentDailyChance.Value),
+            ("partial_repayment_share", receivables.PartialRepaymentShare.Value),
         })
         {
-            Check(list.Count > 0, $"mess.reason_codes.{kind} lists no reason code.");
+            CheckShare(problems, $"receivables.{name}", share);
+        }
+
+        var step = receivables.CreditLimitStep.Value;
+        Check(problems, step is >= 1 and <= 100_000, $"receivables.credit_limit_step is {step}; expected 1 to 100000.");
+        CheckRange(problems, "receivables.credit_limit", receivables.CreditLimit.Value, Math.Max(step, 1), 10_000_000);
+
+        CheckReasonCodes(problems, store, "receivables.reason_codes", [
+            ("repayment", receivables.ReasonCodes.Repayment, Domain.Enums.ReasonCodeAppliesTo.CashMovement),
+            ("write_off", receivables.ReasonCodes.WriteOff, Domain.Enums.ReasonCodeAppliesTo.WriteOff),
+        ]);
+    }
+
+    /// <summary>Each list names at least one of store.json's reason codes, and each applies to the right kind of event.</summary>
+    private static void CheckReasonCodes(
+        List<string> problems,
+        StoreProfile store,
+        string section,
+        (string Kind, IReadOnlyList<string> Codes, Domain.Enums.ReasonCodeAppliesTo AppliesTo)[] lists)
+    {
+        var codes = store.ReasonCodes.ToDictionary(code => code.Code, StringComparer.Ordinal);
+        foreach (var (kind, list, appliesTo) in lists)
+        {
+            Check(problems, list.Count > 0, $"{section}.{kind} lists no reason code.");
             foreach (var code in list)
             {
                 if (!codes.TryGetValue(code, out var definition))
                 {
-                    problems.Add($"mess.reason_codes.{kind} names '{code}', which store.json's reason_codes does not define.");
+                    problems.Add($"{section}.{kind} names '{code}', which store.json's reason_codes does not define.");
                 }
                 else if (definition.AppliesTo != appliesTo)
                 {
-                    problems.Add($"mess.reason_codes.{kind} names '{code}', which applies to {definition.AppliesTo}, not {appliesTo}.");
+                    problems.Add($"{section}.{kind} names '{code}', which applies to {definition.AppliesTo}, not {appliesTo}.");
                 }
             }
         }

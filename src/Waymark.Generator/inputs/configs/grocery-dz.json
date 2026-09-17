@@ -157,6 +157,20 @@
     }
   },
 
+  "receivables": {
+    "enrolled_share": { "value": 0.7, "source": "guess", "note": "Most regulars have a page in the carnet; a newcomer or someone who once failed to pay does not." },
+    "credit_limit": { "value": { "min": 3000, "max": 15000 }, "source": "guess", "note": "DZD: a few days to two weeks of a family's groceries, set by how well the shopkeeper knows them." },
+    "credit_limit_step": { "value": 500, "source": "guess", "note": "Limits are round numbers." },
+    "never_settle_share": { "value": 0.06, "source": "guess", "note": "A few tabs are never paid; the limit is what stops them growing." },
+    "payday_repayment_daily_chance": { "value": 0.3, "source": "guess", "note": "Most tabs are settled in the payday spike (calendar.payday): about nine in ten within its week." },
+    "other_repayment_daily_chance": { "value": 0.02, "source": "guess", "note": "Some settle whenever they have the money." },
+    "partial_repayment_share": { "value": 0.25, "source": "guess", "note": "A quarter of repayments clear only half the tab, so some debt ages past a pay cycle." },
+    "reason_codes": {
+      "repayment": [ "CAISSE-REGLEMENT" ],
+      "write_off": [ "CREANCE-APPOINT" ]
+    }
+  },
+
 
 
 

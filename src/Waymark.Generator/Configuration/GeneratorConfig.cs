@@ -24,6 +24,8 @@ internal sealed record GeneratorConfig
 
     public required MessSettings Mess { get; init; }
 
+    public required ReceivableSettings Receivables { get; init; }
+
     public required ConnectivitySettings Connectivity { get; init; }
 
     public required IReadOnlyDictionary<string, Sourced<SeasonalityProfile>> SeasonalityProfiles { get; init; }
@@ -257,6 +259,45 @@ internal sealed record MessSettings
 
     /// <summary>Which of store.json's reason codes each kind of event uses. Names, not numbers, so not sourced.</summary>
     public required MessReasonCodes ReasonCodes { get; init; }
+}
+
+/// <summary>
+/// The tab (le carnet, F-16): who is given one, how far it may run, and how it is settled. How
+/// often a basket goes on it is <see cref="MessSettings.OnAccountShare"/>.
+/// </summary>
+internal sealed record ReceivableSettings
+{
+    /// <summary>The share of customers the shopkeeper trusts with a tab. The rest have no credit limit and never buy on account.</summary>
+    public required Sourced<double> EnrolledShare { get; init; }
+
+    /// <summary>A tab's limit, whole units of the store's currency, drawn per customer and rounded down to <see cref="CreditLimitStep"/>.</summary>
+    public required Sourced<NumberRange> CreditLimit { get; init; }
+
+    /// <summary>Credit limits are round numbers: a multiple of this, whole units.</summary>
+    public required Sourced<int> CreditLimitStep { get; init; }
+
+    /// <summary>The share of customers with a tab who never settle it; their tab grows until the limit stops it.</summary>
+    public required Sourced<double> NeverSettleShare { get; init; }
+
+    /// <summary>The chance, on each open payday-spike day, that a customer owing something comes in to settle.</summary>
+    public required Sourced<double> PaydayRepaymentDailyChance { get; init; }
+
+    /// <summary>The same chance on any other open day.</summary>
+    public required Sourced<double> OtherRepaymentDailyChance { get; init; }
+
+    /// <summary>The chance a repayment is half the tab rather than all of it.</summary>
+    public required Sourced<double> PartialRepaymentShare { get; init; }
+
+    public required ReceivableReasonCodes ReasonCodes { get; init; }
+}
+
+internal sealed record ReceivableReasonCodes
+{
+    /// <summary>The drawer's <c>paid_in</c> for a cash repayment (applies to cash_movement).</summary>
+    public required IReadOnlyList<string> Repayment { get; init; }
+
+    /// <summary>The change under one cash step left unpaid when a tab is settled (applies to write_off).</summary>
+    public required IReadOnlyList<string> WriteOff { get; init; }
 }
 
 /// <summary>How often the store reaches the cloud (D-046 §31). It changes the outbox and sync_state, never a sale.</summary>

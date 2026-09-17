@@ -19,7 +19,8 @@ internal sealed record TradingTotals(int OpenDays, long Transactions, long Units
 /// time order, with the clock advanced to each so every id and timestamp carries the moment it
 /// happened. Before opening: a cycle count on count days, then expired stock written off.
 /// During the day: drawers opening, shifts starting, float top-ups, deliveries, supplier
-/// visits, customers, returns, paid-outs, the midday drop, and drawers closing. Within one
+/// visits, customers, returns, tabs being settled, paid-outs, the midday drop, and drawers
+/// closing. Within one
 /// second the order is that list's order.
 /// </para>
 /// <para>
@@ -42,6 +43,7 @@ internal sealed class DayLoop
         Visit,
         Basket,
         Return,
+        Repayment,
         PaidOut,
         Drop,
         Drain,
@@ -57,6 +59,7 @@ internal sealed class DayLoop
     private readonly SupplyChain _supply;
     private readonly StockCounter _counter;
     private readonly Outbox _outbox;
+    private readonly Receivables _receivables;
     private readonly RandomStream _substitution;
     private readonly RandomStream _cash;
     private readonly RandomStream _returnVisit;
@@ -72,7 +75,8 @@ internal sealed class DayLoop
         _demand = new DemandModel(context.Config.SeasonalityProfiles, context.Random);
         _baskets = new BasketAssembler(context.Config.Sales, context.Calendar, store, context.Random);
         _outbox = new Outbox(context);
-        _sales = new SaleWriter(context, _outbox);
+        _receivables = new Receivables(context);
+        _sales = new SaleWriter(context, _outbox, _receivables);
         _supply = new SupplyChain(context);
         _counter = new StockCounter(context);
         _substitution = context.Random.Stream("substitution");
@@ -88,6 +92,9 @@ internal sealed class DayLoop
 
     /// <summary>What the till knows at the end: store credit and last order date per customer.</summary>
     public SaleWriter Sales => _sales;
+
+    /// <summary>What each customer owes on account at the end.</summary>
+    public Receivables Receivables => _receivables;
 
     /// <summary>The outbox: what was emitted, acknowledged and left queued.</summary>
     public Outbox Outbox => _outbox;
@@ -207,6 +214,11 @@ internal sealed class DayLoop
             EventKind.Return,
             index,
             r)));
+        events.AddRange(_receivables.RepaymentsDue(day, intervals, hours, terminals).Select(r => new DayEvent(
+            r.Second,
+            EventKind.Repayment,
+            r.Terminal,
+            r.Customer)));
 
         events.Sort((a, b) => a.Second != b.Second ? a.Second.CompareTo(b.Second)
             : a.Kind != b.Kind ? a.Kind.CompareTo(b.Kind)
@@ -263,8 +275,15 @@ internal sealed class DayLoop
                 case EventKind.Return:
                     var returned = (ScheduledReturn)payload!;
                     var till = Distributions.UniformInt(_returnVisit.Uniform(returned.DayNumber, returned.Basket, returned.Item, 2), 0, terminals - 1);
-                    _sales.WriteRefund(date, returned, drawers[till], _context.OnDuty(date, interval, till));
-                    result.Returns++;
+                    if (_sales.WriteRefund(date, returned, drawers[till], _context.OnDuty(date, interval, till)))
+                    {
+                        result.Returns++;
+                    }
+
+                    break;
+
+                case EventKind.Repayment:
+                    _receivables.Repay(date, (GeneratedCustomer)payload!, drawers[index], _context.OnDuty(date, interval, index));
                     break;
 
                 case EventKind.PaidOut:

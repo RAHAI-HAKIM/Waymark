@@ -94,7 +94,8 @@ public sealed class EntityMappingTests : IClassFixture<MigratedDatabaseFixture>
 
         using (var context = NewContext())
         {
-            var movement = context.CashMovements.Single(m => m.MovementId == "01ROUNDTRIP");
+            // A movement with no session: this test is about the columns, not the store filter.
+            var movement = context.CashMovements.IgnoreQueryFilters().Single(m => m.MovementId == "01ROUNDTRIP");
 
             Assert.Equal(CashMovementType.PaidOut, movement.MovementType);
             Assert.Equal(Dzd(1_250), movement.Amount);

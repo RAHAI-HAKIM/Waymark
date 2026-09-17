@@ -51,8 +51,8 @@ flowchart TB
 
 **Reading it.** Only one arrow crosses between the two boxes, and it is store-initiated.
 The keys are highlighted because they must never cross, over sync or the cloud backup
-(D-039, D-042). `waymark-store.db` is SQLCipher-encrypted by design; the database key is
-not implemented yet (O-20).
+(D-039, D-042). `waymark-store.db` is SQLCipher-encrypted with the database key (D-056); the
+keys directory is locked to SYSTEM, Administrators and the service account (D-057).
 
 **Absent from the cloud by design:** any screen or table showing a customer name, phone or
 email.

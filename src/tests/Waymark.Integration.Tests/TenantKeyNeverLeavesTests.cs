@@ -63,12 +63,11 @@ public sealed class TenantKeyNeverLeavesTests : IClassFixture<MigratedDatabaseFi
         var protector = new EntropyBindingProtector();
         Directory.CreateDirectory(_keysDirectory);
         _wrappedBlob = protector.Protect(
-            _keyBytes, EntropyBindingProtector.EntropyFor(TenantKeyFixture.InstallId));
+            _keyBytes, EntropyBindingProtector.TenantEntropy);
         File.WriteAllBytes(
             Path.Combine(_keysDirectory, TenantKeyStore.FileName), _wrappedBlob);
 
-        _pseudonymiser = TenantKeyStore.OpenOrCreate(
-            _keysDirectory, TenantKeyFixture.InstallId, protector);
+        _pseudonymiser = TenantKeyStore.OpenOrCreate(_keysDirectory, protector);
     }
 
     private sealed class FixedIds(string id) : IIdGenerator

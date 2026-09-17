@@ -51,9 +51,11 @@
     { "code": "CAISSE-DEPOT", "applies_to": "cash_movement", "label_fr": "Dépôt en banque", "label_ar": "إيداع في البنك" },
     { "code": "CAISSE-ACHAT", "applies_to": "cash_movement", "label_fr": "Achat divers", "label_ar": "مشتريات متنوعة", "requires_note": true },
     { "code": "CAISSE-APPORT", "applies_to": "cash_movement", "label_fr": "Apport de fond de caisse", "label_ar": "تزويد الصندوق" },
+    { "code": "CAISSE-REGLEMENT", "applies_to": "cash_movement", "label_fr": "Règlement du carnet client", "label_ar": "تسديد دين زبون" },
     { "code": "PERTE-PEREMPTION", "applies_to": "write_off", "label_fr": "Produit périmé", "label_ar": "منتهي الصلاحية" },
     { "code": "PERTE-CASSE", "applies_to": "write_off", "label_fr": "Casse", "label_ar": "كسر" },
-    { "code": "PERTE-VOL", "applies_to": "write_off", "label_fr": "Vol constaté", "label_ar": "سرقة", "requires_manager": true }
+    { "code": "PERTE-VOL", "applies_to": "write_off", "label_fr": "Vol constaté", "label_ar": "سرقة", "requires_manager": true },
+    { "code": "CREANCE-APPOINT", "applies_to": "write_off", "label_fr": "Appoint du carnet abandonné", "label_ar": "التنازل عن باقي الدين" }
   ],
 
   

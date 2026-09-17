@@ -653,6 +653,10 @@ namespace Waymark.Persistence.Migrations
                         .HasDefaultValue(0L)
                         .HasColumnName("credit");
 
+                    b.Property<long?>("CreditLimit")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("credit_limit");
+
                     b.Property<string>("CustomerName")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -1968,6 +1972,10 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("amount");
 
+                    b.Property<string>("CashMovementId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cash_movement_id");
+
                     b.Property<string>("CustomerId")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -1981,7 +1989,7 @@ namespace Waymark.Persistence.Migrations
                     b.Property<string>("OccurredAt")
                         .IsRequired()
                         .HasColumnType("TEXT")
-                        .HasColumnName("occured_at");
+                        .HasColumnName("occurred_at");
 
                     b.Property<string>("PaymentId")
                         .HasColumnType("TEXT")
@@ -2002,14 +2010,32 @@ namespace Waymark.Persistence.Migrations
 
                     b.HasKey("MovementId");
 
+                    b.HasIndex("CashMovementId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_receivable_cash_movement")
+                        .HasFilter("cash_movement_id IS NOT NULL");
+
+                    b.HasIndex("PaymentId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_receivable_payment")
+                        .HasFilter("payment_id IS NOT NULL");
+
                     b.HasIndex("CustomerId", "OccurredAt")
-                        .HasDatabaseName("ix_receivable_movements_customer_id_occured_at");
+                        .HasDatabaseName("ix_receivable_customer");
 
                     b.ToTable("receivable_movements", null, t =>
                         {
-                            t.HasCheckConstraint("ck_credit_movements_amount", "amount <> 0");
+                            t.HasCheckConstraint("ck_receivable_movements_amount", "amount <> 0");
 
-                            t.HasCheckConstraint("ck_receivable_movements_movement_type", "movement_type IN ('charge', 'payment', 'adjustment', 'write_off')");
+                            t.HasCheckConstraint("ck_receivable_movements_cash_movement_id", "cash_movement_id IS NULL OR movement_type = 'payment'");
+
+                            t.HasCheckConstraint("ck_receivable_movements_movement_type", "movement_type IN ('charge','payment','adjustment','write_off')");
+
+                            t.HasCheckConstraint("ck_receivable_movements_payment_id", "(movement_type = 'charge') = (payment_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_receivable_movements_reason_code", "movement_type NOT IN ('adjustment','write_off') OR reason_code IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_receivable_movements_sign", "movement_type IN ('charge','adjustment') OR amount < 0");
                         });
                 });
 
@@ -2412,7 +2438,7 @@ namespace Waymark.Persistence.Migrations
 
                     b.ToTable("stores", null, t =>
                         {
-                            t.HasCheckConstraint("ck_store_rounding_policy", "rounding_policy IN ('half_even','half_up')");
+                            t.HasCheckConstraint("ck_stores_rounding_policy", "rounding_policy IN ('half_even','half_up')");
 
                             t.HasCheckConstraint("ck_stores_status", "status IN ('active','suspended','closed')");
                         });
@@ -3679,7 +3705,7 @@ namespace Waymark.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_returns_refund_amount", "refund_amount >= 0");
 
-                            t.HasCheckConstraint("ck_returns_refund_method", "refund_method IN ('cash','card','store_credit','exchange')");
+                            t.HasCheckConstraint("ck_returns_refund_method", "refund_method IN ('cash','card','store_credit','exchange','on_account')");
 
                             t.HasCheckConstraint("ck_returns_restock_flag", "restock_flag IN (0,1)");
                         });
@@ -3825,9 +3851,9 @@ namespace Waymark.Persistence.Migrations
 
                     b.ToTable("transactions", null, t =>
                         {
-                            t.HasCheckConstraint("ck_store_rounding_policy", "rounding_policy IN ('half_even','half_up')");
-
                             t.HasCheckConstraint("ck_transactions_ecommerce_flag", "ecommerce_flag IN (0,1)");
+
+                            t.HasCheckConstraint("ck_transactions_rounding_policy", "rounding_policy IN ('half_even','half_up')");
 
                             t.HasCheckConstraint("ck_transactions_status", "status IN ('open','parked','completed','voided','refunded','partially_refunded')");
 
@@ -4711,6 +4737,11 @@ namespace Waymark.Persistence.Migrations
 
             modelBuilder.Entity("Waymark.Domain.Ledgers.ReceivableMovement", b =>
                 {
+                    b.HasOne("Waymark.Domain.Organisation.CashMovement", null)
+                        .WithMany()
+                        .HasForeignKey("CashMovementId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("Waymark.Domain.Customers.Customer", null)
                         .WithMany()
                         .HasForeignKey("CustomerId")
@@ -4725,6 +4756,11 @@ namespace Waymark.Persistence.Migrations
                     b.HasOne("Waymark.Domain.Reference.ReasonCode", null)
                         .WithMany()
                         .HasForeignKey("ReasonCode")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Waymark.Domain.Organisation.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("StaffId")
                         .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Waymark.Domain.Organisation.Store", null)

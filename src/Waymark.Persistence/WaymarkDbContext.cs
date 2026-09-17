@@ -98,6 +98,7 @@ public sealed class WaymarkDbContext(
     // Ledgers
     public DbSet<CreditMovement> CreditMovements => Set<CreditMovement>();
     public DbSet<LoyaltyMovement> LoyaltyMovements => Set<LoyaltyMovement>();
+    public DbSet<ReceivableMovement> ReceivableMovements => Set<ReceivableMovement>();
 
     // Organisation
     public DbSet<CashMovement> CashMovements => Set<CashMovement>();
@@ -171,6 +172,7 @@ public sealed class WaymarkDbContext(
 
         ApplyMoney(modelBuilder);
         ApplyStoreScope(modelBuilder);
+        ApplyParentScope(modelBuilder);
 
         base.OnModelCreating(modelBuilder);
     }
@@ -244,6 +246,49 @@ public sealed class WaymarkDbContext(
             open.MakeGenericMethod(entityType.ClrType)
                 .Invoke(this, [modelBuilder, storeId.IsNullable]);
         }
+    }
+
+    /// <summary>
+    /// Puts every row that belongs to a store through its parent, behind the same filter (F-19,
+    /// D-062).
+    ///
+    /// <para>
+    /// A transaction line has no <c>store_id</c> of its own; it belongs to whichever store its
+    /// transaction does. Before this, <c>TransactionItems</c> read through its own set showed
+    /// every store's lines. Each child now reads only where its parent is visible, and the
+    /// parent's own store filter applies inside that test, so the rule stays in one place.
+    /// </para>
+    /// <para>
+    /// The tables left unfiltered are shared by the whole tenant (the catalogue, suppliers,
+    /// customers with their consent and ledgers, reason codes, roles, notices) or belong to the
+    /// database itself (the outbox, inbox and sync state). <c>StoreScopingTests</c> lists every
+    /// one with its reason, so a new table has to be placed on one side or the other.
+    /// </para>
+    /// </summary>
+    private void ApplyParentScope(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<TransactionItem>()
+            .HasQueryFilter(x => Set<Transaction>().Any(parent => parent.TransactionId == x.TransactionId));
+        modelBuilder.Entity<TransactionPayment>()
+            .HasQueryFilter(x => Set<Transaction>().Any(parent => parent.TransactionId == x.TransactionId));
+        modelBuilder.Entity<CashMovement>()
+            .HasQueryFilter(x => Set<CashSession>().Any(parent => parent.SessionId == x.SessionId));
+        modelBuilder.Entity<BatchItem>()
+            .HasQueryFilter(x => Set<Batch>().Any(parent => parent.BatchId == x.BatchId));
+        modelBuilder.Entity<PurchaseOrderItem>()
+            .HasQueryFilter(x => Set<PurchaseOrder>().Any(parent => parent.OrderId == x.OrderId));
+        modelBuilder.Entity<StockCountItem>()
+            .HasQueryFilter(x => Set<StockCount>().Any(parent => parent.CountId == x.CountId));
+        modelBuilder.Entity<RecommendationOption>()
+            .HasQueryFilter(x => Set<Recommendation>().Any(parent => parent.RecommendationId == x.RecommendationId));
+        modelBuilder.Entity<RecommendationDecision>()
+            .HasQueryFilter(x => Set<Recommendation>().Any(parent => parent.RecommendationId == x.RecommendationId));
+
+        // A promotion with no store is every store's, and its parent filter already says so.
+        modelBuilder.Entity<PromotionProduct>()
+            .HasQueryFilter(x => Set<Promotion>().Any(parent => parent.PromotionId == x.PromotionId));
+        modelBuilder.Entity<PromotionVariant>()
+            .HasQueryFilter(x => Set<Promotion>().Any(parent => parent.PromotionId == x.PromotionId));
     }
 
     private void FilterByStore<TEntity>(ModelBuilder modelBuilder, bool storeIdIsNullable)

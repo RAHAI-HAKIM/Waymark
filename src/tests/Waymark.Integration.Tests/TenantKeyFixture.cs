@@ -30,31 +30,28 @@ public sealed class TenantKeyFixture : IDisposable
         0x39, 0x2F, 0x44, 0x30, 0x34, 0x32, 0x21, 0x00,
     ];
 
-    /// <summary>The install id every fixture-built key is bound to.</summary>
-    internal const string InstallId = "00000000-0000-0000-0000-00000000w7w7";
-
     private readonly List<string> _directories = [];
     private readonly List<TenantPseudonymiser> _open = [];
 
-    public TenantKeyFixture() => Pseudonymiser = Build(KeyBytes, InstallId);
+    public TenantKeyFixture() => Pseudonymiser = Build(KeyBytes);
 
     /// <summary>Holds <see cref="KeyBytes"/>.</summary>
     public TenantPseudonymiser Pseudonymiser { get; }
 
     /// <summary>A pseudonymiser over an arbitrary key. Disposed with the fixture.</summary>
     internal static TenantPseudonymiser PseudonymiserFor(byte[] key) =>
-        BuildIn(NewDirectory(out _), key, InstallId);
+        BuildIn(NewDirectory(out _), key);
 
     /// <summary>Where this fixture's own key file lives.</summary>
     public string KeysDirectory { get; private set; } = string.Empty;
 
-    private TenantPseudonymiser Build(byte[] key, string installId)
+    private TenantPseudonymiser Build(byte[] key)
     {
         var directory = NewDirectory(out var path);
         _directories.Add(path);
         KeysDirectory = path;
 
-        var pseudonymiser = BuildIn(directory, key, installId);
+        var pseudonymiser = BuildIn(directory, key);
         _open.Add(pseudonymiser);
         return pseudonymiser;
     }
@@ -66,7 +63,7 @@ public sealed class TenantKeyFixture : IDisposable
         return path;
     }
 
-    private static TenantPseudonymiser BuildIn(string directory, byte[] key, string installId)
+    private static TenantPseudonymiser BuildIn(string directory, byte[] key)
     {
         var protector = new EntropyBindingProtector();
 
@@ -74,9 +71,9 @@ public sealed class TenantKeyFixture : IDisposable
         // letting the store load it the way production does.
         File.WriteAllBytes(
             Path.Combine(directory, TenantKeyStore.FileName),
-            protector.Protect(key, EntropyBindingProtector.EntropyFor(installId)));
+            protector.Protect(key, EntropyBindingProtector.TenantEntropy));
 
-        return TenantKeyStore.OpenOrCreate(directory, installId, protector);
+        return TenantKeyStore.OpenOrCreate(directory, protector);
     }
 
     public void Dispose()
@@ -115,8 +112,14 @@ public sealed class TenantKeyFixture : IDisposable
 /// </summary>
 public sealed class EntropyBindingProtector : IKeyProtector
 {
-    internal static byte[] EntropyFor(string installId) =>
-        System.Text.Encoding.UTF8.GetBytes("waymark:tenant-key:v1:" + installId);
+    /// <summary>
+    /// The tenant key's domain separation, written out here rather than read from the store, so a
+    /// changed constant fails the suite instead of following along (O-18).
+    /// </summary>
+    internal static byte[] TenantEntropy => System.Text.Encoding.UTF8.GetBytes("waymark:tenant-key:v1");
+
+    /// <summary>The database key's, likewise.</summary>
+    internal static byte[] DatabaseEntropy => System.Text.Encoding.UTF8.GetBytes("waymark:database-key:v1");
 
     public byte[] Protect(ReadOnlySpan<byte> secret, ReadOnlySpan<byte> entropy)
     {

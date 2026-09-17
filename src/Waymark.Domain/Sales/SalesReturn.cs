@@ -27,7 +27,14 @@ public sealed class SalesReturn : IStoreScoped
     public required string ReturnId { get; init; }
 
     public required string TransactionItemId { get; init; }
+
+    /// <summary>
+    /// The refund line that paid for this return (F-17). Item-level, because a refund may hold
+    /// the same variant twice at different prices or from different batches; the refund
+    /// transaction follows from it.
+    /// </summary>
     public string? RefundTransactionItemId { get; init; }
+
     public required string StoreId { get; init; }
 
     public string? TerminalId { get; init; }

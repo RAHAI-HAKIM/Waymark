@@ -67,23 +67,26 @@ public sealed class MessTests(MiniSalesRun mini, GrocerySalesRun grocery) : ICla
 
         Assert.True(Scalar(db, "SELECT count(*) FROM returns") > 0);
 
-        // returns has no column for its refund transaction (a schema finding, D-054): the two are
-        // matched here by moment, cashier and batch, which must therefore be unambiguous.
-        Assert.Equal(0, Scalar(db, "SELECT count(*) FROM (SELECT 1 FROM returns GROUP BY created_at, staff_id, batch_id HAVING count(*) > 1)"));
+        // Each return names its refund line (F-17), and each refund line belongs to one return.
+        Assert.Equal(0, Scalar(db, "SELECT count(*) FROM returns WHERE refund_transaction_item_id IS NULL"));
+        Assert.Equal(0, Scalar(db, "SELECT count(*) FROM (SELECT 1 FROM returns GROUP BY refund_transaction_item_id HAVING count(*) > 1)"));
 
         // One refund transaction per return: a single negative line, same variant and batch as
-        // the original line, refunding exactly its line total, paid out by the stated method.
+        // the original line, refunding exactly its line total, paid out by the stated method, at
+        // the moment and by the cashier the return records.
         Assert.Equal(Scalar(db, "SELECT count(*) FROM returns"), Scalar(db, "SELECT count(*) FROM transactions WHERE original_transaction_id IS NOT NULL"));
         Assert.Equal(0, Scalar(db, """
             SELECT count(*) FROM transactions rt
             JOIN transaction_items ri ON ri.transaction_id = rt.transaction_id
-            JOIN returns r ON r.created_at = rt.occurred_at AND r.staff_id = rt.staff_id AND r.batch_id = ri.batch_id
+            JOIN returns r ON r.refund_transaction_item_id = ri.transaction_item_id
             JOIN transaction_items oi ON oi.transaction_item_id = r.transaction_item_id
             JOIN transactions ot ON ot.transaction_id = oi.transaction_id
             JOIN transaction_payments p ON p.transaction_id = rt.transaction_id
             JOIN reason_codes rc ON rc.reason_code = r.reason_code
             WHERE rt.original_transaction_id IS NOT NULL
               AND (ot.transaction_id <> rt.original_transaction_id
+                   OR r.created_at <> rt.occurred_at OR r.staff_id <> rt.staff_id OR r.batch_id IS NOT ri.batch_id
+                   OR (SELECT count(*) FROM transaction_items x WHERE x.transaction_id = rt.transaction_id) <> 1
                    OR ri.variant_id <> oi.variant_id OR ri.quantity <> -r.quantity_returned OR ri.line_total <> -r.refund_amount
                    OR p.amount <> ri.line_total OR p.payment_method <> r.refund_method
                    OR ot.status NOT IN ('refunded', 'partially_refunded') OR rc.applies_to <> 'return'
@@ -100,7 +103,7 @@ public sealed class MessTests(MiniSalesRun mini, GrocerySalesRun grocery) : ICla
             Scalar(db, "SELECT count(*) FROM returns"),
             Scalar(db, """
                 SELECT count(*) FROM transactions rt JOIN transaction_items ri ON ri.transaction_id = rt.transaction_id
-                JOIN returns r ON r.created_at = rt.occurred_at AND r.staff_id = rt.staff_id AND r.batch_id = ri.batch_id
+                JOIN returns r ON r.refund_transaction_item_id = ri.transaction_item_id
                 JOIN transaction_items oi ON oi.transaction_item_id = r.transaction_item_id AND oi.transaction_id = rt.original_transaction_id
                 WHERE rt.original_transaction_id IS NOT NULL
                 """));
@@ -181,6 +184,12 @@ public sealed class MessTests(MiniSalesRun mini, GrocerySalesRun grocery) : ICla
         Assert.Equal(0, Scalar(db, """
             SELECT count(*) FROM transaction_payments p JOIN transactions t USING (transaction_id)
             WHERE p.payment_method IN ('on_account', 'store_credit') AND t.customer_id IS NULL
+            """));
+
+        // On account needs a tab: a customer with no credit limit never buys that way (F-16).
+        Assert.Equal(0, Scalar(db, """
+            SELECT count(*) FROM transaction_payments p JOIN transactions t USING (transaction_id) JOIN customers c USING (customer_id)
+            WHERE p.payment_method = 'on_account' AND c.credit_limit IS NULL
             """));
     }
 

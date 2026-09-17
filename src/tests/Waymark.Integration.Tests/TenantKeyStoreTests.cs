@@ -6,7 +6,7 @@ namespace Waymark.Integration.Tests;
 
 /// <summary>
 /// Key custody (decisions.md D-042): 32 random bytes, wrapped at machine scope
-/// with entropy bound to the install, in their own directory, created once and
+/// under the tenant key's own entropy, in their own directory, created once and
 /// never replaced.
 /// </summary>
 public sealed class TenantKeyStoreTests : IDisposable
@@ -21,8 +21,6 @@ public sealed class TenantKeyStoreTests : IDisposable
         return path;
     }
 
-    private const string InstallId = "install-w7";
-
     // ------------------------------------------------------------- creation
 
     [Fact]
@@ -32,8 +30,7 @@ public sealed class TenantKeyStoreTests : IDisposable
 
         Assert.False(TenantKeyStore.Exists(keys));
 
-        using var pseudonymiser = TenantKeyStore.OpenOrCreate(
-            keys, InstallId, new EntropyBindingProtector());
+        using var pseudonymiser = TenantKeyStore.OpenOrCreate(keys, new EntropyBindingProtector());
 
         Assert.True(TenantKeyStore.Exists(keys));
         Assert.True(File.Exists(Path.Combine(keys, TenantKeyStore.FileName)));
@@ -52,8 +49,7 @@ public sealed class TenantKeyStoreTests : IDisposable
         var interrupted = Path.Combine(keys, TenantKeyStore.FileName + ".crashed" + TenantKeyStore.TemporarySuffix);
         File.WriteAllBytes(interrupted, [1, 2, 3]);
 
-        using var pseudonymiser = TenantKeyStore.OpenOrCreate(
-            keys, InstallId, new EntropyBindingProtector());
+        using var pseudonymiser = TenantKeyStore.OpenOrCreate(keys, new EntropyBindingProtector());
 
         Assert.Equal(
             [TenantKeyStore.FileName, Path.GetFileName(interrupted)],
@@ -75,7 +71,7 @@ public sealed class TenantKeyStoreTests : IDisposable
         foreach (var _ in Enumerable.Range(0, 8))
         {
             var keys = NewKeysDirectory();
-            using var pseudonymiser = TenantKeyStore.OpenOrCreate(keys, InstallId, protector);
+            using var pseudonymiser = TenantKeyStore.OpenOrCreate(keys, protector);
 
             // The fake protector prefixes a 32-byte tag, so what follows is the
             // key itself — which is why this assertion can see its length.
@@ -97,10 +93,10 @@ public sealed class TenantKeyStoreTests : IDisposable
         var keys = NewKeysDirectory();
         var protector = new EntropyBindingProtector();
 
-        using var first = TenantKeyStore.OpenOrCreate(keys, InstallId, protector);
+        using var first = TenantKeyStore.OpenOrCreate(keys, protector);
         var before = File.ReadAllBytes(Path.Combine(keys, TenantKeyStore.FileName));
 
-        using var second = TenantKeyStore.OpenOrCreate(keys, InstallId, protector);
+        using var second = TenantKeyStore.OpenOrCreate(keys, protector);
         var after = File.ReadAllBytes(Path.Combine(keys, TenantKeyStore.FileName));
 
         Assert.Equal(first.CheckValue, second.CheckValue);
@@ -136,20 +132,36 @@ public sealed class TenantKeyStoreTests : IDisposable
     // -------------------------------------------------------- the binding
 
     [Fact]
-    public void A_key_wrapped_under_one_install_does_not_unwrap_under_another()
+    public void The_database_keys_blob_does_not_unwrap_as_the_tenant_key()
     {
-        // The entropy is bound to the install id (D-042). This is what a
-        // transplanted ProgramData directory looks like, and it must be an error
-        // rather than a silently different key.
+        // Domain separation (O-18): each key is wrapped under its own constant. A swapped file,
+        // from a restore script or a mistake at a keyboard, must be an error rather than a
+        // tenant key that is silently the database key.
         var keys = NewKeysDirectory();
+        Directory.CreateDirectory(keys);
         var protector = new EntropyBindingProtector();
+        File.WriteAllBytes(
+            Path.Combine(keys, TenantKeyStore.FileName),
+            protector.Protect(RandomNumberGenerator.GetBytes(32), EntropyBindingProtector.DatabaseEntropy));
 
-        using (TenantKeyStore.OpenOrCreate(keys, InstallId, protector)) { }
-
-        var error = Assert.Throws<CryptographicException>(() =>
-            TenantKeyStore.OpenOrCreate(keys, "a-different-install", protector));
+        var error = Assert.Throws<CryptographicException>(() => TenantKeyStore.OpenOrCreate(keys, protector));
 
         Assert.Contains("could not be unwrapped", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_tenant_key_is_wrapped_under_its_own_fixed_entropy()
+    {
+        // The entropy is a constant, not the install id: the blob unwraps on this machine with
+        // nothing else to supply, and it unwraps only under the tenant key's constant.
+        var keys = NewKeysDirectory();
+        var protector = new EntropyBindingProtector();
+        using (TenantKeyStore.OpenOrCreate(keys, protector)) { }
+
+        var blob = File.ReadAllBytes(Path.Combine(keys, TenantKeyStore.FileName));
+
+        Assert.Equal(32, protector.Unprotect(blob, EntropyBindingProtector.TenantEntropy).Length);
+        Assert.Throws<CryptographicException>(() => protector.Unprotect(blob, EntropyBindingProtector.DatabaseEntropy));
     }
 
     [Fact]
@@ -159,11 +171,11 @@ public sealed class TenantKeyStoreTests : IDisposable
         // it regenerate. That is unrecoverable, so the message has to say so at
         // the moment somebody is deciding.
         var keys = NewKeysDirectory();
+        Directory.CreateDirectory(keys);
         var protector = new EntropyBindingProtector();
-        using (TenantKeyStore.OpenOrCreate(keys, InstallId, protector)) { }
+        File.WriteAllBytes(Path.Combine(keys, TenantKeyStore.FileName), [1, 2, 3]);
 
-        var error = Assert.Throws<CryptographicException>(() =>
-            TenantKeyStore.OpenOrCreate(keys, "other", protector));
+        var error = Assert.Throws<CryptographicException>(() => TenantKeyStore.OpenOrCreate(keys, protector));
 
         Assert.Contains("Do not delete this file", error.Message, StringComparison.Ordinal);
         Assert.Contains("recovery code", error.Message, StringComparison.Ordinal);
@@ -192,7 +204,7 @@ public sealed class TenantKeyStoreTests : IDisposable
         string checkValue;
         Pseudonym pseudonym;
 
-        using (var created = TenantKeyStore.OpenOrCreate(keys, InstallId, protector))
+        using (var created = TenantKeyStore.OpenOrCreate(keys, protector))
         {
             checkValue = created.CheckValue;
             pseudonym = created.PseudonymFor(SubjectDomain.Customer, "cust-dpapi");
@@ -202,7 +214,7 @@ public sealed class TenantKeyStoreTests : IDisposable
         var wrapped = File.ReadAllBytes(Path.Combine(keys, TenantKeyStore.FileName));
         Assert.True(wrapped.Length > TenantKeyStore.KeyBytes);
 
-        using var reopened = TenantKeyStore.OpenOrCreate(keys, InstallId, protector);
+        using var reopened = TenantKeyStore.OpenOrCreate(keys, protector);
         Assert.Equal(checkValue, reopened.CheckValue);
         Assert.Equal(pseudonym, reopened.PseudonymFor(SubjectDomain.Customer, "cust-dpapi"));
     }
@@ -216,8 +228,7 @@ public sealed class TenantKeyStoreTests : IDisposable
         // under an all-zero key — well-formed, wrong, and identical across every
         // tenant that ever did it.
         var keys = NewKeysDirectory();
-        var pseudonymiser = TenantKeyStore.OpenOrCreate(
-            keys, InstallId, new EntropyBindingProtector());
+        var pseudonymiser = TenantKeyStore.OpenOrCreate(keys, new EntropyBindingProtector());
 
         pseudonymiser.Dispose();
 
@@ -226,16 +237,11 @@ public sealed class TenantKeyStoreTests : IDisposable
     }
 
     [Theory]
-    [InlineData("", "install")]
-    [InlineData("   ", "install")]
-    public void A_missing_keys_directory_is_refused(string keysDirectory, string installId) =>
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_missing_keys_directory_is_refused(string keysDirectory) =>
         Assert.Throws<ArgumentException>(() =>
-            TenantKeyStore.OpenOrCreate(keysDirectory, installId, new EntropyBindingProtector()));
-
-    [Fact]
-    public void A_missing_install_id_is_refused() =>
-        Assert.Throws<ArgumentException>(() =>
-            TenantKeyStore.OpenOrCreate(NewKeysDirectory(), "  ", new EntropyBindingProtector()));
+            TenantKeyStore.OpenOrCreate(keysDirectory, new EntropyBindingProtector()));
 
     public void Dispose()
     {

@@ -42,6 +42,15 @@ public sealed class ProcessingLogWriter(
         ArgumentException.ThrowIfNullOrWhiteSpace(
             processingEvent.SourceModule, nameof(processingEvent));
 
+        // An entry about one person that names no one is an audit gap, not a sweep (F-20).
+        if (!processingEvent.IsComplete)
+        {
+            throw new ArgumentException(
+                $"A {processingEvent.Operation} by {processingEvent.ActorType} must name its subject. Only a "
+                + "system task may log an operation about one person without one (D-061).",
+                nameof(processingEvent));
+        }
+
         context.ProcessingLog.Add(new ProcessingLogEntry
         {
             LogId = ids.NewId(),

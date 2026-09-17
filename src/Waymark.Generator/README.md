@@ -37,19 +37,22 @@ with its file and line. **If a run fails, nothing is left behind.**
 
 | File | What it is | Loaded into the store? |
 | :---- | :---- | :---- |
-| `waymark-store.db` | The store: commissioning, a year of trading, supply, the mess, the outbox. Foreign keys, CHECKs and the 14 append-only triggers were live throughout | It *is* the store |
+| `waymark-store.db` | The store: commissioning, a year of trading, supply, the mess, the tab, the outbox. Foreign keys, CHECKs and the 29 triggers were live throughout. **Plaintext**: the generator may not reach the database key (D-056) | It *is* the store, once imported (below) |
 | `latent-demand.csv` | One row per variant per day: `store_open, on_hand_open, latent, sold, substituted, lost, sold_as_substitute, on_hand_close` | **Never.** Ground truth for evaluating the engine; a store only knows what it sold |
-| `report.md` | The distributions a reviewer reads instead of the code: hours, weekdays, basket sizes, Ramadan and pay cycle, service level, spoilage, lead times, payments, the till, the outbox | No |
+| `report.md` | The distributions a reviewer reads instead of the code: hours, weekdays, basket sizes, Ramadan and pay cycle, service level, spoilage, lead times, payments, the till, the tab, the outbox | No |
 | `manifest.json` | Seed, config and catalogue hashes, window, store id, parameter sources (guess/literature/interview counts), row counts, connectivity profile, daily outbox backlog, hashes of the CSV and report | No |
 
-**Opening a generated store in StoreServer** (tested on a full year; work on a copy, since
-StoreServer re-applies its startup migration and triggers):
+**Opening a generated store in StoreServer.** StoreServer refuses a plaintext store, so it
+imports one: point `ImportPlaintextFrom` at the generated file and give it an empty data
+directory. It creates the database key in the keys directory (locked down, D-057), writes an
+encrypted copy with `sqlcipher_export`, and leaves the generated file untouched (D-056).
 
 ```bash
-Waymark__Storage__DataDirectory=<dir> Waymark__Store__StoreId=<manifest store_id> Waymark__Store__Currency=DZD dotnet run --project src/Waymark.StoreServer --no-launch-profile --urls http://127.0.0.1:5199
+Waymark__Storage__DataDirectory=<empty dir> Waymark__Storage__KeysDirectory=<dir> Waymark__Storage__ImportPlaintextFrom=<run>/waymark-store.db Waymark__Store__StoreId=<manifest store_id> Waymark__Store__Currency=DZD dotnet run --project src/Waymark.StoreServer --no-launch-profile --urls http://127.0.0.1:5199
 ```
 
-Then `GET /health` returns `"status": "up"`.
+Then `GET /health` returns `"status": "up"`. The encrypted copy opens only with that keys
+directory's key, on that machine.
 
 ---
 
@@ -66,7 +69,7 @@ inputs ─► validate ─► commission ─► opening stock ─► day loop ×
    - the store, roles, staff and tills;
    - categories and subcategories (each subcategory carries the VAT class);
    - suppliers, products, variants, supplier terms and every price row;
-   - customers enrolling over the commissioning weeks, with their consent events.
+   - customers enrolling over the commissioning weeks, with their consent events and, for most, a credit limit.
 3. **Opening stock** (`OpeningStock.cs`): one batch per product on the first morning, in
    whole cartons, capped at the batch's remaining shelf life.
 4. **The day loop** (`DayLoop.cs`), one store-local day at a time. Each day:
@@ -82,8 +85,9 @@ inputs ─► validate ─► commission ─► opening stock ─► day loop ×
    | Paid-in | `CashDrawer` | Occasional float top-up |
    | Delivery | `SupplyChain` | Order received (maybe short), one batch per product, receipt movements |
    | Supplier visit | `SupplyChain` + `NaiveShopkeeperPolicy` | The shopkeeper orders, on the supplier's delivery days only |
-   | Customer | `DayLoop` + `SaleWriter` | FIFO from sellable lots, substitution if out, maybe a mis-ring and void, discounts, split payment (store credit, on account, tender), tender rounding, returns scheduled, anonymous basket emitted |
-   | Return | `SaleWriter` | Refund transaction, `returns` row, `return_in` if restocked, store credit if refunded that way |
+   | Customer | `DayLoop` + `SaleWriter` | FIFO from sellable lots, substitution if out, maybe a mis-ring and void, discounts, split payment (store credit, on account within the credit limit, tender), tender rounding, returns scheduled, anonymous basket emitted |
+   | Return | `SaleWriter` | Refund transaction, `returns` row naming its refund line, `return_in` if restocked, store credit if refunded that way, or back on the tab if the sale was on account. A cash refund the drawer cannot cover becomes store credit for a regular, and brings anyone else back another day |
+   | Settling a tab | `Receivables` | On payday-spike days mostly: all or half the tab in whole cash steps, a `paid_in` on the drawer, the change under one step written off |
    | Paid-out, midday drop | `CashDrawer` | Cash out of the drawer |
    | Drain | `Outbox` | Sends the outbox if the profile's link is up |
    | Drawer closes | `CashDrawer` | `expected = float + cash + paid_in − paid_out − drops + tender_variance`; sometimes a miscount |
@@ -93,7 +97,7 @@ inputs ─► validate ─► commission ─► opening stock ─► day loop ×
    that describe a state rather than an event are written once the run is over:
    - `inventories`;
    - batch statuses (`depleted`, `written_off`);
-   - customer credit and last-order caches;
+   - customer store-credit and last-order caches (a tab's balance is never cached: it is the sum of `receivable_movements`);
    - purchase orders still on their way;
    - the queued outbox and `sync_state`.
 6. **Outputs** (`Reporting/`): the report is read back from the finished database and the
@@ -104,7 +108,7 @@ inputs ─► validate ─► commission ─► opening stock ─► day loop ×
 - **Addressed randomness, never a shared generator** (`Randomness/`).
   - Every random value is `Stream(name).Uniform(coordinates…)`, a hash of the seed, the stream name and the coordinates. `demand(variant 17, day 42)` is the same number whatever else the run did.
   - Changing the ordering rule cannot move the demand it is judged against, and a connectivity profile cannot move a sale.
-  - Current streams: `arrival basket_mix basket_size cash count customer_attach customer_enrolment customer_frequency customer_traits delivered_shelf_life delivery_time demand discount fill lead link opening_cover opening_shelf_life payment payment_mix return return_visit substitution terminal void`, plus `DeriveSeed("ids")` for ULIDs. **Adding a behaviour means adding a new stream name**; reusing one couples two behaviours.
+  - Current streams: `arrival basket_mix basket_size cash count customer_attach customer_enrolment customer_frequency customer_traits delivered_shelf_life delivery_time demand discount fill lead link opening_cover opening_shelf_life payment payment_mix receivable_terms repayment return return_visit substitution terminal void`, plus `DeriveSeed("ids")` for ULIDs. **Adding a behaviour means adding a new stream name**; reusing one couples two behaviours.
 - **The real arithmetic.** Money goes through `Money`, `SplitTaxInclusive`, `ToCashTender`
   and the store's rounding policy stamped on each transaction (D-031–D-034, D-053). Stock
   goes through `Quantity`/`QuantityDelta`. A generated receipt recomputes like a real one.
@@ -156,6 +160,7 @@ parameter's `note`.
 | `sales` | `basket_units` (1–50, mean 7.2) · `substitution_by_tier` 0.6/0.3/0.05 · `payment_shares` cash 0.95 card 0.04 wallet 0.01 · `customer_attach_share` 0.18 · `opening_float` 5000 | The till |
 | `supply` | `memory_days` 14 · `reorder_cover_days` 4 · `order_up_to_cover_days` 12 · `slow_mover_rate` 0.3 · `ramadan_over_order` 1.5 · `ramadan_lookahead_days` 14 · `late_delivery_max_days` 2 · `fill_rate` 0.92 · `short_delivery_fraction` 0–0.8 · `delivered_shelf_life` 0.8–1.0 · `visit_minutes_after_opening` 90 · `delivery_window_minutes` 180 | The naive shopkeeper and his suppliers |
 | `mess` | discounts (`discount_line_share` 0.02, 5–20%) · `void_share` 0.01 · returns (`return_line_share` 0.003, 1–5 days, `restock_share` 0.4) · store credit (`store_credit_refund_share` 0.5, `store_credit_use_share` 0.8) · `on_account_share` 0.15 · cash (`paid_out_daily_chance` 0.25, `paid_in_daily_chance` 0.05, `drop_threshold` 20000, `cash_count_discrepancy_chance` 0.08 up to 300) · counts (`count_interval_days` 7, `count_shrinkage_chance` 0.08, `count_found_chance` 0.02) · `reason_codes` per event kind (names from store.json) | What makes real data untidy |
+| `receivables` | `enrolled_share` 0.7 · `credit_limit` 3000–15000 in steps of `credit_limit_step` 500 · `never_settle_share` 0.06 · `payday_repayment_daily_chance` 0.3 · `other_repayment_daily_chance` 0.02 · `partial_repayment_share` 0.25 · `reason_codes` (`repayment`, `write_off`) | The tab (le carnet, D-055) |
 | `connectivity` | `profile` · `drain_interval_minutes` 3 · `batch_size` 500 · `flaky_link_up_share` 0.7 · `offline_start_day` 150 · `offline_days` 21 | Outbox and `sync_state` only |
 | `seasonality_profiles` | 23 named profiles: 12 monthly multipliers, 4 Ramadan-phase multipliers, event multipliers | Named in `catalogue.csv` |
 
@@ -170,10 +175,13 @@ parameter's `note`.
 | More stockouts | Lower `fill_rate`, higher `late_delivery_max_days`, lower `order_up_to_cover_days` | Visible in the report's "Demand against the shelf" |
 | Test sync under an outage | `--connectivity offline_stretch` | Sales stay identical to the always-on run |
 | Cash rounding | Prices off the 5 DZD step in `catalogue.csv`, or discounts | A quarter of grocery prices already are |
+| More or less debt | `mess.on_account_share` (how often), `receivables.*` (who, how far, how it is repaid) | The report's "The tab" section shows what is owed at the end and how much was repaid in the payday spike |
 | A different kind of shop | A new catalogue directory and config | Copy the mini fixture |
 | A new behaviour | Code in `Simulation/`, **a new random stream**, a new config section of sourced parameters, a validator rule, an invariant test proven to fail (D-012), a report row | And a D-054 paragraph |
 
-After any change, read the new `report.md` before trusting the store.
+After any change, read the new `report.md` before trusting the store, and run
+`python tools/verify-store/verify_store.py <run>`, which recomputes 39 invariants from the
+raw rows.
 
 ---
 
@@ -200,9 +208,8 @@ After any change, read the new `report.md` before trusting the store.
 | :---- | :---- | :---- |
 | No `processing_log` rows | The generator is not an application access site | D-054 |
 | No customer period records in the outbox | No spend-banding scheme yet; the generator may not compute pseudonyms | D-049, D-054 |
-| On-account tabs are never settled | The schema has nowhere to record repayment | F-16 |
-| A return and its refund transaction are not directly linked | `returns` has no refund column | F-17 |
-| The database is plaintext | The database key is not implemented | F-1, O-20 |
+| The database is plaintext | The generator may not reach the key or any cryptography; StoreServer imports it encrypted | D-056 |
+| Tab repayments are cash only, never adjusted | Enough to exercise the drawer; card repayments and adjustments arrive with the POS flow | D-055 |
 | Whole units only, one selling unit per variant, no promotions, no loyalty points, no inbox or intents, no drain backoff, default fiscal year | Not needed for Phase 0's exit; each would be a new behaviour (§4.3) | — |
 | Every behavioural number is a guess or literature | Two afternoons with épiciers turn a dozen into interviews | D-046, manifest `parameter_sources` |
 
@@ -219,7 +226,7 @@ After any change, read the new `report.md` before trusting the store.
 | `Writing/` | `StoreDatabase` (created like a till's), `CanonicalDump` |
 | `Reporting/` | `latent-demand.csv`, `report.md` |
 | `inputs/` | Catalogues and configs, copied beside the build |
-| `src/tests/Waymark.Generator.Tests/` | 215 tests: inputs, randomness, calendar, commissioning, sales, supply, the mess, connectivity, report. Every invariant was proven to fail by breaking its code |
+| `src/tests/Waymark.Generator.Tests/` | 235 tests: inputs, randomness, calendar, commissioning, sales, supply, the mess, the tab, connectivity, report. Every invariant was proven to fail by breaking its code |
 
 Architecture (enforced by tests): nothing that ships references the generator. It reaches
 none of Pseudonymisation, Sync, Hardware or the hosts, and uses no cryptography (CLAUDE.md

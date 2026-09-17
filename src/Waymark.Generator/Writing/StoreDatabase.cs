@@ -50,8 +50,11 @@ internal sealed class StoreDatabase : IDisposable
                 $"{path} already exists. A run never overwrites a previous store; choose another --out.");
         }
 
+        // Plaintext, deliberately: the generator may not reach the database key or any
+        // cryptography (D-054). A generated store is fake data; StoreServer imports it into an
+        // encrypted file rather than opening it in place (F-1).
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseWaymarkSqlite(path)
+            .UseWaymarkSqlite(path, keyProvider: null)
             .Options;
 
         var context = new WaymarkDbContext(options, new FixedCurrentStore(storeId), new FixedLedgerCurrency(ledgerCurrency));

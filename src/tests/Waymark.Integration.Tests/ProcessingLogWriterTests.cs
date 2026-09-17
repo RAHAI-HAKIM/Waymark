@@ -62,10 +62,11 @@ public sealed class ProcessingLogWriterTests
         DateTimeOffset? now = null) =>
         new(context, new FixedIds(id), new FixedCurrentStore(storeId), new FixedClock(now ?? Noon));
 
-    private static ProcessingEvent AConsultation(string sourceModule = "Waymark.Application") => new(
+    /// <summary>A staff member looking a customer up: an operation about one person, so it names them (F-20).</summary>
+    private ProcessingEvent AConsultation(string sourceModule = "Waymark.Application") => new(
         Operation.Consultation,
         ProcessingLogEntrySubjectType.Customer,
-        Subject: default,
+        Subject: _keys.Pseudonymiser.PseudonymFor(Waymark.Domain.Privacy.SubjectDomain.Customer, "01CONSULTED"),
         ActorType.Staff,
         ActorId: "staff-w9",
         ProcessingPurpose.LoyaltyLookup,
@@ -146,6 +147,50 @@ public sealed class ProcessingLogWriterTests
         Assert.Equal(
             ["store-w9"],
             _database.Query("SELECT store_id FROM processing_log WHERE log_id = '01WRITERSTORE'"));
+    }
+
+    [Theory]
+    [InlineData(Operation.Consultation, ActorType.Staff)]
+    [InlineData(Operation.Modification, ActorType.Staff)]
+    [InlineData(Operation.Disclosure, ActorType.Staff)]
+    [InlineData(Operation.Transmission, ActorType.Engine)]
+    [InlineData(Operation.Erasure, ActorType.Staff)]
+    [InlineData(Operation.ReIdentification, ActorType.Engine)]
+    public void An_operation_about_one_person_by_a_person_or_the_engine_must_name_them(Operation operation, ActorType actor)
+    {
+        // F-20: default(Pseudonym) is also what a forgotten subject looks like. Only a declared
+        // system task may leave it out, so a staff consultation with no subject is refused
+        // rather than written as an entry that says nothing about whom.
+        using var context = _database.NewContext(enforceForeignKeys: false);
+        var writer = WriterFor(context, $"01WRITERNOSUBJECT{(int)operation}{(int)actor}");
+
+        var error = Assert.Throws<ArgumentException>(() => writer.Record(AConsultation() with
+        {
+            Operation = operation,
+            ActorType = actor,
+            Subject = default,
+        }));
+
+        Assert.Contains("must name its subject", error.Message, StringComparison.Ordinal);
+        Assert.Empty(context.ChangeTracker.Entries());
+    }
+
+    [Theory]
+    [InlineData(Operation.Collection, ActorType.Staff)]
+    [InlineData(Operation.Pseudonymisation, ActorType.Engine)]
+    [InlineData(Operation.Consultation, ActorType.System)]
+    public void A_task_over_many_subjects_or_a_declared_system_task_may_name_none(Operation operation, ActorType actor)
+    {
+        using var context = _database.NewContext(enforceForeignKeys: false);
+
+        WriterFor(context, $"01WRITERMANY{(int)operation}{(int)actor}").Record(AConsultation() with
+        {
+            Operation = operation,
+            ActorType = actor,
+            Subject = default,
+        });
+
+        Assert.Single(context.ChangeTracker.Entries());
     }
 
     [Fact]

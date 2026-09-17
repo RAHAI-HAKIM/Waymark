@@ -31,7 +31,7 @@ public sealed class TriggerApplicationTests : IDisposable
     private WaymarkDbContext NewContext(string name)
     {
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseWaymarkSqlite(Path.Combine(_directory, name), enforceForeignKeys: false)
+            .UseWaymarkSqlite(Path.Combine(_directory, name), keyProvider: null, enforceForeignKeys: false)
             .Options;
 
         // No store: this suite is about triggers, which the store filter does
@@ -51,11 +51,15 @@ public sealed class TriggerApplicationTests : IDisposable
     [Fact]
     public void The_script_declares_exactly_the_triggers_the_schema_defines()
     {
-        // triggers.sql was extracted from schema_v7_1.sql, which is now frozen.
-        // If the two ever disagree, the extraction lost something.
+        // triggers.sql began as the 11 triggers extracted from schema_v7_1.sql,
+        // which is frozen. Later additions: processing_log's UPDATE guard
+        // (D-045), rounding_variance (D-034), receivable_movements (F-16), and a
+        // no-replace guard on each of the nine ledgers (Phase 0 final test), and
+        // erasure_ledger's four fact and time-flow guards (D-060).
+        // A change to this count is a change to what the database promises.
         var declared = TriggerScript.DeclaredNames();
 
-        Assert.Equal(14, declared.Count);
+        Assert.Equal(29, declared.Count);
         Assert.Contains("trg_consent_events_no_update", declared);
         Assert.Contains("trg_erasure_ledger_no_delete", declared);
         Assert.Equal(declared.Count, declared.Distinct(StringComparer.Ordinal).Count());
@@ -71,7 +75,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.Database.Migrate();
 
         Assert.Equal(0, CountTriggers(context));
-        Assert.Equal(14, context.FindMissingTriggers().Count);
+        Assert.Equal(29, context.FindMissingTriggers().Count);
     }
 
     [Fact]
@@ -80,7 +84,7 @@ public sealed class TriggerApplicationTests : IDisposable
         using var context = NewContext("full.db");
         context.MigrateAndApplyTriggers();
 
-        Assert.Equal(14, CountTriggers(context));
+        Assert.Equal(29, CountTriggers(context));
         Assert.Empty(context.FindMissingTriggers());
     }
 
@@ -94,7 +98,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.ApplyTriggers();
         context.ApplyTriggers();
 
-        Assert.Equal(14, CountTriggers(context));
+        Assert.Equal(29, CountTriggers(context));
         Assert.Empty(context.FindMissingTriggers());
     }
 
@@ -116,7 +120,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.ApplyTriggers();
 
         Assert.Empty(context.FindMissingTriggers());
-        Assert.Equal(14, CountTriggers(context));
+        Assert.Equal(29, CountTriggers(context));
     }
 
     [Fact]

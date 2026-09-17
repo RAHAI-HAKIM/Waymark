@@ -14,4 +14,4 @@ A recap is a snapshot and is not kept current. When it disagrees with `decisions
 
 | Phase | Recap | Closed |
 | :---- | :---- | :---- |
-| 0, Foundation | [phase-0.md](phase-0.md) | 15/09/2026 (build complete; final test and resolution of open flaws follow) |
+| 0, Foundation | [phase-0.md](phase-0.md) | 17/09/2026 (build 15/09; §8 is the revision, the final test and the close) |

@@ -37,7 +37,7 @@ internal sealed class SalesReturnConfiguration : IEntityTypeConfiguration<SalesR
                 @"refund_amount >= 0");
             table.HasCheckConstraint(
                 "ck_returns_refund_method",
-                @"refund_method IN ('cash','card','store_credit','exchange')");
+                @"refund_method IN ('cash','card','store_credit','exchange','on_account')");
             table.HasCheckConstraint(
                 "ck_returns_restock_flag",
                 @"restock_flag IN (0,1)");

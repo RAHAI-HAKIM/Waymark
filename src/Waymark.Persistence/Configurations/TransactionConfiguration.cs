@@ -43,7 +43,7 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
                 "ck_transactions_status_3",
                 @"status <> 'completed' OR invoice_number IS NOT NULL");
             table.HasCheckConstraint(
-                "ck_store_rounding_policy",
+                "ck_transactions_rounding_policy",
                 @"rounding_policy IN ('half_even','half_up')");
         });
 

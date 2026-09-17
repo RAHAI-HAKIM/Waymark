@@ -13,6 +13,11 @@ commit `c3531bf` (compacted 13/09/2026).
 
 Open questions (`O-nn`) are at the end.
 
+| Section | Entries |
+| :---- | :---- |
+| Phase 0 (done, titles only) | D-001–D-054 |
+| Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
+
 # **Phase 0 (Already done)**
 
 | Topic | Entries |
@@ -162,8 +167,9 @@ tests now split the job: (explained in recap)
 ## Store scoping
 
 ### D-030 — A marker interface, a reflected filter, fail closed
-Entities with `store_id` implement `IStoreScoped` (17 tables). `WaymarkDbContext` attaches
-a global query filter to each by reflection.
+Entities with `store_id` implement `IStoreScoped` (20 entities, counted by
+`StoreScopingTests`). `WaymarkDbContext` attaches a global query filter to each by reflection.
+Their children are filtered through them since D-062.
 
 ---
 
@@ -237,15 +243,16 @@ that **Waymark never holds the key alongside a backup**.
 A throwaway probe on the real stack found SQLite 3.39.2 and SQLCipher 4.5.2. It confirmed:
 WAL works; STRICT works; the wrong key or no key is rejected; no plaintext leaks, schema
 text included; `PRAGMA rekey` works; an unencrypted DB opens in the same process; and
-`MigrateAndApplyTriggers()` succeeds on an encrypted file. **Nothing in production code
-supplies a key yet** (O-20).
+`MigrateAndApplyTriggers()` succeeds on an encrypted file. Production supplies the key
+since D-056.
 
 ### D-042 — Key custody is split by what each key protects
 | | Database key | Tenant key |
 | :---- | :---- | :---- |
 | Protects | Availability: loss destroys history | Confidentiality: compromise is retroactive |
 | Rotates | Yes, via `PRAGMA rekey` from an admin command | Never |
-| Supplied as | Raw key `PRAGMA key = "x'…'"`, skipping the KDF | HMAC key in `Waymark.Pseudonymisation` |
+| Supplied as | Raw key `PRAGMA key = "x'…'"`, skipping the KDF, by a connection interceptor (D-056) | HMAC key in `Waymark.Pseudonymisation` |
+| Wrapped under | `waymark:database-key:v1` | `waymark:tenant-key:v1` (both fixed constants, D-057) |
 
 ### D-043 — Tier 2 is full-fidelity and local; the outbox shapes what leaves
 The tier 1→2 transform runs in the store and writes local **DuckDB** at transaction grain
@@ -255,6 +262,11 @@ with the pseudonym. Only the outbox crosses, as **two streams that must never re
 | :---- | :---- | :---- |
 | Anonymous basket | Per basket: date, hour bucket, weekday, lines (product, qty, value), payment class, discount flag | None; no customer column at all |
 | Customer period | Per pseudonym per month: visits, banded spend, distinct categories, recency, first-seen period, objection flag at emit | Yes |
+
+**Excluded from both, explicitly: what a customer owes on account** (D-055). Not banded, not
+flagged, not as a count. "Banded spend" invites "banded debt" by analogy, and the answer is
+no. The anonymous basket's payment class may say `on_account`; that is a method, not a
+balance.
 
 ### D-045 — `processing_log` records every named operation, never a direct identifier
 Required by Loi 25-11 (articles 41 bis 2 and 3): a register of activities plus an
@@ -271,7 +283,7 @@ the customer module. Resolves O-16.
 - There are three populations (`Customer`, `Staff`, `Supplier`), and an unknown one
   throws.
 **Finding:** LocalMachine DPAPI is unwrappable by *any* local process, so the ACL on
-`keys\` is the real control against a second local account, and nothing sets it (O-18).
+`keys\` is the real control against a second local account. D-057 sets and enforces it.
 
 ---
 
@@ -318,6 +330,9 @@ later phase. Prerequisites: W1–W3.
 
 **Configuration, Catalogue (pluggable), Randomness, Demand, Inventory,**
 **Ordering rule, Transactions, Connectivity, Outputs and Review :** In the recap
+**Determinism is a canonical dump, never file bytes**, and must stay so: SQLCipher writes a
+random salt and IVs into every page, so two encrypted copies of the same data never match
+byte for byte (D-056).
 **Outside the code.** Two afternoons with épiciers turn a dozen parameters from `guess`
 into `interview`. Resolves O-17.
 How it was built is D-054.
@@ -362,12 +377,48 @@ so far. Resolves O-5.
 
 ---
 
+# **Post-Phase 0 revision (done)**
+
+Titles only; the full text is in `docs/recaps/phase-0.md` §8.
+
+### D-055 — On-account debt is a ledger of its own (F-16, F-17)
+`receivable_movements`, append-only, positive means owed; one charge per on-account payment
+row; cash repayments are also paid-ins; `customers.credit_limit`, null means no tab;
+`returns.refund_transaction_item_id`. Migration `AddReceivables`.
+
+### D-056 — The store database is encrypted (F-1, O-20)
+Raw key issued first on every EF connection by an interceptor; path-only connection string,
+pooling off; plaintext stores are imported with `sqlcipher_export`, never opened.
+
+### D-057 — The keys directory is locked down; no install id in the wrapping (O-18)
+Allowlist ACL (SYSTEM, Administrators, the service account) on the directory and its files,
+inheritance off, checked at every start; fixed entropy constant per key.
+
+### D-058 — Append-only also refuses REPLACE (final test)
+A `BEFORE INSERT` no-replace trigger on each of the nine ledgers.
+
+### D-059 — Receipt text cannot carry printer commands (final test)
+The encoder prints control characters as `?`.
+
+### D-060 — The erasure ledger's facts are fixed; its outcome only moves forward (F-18)
+Four triggers: fact columns never change; an executed erasure is final except its one cloud
+confirmation; execution and confirmation are stamped in order, never backwards (29 triggers).
+
+### D-061 — An operation about one person names them (F-20)
+`ProcessingEvent.IsComplete`: consultation, modification, disclosure, transmission, erasure and
+re-identification need a subject unless a system task logs them; the writer refuses otherwise.
+
+### D-062 — Rows without a store are filtered through their parent (F-19)
+Ten child tables read through their parent's store filter; the 31 other tables without
+`store_id` are the tenant's or the database's, each listed with its reason in `ParentScopeTests`.
+
+---
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
-| O-18 | **Who sets the ACL on `%ProgramData%\Waymark\keys`, and where does the install id live?** | LocalMachine DPAPI is unwrappable by any local process; the ACL is the real control, and `ProgramData` grants Users write by inheritance. Setting it needs Windows ACL APIs in the key's project (an architecture change), and it collides with the installer's Modify grant on `data\` (D-013). An install id in a world-readable `config\` adds nothing (D-051) | **Deferred to the post-Phase 0 revision.** Nothing in Phase 0 code. The DPIA describes the control as in place |
-| O-20 | **When does the database key land, and how does W10 stay deterministic on an encrypted file?** | D-042's database key is unimplemented, so StoreServer creates `waymark-store.db` **in plaintext**. That misses the Phase 0 done-criterion "encrypted", and DPIA §5.4 says the store DB is encrypted at rest. SQLCipher uses random per-page salt and IV, so D-046's "byte-identical runs" cannot hold on an encrypted file. Options: implement the key now and define generator determinism as a logical dump; or defer the key to Phase 0.5/1 and record the gap | **Deferred to the post-Phase 0 revision.** Not W10, provided its determinism test compares a canonical dump rather than file bytes (see D-046) |
+| O-23 | **Is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** | It holds transaction grain with the pseudonym (D-043), beside an encrypted tier 1. DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is, and leaving tier 2 plaintext makes "the store is encrypted" untrue for the pseudonymised copy | The tier-2 writer (Phase 0.5 decides stub or real). Until then the DPIA says so (§5.4) |
 
 ### Resolved
 | Open | Resolved by |
@@ -389,6 +440,8 @@ so far. Resolves O-5.
 | O-15 | D-044 |
 | O-16 | D-045 |
 | O-17 | D-046 |
+| O-18 | D-057 |
 | O-19 | Dropped: receipts are French in ASCII; alternatives in Phase 1 (D-052) |
+| O-20 | D-056 |
 | O-21 | D-045 (`trg_processing_log_no_update`) |
 | O-22 | D-053 |

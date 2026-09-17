@@ -113,4 +113,22 @@ public readonly record struct ProcessingEvent(
     ProcessingLegalBasis LegalBasis,
     string SourceModule,
     string? Recipient = null,
-    string? TerminalId = null);
+    string? TerminalId = null)
+{
+    /// <summary>
+    /// Whether the operation is about one person, so the entry must name them (D-061, F-20):
+    /// consultation, modification, disclosure, transmission, erasure and re-identification.
+    /// Collection and pseudonymisation can run over many subjects at once.
+    /// </summary>
+    public static bool NamesOnePerson(Operation operation) => operation is
+        Operation.Consultation or Operation.Modification or Operation.Disclosure
+        or Operation.Transmission or Operation.Erasure or Operation.ReIdentification;
+
+    /// <summary>
+    /// Whether this entry may be written. An operation about one person with no subject is a
+    /// forgotten pseudonym unless a system task declares it — a retention sweep, which is about
+    /// customers but no one customer. A staff member or the engine always names the person.
+    /// </summary>
+    public bool IsComplete =>
+        Subject.IsDefined || !NamesOnePerson(Operation) || ActorType == ActorType.System;
+}

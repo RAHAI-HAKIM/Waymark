@@ -32,6 +32,10 @@ public sealed class CommandExecutorPersistenceTests(MigratedDatabaseFixture data
 
     private sealed record LogOne(string SourceModule, bool Fail) : ICommand<NoResult>;
 
+    /// <summary>The customer the handler consults: an operation about one person names them (F-20).</summary>
+    private static readonly Pseudonym Subject = TenantKeyFixture.PseudonymiserFor(TenantKeyFixture.KeyBytes)
+        .PseudonymFor(SubjectDomain.Customer, "01EXECUTORCUSTOMER");
+
     private sealed class LogOneHandler : ICommandHandler<LogOne, NoResult>
     {
         public Task<NoResult> HandleAsync(
@@ -42,7 +46,7 @@ public sealed class CommandExecutorPersistenceTests(MigratedDatabaseFixture data
             context.Record(new ProcessingEvent(
                 Operation.Consultation,
                 ProcessingLogEntrySubjectType.Customer,
-                Subject: default,
+                Subject: Subject,
                 ActorType.Staff,
                 ActorId: "staff-executor",
                 ProcessingPurpose.LoyaltyLookup,

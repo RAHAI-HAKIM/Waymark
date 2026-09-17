@@ -48,7 +48,7 @@ public sealed class MoneyMappingTests : IClassFixture<MigratedDatabaseFixture>
         "stock_movements.unit_cost",
         "stock_counts.total_variance_value",
         "stock_count_items.unit_cost", "stock_count_items.variance_value",
-        "customers.credit",
+        "customers.credit", "customers.credit_limit",
         "transactions.subtotal", "transactions.discount_total",
         "transactions.tax_total", "transactions.total_amount",
         "transaction_items.sell_price", "transaction_items.unit_cost_at_sale",
@@ -57,6 +57,7 @@ public sealed class MoneyMappingTests : IClassFixture<MigratedDatabaseFixture>
         "transaction_payments.amount",
         "returns.refund_amount",
         "credit_movements.amount", "credit_movements.balance_after",
+        "receivable_movements.amount",
         "rounding_variance.amount",
     ];
 
@@ -134,7 +135,8 @@ public sealed class MoneyMappingTests : IClassFixture<MigratedDatabaseFixture>
 
         using (var context = _database.NewContext(enforceForeignKeys: false))
         {
-            var movement = context.CashMovements.Single(m => m.MovementId == "01MONEYROUNDTRIP");
+            // A movement with no session: this test is about the columns, not the store filter.
+            var movement = context.CashMovements.IgnoreQueryFilters().Single(m => m.MovementId == "01MONEYROUNDTRIP");
 
             Assert.Equal(Dzd(1_247_55), movement.Amount);
             Assert.Equal(Currency.Dzd, movement.Amount.Currency);

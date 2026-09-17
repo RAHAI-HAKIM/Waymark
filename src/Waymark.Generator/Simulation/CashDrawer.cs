@@ -63,6 +63,13 @@ internal sealed class CashDrawer
     public void TakeCash(Money exact, string transactionId)
     {
         var tender = exact.ToCashTender();
+        if (Expected + tender.Tendered < Money.Zero(_context.Store.Currency))
+        {
+            // Loud rather than plausible: a drawer below zero is money that was never there.
+            throw new InvalidOperationException(
+                $"Terminal {TerminalId} would pay out {-tender.Tendered} holding only {Expected}; a refund was not checked against the drawer.");
+        }
+
         _cash += exact;
 
         if (!tender.HasVariance)
@@ -86,15 +93,18 @@ internal sealed class CashDrawer
         });
     }
 
-    /// <summary>A paid-in, paid-out or drop. Refused (false) if the drawer cannot cover money leaving it.</summary>
-    public bool Move(CashMovementType type, Money amount, ReasonCodeDefinition reason, GeneratedStaff staff)
+    /// <summary>
+    /// A paid-in, paid-out or drop. Returns the cash movement's id, or null if refused: the drawer
+    /// cannot cover money leaving it.
+    /// </summary>
+    public string? Move(CashMovementType type, Money amount, ReasonCodeDefinition reason, GeneratedStaff staff)
     {
         ArgumentNullException.ThrowIfNull(reason);
         ArgumentNullException.ThrowIfNull(staff);
 
         if (!amount.IsPositive || (type != CashMovementType.PaidIn && amount > Expected))
         {
-            return false;
+            return null;
         }
 
         switch (type)
@@ -112,9 +122,10 @@ internal sealed class CashDrawer
                 throw new ArgumentOutOfRangeException(nameof(type), type, "The generator moves cash as paid_in, paid_out or drop.");
         }
 
+        var movementId = _context.Ids.NewId();
         _context.Database.Context.CashMovements.Add(new CashMovement
         {
-            MovementId = _context.Ids.NewId(),
+            MovementId = movementId,
             SessionId = SessionId,
             MovementType = type,
             Amount = amount,
@@ -125,7 +136,7 @@ internal sealed class CashDrawer
             OccurredAt = _context.Clock.GetUtcNow(),
         });
 
-        return true;
+        return movementId;
     }
 
     /// <summary>

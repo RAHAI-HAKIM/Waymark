@@ -135,33 +135,7 @@ public static class WaymarkDatabaseExtensions
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var present = new HashSet<string>(StringComparer.Ordinal);
-
-        var connection = context.Database.GetDbConnection();
-        var opened = false;
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            connection.Open();
-            opened = true;
-        }
-
-        try
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = "SELECT name FROM sqlite_schema WHERE type = 'trigger'";
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                present.Add(reader.GetString(0));
-            }
-        }
-        finally
-        {
-            if (opened)
-            {
-                connection.Close();
-            }
-        }
+        var present = Names(context, "SELECT name FROM sqlite_schema WHERE type = 'trigger'");
 
         // A trigger whose table is not here yet is not missing; it is not due.
         // FindTriggersWithNoTable is what reports those, and only after a full
@@ -174,37 +148,39 @@ public static class WaymarkDatabaseExtensions
             .Select(trigger => trigger.Name)];
     }
 
-    private static HashSet<string> ExistingTables(WaymarkDbContext context)
+    private static HashSet<string> ExistingTables(WaymarkDbContext context) =>
+        Names(context, "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'");
+
+    /// <summary>
+    /// The first column of <paramref name="sql"/>, on a connection EF opened.
+    ///
+    /// <para>
+    /// Through <c>Database.OpenConnection()</c>, never <c>GetDbConnection().Open()</c>: only an
+    /// open EF performs runs the connection interceptor, and a connection opened any other way
+    /// reaches an encrypted file without its key (F-1). EF counts the opens, so a connection the
+    /// caller already holds open stays open.
+    /// </para>
+    /// </summary>
+    private static HashSet<string> Names(WaymarkDbContext context, string sql)
     {
-        var tables = new HashSet<string>(StringComparer.Ordinal);
+        var names = new HashSet<string>(StringComparer.Ordinal);
 
-        var connection = context.Database.GetDbConnection();
-        var opened = false;
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            connection.Open();
-            opened = true;
-        }
-
+        context.Database.OpenConnection();
         try
         {
-            using var command = connection.CreateCommand();
-            command.CommandText =
-                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'";
+            using var command = context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = sql;
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
-                tables.Add(reader.GetString(0));
+                names.Add(reader.GetString(0));
             }
         }
         finally
         {
-            if (opened)
-            {
-                connection.Close();
-            }
+            context.Database.CloseConnection();
         }
 
-        return tables;
+        return names;
     }
 }

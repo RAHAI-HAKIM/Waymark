@@ -1,23 +1,37 @@
 // Waymark.StoreServer — the authoritative process on the store premises.
 //
-// Phase 0. It owns the operational database and brings it up to date at start;
-// the API the POS calls arrives in Phase 1.
+// Phase 0. It owns the operational database, keeps it encrypted, and brings it up to date at
+// start; the API the POS calls arrives in Phase 1.
 
+using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore;
 using Waymark.Application.IdGenerator;
 using Waymark.Domain;
 using Waymark.Domain.Ids;
+using Waymark.Domain.Privacy;
 using Waymark.Persistence;
+using Waymark.Pseudonymisation;
+
+// The till is Windows (D-017), and the keys are wrapped with DPAPI, which exists nowhere else.
+[assembly: SupportedOSPlatform("windows")]
+
+if (!OperatingSystem.IsWindows())
+{
+    throw new PlatformNotSupportedException("StoreServer runs on Windows: its keys are wrapped with DPAPI (D-042).");
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
-// The database path is configuration, not a constant: %ProgramData%\Waymark\data
-// on a till, a temporary directory under test (D-013). A host that hardcoded it
-// could not be pointed anywhere else.
+// The paths are configuration, not constants: %ProgramData%\Waymark\… on a till, a temporary
+// directory under test (D-013). A host that hardcoded them could not be pointed anywhere else.
 var dataDirectory = builder.Configuration[WaymarkStoragePaths.DataDirectorySetting]
     ?? WaymarkStoragePaths.DefaultDataDirectory;
+var keysDirectory = builder.Configuration[WaymarkStoragePaths.KeysDirectorySetting]
+    ?? WaymarkStoragePaths.DefaultKeysDirectory;
+var importFrom = builder.Configuration[WaymarkStoragePaths.ImportPlaintextSetting];
 
 WaymarkStoragePaths.EnsureDataDirectory(dataDirectory);
+var databasePath = WaymarkStoragePaths.StoreDatabase(dataDirectory);
 
 // Which store this till is. Unset until a store row exists, and unset means
 // store-scoped tables read as empty rather than as everything — a tenancy
@@ -38,38 +52,72 @@ builder.Services.AddSingleton<ILedgerCurrency>(
 // store generator and for tests, and is deliberately not registered (D-038).
 builder.Services.AddSingleton<IIdGenerator, UlidGenerator>();
 
-builder.Services.AddDbContext<WaymarkDbContext>(options =>
+// The database key (D-042, F-1). Resolved only inside the startup block below, after the keys
+// directory has passed its check. A new key is made only when there is no database yet: an
+// existing file with no key is a restore gone wrong, and a fresh key would hide it.
+builder.Services.AddSingleton<IDatabaseKeyProvider>(_ => File.Exists(databasePath)
+    ? DatabaseKeyStore.Open(keysDirectory, new DpapiKeyProtector())
+    : DatabaseKeyStore.OpenOrCreate(keysDirectory, new DpapiKeyProtector()));
+
+builder.Services.AddDbContext<WaymarkDbContext>((services, options) =>
     // UseWaymarkSqlite, never UseSqlite: the latter omits the STRICT generator
-    // and tables created without it accept a REAL into a money column.
-    options.UseWaymarkSqlite(WaymarkStoragePaths.StoreDatabase(dataDirectory)));
+    // and tables created without it accept a REAL into a money column. The key
+    // is issued on every connection, never through the connection string.
+    options.UseWaymarkSqlite(databasePath, services.GetRequiredService<IDatabaseKeyProvider>()));
 
 var app = builder.Build();
 
-// Bring the database up to date before anything is served.
+// Before anything is served: the keys are protected, the database is encrypted and up to date.
 //
-// MigrateAndApplyTriggers throws if an append-only trigger is missing
-// afterwards, so a store whose audit tables are unprotected fails to start
-// rather than running and quietly accepting writes the DPIA says are
-// impossible. A till that will not start is a phone call; a till that silently
-// stopped enforcing consent history is a finding.
-//
-// Not inside a transaction, and not `Database.Migrate()` on its own — see
-// CLAUDE.md §3.7.
+// Each check refuses to start rather than warn. A till that will not start is a phone call; a
+// till whose key any cashier can read, or whose audit tables quietly accept edits, is a finding.
 using (var scope = app.Services.CreateScope())
 {
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
         .CreateLogger("Waymark.StoreServer.Startup");
-    var database = scope.ServiceProvider.GetRequiredService<WaymarkDbContext>();
 
-    // Computed before the call rather than inside it: CA1873 objects to work
-    // done for a log line that may be switched off.
-    var databasePath = WaymarkStoragePaths.StoreDatabase(dataDirectory);
+    // O-18. LocalMachine DPAPI unwraps for any process on the machine, so the directory's ACL is
+    // what keeps a cashier's account from the keys. Created locked down if absent (the installer's
+    // job, until there is an installer); never repaired if present, only refused.
+    KeysDirectoryAccess.EnsureCreated(keysDirectory);
+    var aclProblems = KeysDirectoryAccess.Problems(keysDirectory);
+    if (aclProblems.Count > 0)
+    {
+        var problems = string.Join(" ", aclProblems);
+        logger.LogCritical("The keys directory is not protected: {Problems}", problems);
+        throw new InvalidOperationException(
+            $"StoreServer will not start: the keys directory is not protected. {problems} "
+            + "Recreate it with inheritance disabled and access for SYSTEM, Administrators and the service account only (O-18).");
+    }
+
+    // A plaintext store (a generated one, or one from before F-1) is never opened in place, and
+    // is refused before any key is read or made for it.
+    if (WaymarkDatabaseEncryption.IsPlaintext(databasePath))
+    {
+        throw new InvalidOperationException(
+            $"{databasePath} is not encrypted. StoreServer does not open a plaintext store (F-1). Move it "
+            + $"aside and set {WaymarkStoragePaths.ImportPlaintextSetting} to its path to import it.");
+    }
+
+    var keyProvider = scope.ServiceProvider.GetRequiredService<IDatabaseKeyProvider>();
+
+    // It is imported instead: an encrypted copy, made when there is no store yet.
+    if (importFrom is not null && !File.Exists(databasePath))
+    {
+        logger.LogInformation("Importing the plaintext store at {Source} into an encrypted database", importFrom);
+        WaymarkDatabaseEncryption.EncryptCopy(importFrom, databasePath, keyProvider);
+    }
+
+    var database = scope.ServiceProvider.GetRequiredService<WaymarkDbContext>();
     logger.LogInformation("Opening the store database at {Path}", databasePath);
 
+    // MigrateAndApplyTriggers throws if an append-only trigger is missing
+    // afterwards. Not inside a transaction, and not `Database.Migrate()` on its
+    // own — see CLAUDE.md §3.7.
     database.MigrateAndApplyTriggers();
 
     var triggerCount = TriggerScript.DeclaredNames().Count;
-    logger.LogInformation("Database ready: {Triggers} append-only triggers in place", triggerCount);
+    logger.LogInformation("Database ready and encrypted: {Triggers} append-only triggers in place", triggerCount);
 
     // The ledger currency is configuration; the store row is the record. If they
     // disagree, every money column has just been read back with the wrong label

@@ -46,6 +46,7 @@ The analytical engine ("Almanac") produces recommendations across five departmen
 | P3 | Optional customer analytics and personalised offers, where the retailer enables them | Art. 7 — explicit consent of the data subject |
 | P4 | Management of Waymark's own commercial relationship with retailers | Art. 7 — performance of a contract |
 | P5 | Product improvement using **aggregate statistics only** | Not personal data — see §2.7 |
+| P6 | Keeping a customer's on-account tab (the *carnet*): credit limit, amounts charged, repayments and write-offs, where the retailer enables the customer module | Art. 7 — performance of a contract |
 
 **P3 is disabled by default** and activated only where the retailer explicitly configures it. See §5.1.
 
@@ -70,7 +71,7 @@ Feature-level configuration rests with the retailer. This is a deliberate contro
 
 ### 2.5 Categories of personal data
 
-**Customers** — name, telephone, email, join date, loyalty points, tier, credit balance, consent records, transaction history. *Address is not collected.* Removed under the minimisation principle of Article 9(c), being unnecessary to any purpose.
+**Customers** — name, telephone, email, join date, loyalty points, tier, store credit balance, on-account credit limit and tab movements (P6), consent records, transaction history. *Address is not collected.* Removed under the minimisation principle of Article 9(c), being unnecessary to any purpose.
 
 **Staff** — name, telephone, email, role, join date, termination date, salary, access credentials, shift records.
 
@@ -110,6 +111,8 @@ The system uses a **hybrid edge architecture**. All processing takes place on Al
 | Customer period record | One per pseudonym per month: visit count, banded spend, distinct categories, recency, first-seen period | Yes |
 
 The two grains are mismatched deliberately. Emitting both at transaction grain would allow a join that reconstructs the identified stream, which would make the separation decorative. Timestamps are banded to the hour and spend to a range **at the point of emission**, because after an erasure it is no longer known which rows would need correcting.
+
+**What a customer owes on account never crosses**, in either stream: not banded, not flagged, not counted. It is financial data about an identified person and stays on the premises (P6).
 
 The customer period stream is subject to two independent gates: the retailer's licence for the customer module, and the individual's objection flag. **An objection downgrades rather than drops** — the basket record is still emitted, so the retailer keeps inventory analytics and the data subject gets what they asked for.
 
@@ -220,14 +223,15 @@ The pseudonym is a **keyed hash**: HMAC-SHA256 over the customer identifier unde
 
 ### 5.4 Security (R4, R5, R9)
 
-- Encryption in transit and at rest. The local operational database is encrypted at rest.  
+- Encryption in transit and at rest. The local operational database is encrypted at rest, and the store server refuses to open it otherwise.  
+- **Not encrypted at rest, stated so the line above is not read as "everything is":** the checkout terminal's local cache (Pro tier), deliberately, as a disposable copy rebuilt from the store server and never backed up; and the local statistics store (tier 2), pending its own decision.  
 - Per-tenant encryption keys and tenant isolation in the cloud environment.  
 - Documented internal access control policy; access to retailer data restricted and logged.  
 - Access traceability implemented through the processing log (§5.5).  
 - Confidentiality undertaking signed by all personnel with access to data (Art. 40).  
 - Local device security guidance provided to retailers as part of onboarding.  
 
-**Key custody on the retailer's premises.** Two secrets are held locally, and they are treated differently because they protect different things. The **database key** protects availability: its loss destroys a retailer's history, and it can be rotated. The **tenant key** protects confidentiality: it cannot be rotated, and its compromise is retroactive. Both are 32 bytes from a cryptographic random source, wrapped by the operating system's data protection service at machine scope with additional entropy bound to the installation, and held in a dedicated directory excluded from the backup set by an allowlist of directories rather than by a pattern. Recovery is by a printed code held by the retailer, one per key. Neither key is escrowed with Waymark.
+**Key custody on the retailer's premises.** Two secrets are held locally, and they are treated differently because they protect different things. The **database key** protects availability: its loss destroys a retailer's history, and it can be rotated. The **tenant key** protects confidentiality: it cannot be rotated, and its compromise is retroactive. Both are 32 bytes from a cryptographic random source, wrapped by the operating system's data protection service at machine scope, each under its own fixed separation value so that one cannot be mistaken for the other, and held in a dedicated directory excluded from the backup set by an allowlist of directories rather than by a pattern. Because machine-scope wrapping can be undone by any process on the terminal, **that directory's permissions are the control**: inheritance is disabled and only the system, administrators and the store server's own account have any access, to the directory or to any file in it. The store server checks this at every start and refuses to run otherwise. Recovery is by a printed code held by the retailer, one per key. Neither key is escrowed with Waymark.
 
 **A limitation stated rather than mitigated.** Machine-scope operating-system key wrapping is recoverable from a disk image taken off a stolen device together with the relevant system stores. The control that would address this is full-disk encryption, which is not available on the consumer Windows editions these terminals run. Terminals are protected at the application layer by staff authentication, which defends against a casual walk-up and not against an attacker in possession of the hardware. **This is recorded as an accepted residual risk under R5.** What the wrapping does defend is the case that occurs in practice: files copied from the machine during repair, a removable-media copy of the application data directory, or the local backup staging area.
 

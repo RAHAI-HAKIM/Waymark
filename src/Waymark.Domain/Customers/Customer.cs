@@ -40,6 +40,12 @@ public sealed class Customer
 
     public Money Credit { get; init; }
 
+    /// <summary>
+    /// The most this customer may owe on account (F-16). Null means no tab: an on-account
+    /// payment is refused, so a customer is never given credit by omission.
+    /// </summary>
+    public Money? CreditLimit { get; init; }
+
     public long Discount { get; init; }
 
     public string? TierRanking { get; init; }

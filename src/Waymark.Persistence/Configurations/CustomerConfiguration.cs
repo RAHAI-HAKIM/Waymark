@@ -85,6 +85,8 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasColumnName("points")
             .HasDefaultValue(0L)
             .HasSentinel(0L);
+        builder.Property(x => x.CreditLimit)
+            .HasColumnName("credit_limit");
         builder.Property(x => x.Credit)
             .HasColumnName("credit")
             .HasDefaultValue(WaymarkConverters.ZeroMoney);

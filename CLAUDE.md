@@ -86,9 +86,19 @@ Every store-scoped entity carries `store_id` and is filtered by an **EF Core glo
 filter**, not a `where` clause someone might forget. It **fails closed**. Cross-tenant
 leakage is DPIA risk R9.
 
+- **Waymark serves several stores.** A table without `store_id` that belongs to a store is
+  **filtered through its parent** (`ApplyParentScope`, D-062): transaction lines and
+  payments, cash movements, batch, order and count items, recommendation options and
+  decisions, promotion links.
+- **Every other table without `store_id` is the tenant's or the database's**, and
+  `ParentScopeTests` names each with its reason. A new table goes on one list or the other,
+  or that test fails.
+- Writes are not yet checked against the current store (F-21).
+
 ### 3.4 Files — D-013, D-042, D-043
 
-- **Two local SQLite files, never merged**: `waymark-store.db` (operational data and statistics tier 1, identified; SQLCipher; backed up) and the POS Level-2 cache (own schema, never backed up). The database key is not implemented yet, so the file is plaintext today (O-20).
+- **Two local SQLite files, never merged**: `waymark-store.db` (operational data and statistics tier 1, identified; SQLCipher-encrypted; backed up) and the POS Level-2 cache (own schema, never backed up, not encrypted).
+- **The store database is keyed through `UseWaymarkSqlite(path, keyProvider)`** — D-056. The key is `PRAGMA key` issued by the connection interceptor, first, on every connection: **never `Password` or `Foreign Keys` in the connection string**, and **never `GetDbConnection().Open()`**, which bypasses the interceptor (use `Database.OpenConnection()`). Pooling stays off: the pool is keyed by connection string, and a pooled handle keeps the key it was unlocked with. `keyProvider: null` means plaintext, for tests and the generator only; StoreServer refuses a plaintext store and imports it instead.
 - **Statistics tier 2 is local**, in DuckDB. The cloud is Postgres plus per-tenant DuckDB (tier 3). The outbox carries two streams that must never re-join: an anonymous basket record with no customer column, and a customer period record at monthly grain.
 - **Keys live in `%ProgramData%\Waymark\keys`, never in `data`.** The backup set is an allowlist of directories.
 
@@ -102,7 +112,8 @@ Crockford base32 — 26 characters, like a ULID.
 - **The scheme does not rotate**, and `TenantKeyStore` has no method that replaces a key. A replaced key gives every customer a second identity and orphans the cloud history, with no error.
 - **`Pseudonym` is the only way to name a subject in `processing_log`.** Internal constructor; Domain grants `InternalsVisibleTo` to `Waymark.Pseudonymisation` alone. Application may hold one, may not make one.
 - **Holding `IPseudonymiser` is a capability** — half of re-identification. Only Application and the hosts may. Inject it into as little as possible.
-- **DPAPI at `LocalMachine` scope does not defend against a local user.** The keys directory's ACL does, and nothing sets it yet (O-18). Do not describe the wrapping as more than it is.
+- **DPAPI at `LocalMachine` scope does not defend against a local user.** The keys directory's ACL does: inheritance off, and access for SYSTEM, Administrators and the service account only, on the directory and every file in it. StoreServer creates it that way and refuses to start otherwise (`KeysDirectoryAccess`, D-057). Do not describe the wrapping as more than it is.
+- **Each key is wrapped under its own fixed entropy constant** (domain separation, not a secret). There is no install id in the wrapping (D-057).
 - **Erasure unlinks rather than destroys**: null the pseudonym on cloud transaction rows, record it in `erasure_ledger`. General rule: **order writes so failure leaves garbage, not a gap.**
 
 ### 3.6 Domain row and outbox row go in one transaction
@@ -115,6 +126,8 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 - **Never run `dotnet ef migrations add` without reading the generated file.**
 - **Every index, CHECK and foreign key must be declared in the EF model.** A table rebuild recreates the table from the model alone and drops whatever the model does not know.
 - **Triggers live in `triggers.sql`, never in the EF model** — EF cannot see them and a rebuild drops them. Re-applied idempotently after every `Migrate()`.
+- **An append-only table gets three guards: no update, no delete, no replace** (D-058). `INSERT OR REPLACE` deletes without firing a DELETE trigger unless `recursive_triggers` is on, and nothing may rely on that pragma.
+- **`erasure_ledger` records facts and an outcome** (D-060): its facts never change, its status moves forward, an executed erasure is final, and time never runs backwards.
 - **A rebuild copies the whole table.** On `transactions`, `transaction_items`, `stock_movements` or `processing_log` that is an operational event, not a routine update.
 - New tables must be `STRICT`. `schema_v7_1.sql` is frozen; `schema_current.sql` is regenerated and committed after every migration. `Migrate()` must not run inside a transaction.
 - EF Core 10 on .NET 10 LTS. Not 11 — it is STS, and the till needs long support.
@@ -127,6 +140,14 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 - **Both carry their unit** and mismatched units throw. A unit's `decimal_places` is enforced at construction.
 - A stock level going negative is not a bug.
 
+### 3.9 On-account debt — D-055
+
+- **`receivable_movements` is the tab**, append-only. Positive means the customer owes more. **The balance is a sum, never a cached column.**
+- **Every `on_account` payment row has exactly one `charge`** of the same amount (`payment_id`, unique): a refund of an on-account sale is a negative charge, never cash out of the drawer.
+- **A cash repayment is also a `paid_in`** on the open session (`cash_movement_id`), or the drawer stops reconciling.
+- **No tab without `customers.credit_limit`**, and none beyond it. Null means no tab.
+- **Outstanding debt never reaches the outbox**: not banded, not flagged (D-043).
+
 ---
 
 ## 4. Privacy — `Waymark_DPIA_v1`, D-045
@@ -137,6 +158,7 @@ Breaking one of these is a legal problem, not a bug.
 - **`processing_log` is append-only against edits** (`trg_processing_log_no_update`); DELETE is reserved for the retention roll-up (D-045).
 - **`processing_log` is written at every access site**, through `IProcessingLog.Record`, which takes a `ProcessingEvent` and nothing else. Writes belong in `Waymark.Application`.
 - **The caller does not set `log_id`, `occurred_at` or `store_id`** — they come from `IIdGenerator`, the injected `TimeProvider` and `ICurrentStore`.
+- **An operation about one person names them** (D-061): consultation, modification, disclosure, transmission, erasure and re-identification need a `Pseudonym` unless a system task logs them. The writer refuses otherwise.
 - **`objection_flag` is checked before any customer-directed output.**
 - **Consent is two separate consents**, processing and marketing, each with its own timestamp, notice version, staff member and method. `consent_events` is append-only; withdrawal is a new event, never an update.
 - **Sensitive categories are excluded from customer-level processing**, evaluated across *all* category links.

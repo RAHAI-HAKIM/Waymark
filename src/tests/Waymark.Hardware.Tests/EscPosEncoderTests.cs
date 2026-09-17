@@ -23,6 +23,48 @@ public sealed class EscPosEncoderTests
     /// <summary>The sink's own readable rendering — text plus named commands.</summary>
     private static string Rendering(byte[] bytes) => FileEscPosSink.Render(bytes);
 
+    // --------------------------------------------------------- hostile text
+
+    /// <summary>ESC p 0 50 50: kick the drawer open. Text that carries it must print it, not do it.</summary>
+    private const string DrawerKick = "\u001Bp\u0000\u0032\u0032";
+
+    public static TheoryData<string, ReceiptLine> LinesCarryingCommands() => new()
+    {
+        { "a product name", new TextLine("Lait " + DrawerKick + "1L") },
+        { "an amount's label", new AmountLine("Pain" + DrawerKick, Money.FromMinorUnits(2500, Currency.Dzd)) },
+        { "a customer's name", new TextLine("Client " + DrawerKick, Emphasised: true, DoubleHeight: true) },
+        { "a separator", new SeparatorLine('\u001B') },
+        { "a reset in a name", new TextLine("Caf\u001B@e") },
+        { "a cut in a name", new TextLine("Th\u001DVBe") },
+    };
+
+    [Theory]
+    [MemberData(nameof(LinesCarryingCommands))]
+    public void Text_from_the_database_cannot_smuggle_a_printer_command(string _, ReceiptLine line)
+    {
+        // Product and customer names come from the store's data. ASCII encoding keeps control
+        // characters, so an ESC or GS inside one reached the printer as a command: a name could
+        // open the drawer with no reason recorded, which D-052 makes the shrinkage audit point.
+        var bytes = Standard.Encode(Document(line));
+        var header = EscPos.Initialise.Length + EscPos.CodePage(PrinterProfile.Standard80Mm.CodePage).Length;
+        var body = bytes.AsSpan(header);
+
+        Assert.True(body.IndexOf("\u001Bp"u8) < 0, "A drawer kick in the text reached the printer.");
+        Assert.True(body.IndexOf("\u001B@"u8) < 0, "A reset in the text reached the printer.");
+        Assert.True(body.IndexOf("\u001DV"u8) < 0, "A cut in the text reached the printer.");
+        Assert.DoesNotContain("drawer", Rendering(bytes), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_control_character_prints_as_a_mark_in_its_own_place_so_the_layout_holds()
+    {
+        var bytes = Standard.Encode(Document(new AmountLine("Pa\u0007in\nX", Money.FromMinorUnits(2500, Currency.Dzd))));
+
+        var line = Assert.Single(Paper(bytes), l => l.Contains("25.00", StringComparison.Ordinal));
+        Assert.Equal(42, line.Length);
+        Assert.StartsWith("Pa?in?X", line, StringComparison.Ordinal);
+    }
+
     // ------------------------------------------------------------- the paper
 
     [Fact]

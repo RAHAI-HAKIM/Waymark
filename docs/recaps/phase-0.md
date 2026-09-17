@@ -1,9 +1,10 @@
 # Phase 0 recap: Foundation
 
-**Closed 15/09/2026**, build complete. What remains before Phase 0.5 is Hakim's final test
-and analysis, and the resolution of the open findings and questions in `docs/status.md`.
+**Build closed 15/09/2026; phase closed 17/09/2026**, after the post-Phase 0 revision, the
+final test and Hakim's decisions on its findings (§8). Next is Phase 0.5.
 
-A snapshot, not a live document (see `README.md` in this folder). Decisions are cited by
+A snapshot, not a live document (see `README.md` in this folder). §8 was added after the
+close, for the post-Phase 0 revision, the final test and the phase's close (16–17/09/2026). Decisions are cited by
 number; `docs/decisions.md` holds each one's reasoning and rejected alternatives.
 
 ---
@@ -1134,3 +1135,327 @@ What Phase 0 hands it directly:
 - **A generated store** as fixture data for every screen and handler, an outbox with real
   basket payloads for the stub cloud, and `latent-demand.csv` with `NaiveShopkeeperPolicy`
   as the engine's answer key and baseline.
+
+---
+
+## 8. The post-Phase 0 revision (16–17/09/2026)
+
+Written after the phase closed, to hold the full text of the revision's decisions, which
+`docs/decisions.md` lists by title only. What it fixed: F-1, F-16, F-17 and O-18/O-20. What
+the final test found and fixed: D-058, D-059 and the allowlist in D-057. What the final test
+left open is in `docs/status.md`.
+
+### D-055 — On-account debt is a ledger of its own (F-16, F-17)
+
+**What.** `receivable_movements`, append-only and store-scoped. Its movement types are
+`charge`, `payment`, `adjustment` and `write_off`, signed so that **positive means the
+customer owes more**. The balance is `sum(amount)` per customer over
+`ix_receivable_customer`, never a cached column. Settlement is balance-level: charges stay
+dated, so aging is computed first-in first-out at read time, and which charge a payment
+settled is not stored.
+
+- **A `charge` mirrors exactly one `on_account` payment row**, sign included, by `payment_id`
+  (unique). A sale charges the tab. A refund of an on-account sale is a negative charge, so it
+  credits the tab and never takes cash from the drawer. `sum(charges) = sum(on_account
+  payments)` holds by construction. `returns.refund_method` gained `on_account` for it.
+- **A `payment` is negative.** In cash it is also a `paid_in` on the open session, linked by
+  `cash_movement_id` (unique), so the drawer reconciles (D-034). A repayment is therefore a
+  POS flow, not a bare ledger insert (Phase 1).
+- **`write_off` is negative and `adjustment` either sign; both need a reason code.**
+- CHECKs enforce the sign, the links and the reasons. Foreign keys reach `stores`,
+  `customers`, `transaction_payments`, `cash_movements`, `reason_codes` and `staff`.
+- **`customers.credit_limit`** (`Money`, nullable, `ADD COLUMN`): **null means no tab**, so no
+  customer gets credit by omission. The POS checks it before accepting an on-account payment
+  (Phase 1); the generator already does. It has no CHECK, which would rebuild `customers`
+  (D-022).
+- **F-17: `returns.refund_transaction_item_id`**, nullable, with a foreign key to
+  `transaction_items`. It is item-level because the transaction link already exists
+  (`original_transaction_id`). The case that could not be resolved was a refund holding the
+  same variant twice, at different prices or from different batches; the line implies the
+  transaction.
+- **Migration `AddReceivables`**: `CREATE TABLE`, and `ADD COLUMN` on `customers`. `returns`
+  is rebuilt once, for its new foreign key and the widened `refund_method` CHECK, while no
+  store holds data. It replaces Hakim's first draft, `AddReceivableMovement`, which had
+  `occured_at`, a CHECK named `ck_credit_movements_amount`, no store filter and no staff
+  foreign key.
+- **Privacy.** Outstanding debt never reaches the outbox (D-043). It is financial data about
+  an identified person, inside the separately sold customer module, with its own purpose row
+  in the DPIA (P6).
+- **Generator (D-046 item 17).** 70% of customers get a limit of 3,000–15,000 DZD in steps of
+  500. 6% of those never settle, and their limit is what stops them. The others come in to
+  settle on 30% of payday-spike days and 2% of other days, a quarter of the time for half the
+  tab. They pay in whole cash steps, and a full settlement writes off the change left under
+  one step.
+
+**Rejected.**
+- Signed `credit_movements` with a new type. Store credit's balance is never negative and is
+  cached on `customers.credit`; a tab is the opposite on both counts, and one table would
+  carry two sign conventions.
+- A cached balance column: a second truth to reconcile.
+- Allocating payments to charges: bookkeeping no épicier does, and FIFO aging needs none.
+
+### D-056 — The store database is encrypted (F-1, O-20)
+
+**What.** `IDatabaseKeyProvider` (Domain) supplies 32 raw bytes. `DatabaseKeyStore`
+(Pseudonymisation, beside DPAPI) keeps them in `keys\store.key`. The key is created on the
+first run **before** the database, and never created beside an existing database: `Open`
+refuses. `UseWaymarkSqlite(path, keyProvider)` takes the provider as a **required** argument,
+with `null` meaning plaintext, and registers `WaymarkConnectionInterceptor`. On every
+connection EF opens, it issues, in order:
+1. `PRAGMA key = "x'…'"`;
+2. a read, which turns a wrong key into a clear error;
+3. `PRAGMA foreign_keys`.
+
+Every other cipher setting is SQLCipher's default (SQLCipher 4.5.2 community, SQLite 3.39.2;
+temporary storage in memory by build).
+
+- **The connection string is the path and `Pooling=False`, nothing else.**
+  Microsoft.Data.Sqlite issues `Foreign Keys=True` during `Open`, before the key, and
+  SQLCipher refuses it. `Password` would put the key where logs and exceptions can print it.
+- **Pooling is off** because the pool is keyed by connection string, and the key is not in it.
+  With pooling on, a context holding the wrong key, or none, was handed a handle the right key
+  had already unlocked, and read the store; a second `PRAGMA key` on such a handle is silently
+  ignored. `DatabaseEncryptionTests` found this; the D-040 probe had not looked. A full
+  generated year still writes in about 36 s.
+- **Only EF-opened connections are keyed.** `WaymarkDatabaseExtensions` now opens through
+  `Database.OpenConnection()`; `GetDbConnection().Open()` meets "file is not a database".
+- **Plaintext files are imported, never opened.** `WaymarkDatabaseEncryption.EncryptCopy`
+  attaches a keyed database and runs `sqlcipher_export`, write-ahead log included. StoreServer
+  refuses a plaintext `waymark-store.db`, before any key is read. If the data directory has no
+  database, it imports the file named by `Waymark:Storage:ImportPlaintextFrom`. This is how a
+  generated store reaches StoreServer, and it is the pilot's migration path.
+- **The generator stays plaintext.** It may not reach Pseudonymisation or cryptography
+  (D-054), and its data is fake. Its determinism was already a logical dump (D-046).
+- The key's byte copies are zeroed after use. The hex text of the pragma is a managed string
+  and cannot be; that residue is accepted.
+- **Not encrypted:**
+  - the POS Level-2 cache, deliberately: a disposable copy, never backed up (Phase 5);
+  - tier 2 in DuckDB (O-23).
+
+  The DPIA says so beside §5.4.
+
+**Rejected.**
+- `Password=` in the connection string: it leaks into logs, and still hits the Foreign Keys
+  ordering.
+- `DbConnection.StateChange`, to catch every opener: it would work outside EF too, but EF owns
+  the connection's lifetime, and the interceptor is the supported hook.
+- Pooling with a key fingerprint in the connection string: Microsoft.Data.Sqlite has no spare
+  keyword to carry it.
+- A file copy to "encrypt" an existing store: the copy stays plaintext.
+
+### D-057 — The keys directory is locked down; no install id in the wrapping (O-18)
+
+**What.** `KeysDirectoryAccess` (Pseudonymisation, Windows only) defines the rule:
+**inheritance disabled, and access for SYSTEM, Administrators and the account StoreServer
+runs as, and for no one else, on the directory and on every file in it**. Deny rules are
+ignored, because they take access away.
+- `EnsureCreated` makes the directory that way if it is absent.
+- `Problems` reports every breach, naming the well-known groups in English whatever the
+  Windows language.
+- StoreServer calls both at every start, logs any problem and **refuses to start**, before any
+  key is read.
+- An existing directory is never repaired, only reported, so whoever loosened it is not
+  hidden.
+
+D-013's Modify grant on `data\` does not collide, because each directory has its own explicit
+ACL. StoreServer is now Windows-only (`SupportedOSPlatform`).
+
+- **The first version was a list of forbidden groups** (Everyone, Authenticated Users, Users,
+  Interactive), as the revision's notes put the startup check. The final test showed it let
+  Guests, Power Users, Local Service and Network Service through, and an explicit grant on a
+  single key file. It is now an allowlist, which matches the notes' own creation rule, "no
+  other principal".
+- **Who sets it.** The installer, when there is one; until then, StoreServer at first start.
+  On a till StoreServer runs as SYSTEM, so "the current account" adds nothing there. On a
+  developer machine, it is what lets StoreServer read its own keys.
+- **The install id is gone from the DPAPI entropy.** It is not secret, and anything able to
+  read the blob can read the id (D-051), so it protected nothing. Each key is wrapped under a
+  fixed constant instead, `waymark:tenant-key:v1` and `waymark:database-key:v1`. That is
+  domain separation: a swapped file fails to unwrap, rather than silently becoming the other
+  key. Nothing in Phase 0 needs an install id.
+- Tests run the real StoreServer process against three keys directories: one that inherits
+  its permissions, one Users can read, and a correct one.
+
+**Rejected.**
+- Warning instead of refusing: a till whose key every cashier can read is a finding, not a
+  log line.
+- Repairing the ACL silently.
+- Keeping the install id "for binding": it gives no secrecy, and it would have to be stored
+  and restored with the blob.
+
+**Planned upgrade (Phase 2): Windows Credential Manager under the service account.** A
+standard user cannot enumerate LocalSystem's store, and the keys leave the filesystem. That
+makes their exclusion from backups automatic, rather than an allowlist someone must maintain.
+
+### D-058 — Append-only also refuses REPLACE (final test)
+
+**What.** Each of the nine append-only tables has a `trg_<table>_no_replace` trigger: a
+`BEFORE INSERT` that aborts when the new row's key already exists, and, for
+`receivable_movements`, when its `payment_id` or `cash_movement_id` does. That makes 25
+triggers.
+
+**Why.** `INSERT OR REPLACE` resolves a key conflict by deleting the old row, and SQLite fires
+no DELETE trigger for that unless `recursive_triggers` is on. So one statement rewrote a
+ledger row in place, `consent_events` included; a plain SQLite (Python's, the CLI) showed it.
+The SQLCipher bundle Waymark ships is built with recursive triggers on by default, which hid
+the hole inside the application, but a guard must not depend on how a library was compiled.
+A `BEFORE INSERT` trigger runs before conflict resolution, on any connection.
+`AppendOnlyBypassTests` turns recursive triggers off, then tries REPLACE, the REPLACE
+statement, UPSERT, `UPDATE OR REPLACE`, `INSERT OR IGNORE`, and a replace through a unique
+index.
+
+**Rejected.** `PRAGMA recursive_triggers = ON` in the interceptor alone: it protects EF
+connections only, and a future connection path would forget it.
+
+### D-059 — Receipt text cannot carry printer commands (final test)
+
+**What.** `EscPosEncoder` writes printable ASCII and a `?` for anything else, control
+characters included, one for one so the layout holds.
+
+**Why.** It used `Encoding.ASCII`, which keeps control characters. Receipt text comes from
+product and customer names, so an ESC or GS inside one reached the printer as a command: a
+name could kick the drawer open with no reason recorded, which is the shrinkage audit point
+(D-052), or reset or cut the paper. `EscPosEncoderTests` sends a drawer kick, a reset and a
+cut through a product name, an amount label, an emphasised double-height line and a
+separator.
+
+### The final test: what it did (17/09/2026)
+
+**Area by area:**
+- **Money** against an independent `BigInteger` reference, over tens of thousands of cases:
+  - `Times` under both policies, and where the two policies differ;
+  - allocation: exact, within a unit, monotonic, zero weights;
+  - the TVA split;
+  - cash tender;
+  - overflow at the edge of the range.
+
+  No flaw.
+- **Append-only guards** attacked beyond UPDATE and DELETE: D-058.
+- **Migrations over a real generated history**:
+  - every migration rolled back to the baseline and forward again, keeping every row, with
+    no dangling reference and a sound file;
+  - a rollback the data cannot fit is refused and leaves the store untouched.
+
+  No flaw.
+- **Encryption, deeper:**
+  - pages still in the write-ahead log are encrypted;
+  - an import takes rows still in the source's log;
+  - temporary storage stays in memory;
+  - a pooled handle is never reused under another key (D-056).
+- **StoreServer as a process**, all passed:
+  - a generated store is imported, served (`/health`) and reopened after a restart;
+  - a missing key is refused, and no new key is made;
+  - a currency mismatch is refused.
+- **Keys directory**: allowlist, per-file check, deny rules, localised names (D-057).
+- **Printer**: D-059.
+- **Generator at scale**, checked by `tools/verify-store`, which recomputes 39 invariants from
+  raw rows:
+  - two full grocery years with the same seed give identical data, in about 36 s each;
+  - a full year under `offline_stretch` equals the always-on year outside the outbox;
+  - a 16-month run across New Year (Ramadan 1447, invoice numbers restarting in 2026) passes;
+  - six grocery seeds (75 days) pass;
+  - eight mini seeds (150 days) found the one generator flaw of the test: seeds 3, 4 and 8
+    closed a drawer below zero, because a cash refund was paid whether or not the drawer
+    held it. Now a regular is refunded in store credit, anyone else comes back another day,
+    and `CashDrawer` throws rather than go negative (`DrawerTests`, seed 8).
+- **The suite**: 723 tests after the final test (Domain 135, Integration 275, Generator 235,
+  Hardware 50, Application 28). Every fix of the final test was proven by breaking it.
+
+**Found and left for Hakim**, and decided below:
+- `erasure_ledger` rows could be rewritten (F-18);
+- the store filter covered 20 of 61 tables and no writes (F-19);
+- a subjectless consultation could be logged (F-20);
+- and F-14, the rounding-policy constraint names.
+
+### Hakim's decisions on the final test's findings (17/09/2026)
+
+**F-14: the rounding-policy CHECKs renamed.** The model had named both
+`ck_store_rounding_policy`. They are now `ck_stores_rounding_policy` and
+`ck_transactions_rounding_policy`, the `ck_<table>_<column>` convention. Migration
+`RenameRoundingPolicyChecks` drops and adds them, which rebuilds `stores` and `transactions`;
+no store holds data yet. Its `Down()` restores the old names, so the naming mismatch in
+`AddRoundingPolicies`' own `Down()` no longer matters.
+
+### D-060 — The erasure ledger's facts are fixed; its outcome only moves forward (F-18)
+
+**What.** `erasure_ledger` already refused DELETE and REPLACE, but an UPDATE could rewrite
+the subject, the request or the dates, or move an executed erasure back to pending. That
+destroys the evidence of compliance the table exists to keep. Hakim's rule: the facts never
+change, only the status moves, and time runs forward. Four triggers:
+
+- `trg_erasure_ledger_facts_fixed`: `erasure_id`, `subject_type`, `subject_id`, `request_id`,
+  `requested_at`, `scope_json` and `created_at` never change.
+- `trg_erasure_ledger_executed_final`: once `executed`, nothing changes except
+  `cloud_confirmed_at`, which may be written once. Status moves otherwise freely:
+  pending → blocked or executed, blocked → pending or executed.
+- `trg_erasure_ledger_time_flow`, plus its insert twin:
+  - `executed_at` and `executed_by` are written only with the move to executed;
+  - `cloud_confirmed_at` only after execution;
+  - `executed_at` ≥ `requested_at`, and `cloud_confirmed_at` ≥ `executed_at`.
+
+That makes 29 triggers. `ErasureLedgerTests` tries every fact column, every change to an
+executed row, and every backwards time, on update and on insert.
+
+**Judgement to check.** The cloud confirmation arrives after the store has executed, so it
+had to stay writable once. Blocked → pending is allowed (a hold is lifted); Hakim said the
+other moves are accepted.
+
+### D-061 — An operation about one person names them (F-20)
+
+**What.** `ProcessingEvent.NamesOnePerson(operation)` is true for consultation,
+modification, disclosure, transmission, erasure and re-identification. `IsComplete` requires
+a subject for those unless the actor is `system`, a declared task such as a retention sweep.
+`ProcessingLogWriter.Record` refuses an incomplete event and stages nothing. Collection and
+pseudonymisation may run over many subjects and need none.
+
+**Why.** `default(Pseudonym)` is also what a forgotten subject looks like, and D-045 allowed
+it, so a staff consultation could be logged without saying whom it was about. The rule lives
+in Domain, beside the event, so any future writer applies the same one.
+
+### D-062 — Rows without a store are filtered through their parent (F-19)
+
+**What.** Waymark serves several stores, so a table without `store_id` that belongs to a store
+must not show another store's rows. `WaymarkDbContext.ApplyParentScope` filters ten child
+tables through their parent's own filter:
+- `transaction_items` and `transaction_payments`, through `transactions`;
+- `cash_movements`, through `cash_sessions`;
+- `batch_items`, through `batches`;
+- `purchase_order_items`, through `purchase_orders`;
+- `stock_count_items`, through `stock_counts`;
+- `recommendation_options` and `recommendation_decisions`, through `recommendations`;
+- `promotion_product` and `promotion_variant`, through `promotions`. A promotion for every
+  store stays everyone's.
+
+The other 31 tables without `store_id` are the tenant's or the database's own, and
+`ParentScopeTests` lists each with its reason:
+- the catalogue and suppliers;
+- customers, their consent, store credit and loyalty, rights requests and erasures;
+- vocabulary, notices and settings;
+- the outbox, inbox and sync state.
+
+A new table must be placed on one side or the other, or that test fails. With no store
+chosen, a child reads as empty, as its parent does: the filter fails closed.
+
+**Left as it is.** Writes are still not checked against the current store: Hakim chose the
+read filter, and F-21 watches it. The mapping tests that read a cash movement with no session now say
+`IgnoreQueryFilters()`, because they test columns, not scope.
+
+### How Phase 0 closed
+
+- **Build:** 15 projects, 0 warnings, Debug and Release; no vulnerable package.
+- **Tests:** 774 passing: Domain 135, Integration 326, Generator 235, Hardware 50, Application
+  28. Every fix of the revision, the final test and Hakim's decisions was proven by breaking
+  it.
+- **Schema:** 61 tables, all STRICT; 88 indexes; 29 triggers; 6 migrations (`InitialSchema`,
+  `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType`, `AddRoundingPolicies`,
+  `AddReceivables`, `RenameRoundingPolicyChecks`).
+- **Every exit criterion is met**, encryption included.
+- **Open into Phase 0.5:**
+  - F-6 (the scanner, before the POS cart), F-15 (watched), O-23 (tier-2 encryption);
+  - F-21: writes are not checked against the current store;
+  - the final-test items not run: key-custody races, executor and converter edges, contract
+    and architecture additions, and a scanner pin. `docs/status.md` §5 lists them.
+- **Checked at the close:**
+  - after the drawer fix, mini seeds 3, 4 and 8 pass the checker, 38/38;
+  - a full year under `flaky` connectivity equals the always-on year outside the outbox,
+    39/39.

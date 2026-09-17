@@ -53,7 +53,9 @@ internal sealed record GeneratedStaff(string StaffId, string Name, string Role);
 
 internal sealed record GeneratedSupplier(int Index, string Code, string SupplierId, IReadOnlySet<DayOfWeek> DeliveryDays, int StatedLeadTimeDays);
 
-internal sealed record GeneratedCustomer(string CustomerId, int Number, bool MarketingConsent, bool ObjectionFlag);
+/// <param name="CreditLimit">The tab's limit; null means no tab (F-16).</param>
+/// <param name="NeverSettles">A tab the customer will never pay back.</param>
+internal sealed record GeneratedCustomer(string CustomerId, int Number, bool MarketingConsent, bool ObjectionFlag, Money? CreditLimit = null, bool NeverSettles = false);
 
 /// <summary>A variant's quantity from one batch, as it left the shelf into a basket.</summary>
 internal sealed record ServedLine(GeneratedVariant Variant, StockLot Lot, Quantity Quantity);

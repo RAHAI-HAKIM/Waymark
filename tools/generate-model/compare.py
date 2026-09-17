@@ -27,7 +27,7 @@ def describe(path: str) -> dict:
         cols = tuple(c[2] for c in db.execute(f"PRAGMA index_info('{r[0]}')"))
         sql = r[2] or ""
         unique = " UNIQUE " in sql.upper()
-        m = re.search(r"WHERE(.+)$", sql, re.I | re.S)
+        m = re.search(r"\bWHERE\b(.+)$", sql, re.I | re.S)
         # Identifier quoting differs between the schema and EF, so compare the
         # filter with quotes stripped and whitespace collapsed.
         where = " ".join(m.group(1).replace('"', "").split()).lower() if m else None

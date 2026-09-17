@@ -247,7 +247,7 @@ CREATE TABLE "customers" (
     "deletion_requested_at" TEXT NULL,
     "status" TEXT NOT NULL DEFAULT 'active',
     "created_at" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL,
+    "updated_at" TEXT NOT NULL, "credit_limit" INTEGER NULL,
     CONSTRAINT "ck_customers_consent_marketing" CHECK (consent_marketing IN (0,1)),
     CONSTRAINT "ck_customers_consent_marketing_2" CHECK (consent_marketing = 0 OR consent_marketing_at IS NOT NULL),
     CONSTRAINT "ck_customers_consent_profiling" CHECK (consent_profiling IN (0,1)),
@@ -680,14 +680,21 @@ CREATE TABLE "receivable_movements" (
     "customer_id" TEXT NOT NULL,
     "movement_type" TEXT NOT NULL,
     "amount" INTEGER NOT NULL,
-    "occured_at" TEXT NOT NULL,
+    "occurred_at" TEXT NOT NULL,
     "payment_id" TEXT NULL,
+    "cash_movement_id" TEXT NULL,
     "reason_code" TEXT NULL,
     "staff_id" TEXT NULL,
-    CONSTRAINT "ck_credit_movements_amount" CHECK (amount <> 0),
-    CONSTRAINT "ck_receivable_movements_movement_type" CHECK (movement_type IN ('charge', 'payment', 'adjustment', 'write_off')),
+    CONSTRAINT "ck_receivable_movements_amount" CHECK (amount <> 0),
+    CONSTRAINT "ck_receivable_movements_cash_movement_id" CHECK (cash_movement_id IS NULL OR movement_type = 'payment'),
+    CONSTRAINT "ck_receivable_movements_movement_type" CHECK (movement_type IN ('charge','payment','adjustment','write_off')),
+    CONSTRAINT "ck_receivable_movements_payment_id" CHECK ((movement_type = 'charge') = (payment_id IS NOT NULL)),
+    CONSTRAINT "ck_receivable_movements_reason_code" CHECK (movement_type NOT IN ('adjustment','write_off') OR reason_code IS NOT NULL),
+    CONSTRAINT "ck_receivable_movements_sign" CHECK (movement_type IN ('charge','adjustment') OR amount < 0),
+    CONSTRAINT "FK_receivable_movements_cash_movements_cash_movement_id" FOREIGN KEY ("cash_movement_id") REFERENCES "cash_movements" ("movement_id"),
     CONSTRAINT "FK_receivable_movements_customers_customer_id" FOREIGN KEY ("customer_id") REFERENCES "customers" ("customer_id"),
     CONSTRAINT "FK_receivable_movements_reason_codes_reason_code" FOREIGN KEY ("reason_code") REFERENCES "reason_codes" ("reason_code"),
+    CONSTRAINT "FK_receivable_movements_staff_staff_id" FOREIGN KEY ("staff_id") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_receivable_movements_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id"),
     CONSTRAINT "FK_receivable_movements_transaction_payments_payment_id" FOREIGN KEY ("payment_id") REFERENCES "transaction_payments" ("payment_id")
 ) STRICT;
@@ -789,7 +796,7 @@ CREATE TABLE "returns" (
     "transaction_item_id" TEXT NOT NULL,
     CONSTRAINT "ck_returns_quantity_returned" CHECK (quantity_returned > 0),
     CONSTRAINT "ck_returns_refund_amount" CHECK (refund_amount >= 0),
-    CONSTRAINT "ck_returns_refund_method" CHECK (refund_method IN ('cash','card','store_credit','exchange')),
+    CONSTRAINT "ck_returns_refund_method" CHECK (refund_method IN ('cash','card','store_credit','exchange','on_account')),
     CONSTRAINT "ck_returns_restock_flag" CHECK (restock_flag IN (0,1)),
     CONSTRAINT "FK_returns_batches_batch_id" FOREIGN KEY ("batch_id") REFERENCES "batches" ("batch_id"),
     CONSTRAINT "FK_returns_reason_codes_reason_code" FOREIGN KEY ("reason_code") REFERENCES "reason_codes" ("reason_code"),
@@ -976,7 +983,7 @@ CREATE TABLE "stores" (
     "tax_registration_number" TEXT NULL,
     "timezone" TEXT NOT NULL DEFAULT 'Africa/Algiers',
     "updated_at" TEXT NOT NULL,
-    CONSTRAINT "ck_store_rounding_policy" CHECK (rounding_policy IN ('half_even','half_up')),
+    CONSTRAINT "ck_stores_rounding_policy" CHECK (rounding_policy IN ('half_even','half_up')),
     CONSTRAINT "ck_stores_status" CHECK (status IN ('active','suspended','closed')),
     CONSTRAINT "FK_stores_staff_manager_id" FOREIGN KEY ("manager_id") REFERENCES "staff" ("staff_id")
 ) STRICT;
@@ -1122,8 +1129,8 @@ CREATE TABLE "transactions" (
     "void_reason_code" TEXT NULL,
     "voided_at" TEXT NULL,
     "voided_by" TEXT NULL,
-    CONSTRAINT "ck_store_rounding_policy" CHECK (rounding_policy IN ('half_even','half_up')),
     CONSTRAINT "ck_transactions_ecommerce_flag" CHECK (ecommerce_flag IN (0,1)),
+    CONSTRAINT "ck_transactions_rounding_policy" CHECK (rounding_policy IN ('half_even','half_up')),
     CONSTRAINT "ck_transactions_status" CHECK (status IN ('open','parked','completed','voided','refunded','partially_refunded')),
     CONSTRAINT "ck_transactions_status_2" CHECK (status <> 'voided' OR (voided_at IS NOT NULL AND void_reason_code IS NOT NULL)),
     CONSTRAINT "ck_transactions_status_3" CHECK (status <> 'completed' OR invoice_number IS NOT NULL),
@@ -1314,7 +1321,7 @@ CREATE INDEX "ix_rec_decisions_rec" ON "recommendation_decisions" ("recommendati
 
 CREATE INDEX "ix_rec_options_rec" ON "recommendation_options" ("recommendation_id");
 
-CREATE INDEX "ix_receivable_movements_customer_id_occured_at" ON "receivable_movements" ("customer_id", "occured_at");
+CREATE INDEX "ix_receivable_customer" ON "receivable_movements" ("customer_id", "occurred_at");
 
 CREATE INDEX "ix_recs_dedupe" ON "recommendations" ("store_id", "recommendation_type", "subject_type", "subject_id");
 
@@ -1370,6 +1377,10 @@ CREATE UNIQUE INDEX "ux_processing_counters_day" ON "processing_counters" ("stor
 
 CREATE UNIQUE INDEX "ux_product_category_primary" ON "product_category" ("product_id") WHERE is_primary = 1;
 
+CREATE UNIQUE INDEX "ux_receivable_cash_movement" ON "receivable_movements" ("cash_movement_id") WHERE cash_movement_id IS NOT NULL;
+
+CREATE UNIQUE INDEX "ux_receivable_payment" ON "receivable_movements" ("payment_id") WHERE payment_id IS NOT NULL;
+
 CREATE UNIQUE INDEX "ux_transactions_invoice" ON "transactions" ("store_id", "invoice_number") WHERE invoice_number IS NOT NULL;
 
 
@@ -1381,6 +1392,13 @@ CREATE TRIGGER trg_consent_events_no_delete
 BEFORE DELETE ON consent_events
 BEGIN
     SELECT RAISE(ABORT, 'consent_events is append-only');
+END;
+
+CREATE TRIGGER trg_consent_events_no_replace
+BEFORE INSERT ON consent_events
+    WHEN EXISTS (SELECT 1 FROM consent_events WHERE consent_event_id = NEW.consent_event_id)
+BEGIN
+    SELECT RAISE(ABORT, 'consent_events is append-only: a row is never replaced');
 END;
 
 CREATE TRIGGER trg_consent_events_no_update
@@ -1395,10 +1413,42 @@ BEGIN
     SELECT RAISE(ABORT, 'credit_movements is append-only');
 END;
 
+CREATE TRIGGER trg_credit_movements_no_replace
+BEFORE INSERT ON credit_movements
+    WHEN EXISTS (SELECT 1 FROM credit_movements WHERE movement_id = NEW.movement_id)
+BEGIN
+    SELECT RAISE(ABORT, 'credit_movements is append-only: a row is never replaced');
+END;
+
 CREATE TRIGGER trg_credit_movements_no_update
 BEFORE UPDATE ON credit_movements
 BEGIN
     SELECT RAISE(ABORT, 'credit_movements is append-only: post a reversing movement');
+END;
+
+CREATE TRIGGER trg_erasure_ledger_executed_final
+BEFORE UPDATE ON erasure_ledger
+    WHEN OLD.status = 'executed'
+     AND (NEW.status IS NOT OLD.status
+      OR NEW.executed_at IS NOT OLD.executed_at
+      OR NEW.executed_by IS NOT OLD.executed_by
+      OR NEW.blocked_reason IS NOT OLD.blocked_reason
+      OR (OLD.cloud_confirmed_at IS NOT NULL AND NEW.cloud_confirmed_at IS NOT OLD.cloud_confirmed_at))
+BEGIN
+    SELECT RAISE(ABORT, 'an executed erasure is final: only the cloud confirmation may still be recorded');
+END;
+
+CREATE TRIGGER trg_erasure_ledger_facts_fixed
+BEFORE UPDATE ON erasure_ledger
+    WHEN NEW.erasure_id IS NOT OLD.erasure_id
+      OR NEW.subject_type IS NOT OLD.subject_type
+      OR NEW.subject_id IS NOT OLD.subject_id
+      OR NEW.request_id IS NOT OLD.request_id
+      OR NEW.requested_at IS NOT OLD.requested_at
+      OR NEW.scope_json IS NOT OLD.scope_json
+      OR NEW.created_at IS NOT OLD.created_at
+BEGIN
+    SELECT RAISE(ABORT, 'erasure_ledger facts are fixed: only the outcome of an erasure may be recorded');
 END;
 
 CREATE TRIGGER trg_erasure_ledger_no_delete
@@ -1407,16 +1457,57 @@ BEGIN
     SELECT RAISE(ABORT, 'erasure_ledger is the evidence of compliance and cannot be deleted');
 END;
 
+CREATE TRIGGER trg_erasure_ledger_no_replace
+BEFORE INSERT ON erasure_ledger
+    WHEN EXISTS (SELECT 1 FROM erasure_ledger WHERE erasure_id = NEW.erasure_id)
+BEGIN
+    SELECT RAISE(ABORT, 'erasure_ledger is append-only: a row is never replaced');
+END;
+
+CREATE TRIGGER trg_erasure_ledger_time_flow
+BEFORE UPDATE ON erasure_ledger
+    WHEN (NEW.status <> 'executed'
+          AND (NEW.executed_at IS NOT NULL OR NEW.executed_by IS NOT NULL OR NEW.cloud_confirmed_at IS NOT NULL))
+      OR (NEW.status = 'executed' AND NEW.executed_at < NEW.requested_at)
+      OR (NEW.cloud_confirmed_at IS NOT NULL AND NEW.cloud_confirmed_at < NEW.executed_at)
+BEGIN
+    SELECT RAISE(ABORT, 'erasure_ledger runs forward: executed after it was requested, confirmed after it was executed');
+END;
+
+CREATE TRIGGER trg_erasure_ledger_time_flow_on_insert
+BEFORE INSERT ON erasure_ledger
+    WHEN (NEW.status <> 'executed'
+          AND (NEW.executed_at IS NOT NULL OR NEW.executed_by IS NOT NULL OR NEW.cloud_confirmed_at IS NOT NULL))
+      OR (NEW.status = 'executed' AND NEW.executed_at < NEW.requested_at)
+      OR (NEW.cloud_confirmed_at IS NOT NULL AND NEW.cloud_confirmed_at < NEW.executed_at)
+BEGIN
+    SELECT RAISE(ABORT, 'erasure_ledger runs forward: executed after it was requested, confirmed after it was executed');
+END;
+
 CREATE TRIGGER trg_loyalty_movements_no_delete
 BEFORE DELETE ON loyalty_movements
 BEGIN
     SELECT RAISE(ABORT, 'loyalty_movements is append-only');
 END;
 
+CREATE TRIGGER trg_loyalty_movements_no_replace
+BEFORE INSERT ON loyalty_movements
+    WHEN EXISTS (SELECT 1 FROM loyalty_movements WHERE movement_id = NEW.movement_id)
+BEGIN
+    SELECT RAISE(ABORT, 'loyalty_movements is append-only: a row is never replaced');
+END;
+
 CREATE TRIGGER trg_loyalty_movements_no_update
 BEFORE UPDATE ON loyalty_movements
 BEGIN
     SELECT RAISE(ABORT, 'loyalty_movements is append-only: post a reversing movement');
+END;
+
+CREATE TRIGGER trg_processing_log_no_replace
+BEFORE INSERT ON processing_log
+    WHEN EXISTS (SELECT 1 FROM processing_log WHERE log_id = NEW.log_id)
+BEGIN
+    SELECT RAISE(ABORT, 'processing_log is append-only: a row is never replaced');
 END;
 
 CREATE TRIGGER trg_processing_log_no_update
@@ -1444,16 +1535,39 @@ BEGIN
     SELECT RAISE(ABORT, 'receivable_movements is append-only');
 END;
 
+CREATE TRIGGER trg_receivable_movements_no_replace
+BEFORE INSERT ON receivable_movements
+    WHEN EXISTS (SELECT 1 FROM receivable_movements WHERE movement_id = NEW.movement_id)
+      OR (NEW.payment_id IS NOT NULL AND EXISTS (SELECT 1 FROM receivable_movements WHERE payment_id = NEW.payment_id))
+      OR (NEW.cash_movement_id IS NOT NULL AND EXISTS (SELECT 1 FROM receivable_movements WHERE cash_movement_id = NEW.cash_movement_id))
+BEGIN
+    SELECT RAISE(ABORT, 'receivable_movements is append-only: a row is never replaced');
+END;
+
 CREATE TRIGGER trg_receivable_movements_no_update
 BEFORE UPDATE ON receivable_movements
 BEGIN
     SELECT RAISE(ABORT, 'receivable_movements is append-only: post a reversing movement');
 END;
 
+CREATE TRIGGER trg_recommendation_decisions_no_replace
+BEFORE INSERT ON recommendation_decisions
+    WHEN EXISTS (SELECT 1 FROM recommendation_decisions WHERE decision_id = NEW.decision_id)
+BEGIN
+    SELECT RAISE(ABORT, 'recommendation_decisions is append-only: a row is never replaced');
+END;
+
 CREATE TRIGGER trg_rounding_variance_no_delete
 BEFORE DELETE ON rounding_variance
 BEGIN
     SELECT RAISE(ABORT, 'rounding_variance is append-only');
+END;
+
+CREATE TRIGGER trg_rounding_variance_no_replace
+BEFORE INSERT ON rounding_variance
+    WHEN EXISTS (SELECT 1 FROM rounding_variance WHERE variance_id = NEW.variance_id)
+BEGIN
+    SELECT RAISE(ABORT, 'rounding_variance is append-only: a row is never replaced');
 END;
 
 CREATE TRIGGER trg_rounding_variance_no_update
@@ -1466,6 +1580,13 @@ CREATE TRIGGER trg_stock_movements_no_delete
 BEFORE DELETE ON stock_movements
 BEGIN
     SELECT RAISE(ABORT, 'stock_movements is append-only');
+END;
+
+CREATE TRIGGER trg_stock_movements_no_replace
+BEFORE INSERT ON stock_movements
+    WHEN EXISTS (SELECT 1 FROM stock_movements WHERE movement_id = NEW.movement_id)
+BEGIN
+    SELECT RAISE(ABORT, 'stock_movements is append-only: a row is never replaced');
 END;
 
 CREATE TRIGGER trg_stock_movements_no_update

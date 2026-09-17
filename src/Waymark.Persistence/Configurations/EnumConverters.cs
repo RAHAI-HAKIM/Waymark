@@ -1288,8 +1288,8 @@ internal static class EnumConverters
     private static string ToDatabase(ReceivableMovementType value) => value switch
     {
         ReceivableMovementType.Charge => "charge",
-        ReceivableMovementType.Adjustment => "adjustment",
         ReceivableMovementType.Payment => "payment",
+        ReceivableMovementType.Adjustment => "adjustment",
         ReceivableMovementType.WriteOff => "write_off",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped ReceivableMovementType.")
@@ -1298,8 +1298,8 @@ internal static class EnumConverters
     private static ReceivableMovementType ToReceivableMovementType(string text) => text switch
     {
         "charge" => ReceivableMovementType.Charge,
-        "adjustment" => ReceivableMovementType.Adjustment,
         "payment" => ReceivableMovementType.Payment,
+        "adjustment" => ReceivableMovementType.Adjustment,
         "write_off" => ReceivableMovementType.WriteOff,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown ReceivableMovementType value in the database.")
@@ -1357,6 +1357,7 @@ internal static class EnumConverters
         RefundMethod.Card => "card",
         RefundMethod.StoreCredit => "store_credit",
         RefundMethod.Exchange => "exchange",
+        RefundMethod.OnAccount => "on_account",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped RefundMethod.")
     };
@@ -1367,6 +1368,7 @@ internal static class EnumConverters
         "card" => RefundMethod.Card,
         "store_credit" => RefundMethod.StoreCredit,
         "exchange" => RefundMethod.Exchange,
+        "on_account" => RefundMethod.OnAccount,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown RefundMethod value in the database.")
     };

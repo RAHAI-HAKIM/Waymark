@@ -120,10 +120,12 @@ which wins when two disagree, and where a new piece of writing belongs.
 
 ## Status
 
-**Phase 0 — Foundation: build complete** (15/09/2026). No demo. What remains before
-Phase 0.5 is a final test and the resolution of the open findings in `docs/status.md`.
-The phase recap is `docs/recaps/phase-0.md`; phase definitions are in
-`docs/Waymark_Build_Plan.md`.
+**Phase 0 — Foundation: complete** (17/09/2026). After the build, a revision encrypted the
+store database, locked down the keys directory and gave on-account debt its own ledger. A
+final test then attacked everything Phase 0 built; its findings are fixed or decided
+(`docs/decisions.md` D-055–D-062). Next is Phase 0.5, the walking skeleton. The phase recap
+is `docs/recaps/phase-0.md`.
+Phase definitions are in `docs/Waymark_Build_Plan.md`.
 
 The synthetic store generator makes a deterministic year of a fake épicerie for
 development, testing and the engine; see `src/Waymark.Generator/README.md`.

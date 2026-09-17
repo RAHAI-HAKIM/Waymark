@@ -323,12 +323,22 @@ public sealed class EscPosEncoder(PrinterProfile profile)
 
     private static void Write(List<byte> bytes, string text)
     {
-        // ASCII with '?' for anything else. Accented French and Arabic both need
-        // a code page the profile selects and a font the printer has, and Arabic
+        // Printable ASCII, and '?' for anything else, one for one so the layout
+        // already computed still holds. Accented French and Arabic both need a
+        // code page the profile selects and a font the printer has, and Arabic
         // additionally needs shaping and right-to-left ordering that ESC/POS does
         // not do. That is a real gap, recorded rather than papered over — see
         // decisions.md D-052.
-        bytes.AddRange(Encoding.ASCII.GetBytes(text));
+        //
+        // Control characters are replaced too, not passed through as ASCII would:
+        // this text is product and customer names from the store's data, and an
+        // ESC or GS inside one is a printer command. A name could otherwise open
+        // the drawer with no reason recorded (Phase 0 final test).
+        foreach (var character in text)
+        {
+            bytes.Add(character is >= ' ' and < '\u007F' ? (byte)character : (byte)'?');
+        }
+
         bytes.Add(EscPos.LineFeed);
     }
 }

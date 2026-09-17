@@ -31,8 +31,8 @@ internal sealed class StoreConfiguration : IEntityTypeConfiguration<Store>
                 "ck_stores_status",
                 @"status IN ('active','suspended','closed')");
             table.HasCheckConstraint(
-            "ck_store_rounding_policy",
-            @"rounding_policy IN ('half_even','half_up')");
+                "ck_stores_rounding_policy",
+                @"rounding_policy IN ('half_even','half_up')");
         });
 
         builder.HasKey(x => x.StoreId);

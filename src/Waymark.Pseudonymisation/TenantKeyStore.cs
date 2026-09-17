@@ -18,30 +18,34 @@ namespace Waymark.Pseudonymisation;
 public static class TenantKeyStore
 {
     /// <summary>32 bytes, from <see cref="RandomNumberGenerator"/> (D-042).</summary>
-    public const int KeyBytes = 32;
+    public const int KeyBytes = WrappedKeyFile.KeyBytes;
 
     /// <summary>The wrapped blob's file name, inside the keys directory.</summary>
     public const string FileName = "tenant.key";
 
     /// <summary>
-    /// Suffix of the file a new key is written to before it is moved into
-    /// place. One left behind by an interrupted creation is never read.
+    /// Suffix of the file a new key is written to before it is moved into place. One left behind
+    /// by an interrupted creation is never read.
     /// </summary>
-    public const string TemporarySuffix = ".tmp";
+    public const string TemporarySuffix = WrappedKeyFile.TemporarySuffix;
 
     /// <summary>
-    /// Domain separation for the DPAPI entropy.
+    /// Domain separation for the DPAPI entropy: a fixed constant, not a secret (O-18).
     ///
     /// <para>
-    /// The database key is wrapped under its own prefix. Without that, the two
-    /// blobs would be interchangeable: swapping the files — by a restore script,
-    /// a backup that caught the wrong directory, or a mistake at a keyboard —
-    /// would unwrap cleanly and Waymark would start pseudonymising under the
-    /// database key. Every customer would get a new identity and nothing would
-    /// report an error.
+    /// The database key is wrapped under its own constant. Without that, the two blobs would be
+    /// interchangeable: swapping the files — by a restore script, a backup that caught the wrong
+    /// directory, or a mistake at a keyboard — would unwrap cleanly and Waymark would start
+    /// pseudonymising under the database key. Every customer would get a new identity and
+    /// nothing would report an error.
+    /// </para>
+    /// <para>
+    /// It used to carry the install id as well. That added nothing: the id is not secret, and
+    /// anything that can read the blob can read the id (D-051). The ACL on the keys directory is
+    /// the control (<see cref="KeysDirectoryAccess"/>).
     /// </para>
     /// </summary>
-    private const string EntropyPrefix = "waymark:tenant-key:v1:";
+    internal static readonly byte[] Entropy = Encoding.UTF8.GetBytes("waymark:tenant-key:v1");
 
     /// <summary>
     /// Loads the tenant key, creating one on first run.
@@ -59,29 +63,21 @@ public static class TenantKeyStore
     /// <param name="keysDirectory">
     /// <c>%ProgramData%\Waymark\keys</c> in production. Its own directory
     /// because the cloud backup set is an allowlist of directories, so a key
-    /// cannot be swept into a backup by someone adding a pattern (D-042).
-    /// </param>
-    /// <param name="installId">
-    /// Binds the wrapping to this installation, as the DPAPI optional-entropy
-    /// parameter.
+    /// cannot be swept into a backup by someone adding a pattern (D-042). The host
+    /// creates it with its ACL before calling this (<see cref="KeysDirectoryAccess"/>).
     /// </param>
     /// <param name="protector">How the blob is wrapped. <see cref="DpapiKeyProtector"/> in production.</param>
-    public static TenantPseudonymiser OpenOrCreate(
-        string keysDirectory,
-        string installId,
-        IKeyProtector protector)
+    public static TenantPseudonymiser OpenOrCreate(string keysDirectory, IKeyProtector protector)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(keysDirectory);
-        ArgumentException.ThrowIfNullOrWhiteSpace(installId);
         ArgumentNullException.ThrowIfNull(protector);
 
         Directory.CreateDirectory(keysDirectory);
         var path = Path.Combine(keysDirectory, FileName);
-        var entropy = Encoding.UTF8.GetBytes(EntropyPrefix + installId);
 
         return File.Exists(path)
-            ? new TenantPseudonymiser(Unwrap(path, entropy, protector))
-            : new TenantPseudonymiser(Create(path, entropy, protector));
+            ? new TenantPseudonymiser(WrappedKeyFile.Unwrap(path, Entropy, protector, UnwrapFailure(path)))
+            : new TenantPseudonymiser(WrappedKeyFile.Create(path, Entropy, protector));
     }
 
     /// <summary>
@@ -95,76 +91,18 @@ public static class TenantKeyStore
         return File.Exists(Path.Combine(keysDirectory, FileName));
     }
 
-    private static byte[] Create(string path, byte[] entropy, IKeyProtector protector)
-    {
-        var key = RandomNumberGenerator.GetBytes(KeyBytes);
-        var wrapped = protector.Protect(key, entropy);
+    private static string UnwrapFailure(string path) =>
+        $"""
+        The tenant key at {path} could not be unwrapped.
 
-        // Written beside the target and moved into place, so the key file is
-        // either absent or complete. Writing it in place would let a crash
-        // mid-write leave a truncated blob behind — one whose unwrap error says,
-        // correctly for a real key, never to delete it. An interrupted temp file
-        // is garbage nobody reads; a truncated key file is a gap.
-        var temporary = Path.Combine(
-            Path.GetDirectoryName(path)!,
-            $"{FileName}.{Guid.NewGuid():N}{TemporarySuffix}");
+        It was wrapped on a different machine, or the file is not the tenant key.
+        This is what a restored image or a transplanted ProgramData directory
+        looks like.
 
-        try
-        {
-            using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                file.Write(wrapped);
-                file.Flush(flushToDisk: true);
-            }
-
-            // overwrite: false. Two processes racing at first start would
-            // otherwise both generate a key and the second would replace the
-            // first, silently orphaning anything already pseudonymised under
-            // it. Losing the race is an error, not a retry.
-            File.Move(temporary, path, overwrite: false);
-        }
-        finally
-        {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
-        }
-
-        return key;
-    }
-
-    private static byte[] Unwrap(string path, byte[] entropy, IKeyProtector protector)
-    {
-        var wrapped = File.ReadAllBytes(path);
-
-        try
-        {
-            return protector.Unprotect(wrapped, entropy);
-        }
-        catch (CryptographicException error)
-        {
-            // Say what this means, because the consequence of guessing wrong and
-            // "fixing" it by deleting the file is unrecoverable.
-            throw new CryptographicException(
-                $"""
-                The tenant key at {path} could not be unwrapped.
-
-                It was wrapped on a different machine, or under a different
-                install id. This is what a restored image or a transplanted
-                ProgramData directory looks like.
-
-                Do not delete this file to make the error go away. It is the only
-                thing that links this store's customers to their history in the
-                cloud, it cannot be regenerated, and a new one starts a new
-                pseudonym epoch for the whole tenant (decisions.md D-039). Restore
-                it from the printed recovery code instead (D-042).
-                """,
-                error);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(wrapped);
-        }
-    }
+        Do not delete this file to make the error go away. It is the only
+        thing that links this store's customers to their history in the
+        cloud, it cannot be regenerated, and a new one starts a new
+        pseudonym epoch for the whole tenant (decisions.md D-039). Restore
+        it from the printed recovery code instead (D-042).
+        """;
 }

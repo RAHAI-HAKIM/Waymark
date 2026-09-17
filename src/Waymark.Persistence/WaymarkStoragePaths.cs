@@ -10,17 +10,27 @@ namespace Waymark.Persistence;
 /// what sits inside it.
 /// </para>
 /// <para>
-/// The key files are named here but never read here. Only
-/// <c>Waymark.Pseudonymisation</c> unwraps the tenant key and only the host
-/// unwraps the database key (CLAUDE.md §3.5, decisions.md D-042); a helper in
-/// this class returning key <i>material</i> would be the first step to it
-/// appearing elsewhere. A directory is not material.
+/// The keys directory is named here but never read here. Both keys are
+/// unwrapped by <c>Waymark.Pseudonymisation</c>, and the database key reaches
+/// Persistence only through the <c>IDatabaseKeyProvider</c> port the host
+/// passes in (CLAUDE.md §3.5, decisions.md D-042, F-1); a helper in this class
+/// returning key <i>material</i> would be the first step to it appearing
+/// elsewhere. A directory is not material.
 /// </para>
 /// </summary>
 public static class WaymarkStoragePaths
 {
     /// <summary>Configuration key the host reads to override the default.</summary>
     public const string DataDirectorySetting = "Waymark:Storage:DataDirectory";
+
+    /// <summary>Configuration key the host reads to override the keys directory.</summary>
+    public const string KeysDirectorySetting = "Waymark:Storage:KeysDirectory";
+
+    /// <summary>
+    /// Configuration key naming a plaintext store to import, encrypted, when the data directory
+    /// has no database yet: a generated store, or one written before F-1.
+    /// </summary>
+    public const string ImportPlaintextSetting = "Waymark:Storage:ImportPlaintextFrom";
 
     /// <summary>File name of the operational database.</summary>
     public const string StoreDatabaseFile = "waymark-store.db";
@@ -70,18 +80,12 @@ public static class WaymarkStoragePaths
     /// <para>
     /// Both blobs are DPAPI-wrapped at <c>LocalMachine</c> scope, so the test
     /// that asserts a key never reaches a payload has to assert on the wrapped
-    /// blob as well as the raw bytes, or it passes while the blob ships.
+    /// blob as well as the raw bytes, or it passes while the blob ships. Any
+    /// local process can unwrap them, so the directory's ACL is the control
+    /// (O-18, <c>KeysDirectoryAccess</c>).
     /// </para>
     /// </summary>
     public static string DefaultKeysDirectory => Path.Combine(DefaultRootDirectory, "keys");
-
-    /// <summary>Creates the keys directory if it is absent, and returns it.</summary>
-    public static string EnsureKeysDirectory(string keysDirectory)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(keysDirectory);
-        Directory.CreateDirectory(keysDirectory);
-        return keysDirectory;
-    }
 
     /// <summary>Full path to the operational database inside a data directory.</summary>
     public static string StoreDatabase(string dataDirectory)

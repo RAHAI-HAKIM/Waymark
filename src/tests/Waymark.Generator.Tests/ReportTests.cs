@@ -26,7 +26,7 @@ public sealed partial class ReportTests(GrocerySalesRun grocery) : IClassFixture
     [Fact]
     public void The_report_has_every_section_a_reviewer_reads()
     {
-        foreach (var section in new[] { "## Trading", "## When customers come", "## Basket sizes", "## Ramadan and the pay cycle", "## Demand against the shelf", "## Supply and spoilage", "## Payments and the till", "## The outbox" })
+        foreach (var section in new[] { "## Trading", "## When customers come", "## Basket sizes", "## Ramadan and the pay cycle", "## Demand against the shelf", "## Supply and spoilage", "## Payments and the till", "## The tab (on account)", "## The outbox" })
         {
             Assert.Contains(section + "\n", Report, StringComparison.Ordinal);
         }
@@ -47,6 +47,9 @@ public sealed partial class ReportTests(GrocerySalesRun grocery) : IClassFixture
         Assert.Equal(rows.Sum(r => (long)r.Lost), Number(Regex.Match(Report, @"^\| Lost \| ([\d ]+) \|", RegexOptions.Multiline).Groups[1].Value));
         Assert.Equal(Scalar(db, "SELECT count(*) FROM transactions WHERE status = 'voided'"), Number(Cell("Voided ringings")));
         Assert.Equal(Scalar(db, "SELECT count(*) FROM transactions WHERE status <> 'voided' AND original_transaction_id IS NULL"), Number(Cell("Anonymous baskets emitted")));
+        Assert.Equal(Scalar(db, "SELECT sum(amount) FROM receivable_movements"), Number(Cell("Owed at the end").Split(" by ")[0]));
+        Assert.Equal(Scalar(db, "SELECT count(*) FROM receivable_movements WHERE movement_type = 'payment'"), Number(Cell("Repaid").Split(", ")[0]));
+        Assert.Equal(-Scalar(db, "SELECT sum(amount) FROM receivable_movements WHERE movement_type = 'payment'"), Number(Cell("Repaid").Split(", ")[1]));
     }
 
     [Fact]

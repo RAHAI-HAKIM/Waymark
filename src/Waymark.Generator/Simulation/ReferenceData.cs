@@ -336,7 +336,7 @@ internal static class ReferenceData
         database.Save();
 
         // 6. Customers, enrolled over the commissioning weeks in time order.
-        var customers = WriteCustomers(database, config.Customers, window, calendar, clock, ids, random, staff, terminalIds[0], notices);
+        var customers = WriteCustomers(database, config.Customers, config.Receivables, currency, window, calendar, clock, ids, random, staff, terminalIds[0], notices);
 
         return new GeneratedStore
         {
@@ -363,11 +363,14 @@ internal static class ReferenceData
     /// The initial customer base. Non-objectors consent to processing, and a share also to
     /// marketing, each recorded as its own consent event (CLAUDE.md §4: two consents). An
     /// objector keeps an account — credit is a contract — with no consent and the objection
-    /// flag set, so the downgrade path (D-043) has someone to downgrade.
+    /// flag set, so the downgrade path (D-043) has someone to downgrade. A share is given a tab
+    /// with a credit limit (F-16), and a few of those will never settle it.
     /// </summary>
     private static List<GeneratedCustomer> WriteCustomers(
         StoreDatabase database,
         CustomerSettings settings,
+        ReceivableSettings receivables,
+        Currency currency,
         RunWindow window,
         CalendarModel calendar,
         SimulatedClock clock,
@@ -379,6 +382,7 @@ internal static class ReferenceData
     {
         var enrolment = random.Stream("customer_enrolment");
         var traits = random.Stream("customer_traits");
+        var terms = random.Stream("receivable_terms");
         var context = database.Context;
         var commissioningDays = window.FirstDay.DayNumber - window.CommissioningDate.DayNumber;
 
@@ -405,6 +409,17 @@ internal static class ReferenceData
             var capturedBy = staff[Distributions.UniformInt(traits.Uniform(draw, 3), 0, staff.Count - 1)].StaffId;
             var method = Distributions.Bernoulli(traits.Uniform(draw, 4), 0.7) ? Method.Verbal : Method.Written;
 
+            Money? creditLimit = null;
+            if (Distributions.Bernoulli(terms.Uniform(draw, 0), receivables.EnrolledShare.Value))
+            {
+                var range = receivables.CreditLimit.Value;
+                var step = receivables.CreditLimitStep.Value;
+                var whole = Distributions.UniformInt(terms.Uniform(draw, 1), (int)range.Min, (int)range.Max) / step * step;
+                creditLimit = new Money(checked((long)whole * Currency.StorageScale), currency);
+            }
+
+            var neverSettles = creditLimit is not null && Distributions.Bernoulli(terms.Uniform(draw, 2), receivables.NeverSettleShare.Value);
+
             var customerId = ids.NewId();
             context.Customers.Add(new Customer
             {
@@ -420,6 +435,7 @@ internal static class ReferenceData
                 ConsentMarketingAt = marketing ? at : null,
                 ConsentMarketingNoticeVersion = marketing ? notices[NoticeType.Marketing] : null,
                 ObjectionFlag = objects,
+                CreditLimit = creditLimit,
                 CreatedAt = at,
                 UpdatedAt = at,
             });
@@ -434,7 +450,7 @@ internal static class ReferenceData
                 context.ConsentEvents.Add(Consent(ids.NewId(), customerId, at, ConsentType.Marketing, notices[NoticeType.Marketing], capturedBy, method, terminalId));
             }
 
-            customers.Add(new GeneratedCustomer(customerId, number, marketing, objects));
+            customers.Add(new GeneratedCustomer(customerId, number, marketing, objects, creditLimit, neverSettles));
         }
 
         database.Save();

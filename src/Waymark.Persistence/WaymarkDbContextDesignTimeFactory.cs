@@ -32,7 +32,8 @@ public sealed class WaymarkDbContextDesignTimeFactory : IDesignTimeDbContextFact
         Directory.CreateDirectory(Path.GetDirectoryName(scratch)!);
 
         var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseWaymarkSqlite(scratch)
+            // Design-time work never opens the file, so it needs no key.
+            .UseWaymarkSqlite(scratch, keyProvider: null)
             .Options;
 
         // No store: design-time work builds the model and writes SQL, and never

@@ -1,6 +1,8 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Waymark.Domain.Privacy;
 
 namespace Waymark.Persistence;
 
@@ -22,6 +24,12 @@ namespace Waymark.Persistence;
 /// configure the same context, one of them silently wrong, is the thing this
 /// method removes.
 /// </para>
+/// <para>
+/// <b>Encryption is a required argument</b> (F-1). Every caller says which key opens the file,
+/// or says <c>null</c> for a plaintext one, so a store database is never left unencrypted by
+/// omission. StoreServer always passes its key; plaintext is for tests and for the synthetic
+/// store generator, which may not reach the key (D-054).
+/// </para>
 /// </summary>
 public static class WaymarkSqliteOptionsExtensions
 {
@@ -34,6 +42,10 @@ public static class WaymarkSqliteOptionsExtensions
     /// Full path to <c>waymark-store.db</c>. On a till this comes from
     /// configuration, never a constant (D-013).
     /// </param>
+    /// <param name="keyProvider">
+    /// The database key (D-042), or null for a plaintext file. Issued as the first statement on
+    /// every connection EF opens, never through the connection string.
+    /// </param>
     /// <param name="enforceForeignKeys">
     /// Foreign key enforcement is per connection in SQLite and off by default.
     /// Tests that exercise one table in isolation turn it off deliberately.
@@ -41,12 +53,14 @@ public static class WaymarkSqliteOptionsExtensions
     public static DbContextOptionsBuilder UseWaymarkSqlite(
         this DbContextOptionsBuilder builder,
         string databasePath,
+        IDatabaseKeyProvider? keyProvider,
         bool enforceForeignKeys = true)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         return builder
-            .UseSqlite($"Data Source={databasePath};Foreign Keys={enforceForeignKeys}")
+            .UseSqlite(ConnectionString(databasePath))
+            .AddInterceptors(new WaymarkConnectionInterceptor(keyProvider, enforceForeignKeys))
             .ReplaceService<IMigrationsSqlGenerator, StrictSqliteMigrationsSqlGenerator>()
             // The money converters are built from the ledger currency, so the
             // currency has to be part of what identifies a cached model.
@@ -60,10 +74,33 @@ public static class WaymarkSqliteOptionsExtensions
     public static DbContextOptionsBuilder<TContext> UseWaymarkSqlite<TContext>(
         this DbContextOptionsBuilder<TContext> builder,
         string databasePath,
+        IDatabaseKeyProvider? keyProvider,
         bool enforceForeignKeys = true)
         where TContext : DbContext
     {
-        UseWaymarkSqlite((DbContextOptionsBuilder)builder, databasePath, enforceForeignKeys);
+        UseWaymarkSqlite((DbContextOptionsBuilder)builder, databasePath, keyProvider, enforceForeignKeys);
         return builder;
+    }
+
+    /// <summary>
+    /// The path, and pooling off.
+    ///
+    /// <para>
+    /// No <c>Foreign Keys</c> keyword, which Microsoft.Data.Sqlite issues as a statement before
+    /// the key can be; no <c>Password</c>, which would put the key where a log can print it.
+    /// <see cref="WaymarkConnectionInterceptor"/> issues both pragmas.
+    /// </para>
+    /// <para>
+    /// <b>No pooling</b>, because the pool is keyed by connection string and the key is not in
+    /// it. A pooled handle already unlocked by one key was handed, still unlocked, to a context
+    /// holding a different key or none, and a second <c>PRAGMA key</c> on it is silently ignored:
+    /// the wrong key read the store. Every open is therefore a fresh handle, keyed by its own
+    /// provider. The cost is a file open per EF connection, which a single till does not feel.
+    /// </para>
+    /// </summary>
+    internal static string ConnectionString(string databasePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        return new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString();
     }
 }

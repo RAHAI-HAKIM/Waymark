@@ -22,7 +22,7 @@ original distinctive features, all now placed in the phase plan:
 | :---- | :---- | :---- |
 | 1. Learning (8 weeks) | 13/06 – 07/08/2026 | Done. Code in `learning/` |
 | 2. Design and engineering | 08/08 – 31/08/2026 | Done: market research, module design, brand identity, operating rules |
-| 3. Implementation (16–22 weeks) | 01/09/2026 – | **Phase 0 in progress** (`status.md`) |
+| 3. Implementation (16–22 weeks) | 01/09/2026 – | Phase 0 complete (17/09/2026); **Phase 0.5 next** (`status.md`) |
 | 4. Testing and refinement (4 weeks) | — | Not started |
 
 Stage 1 phases: Foundations (Polars, visualisation) · Statistical core (ISL ch. 2–4, 6–7)

@@ -128,6 +128,11 @@ public sealed class InputTests
     [InlineData("\"return_delay_days\": { \"value\": { \"min\": 1", "\"return_delay_days\": { \"value\": { \"min\": 0", "mess.return_delay_days is 0")]
     [InlineData("\"void\": [ \"ANNULATION\" ]", "\"void\": [ \"REMISE\" ]", "names 'REMISE', which applies to Discount, not Void")]
     [InlineData("\"drop\": [ \"DEPOT\" ]", "\"drop\": [ \"COFFRE\" ]", "names 'COFFRE', which store.json's reason_codes does not define")]
+    [InlineData("\"never_settle_share\": { \"value\": 0.3", "\"never_settle_share\": { \"value\": 1.3", "receivables.never_settle_share is 1.3")]
+    [InlineData("\"credit_limit\": { \"value\": { \"min\": 2000", "\"credit_limit\": { \"value\": { \"min\": 100", "receivables.credit_limit is 100")]
+    [InlineData("\"credit_limit_step\": { \"value\": 500", "\"credit_limit_step\": { \"value\": 0", "receivables.credit_limit_step is 0")]
+    [InlineData("\"write_off\": [ \"APPOINT\" ]", "\"write_off\": [ \"REGLEMENT\" ]", "receivables.reason_codes.write_off names 'REGLEMENT', which applies to CashMovement, not WriteOff")]
+    [InlineData("\"repayment\": [ \"REGLEMENT\" ]", "\"repayment\": [ ]", "receivables.reason_codes.repayment lists no reason code")]
     public void Configuration_rules_are_reported_by_name(string find, string replace, string expected)
     {
         using var scratch = new ScratchDirectory();

@@ -34,13 +34,16 @@ internal sealed record ScheduledReturn(
 /// <para>
 /// <b>Discounts</b> are taken off a line's TTC before TVA is extracted (D-033) and always carry
 /// a reason, and a manager when the reason requires one. <b>Payments</b>: a customer holding
-/// store credit may spend it first, an enrolled customer's basket may go on account (more often
-/// before payday), and the tender pays the rest. <b>A void</b> is a basket rung wrongly — one
-/// unit too many on a line — cancelled with a reason and rung again at once; it moves no stock
-/// and no money. <b>A return</b> is decided when the line is sold, for a later day: a refund
+/// store credit may spend it first, a customer with a tab may put the basket on account (more
+/// often before payday, and only within the credit limit), and the tender pays the rest.
+/// <b>A void</b> is a basket rung wrongly — one unit too many on a line — cancelled with a
+/// reason and rung again at once; it moves no stock and no money. <b>A return</b> is decided
+/// when the line is sold, for a later day: a refund
 /// transaction linked by <c>original_transaction_id</c>, a <c>returns</c> row against the
-/// original line, a <c>return_in</c> movement if it goes back on the shelf, and store credit
-/// issued if refunded that way. The original is marked refunded or partially refunded.
+/// original line naming the refund line, a <c>return_in</c> movement if it goes back on the
+/// shelf, and store credit issued if refunded that way. A sale paid on account is refunded to the
+/// tab while the tab still covers it (F-16). The original is marked refunded or partially
+/// refunded.
 /// </para>
 /// </summary>
 internal sealed class SaleWriter
@@ -57,14 +60,17 @@ internal sealed class SaleWriter
     private readonly RandomStream _paymentMix;
 
     private readonly Outbox _outbox;
+    private readonly Receivables _receivables;
 
-    public SaleWriter(SimulationContext context, Outbox outbox)
+    public SaleWriter(SimulationContext context, Outbox outbox, Receivables receivables)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(outbox);
+        ArgumentNullException.ThrowIfNull(receivables);
 
         _context = context;
         _outbox = outbox;
+        _receivables = receivables;
         _discount = context.Random.Stream("discount");
         _void = context.Random.Stream("void");
         _return = context.Random.Stream("return");
@@ -253,14 +259,16 @@ internal sealed class SaleWriter
         ScheduleReturns(date, basket, transactionId, items, firstMethod);
     }
 
-    /// <summary>A refund for a returned line, on the day it comes back.</summary>
-    public void WriteRefund(DateOnly date, ScheduledReturn returned, CashDrawer drawer, GeneratedStaff staff)
+    /// <summary>
+    /// A refund for a returned line, on the day it comes back. Returns false, writing nothing,
+    /// when the refund is due in cash to an anonymous customer and the drawer cannot cover it:
+    /// the customer comes back on the next open day.
+    /// </summary>
+    public bool WriteRefund(DateOnly date, ScheduledReturn returned, CashDrawer drawer, GeneratedStaff staff)
     {
         ArgumentNullException.ThrowIfNull(returned);
         ArgumentNullException.ThrowIfNull(drawer);
         ArgumentNullException.ThrowIfNull(staff);
-
-        _returns.Remove(returned);
 
         var db = _context.Database.Context;
         var mess = _context.Config.Mess;
@@ -281,25 +289,47 @@ internal sealed class SaleWriter
         var refund = -amounts.LineTotal;
 
         var reason = _context.Reason(mess.ReasonCodes.Return, Draw(coordinates, 3));
+        var customer = returned.Customer;
+
+        // An on-account sale is taken off the tab, not paid out of the drawer. If the customer has
+        // already paid the tab down below the refund, it becomes store credit instead.
         var method = returned.FirstMethod switch
         {
             PaymentMethod.Card => RefundMethod.Card,
+            PaymentMethod.OnAccount when _receivables.Owed(customer!) >= refund => RefundMethod.OnAccount,
             PaymentMethod.StoreCredit or PaymentMethod.OnAccount => RefundMethod.StoreCredit,
             _ => RefundMethod.Cash,
         };
 
-        if (returned.Customer is not null && method != RefundMethod.StoreCredit && Distributions.Bernoulli(Draw(coordinates, 4), mess.StoreCreditRefundShare.Value))
+        if (customer is not null && method is RefundMethod.Cash or RefundMethod.Card
+            && Distributions.Bernoulli(Draw(coordinates, 4), mess.StoreCreditRefundShare.Value))
         {
             method = RefundMethod.StoreCredit;
         }
+
+        // A shopkeeper cannot pay out cash the drawer does not hold. A regular is refunded in
+        // store credit instead; anyone else is asked to come back (Phase 0 final test: a mini
+        // store closed its drawer below zero).
+        if (method == RefundMethod.Cash && drawer.Expected < refund.ToCashTender().Tendered)
+        {
+            if (customer is null)
+            {
+                return false;
+            }
+
+            method = RefundMethod.StoreCredit;
+        }
+
+        _returns.Remove(returned);
 
         var restock = Distributions.Bernoulli(Draw(coordinates, 5), mess.RestockShare.Value)
             && (line.Lot.Expires is null || date <= line.Lot.Expires);
 
         var transactionId = _context.Ids.NewId();
+        var refundItemId = _context.Ids.NewId();
         db.TransactionItems.Add(new TransactionItem
         {
-            TransactionItemId = _context.Ids.NewId(),
+            TransactionItemId = refundItemId,
             TransactionId = transactionId,
             VariantId = variant.VariantId,
             BatchId = line.Lot.BatchId,
@@ -322,7 +352,7 @@ internal sealed class SaleWriter
             TerminalId = drawer.TerminalId,
             CashSessionId = drawer.SessionId,
             StaffId = staff.StaffId,
-            CustomerId = returned.Customer?.CustomerId,
+            CustomerId = customer?.CustomerId,
             InvoiceNumber = NextInvoiceNumber(date),
             OccurredAt = now,
             RoundingPolicy = policy,
@@ -342,6 +372,7 @@ internal sealed class SaleWriter
         {
             ReturnId = returnId,
             TransactionItemId = returned.OriginalItemId,
+            RefundTransactionItemId = refundItemId,
             StoreId = store.StoreId,
             TerminalId = drawer.TerminalId,
             BatchId = line.Lot.BatchId,
@@ -360,10 +391,11 @@ internal sealed class SaleWriter
         {
             RefundMethod.Card => PaymentMethod.Card,
             RefundMethod.StoreCredit => PaymentMethod.StoreCredit,
+            RefundMethod.OnAccount => PaymentMethod.OnAccount,
             _ => PaymentMethod.Cash,
         };
 
-        AddPayment(transactionId, 1, paymentMethod, -refund, now);
+        var paymentId = AddPayment(transactionId, 1, paymentMethod, -refund, now);
 
         switch (method)
         {
@@ -371,7 +403,10 @@ internal sealed class SaleWriter
                 drawer.TakeCash(-refund, transactionId);
                 break;
             case RefundMethod.StoreCredit:
-                Credit(returned.Customer!, CreditMovementType.Issue, refund, transactionId, returnId, reason.Code, staff, drawer, now);
+                Credit(customer!, CreditMovementType.Issue, refund, transactionId, returnId, reason.Code, staff, drawer, now);
+                break;
+            case RefundMethod.OnAccount:
+                _receivables.Charge(customer!, paymentId, -refund, staff);
                 break;
         }
 
@@ -390,6 +425,8 @@ internal sealed class SaleWriter
         db.Transactions
             .Where(t => t.TransactionId == returned.OriginalTransactionId)
             .ExecuteUpdate(setters => setters.SetProperty(t => t.Status, status).SetProperty(t => t.UpdatedAt, now));
+
+        return true;
     }
 
     /// <summary>
@@ -405,11 +442,12 @@ internal sealed class SaleWriter
         var sequence = 0;
         var used = new List<PaymentMethod>();
 
-        void Paid(PaymentMethod method, Money amount)
+        string Paid(PaymentMethod method, Money amount)
         {
-            AddPayment(transactionId, ++sequence, method, amount, now);
+            var paymentId = AddPayment(transactionId, ++sequence, method, amount, now);
             used.Add(method);
             remaining -= amount;
+            return paymentId;
         }
 
         if (basket.Customer is { } customer)
@@ -424,9 +462,11 @@ internal sealed class SaleWriter
             }
 
             if (remaining.IsPositive
-                && Distributions.Bernoulli(_paymentMix.Uniform(day.Date.DayNumber, basket.Number, 1), Math.Min(1, mess.OnAccountShare.Value * day.Payday.OnAccount)))
+                && Distributions.Bernoulli(_paymentMix.Uniform(day.Date.DayNumber, basket.Number, 1), Math.Min(1, mess.OnAccountShare.Value * day.Payday.OnAccount))
+                && _receivables.CanCharge(customer, remaining))
             {
-                Paid(PaymentMethod.OnAccount, remaining);
+                var onAccount = remaining;
+                _receivables.Charge(customer, Paid(PaymentMethod.OnAccount, onAccount), onAccount, staff);
             }
         }
 
@@ -501,10 +541,12 @@ internal sealed class SaleWriter
         });
     }
 
-    private void AddPayment(string transactionId, int sequence, PaymentMethod method, Money amount, DateTimeOffset now) =>
+    private string AddPayment(string transactionId, int sequence, PaymentMethod method, Money amount, DateTimeOffset now)
+    {
+        var paymentId = _context.Ids.NewId();
         _context.Database.Context.TransactionPayments.Add(new TransactionPayment
         {
-            PaymentId = _context.Ids.NewId(),
+            PaymentId = paymentId,
             TransactionId = transactionId,
             Sequence = sequence,
             PaymentMethod = method,
@@ -512,6 +554,8 @@ internal sealed class SaleWriter
             Currency = _context.Store.Currency.Code,
             CreatedAt = now,
         });
+        return paymentId;
+    }
 
     private void Movement(StockMovementType type, ServedLine line, QuantityDelta change, DateOnly date, string referenceType, string referenceId, string? reasonCode, GeneratedStaff staff, DateTimeOffset now) =>
         _context.Database.Context.StockMovements.Add(new StockMovement
