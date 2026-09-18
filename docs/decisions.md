@@ -17,6 +17,7 @@ Open questions (`O-nn`) are at the end.
 | :---- | :---- |
 | Phase 0 (done, titles only) | D-001–D-054 |
 | Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
+| Phase 0.5, the walking skeleton | D-063 |
 
 # **Phase 0 (Already done)**
 
@@ -411,6 +412,30 @@ re-identification need a subject unless a system task logs them; the writer refu
 ### D-062 — Rows without a store are filtered through their parent (F-19)
 Ten child tables read through their parent's store filter; the 31 other tables without
 `store_id` are the tenant's or the database's, each listed with its reason in `ParentScopeTests`.
+
+---
+
+# **Phase 0.5, the walking skeleton**
+
+### D-063 — A scan ends on silence, and every keystroke is held until classified (F-6)
+Hakim, 18/09/2026. `KeyboardWedgeScanner` groups characters arriving within 50 ms of each
+other into a burst. The burst ends when nothing arrives for 50 ms, or at once on any control
+character, and only then is it classified: 8 characters or more (EAN-8, the shortest retail
+code) is a scan; anything shorter was typed and goes back through `Typed`, in order, before
+any key that followed it. **Why silence:** a configured terminator broke whenever the
+scanner's suffix setting differed, and the old custom-terminator path never ended a scan;
+silence works whatever the suffix. A control character is kept as a shortcut so a scanner
+sending Enter doesn't pay the 50 ms, and a CR LF's second half is swallowed. **Why hold:** the
+first character of a scan is indistinguishable from a keystroke, so passing characters
+through meant half a barcode had already reached the focused box; holding costs typing at
+most 50 ms. **Why a minimum length:** once Enter is no longer required, two keys rolled over
+by a fast typist fit inside the window, and a PLU typed by hand is 4–5 digits. The silence
+timer comes from the injected `TimeProvider` and is posted back to the constructing thread's
+`SynchronizationContext`, so the scanner stays single-threaded. **Rejected:** a list of
+known terminators (Hakim's reason above); letting characters into the box and clearing them
+afterwards, hiding the box meanwhile (the box's change events still see the partial code,
+and restoring the caret and selection is fragile); a window wider than 50 ms (it meets fast
+typing at 60–100 ms and delays every typed key further).
 
 ---
 

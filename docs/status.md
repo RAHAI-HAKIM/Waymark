@@ -2,8 +2,7 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**17/09/2026**: **Phase 0 is complete**: the revision, the final test and Hakim's decisions
-on its findings. Next is Phase 0.5.
+**18/09/2026**: Phase 0.5 opened; F-6 fixed (D-063), awaiting Hakim's review.
 
 ---
 
@@ -11,9 +10,9 @@ on its findings. Next is Phase 0.5.
 
 | | |
 | :---- | :---- |
-| Phase | **0, Foundation: complete** (17/09/2026). Next: **0.5, the walking skeleton** |
+| Phase | **0.5, the walking skeleton: in progress** (opened 18/09/2026). Phase 0 complete 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 15 projects, **0 warnings**, Debug and Release. No vulnerable package |
-| Tests | **774 passing**: Domain 135 · Integration 326 · Generator 235 · Hardware 50 · Application 28 |
+| Tests | **788 passing**: Domain 135 · Integration 326 · Generator 235 · Hardware 64 · Application 28 |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations: `InitialSchema`, `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType`, `AddRoundingPolicies`, `AddReceivables`, `RenameRoundingPolicyChecks` |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Recap | `docs/recaps/phase-0.md`: everything Phase 0 built, decided and found. §8 covers the revision, the final test and how the phase closed. Read it only when a question reaches back into Phase 0 |
@@ -52,7 +51,6 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
-| F-6 | Low | **The scanner's custom terminator is broken.** A terminator other than CR/LF is appended to the buffer and never ends a scan. Separately, `Accept` returns false for a scan's *digits*, so they still reach the text box; only Enter is swallowed, which is less than the doc comment claims. A CRLF scanner leaks the `\n` | `KeyboardWedgeScanner` | **Phase 0.5**, fix before the POS cart |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else |
 | F-21 | Low | **Writes are not checked against the current store.** D-062 filters reads; a context scoped to store A can still insert a row for store B. Hakim chose the read filter (17/09) | `WaymarkDbContext` | **Watch**: revisit when the first handler writes store-scoped rows (Phase 0.5) |
 
@@ -93,7 +91,6 @@ is next changed.
 6. **Architecture**:
    - only the host names `DatabaseKeyStore`, `DpapiKeyProtector` or `KeysDirectoryAccess`;
    - only Persistence builds a `SqliteConnection` for the store database.
-7. **Scanner (F-6)**: pin the known failures with tests before fixing them.
 
 A generated store is checked with `python tools/verify-store/verify_store.py <run>`.
 
@@ -108,7 +105,7 @@ and logged.
 
 | Hop | Exists | Missing |
 | :---- | :---- | :---- |
-| Scan, cart | `KeyboardWedgeScanner` (F-6); a generated store as product data | POS window, HTTP client, product lookup endpoint |
+| Scan, cart | `KeyboardWedgeScanner` (D-063). The POS forwards text input to `Accept`, inserts what `Typed` hands back, calls `Flush` before a non-text key and `Reset` on focus change; a generated store as product data | POS window, HTTP client, product lookup endpoint |
 | Complete sale | Money, TVA, cash tender, Quantity, executor, schema; the generator's `SaleWriter` shows the rows a sale must write, including the on-account charge (D-055) | `CompleteSale` handler; the credit-limit check before an on-account payment; StoreServer DI for UoW, log, executor, `TimeProvider`; API endpoint |
 | Pseudonymise → outbox | `IPseudonymiser`, `TenantKeyStore`, `AnonymousBasketRecord`, `OutboundEnvelope`; generated outboxes with real payloads; the keys directory and its ACL in StoreServer (D-057) | `TenantKeyStore` wired into StoreServer's DI; the emit step; outbox sequence assignment |
 | Tier 2 | nothing | The local DuckDB writer (D-043). *Stub or real for 0.5, and encrypted how (O-23)? Decide* |
