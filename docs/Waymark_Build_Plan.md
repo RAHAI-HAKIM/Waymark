@@ -136,8 +136,9 @@ Admin polish, never POS function.
 **Demo: the pitch. Expiry works from day one with zero history, end to end.**
 **100–130 h.**
 
-- **Statistics for real:** the tier 1→2 boundary into local DuckDB (D-043) and the outbox
-  streams. The ~8–10 statistics the first departments need: demand rate, units sold by
+- **Statistics for real:** the tier 1→2 boundary into local DuckDB (D-043), encrypted
+  (D-065, how: O-23), replacing Phase 0.5's stub; and the outbox streams, including the
+  customer period record and its spend bands, deferred here from 0.5 (D-064). The ~8–10 statistics the first departments need: demand rate, units sold by
   period, stock and value, valuation, days remaining, sell-through, adjustments, gross
   profit, net sales, plus 4 dashboard tiles. Incremental recompute
 - **Integration Layer, both halves:** pseudonym-keyed emission; resolution at delivery
@@ -287,6 +288,8 @@ exists (Operating Rules).
 | Item | Needed by |
 | :---- | :---- |
 | Python↔.NET interchange for engine output | Phase 2 |
+| Tier-2 encryption: how, and which key (O-23) | Phase 2 |
+| Customer period record: spend bands (D-064) | Phase 2 |
 | Cloud API language, hosting provider | Phase 4 |
 | Precondition list per intent type | Phase 4 |
 | Level-2 credit ceiling | Phase 5 |

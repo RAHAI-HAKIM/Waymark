@@ -1,16 +1,20 @@
 // Waymark.StoreServer — the authoritative process on the store premises.
 //
-// Phase 0. It owns the operational database, keeps it encrypted, and brings it up to date at
-// start; the API the POS calls arrives in Phase 1.
+// It owns the operational database, keeps it encrypted, and brings it up to date at start.
+// The POS reaches it over HTTP only (CLAUDE.md §2.2): Phase 0.5 serves the product lookup.
 
 using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore;
 using Waymark.Application.IdGenerator;
+using Waymark.Application.Time;
 using Waymark.Domain;
+using Waymark.Domain.Catalogue;
 using Waymark.Domain.Ids;
 using Waymark.Domain.Privacy;
 using Waymark.Persistence;
+using Waymark.Persistence.Catalogue;
 using Waymark.Pseudonymisation;
+using Waymark.StoreServer.Catalogue;
 
 // The till is Windows (D-017), and the keys are wrapped with DPAPI, which exists nowhere else.
 [assembly: SupportedOSPlatform("windows")]
@@ -51,6 +55,21 @@ builder.Services.AddSingleton<ILedgerCurrency>(
 // Ulid.NewUlid() is thread-safe; the seeded implementation is for the synthetic
 // store generator and for tests, and is deliberately not registered (D-038).
 builder.Services.AddSingleton<IIdGenerator, UlidGenerator>();
+
+// The clock, injected everywhere time is read, so tests can hold it still.
+builder.Services.AddSingleton(TimeProvider.System);
+
+// The store's date (D-067). Its zone comes from the stores row, which is only readable once the
+// database is open, so it is resolved in the startup block below and captured here. No row means
+// the store is not commissioned: there are no prices to look up either, so asking is an error.
+TimeZoneInfo? storeZone = null;
+builder.Services.AddSingleton<IStoreCalendar>(services => new StoreCalendar(
+    services.GetRequiredService<TimeProvider>(),
+    storeZone ?? throw new InvalidOperationException(
+        "This store has no row in stores, so it has no time zone. Commission it (or import a store) first.")));
+
+// What the till may sell for a barcode (D-066). Scoped: one context, one request.
+builder.Services.AddScoped<IProductLookup, ProductLookup>();
 
 // The database key (D-042, F-1). Resolved only inside the startup block below, after the keys
 // directory has passed its check. A new key is made only when there is no database yet: an
@@ -136,6 +155,15 @@ using (var scope = app.Services.CreateScope())
     }
 
     logger.LogInformation("Ledger currency: {Currency}", ledger.Currency.Code);
+
+    // The store's time zone (F-22, D-067). The stores filter returns this store's row alone. A zone
+    // the map cannot resolve refuses the start: a wrong zone moves the day prices change on.
+    var timezone = database.Stores.Select(store => store.Timezone).FirstOrDefault();
+    if (timezone is not null)
+    {
+        storeZone = StoreTimeZones.Resolve(timezone);
+        logger.LogInformation("Store time zone: {Zone} ({WindowsId})", timezone, storeZone.Id);
+    }
 }
 
 // The POS uses this to decide whether the server is reachable before falling
@@ -146,5 +174,16 @@ app.MapGet("/health", () => Results.Ok(new
     status = "up",
     checkedAt = DateTimeOffset.UtcNow
 }));
+
+// Hop 1 (D-066): what the till may sell for a barcode. Every answer is a 200, including "no such
+// product" and "not sellable"; an error status only ever means the server failed, or a request
+// with no code at all. The code is a query parameter, not a path segment: ASP.NET Core leaves
+// "%2F" encoded in a route value, so a typed "12/34" would be looked up as "12%2F34", and decoding
+// it again would double-decode every other code. A query string is decoded exactly once.
+app.MapGet("/api/products/lookup", async (
+    string? barcode, IProductLookup lookup, CancellationToken cancellationToken) =>
+    string.IsNullOrWhiteSpace(barcode)
+        ? Results.BadRequest("A barcode is required: /api/products/lookup?barcode=...")
+        : Results.Ok(ProductLookupWire.ToWire(barcode, await lookup.FindForSaleAsync(barcode, cancellationToken))));
 
 app.Run();

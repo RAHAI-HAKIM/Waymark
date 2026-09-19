@@ -138,8 +138,16 @@ public sealed class StoreServerStartupTests : IDisposable
         var before = CountTransactions(source, key: null);
         Assert.True(before > 0);
 
-        var first = Run(AssertHealthy, [.. store, $"--{WaymarkStoragePaths.ImportPlaintextSetting}={source}"]);
+        var barcode = SellableBarcodeIn(source);
+        var first = Run(
+            address =>
+            {
+                AssertHealthy(address);
+                AssertLookup(address, barcode);
+            },
+            [.. store, $"--{WaymarkStoragePaths.ImportPlaintextSetting}={source}"]);
         Assert.True(first.Started, "The generated store was not imported and served:\n" + first.Output);
+        Assert.Contains("Store time zone: Africa/Algiers", first.Output, StringComparison.Ordinal);
 
         // A second start: no import, an existing encrypted file, an existing key.
         var second = Run(AssertHealthy, store);
@@ -195,6 +203,50 @@ public sealed class StoreServerStartupTests : IDisposable
         using var response = client.GetAsync(new Uri("/health", UriKind.Relative)).GetAwaiter().GetResult();
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("\"up\"", response.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Hop 1 end to end on the real process (D-066): a generated product is found at a price, in
+    /// today's store date, and a barcode nobody carries is an answer rather than an error.
+    /// </summary>
+    private static void AssertLookup(Uri address, string barcode)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+
+        using var found = client.GetAsync(new Uri($"/api/products/lookup?barcode={barcode}", UriKind.Relative)).GetAwaiter().GetResult();
+        var body = found.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(found.StatusCode == HttpStatusCode.OK, $"The lookup failed ({found.StatusCode}):\n{body}");
+
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal("found", json.RootElement.GetProperty("outcome").GetString());
+        var price = decimal.Parse(
+            json.RootElement.GetProperty("product").GetProperty("price_ttc").GetString()!,
+            System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(price > 0, $"A generated product was served at {price}.");
+
+        using var unknown = client.GetAsync(new Uri("/api/products/lookup?barcode=0000000000000", UriKind.Relative)).GetAwaiter().GetResult();
+        Assert.Equal(HttpStatusCode.OK, unknown.StatusCode);
+        Assert.Contains("\"unknown_barcode\"", unknown.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+
+        // Found in the step 7 run (18/09): as a path segment, "12/34" reached the lookup as
+        // "12%2F34". As a query parameter the server must see exactly the code that was sent.
+        using var slashed = client.GetAsync(new Uri("/api/products/lookup?barcode=12%2F34", UriKind.Relative)).GetAwaiter().GetResult();
+        using var echoed = JsonDocument.Parse(slashed.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        Assert.Equal("12/34", echoed.RootElement.GetProperty("barcode").GetString());
+    }
+
+    /// <summary>A barcode of an active, piece-sold variant in a generated (plaintext) store.</summary>
+    private static string SellableBarcodeIn(string path)
+    {
+        using var context = new WaymarkDbContext(
+            new DbContextOptionsBuilder<WaymarkDbContext>().UseWaymarkSqlite(path, keyProvider: null).Options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
+        return context.Variants
+            .Where(v => v.Barcode != null && !v.IsWeighted && v.Status == VariantStatus.Active)
+            .OrderBy(v => v.VariantId)
+            .Select(v => v.Barcode!)
+            .First();
     }
 
     private static void CreatePlaintextStore(string path)

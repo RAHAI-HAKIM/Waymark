@@ -17,7 +17,7 @@ Open questions (`O-nn`) are at the end.
 | :---- | :---- |
 | Phase 0 (done, titles only) | D-001–D-054 |
 | Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
-| Phase 0.5, the walking skeleton | D-063 |
+| Phase 0.5, the walking skeleton | D-063–D-068 |
 
 # **Phase 0 (Already done)**
 
@@ -437,13 +437,119 @@ afterwards, hiding the box meanwhile (the box's change events still see the part
 and restoring the caret and selection is fragile); a window wider than 50 ms (it meets fast
 typing at 60–100 ms and delays every typed key further).
 
+**Open, for the POS cart (Hakim's idea, 18/09):** what the cashier sees when input does not
+become a product line. The idea is to say so in the UI and move to search by name. Three
+cases, since `Accept` returning false does not itself mean a failed scan:
+- `Accept` returns **false**: a control key that belongs to the cashier (an Enter that ends
+  no scan). Nothing to show; the cart handles the key.
+- **`Typed` hands back text**: the cashier typed, so the box is a search. This is where
+  search by name (and by code typed by hand) starts.
+- **`Scanned` gives a code that matches no product**: the case the UI must flag, with the
+  code shown and a move to search by name.
+
+Decide with the cart window.
+
+### D-064 — Phase 0.5 emits only the anonymous basket; the customer period record is Phase 2
+Hakim, 18/09/2026. A sale's outbox row in the skeleton is the `AnonymousBasketRecord`, whose
+fields D-043 and the contract already fix. **The customer period record and its spend bands
+are deferred to Phase 2**, "Statistics for real", which builds the tier 1→2 boundary and
+the outbox streams (Build Plan). **Why:** it is monthly, not per sale, so no hop of the
+skeleton produces one; and its bands are the kind of choice D-043 wants made with the data
+in view, not guessed. **Consequence:** the sale's outbox row carries no pseudonym, so in 0.5
+the pseudonymisation boundary is exercised through the tier-2 hop (D-065), not the outbox.
+
+### D-065 — Tier 2 is a stub in Phase 0.5, and it will be encrypted
+Hakim, 18/09/2026. The skeleton declares the tier-2 writer as a port and supplies an
+implementation that stores nothing. **Why:** no later hop reads tier 2 (the expiry evaluator
+reads batches from tier 1), and 0.5 proves the path, not the statistics. The real DuckDB
+writer arrives in Phase 2 with D-064. **Tier 2 will be encrypted at rest** (O-23, first half):
+it holds transaction grain keyed by pseudonym, and the tenant key sits on the same machine,
+so a stolen disk could re-identify it. *How* (DuckDB's own encryption, which key, where it
+lives) stays open as O-23 until the Phase 2 writer.
+
+### D-066 — What the till may sell for a barcode (hop 1)
+Hakim, 18/09/2026. `IProductLookup` (a Domain port, implemented in Persistence) answers
+*this barcode, in this store, today*, with one of three results, never an exception:
+found, unknown barcode, or not sellable with a reason. On the wire (`Contracts/Pos`)
+every result is a 200, so an HTTP error only ever means the server failed. The rules, each
+a test in `ProductLookupTests`:
+- **Variant:** discontinued still sells its remaining stock; archived does not. Weighted
+  does not until Phase 1 (scales, weight-embedded codes).
+- **TVA rate:** from the product's categories. No rate, or two different rates, is not
+  sellable (a null rate is not 0%, D-037). The real rule is O-24.
+- **Price:** the store's `retail` row with `valid_from ≤ today < valid_to` (null `valid_to`
+  is open-ended; `valid_to` is exclusive, the next price's first day). The latest
+  `valid_from` wins; `promotional` rows are ignored in the skeleton. No price is not
+  sellable, never zero. An HT price in force is refused, because converting it would be a
+  new rounding site.
+- **Today** is the store's date from `IStoreCalendar`, not UTC's: prices change at the
+  store's midnight (F-22 for how the date is known).
+- **Stock on hand** is the sum of `inventories.quantity` over the store's batches. Zero or
+  negative still sells, and the till shows a warning (CLAUDE.md §3.8).
+- **Store scoping** is the global filter alone; the query never filters by store itself.
+- **The route is `GET /api/products/lookup?barcode=…`**, a query parameter rather than a path
+  segment. ASP.NET Core leaves `%2F` encoded in a route value, so a typed `12/34` was looked
+  up as `12%2F34` (found in the end-to-end run, 18/09), and decoding it again would
+  double-decode every other code. A query string is decoded exactly once. A blank code is a
+  400, the only non-200 answer that isn't a server failure.
+
+**Rejected:** a 404 for an unknown barcode (the till would have to tell "no such product"
+from a routing failure); converting HT to TTC in the lookup; picking the primary category's
+rate on a conflict (that is O-24's decision, not the skeleton's).
+
+### D-067 — The store's time zone is resolved through a hand-kept IANA→Windows map (F-22)
+Hakim, 18/09/2026. `stores.timezone` stays an IANA name. `StoreTimeZones` (Application) maps
+each name Waymark serves to its Windows zone id, which resolves under the build's invariant
+globalisation where the IANA name does not. There is one row today: `Africa/Algiers` → `W.
+Central Africa Standard Time`, UTC+1 all year. StoreServer resolves the store's zone at
+start and **refuses to start on an unmapped zone**, rather than fall back to UTC and move
+the day prices change on. `StoreCalendar` asks the clock each time and never caches the
+day, so a server left running over midnight changes prices at midnight. A store with no
+row yet has no zone, and asking its date is an error. **Rejected:** turning ICU on for the
+hosts (culture-sensitive behaviour would then differ between the hosts and the tests,
+which run invariant); a fixed configured offset (it makes the column decoration and breaks
+the first market with daylight saving time).
+
+### D-068 — The till in hop 1: a preview cart, a session that keeps scan order, neutral notices
+Hakim, 18/09/2026. The POS side of hop 1, in `Waymark.Pos`, with its logic tested in
+`Waymark.Pos.Tests` (a new project, Hakim's choice) and the window kept thin:
+- **`StoreServerClient`** separates *the server answered* (found, unknown, not sellable: all
+  shown as they are) from *the server could not answer* (refused, 3 s timeout, error status,
+  an unreadable reply). There is no Level-2 cache in the skeleton, so an outage is shown
+  plainly. The caller's own cancellation propagates, and is never reported as an outage.
+- **The cart is a preview.** A scan adds one whole unit and a repeat scan adds to its line;
+  line total = `price × count` with `Money * int`, which is exact and creates no rounding
+  site. The receipt's figures (TVA split, cash rounding) come from the server in hop 2, and
+  fractional quantities come with weighing in Phase 1. Wire figures are read exactly, in the
+  invariant culture; one that would need rounding is refused. An empty cart has no total,
+  not a zero without a currency.
+- **Stock:** a line says so when its count exceeds the stock on hand (Hakim, 18/09: the
+  "stock ≤ 0" rule, extended). A notice, never a refusal.
+- **`TillSession` handles codes in the order they were scanned**, whatever order the
+  answers arrive in; a failed lookup does not stop the codes behind it.
+- **Notices are neutral text naming the code and the reason:** unknown code, not sellable,
+  StoreServer unavailable. **No semantic colour and no Almanac diamond in the POS** (Hakim,
+  18/09): the brand deck reserves warning for states Almanac raises, and critical needs a
+  CRITICAL label. Violet is for actions only. Styling is deliberately unfinished.
+- **The window feeds every keystroke through the scanner** (D-063): a tunnel `TextInput`
+  handler; Enter and Tab sent to the scanner as keys, because a suffix arrives as a key;
+  `Flush` before non-text keys; `Reset` on a focus change; `Typed` inserted at the caret by
+  hand. Enter after a code typed by hand looks it up. Search by name is Phase 1.
+- **Its only configuration is StoreServer's address:** `--server=`, else `WAYMARK_SERVER`,
+  else `http://localhost:5290/`.
+
+**Rejected:** letting each lookup answer update the cart as it arrives (lines would land out
+of scan order, and a late notice could hide a later line); colouring the stock and code
+notices with warning and critical (brand deck, slide 11).
+
 ---
 
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
-| O-23 | **Is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** | It holds transaction grain with the pseudonym (D-043), beside an encrypted tier 1. DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is, and leaving tier 2 plaintext makes "the store is encrypted" untrue for the pseudonymised copy | The tier-2 writer (Phase 0.5 decides stub or real). Until then the DPIA says so (§5.4) |
+| O-23 | **How is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is: a separate key, derived or its own, has to be chosen, with its custody (D-057) and its place in the backup set | The real tier-2 writer, Phase 2 (0.5 stubs it, D-065). Until then the DPIA states the gap (§5.4) |
+| O-24 | **Which TVA rate applies to a product whose categories disagree, or when one has no rate?** The skeleton refuses both (D-066) | A product can sit in several categories (`product_category`), and `categories.tax_rate` is nullable. Candidates: the primary category's rate (`is_primary`), a rate on the product or variant itself, or refusing until the catalogue is fixed. A wrong pick misstates TVA on every receipt, silently | Phase 1 checkout and catalogue management |
 
 ### Resolved
 | Open | Resolved by |

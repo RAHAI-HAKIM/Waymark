@@ -34,6 +34,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Waymark.Hardware.Tests", "t
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Generator.Tests", "tests\Waymark.Generator.Tests\Waymark.Generator.Tests.csproj", "{C8915396-975F-42FC-ADFF-CE5D2B34BF30}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Waymark.Pos.Tests", "tests\Waymark.Pos.Tests\Waymark.Pos.Tests.csproj", "{5AE56E81-69EF-4F94-A0BF-439E13A16BBA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -204,6 +206,10 @@ Global
 		{C8915396-975F-42FC-ADFF-CE5D2B34BF30}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C8915396-975F-42FC-ADFF-CE5D2B34BF30}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C8915396-975F-42FC-ADFF-CE5D2B34BF30}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5AE56E81-69EF-4F94-A0BF-439E13A16BBA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5AE56E81-69EF-4F94-A0BF-439E13A16BBA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5AE56E81-69EF-4F94-A0BF-439E13A16BBA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5AE56E81-69EF-4F94-A0BF-439E13A16BBA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -214,6 +220,7 @@ Global
 		{F4090A9A-31CE-470D-95CF-EC437040CD07} = {D03889F4-3212-4952-B9BC-11273FEA38DA}
 		{331E2E83-72B1-4DB0-A265-178C2686057F} = {D03889F4-3212-4952-B9BC-11273FEA38DA}
 		{C8915396-975F-42FC-ADFF-CE5D2B34BF30} = {D03889F4-3212-4952-B9BC-11273FEA38DA}
+		{5AE56E81-69EF-4F94-A0BF-439E13A16BBA} = {D03889F4-3212-4952-B9BC-11273FEA38DA}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7D1E3A64-2C88-4F30-9E51-0B4C6A2D8F17}
