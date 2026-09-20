@@ -136,6 +136,7 @@ public sealed class StoreServerStartupTests : IDisposable
         var source = Path.Combine(generated, "waymark-store.db");
         string[] store = [$"--Waymark:Store:StoreId={StoreIdOf(generated)}", "--Waymark:Store:Currency=DZD"];
         var before = CountTransactions(source, key: null);
+        var outboxBefore = CountOutbox(source, key: null);
         Assert.True(before > 0);
 
         var barcode = SellableBarcodeIn(source);
@@ -146,6 +147,7 @@ public sealed class StoreServerStartupTests : IDisposable
                 AssertHealthy(address);
                 AssertLookup(address, barcode);
                 AssertSale(address, barcode, terminal, staff);
+                AssertExpiryEvaluation(address);
             },
             [.. store, $"--{WaymarkStoragePaths.ImportPlaintextSetting}={source}"]);
         Assert.True(first.Started, "The generated store was not imported and served:\n" + first.Output);
@@ -159,6 +161,9 @@ public sealed class StoreServerStartupTests : IDisposable
         using var key = DatabaseKeyStore.Open(Keys, new DpapiKeyProtector());
         // Every generated sale survived the import, plus the one AssertSale made.
         Assert.Equal(before + 1, CountTransactions(WaymarkStoragePaths.StoreDatabase(Data), key));
+
+        // And that sale put its anonymous basket in the outbox, in the same transaction (D-072).
+        Assert.Equal(outboxBefore + 1, CountOutbox(WaymarkStoragePaths.StoreDatabase(Data), key));
         Assert.True(WaymarkDatabaseEncryption.IsPlaintext(source), "The import changed the generated file.");
     }
 
@@ -266,6 +271,38 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.Contains("\"refused\"", refused.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Hop 6 on the real process (D-073): the evaluator's wiring, and the cold-start window
+    /// installed at start. A year of synthetic trading leaves batches on the shelf that are
+    /// past their date, so a run over real data has something to say — and the second run has
+    /// to say the same thing without doubling the board.
+    /// </summary>
+    private static void AssertExpiryEvaluation(Uri address)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(30) };
+
+        var first = EvaluateExpiry(client);
+        Assert.Equal(7, first.GetProperty("windowDays").GetInt64());
+        Assert.Equal(1, first.GetProperty("parameterVersion").GetInt64());
+        Assert.True(first.GetProperty("batchesRead").GetInt32() > 0, "The generated store has stock on its shelves.");
+        var flagged = first.GetProperty("flagged").GetInt32();
+        Assert.True(flagged > 0, "A year of trading leaves batches inside a seven-day window.");
+        Assert.Equal(0, first.GetProperty("superseded").GetInt32());
+
+        var again = EvaluateExpiry(client);
+        Assert.Equal(flagged, again.GetProperty("flagged").GetInt32());
+        Assert.Equal(flagged, again.GetProperty("superseded").GetInt32());
+    }
+
+    private static JsonElement EvaluateExpiry(HttpClient client)
+    {
+        using var answer = client.PostAsync(new Uri("/api/engine/expiry", UriKind.Relative), JsonBody("{}"))
+            .GetAwaiter().GetResult();
+        var body = answer.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(answer.StatusCode == HttpStatusCode.OK, $"The evaluator failed ({answer.StatusCode}): {body}");
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
 
     /// <summary>The generated store's till and one of its cashiers.</summary>
@@ -342,6 +379,15 @@ public sealed class StoreServerStartupTests : IDisposable
     private static string StoreIdOf(string generated) =>
         JsonDocument.Parse(File.ReadAllText(Path.Combine(generated, "manifest.json")))
             .RootElement.GetProperty("store_id").GetString()!;
+
+    private static long CountOutbox(string path, IDatabaseKeyProvider? key)
+    {
+        using var context = new WaymarkDbContext(
+            new DbContextOptionsBuilder<WaymarkDbContext>().UseWaymarkSqlite(path, key).Options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
+        return context.Outbox.LongCount();
+    }
 
     private static long CountTransactions(string path, IDatabaseKeyProvider? key)
     {

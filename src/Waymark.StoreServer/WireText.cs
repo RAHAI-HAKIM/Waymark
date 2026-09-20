@@ -1,17 +1,16 @@
-using System.Globalization;
+using Waymark.Contracts;
 using Waymark.Domain.Values;
 
 namespace Waymark.StoreServer;
 
 /// <summary>
-/// Figures as exact decimal text for the wire (D-044), never through a double. Division of a
-/// decimal by a power of ten is exact, and the invariant culture keeps '.' on every machine.
+/// The domain's values as exact wire text (D-044). The formatting itself is
+/// <see cref="Figures"/>, in Contracts, so the outbox payloads and the till's answers
+/// cannot drift apart; this only unwraps the value objects.
 /// </summary>
 public static class WireText
 {
-    public static string Figure(Money money) =>
-        (money.MinorUnits / (decimal)Currency.StorageScale).ToString("0.00", CultureInfo.InvariantCulture);
+    public static string Figure(Money money) => Figures.Amount(money.MinorUnits);
 
-    public static string Figure(Quantity quantity) =>
-        (quantity.Thousandths / (decimal)Quantity.Scale).ToString("0.###", CultureInfo.InvariantCulture);
+    public static string Figure(Quantity quantity) => Figures.Quantity(quantity.Thousandths);
 }

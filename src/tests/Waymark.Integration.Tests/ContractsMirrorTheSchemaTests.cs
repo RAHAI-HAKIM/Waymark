@@ -270,6 +270,7 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(SaleRequest),           // till → StoreServer; codes and counts, never a row
             nameof(SaleRequestLine),       // an element of that request
             nameof(SaleOutcome),           // StoreServer → till; a summary over several tables
+            nameof(DecisionRequest),       // Local Admin → StoreServer; what was asked for, not what was written
         ];
 
         var declared = typeof(RecommendationEnvelope).Assembly.GetExportedTypes()

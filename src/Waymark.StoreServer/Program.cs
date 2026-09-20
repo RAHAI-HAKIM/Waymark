@@ -7,22 +7,33 @@
 using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore;
 using Waymark.Application.Commands;
+using Waymark.Application.Engine;
 using Waymark.Application.IdGenerator;
 using Waymark.Application.Sales;
+using Waymark.Application.Statistics;
+using Waymark.Application.Sync;
 using Waymark.Application.Time;
 using Waymark.Contracts.Pos;
+using Waymark.Contracts.Recommendations;
 using Waymark.Domain;
 using Waymark.Domain.Catalogue;
+using Waymark.Domain.Engine;
+using Waymark.Domain.Enums;
 using Waymark.Domain.Ids;
 using Waymark.Domain.Privacy;
 using Waymark.Domain.Sales;
+using Waymark.Domain.Statistics;
+using Waymark.Domain.Sync;
 using Waymark.Domain.Work;
 using Waymark.Persistence;
 using Waymark.Persistence.Catalogue;
+using Waymark.Persistence.Engine;
 using Waymark.Persistence.Privacy;
 using Waymark.Persistence.Sales;
+using Waymark.Persistence.Sync;
 using Waymark.Pseudonymisation;
 using Waymark.StoreServer.Catalogue;
+using Waymark.StoreServer.Engine;
 using Waymark.StoreServer.Sales;
 
 // The till is Windows (D-017), and the keys are wrapped with DPAPI, which exists nowhere else.
@@ -91,6 +102,24 @@ builder.Services.AddScoped<CommandExecutor>();
 // Hop 2 (D-070): a cash sale.
 builder.Services.AddScoped<ISalesLedger, SalesLedger>();
 builder.Services.AddScoped<CompleteSaleHandler>();
+
+// Hop 3 (D-072): the sale's anonymous basket goes to the outbox in the same transaction.
+builder.Services.AddScoped<IOutboxSequence, OutboxSequence>();
+
+// Hop 4 (D-065): statistics tier 2, stubbed in Phase 0.5 — the port is wired, the writer
+// keeps nothing. Phase 2 writes the real DuckDB one, encrypted (O-23).
+builder.Services.AddSingleton<ITier2Writer, NullTier2Writer>();
+
+// Hop 6 (D-073): the expiry evaluator. It compares and nothing more (CLAUDE.md §5).
+builder.Services.AddScoped<IExpiryLedger, ExpiryLedger>();
+builder.Services.AddScoped<EvaluateExpiryHandler>();
+
+// Hop 7 (D-074): the recommendation board and its decisions — the Integration Layer's store
+// half. The role check itself is CardAudience, in Domain, and both the board and the decision
+// go through the same copy of it.
+builder.Services.AddScoped<IRecommendationBoard, RecommendationBoard>();
+builder.Services.AddScoped<PendingCards>();
+builder.Services.AddScoped<DecideRecommendationHandler>();
 
 // The database key (D-042, F-1). Resolved only inside the startup block below, after the keys
 // directory has passed its check. A new key is made only when there is no database yet: an
@@ -185,6 +214,17 @@ using (var scope = app.Services.CreateScope())
         storeZone = StoreTimeZones.Resolve(timezone);
         logger.LogInformation("Store time zone: {Zone} ({WindowsId})", timezone, storeZone.Id);
     }
+
+    // The engine parameters a store needs before the engine has ever run for it (D-069, D-073).
+    // Installed once and never repaired: a window the engine or a shopkeeper has since set is
+    // theirs, and overwriting it every start would quietly undo their decision.
+    var clock = scope.ServiceProvider.GetRequiredService<TimeProvider>();
+    if (ColdStartParameters.EnsureNearExpiryWindow(database, clock.GetUtcNow()))
+    {
+        logger.LogInformation(
+            "Installed the cold-start near-expiry window: {Days} days for every category (a placeholder, D-069)",
+            ColdStartParameters.NearExpiryWindowDays);
+    }
 }
 
 // The POS uses this to decide whether the server is reachable before falling
@@ -231,4 +271,54 @@ app.MapPost("/api/sales", async (
     }
 });
 
+// Hop 6 (D-073): the expiry evaluator, run on request rather than on a schedule. The engine
+// "ran last night" (CLAUDE.md §5) and a nightly job is Phase 1's; what the skeleton has to prove
+// is that a comparison over real stock produces a card a human can be shown.
+app.MapPost("/api/engine/expiry", async (
+    CommandExecutor executor, EvaluateExpiryHandler handler, CancellationToken cancellationToken) =>
+    Results.Ok(await executor.ExecuteAsync(handler, new EvaluateExpiry(), cancellationToken)));
+
+// Hop 7 (D-074): what this staff member may act on. The staff member is named on the request
+// — there is no login until Phase 1 (D-069) — and a name the store does not employ is an
+// answer ("unknown_staff"), not an error. Cards above their rank are counted, never listed.
+app.MapGet("/api/recommendations", async (
+    string? staff, PendingCards board, CancellationToken cancellationToken) =>
+    string.IsNullOrWhiteSpace(staff)
+        ? Results.BadRequest("A staff member is required: /api/recommendations?staff=...")
+        : Results.Ok(RecommendationWire.ToWire(await board.ForAsync(staff, cancellationToken))));
+
+// And the one door a card leaves by. A refusal is a 200 with its reason, as everywhere else in
+// the slice; an error status only ever means the server failed.
+app.MapPost("/api/recommendations/decide", async (
+    DecisionRequest request, CommandExecutor executor, DecideRecommendationHandler handler,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var command = new DecideRecommendation(
+            request.RecommendationId ?? "", request.StaffId ?? "", ToDecision(request.Decision), request.OptionId);
+
+        return Results.Ok(RecommendationWire.FromDecision(
+            await executor.ExecuteAsync(handler, command, cancellationToken)));
+    }
+    catch (DecisionRefusedException refusal)
+    {
+        return Results.Ok(RecommendationWire.Refusal(refusal.Message));
+    }
+    catch (ArgumentException refusal)
+    {
+        return Results.Ok(RecommendationWire.Refusal(refusal.Message));
+    }
+});
+
 app.Run();
+
+// Accept and dismiss only: adjust needs an amended payload and snooze a date, and neither is
+// in the slice (D-069). An unknown word is refused here rather than mapped to something.
+static Decision ToDecision(string? decision) => decision switch
+{
+    "accept" => Decision.Accept,
+    "dismiss" => Decision.Dismiss,
+    _ => throw new DecisionRefusedException($"'{decision}' is not a decision this store takes: accept, or dismiss."),
+};
+

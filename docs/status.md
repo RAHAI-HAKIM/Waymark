@@ -2,9 +2,11 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**19/09/2026**: Session A (complete sale) is built on branch `phase-0.5/session-a`, uncommitted,
-waiting for Hakim: review, the provisional decisions in D-070, hand test, commit (§6).
-Next: session B (outbox, tier-2 stub, stub cloud).
+**20/09/2026**: All four sessions of Phase 0.5 are built and reviewed on branch
+`phase-0.5/session-a`, **uncommitted and green**. `CardAudience.MayDecide` is written
+(Hakim, 20/09) and Local Admin has now been installed, type-checked and built for the first
+time. That closes every hop of Phase 0.5; what is left is the commit and the full revision
+pass before Phase 1.
 
 ---
 
@@ -14,7 +16,9 @@ Next: session B (outbox, tier-2 stub, stub cloud).
 | :---- | :---- |
 | Phase | **0.5, the walking skeleton: in progress** (opened 18/09/2026). Phase 0 complete 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects (the new one is `Waymark.Pos.Tests`), **0 warnings**, Debug and Release. No vulnerable package |
-| Tests | **936 passing**: Domain 146 · Integration 385 · Generator 235 · Hardware 64 · Application 33 · Pos 73 |
+| Sessions | **A** cash sale ✅ · **B** outbox, tier-2 stub, stub cloud ✅ · **C** expiry evaluator ✅ · **D** role check, Local Admin ✅. All four reviewed, all four uncommitted on `phase-0.5/session-a` |
+| Tests | **995 passing**: Domain 161 · Integration 421 · Generator 235 · Hardware 64 · Application 41 · Pos 73 |
+| Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `npx tsc --noEmit` clean, `vite build` clean (Tailwind compiles). Installed 20/09 |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations: `InitialSchema`, `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType`, `AddRoundingPolicies`, `AddReceivables`, `RenameRoundingPolicyChecks` |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Recap | `docs/recaps/phase-0.md`: everything Phase 0 built, decided and found. §8 covers the revision, the final test and how the phase closed. Read it only when a question reaches back into Phase 0 |
@@ -115,10 +119,10 @@ Anything more goes on the Phase 1 list below. Pseudonymisation is not exercised 
 | Session | Hop | Thin version | Risky rule, tested | ✍ Hakim | State |
 | :---- | :---- | :---- | :---- | :---- | :---- |
 | — | 1 Scan, cart | The lookup (D-066), the store's date (D-067), the till (D-068) | Price in force, store scoping, exact figures | The lookup query | ✅ Committed `f3fe0fb` |
-| A | 2 Complete sale | Built (D-070): `CompleteSale` stages the transaction, items (TVA from TTC), stock movements with batch levels, the cash payment and the tender rounding; `POST /api/sales`; the till's Pay button | All-or-nothing, the money figures, gapless invoices: 10 tests, 8 breaks caught | Review; the provisional decisions in D-070 | ⏳ **Waiting for Hakim** |
-| **B** | 3–5 Outbox, tier-2 stub, stub cloud | The emit step builds the `AnonymousBasketRecord` (D-043, D-064) and stages the outbox row in the sale's unit of work, with a gapless sequence. The tier-2 port gets a no-op writer. The stub cloud is a test-side reader that parses what left and acknowledges it | The outbox row commits with the sale, or neither does; no identifier in the basket; no gap in the sequence after a rollback | The emit mapping | |
-| C | 6 Expiry evaluator | Compare only (CLAUDE.md §5): batches with stock, days to expiry, against one **7-day placeholder** window in `parameter_registry`. Writes a recommendation with its Because block and computed-at time. Runs on request | No fitting, no history; the window boundary; the figures in the Because block | The comparison | |
-| D | 7–8 Integration Layer, Local Admin | A **manager** may see and decide inventory cards; a **cashier** is refused (from `roles`; staff named per request, no login). The `waymark-admin` scaffold (Vite, React, TS, Tailwind, RTL): one page of pending cards; Accept writes `recommendation_decisions` and the log. Accepting does not apply the markdown | The decision and its log entry are written together; a cashier is refused | The role check | |
+| A | 2 Complete sale | Built (D-070, D-071): the sale's rows, the money, the batches, `POST /api/sales`, the till's Pay button, and the write guard that refuses another store's row | All-or-nothing, the figures, gapless invoices, cross-store writes: 21 tests, 11 breaks caught | Reviewed 20/09; D-071 decided | ✅ Built, in review |
+| B | 3–5 Outbox, tier-2 stub, stub cloud | Built (D-072): the sale stages its anonymous basket as an outbox row in the same transaction, with a gapless sequence; tier 2 is a port with a writer that keeps nothing; the stub cloud is a reader in the tests | The basket commits with the sale or not at all; no identifier in it; no gap after a refusal: 12 tests, 7 breaks caught | The emit mapping (written by Claude; review it) | ✅ Built, reviewed 20/09 |
+| C | 6 Expiry evaluator | Built (D-073): the comparison is `NearExpiry` in Domain, pure; the window is a 7-day cold-start placeholder in `parameter_registry`, installed at start and never repaired; a card carries its Because block, its window version and its computed-at time; `POST /api/engine/expiry` | The window's edge, the figures, cross-store reads, and running it twice: 23 tests, 9 breaks caught | The comparison (written by Claude; review it) | ✅ Built, reviewed 20/09 |
+| **D** | 7–8 Integration Layer, Local Admin | Built (D-074): the board and the decision both go through one role check, compared on `roles.rank`; a cashier is told how many cards are above their rank, never shown them; accepting writes the decision **and** closes the card in one transaction, and applies nothing. `waymark-admin` scaffolded (Vite, React, TS, Tailwind, RTL, brand tokens), one page, installed and built 20/09 | The decision and the card's status written together; a cashier, a stranger, another store's manager and a suspended manager all refused: 17 tests, 8 breaks caught | ✍ **`CardAudience.MayDecide`** — written 20/09 (first attempt inverted; four tests caught it) | ✅ Built, reviewed 20/09 |
 
 **Phase 1 picks this up** (left out of the slice on purpose):
 - from hop 1: search by name; weighted items and scales; promotional prices; O-24 (the TVA
@@ -127,7 +131,14 @@ Anything more goes on the Phase 1 list below. Pseudonymisation is not exercised 
   wording when `localhost` refuses (it reads "did not answer within 3 s");
 - from the thin hops: on-account payment and its credit-limit check (D-055); more than one
   tender; returns and voids; the Level-2 cache; the pending-queue UI; applying an accepted
-  markdown to the price; logins.
+  markdown to the price; logins;
+- from session C: running the evaluator nightly instead of on request; retiring a card whose
+  batch has sold out or been written off (it keeps its card today, D-073); carrying out an
+  accepted markdown or write-off;
+- from session D: logins (the staff member is named per request today); adjust and snooze;
+  a card's delivered-at ever being set; generating the TypeScript contracts from the C# ones
+  instead of hand-writing them; bundling Archivo and IBM Plex Mono (a download, so it needs
+  Hakim); the rest of the Admin stack (Radix, TanStack Table and Query, zod, Recharts).
 
 **Phase 2, already planned:** the real tier 2, encrypted (D-065, O-23); the customer period
 record and its spend bands (D-064); pseudonym resolution with `objection_flag` (the
@@ -193,6 +204,93 @@ To watch a code cross every stop, set breakpoints in `TillSession.Handle` and in
 To watch one sale: breakpoints in `CompleteSaleHandler.HandleAsync` and in
 `CommandExecutor.ExecuteAsync` (on `CommitAsync`), then scan and press Pay.
 
+### 6.1c Session B, read in the order a basket travels
+
+1. **Where it starts:** `Application/Sales/CompleteSale.cs`. The sale loop now also collects
+   `sold` (product, quantity, line total) and `tier2Lines` (variant grain); at the end,
+   `EmitBasket` and the tier-2 call. Both are inside the command, so the executor commits
+   the outbox row with the sale's rows, or neither (CLAUDE.md §3.6).
+2. **What crosses:** `Application/Sync/AnonymousBasket.cs`. A pure function: product grain,
+   the store's hour, the weekday, the payment class, a fresh opaque basket id. The
+   comment says what must not be there and why.
+3. **The figures:** `Contracts/Figures.cs`, now the one place stored integers become wire
+   text (the till's answers use it through `StoreServer/WireText.cs`).
+4. **The hour:** `Domain/IStoreCalendar.cs` (`Now`, `Today`, `HourOfDay`) and
+   `Application/Time/StoreCalendar.cs`.
+5. **The sequence:** `Domain/Sync/IOutboxSequence.cs`, implemented in
+   `Persistence/Sync/OutboxSequence.cs`. Read inside the sale's transaction; the unique
+   index on `outbox.sequence_number` is the backstop.
+6. **Tier 2, stubbed:** `Domain/Statistics/ITier2Writer.cs` and
+   `Application/Statistics/NullTier2Writer.cs` (D-065).
+7. **The write guard (D-071):** `Persistence/WaymarkDbContext.cs`,
+   `RefuseAnotherStoresRows`, called by both `SaveChanges` overrides.
+8. **The proof:** `Integration.Tests/CompleteSaleTests.cs`, section "the outbox", including
+   `StubCloud`, the hop-5 reader that parses a pending row and acknowledges it;
+   `Application.Tests/AnonymousBasketTests.cs`; `Integration.Tests/StoreWriteScopeTests.cs`;
+   and the sale on the real process in `StoreServerStartupTests`.
+
+To watch one basket: a breakpoint in `EmitBasket`, then sell. Afterwards the row is visible
+in the encrypted store (the outbox keeps it until something acknowledges it).
+
+### 6.1d Session C, read in the order a batch becomes a card
+
+1. **The rule, and the only file that matters:** `Domain/Engine/NearExpiry.cs`. Pure, no
+   database. `Evaluate` returns a finding or **null** — null is "there is nothing to say",
+   which is most batches. Read the three early returns first: no shelf life, nothing left,
+   still outside the window. Then the two figures: the quantity, which needs one unit, and
+   the value at cost, which does not.
+2. **What it reads through:** `Domain/Engine/IExpiryLedger.cs` — the window, the shelf, the
+   board as it stands, and the one row it changes. Implemented in
+   `Persistence/Engine/ExpiryLedger.cs`: three queries, each scoped by the global filter
+   (`batch_items` through its batch, D-062).
+3. **The window:** `Persistence/Engine/ColdStartParameters.cs`. Seven days, installed at
+   start when the registry has none, never repaired. `Program.cs` calls it in the startup
+   block, after the time zone.
+4. **The card:** `Application/Engine/EvaluateExpiry.cs`. `HandleAsync` is the whole hop in
+   thirty lines: window → shelf → board → per finding, supersede then write. Then read
+   `Because` (three figures, each with its unit) and `Headline` (a rendering of them).
+   The class comment says why a card here has no interval.
+5. **Who it is addressed to:** `DecidingRoleAsync` in the ledger — the rung above the shop
+   floor, read off `roles.rank` rather than named in the code (D-073).
+6. **The door:** `StoreServer/Program.cs`, `MapPost("/api/engine/expiry")`.
+7. **The proof:** `Domain.Tests/NearExpiryTests.cs` (the window's edge, first section) and
+   `Integration.Tests/ExpiryEvaluatorTests.cs` (what it flags, what it stays quiet about,
+   running it twice). `StoreServerStartupTests.AssertExpiryEvaluation` runs it twice on the
+   real process over a generated store.
+
+To watch one batch: a breakpoint in `NearExpiry.Evaluate`, then post to the endpoint. On
+seed-42 the first run flags around a hundred batches out of about three hundred — a year of
+trading leaves a lot past its date — and the second run flags the same number and supersedes
+exactly that many.
+
+### 6.1e Session D, read in the order a card reaches a person
+
+1. ✍ **Hakim's piece:** `Domain/Engine/CardAudience.cs`. One function, one comparison —
+   `staffRank >= requiredRank`, "this rank and anything above it". Written 20/09, after a first
+   attempt with the comparison inverted, which four tests caught: a cashier passed and an owner
+   was locked out, both failure modes D-074 names, at once.
+2. **What the board reads:** `Domain/Engine/IRecommendationBoard.cs`, implemented in
+   `Persistence/Engine/RecommendationBoard.cs`. Note `StaffAsync`: active staff only, and a
+   role that is not an active row gives **no rank** rather than rank zero (D-037).
+3. **The board itself:** `Application/Engine/PendingCards.cs` — twelve lines. It filters with
+   `CardAudience` and reports what it held back as a **count**. The comment says why an empty
+   board is a lie.
+4. **The one door out:** `Application/Engine/DecideRecommendation.cs`. `HandleAsync` is six
+   numbered checks, then two staged writes: the decision row, and the card's move to
+   `decided`. They commit together or neither does, which is the risky rule of the hop.
+5. **The wire:** `StoreServer/Engine/RecommendationWire.cs` (a card crosses as the envelope of
+   D-044; the Because block and the option payloads are re-parsed here, not passed through as
+   strings) and `Contracts/Recommendations/DecisionRequest.cs`.
+6. **The doors:** `StoreServer/Program.cs`, `MapGet("/api/recommendations")` and
+   `MapPost("/api/recommendations/decide")`.
+7. **The screen:** `waymark-admin/src/Board.tsx`, and `src/index.css` for the brand tokens.
+   The page decides nothing — it renders the board the server already filtered.
+8. **The proof:** `Domain.Tests/CardAudienceTests.cs` (yours, three skipped) and
+   `Integration.Tests/RecommendationBoardTests.cs` (thirteen, four skipped).
+
+With StoreServer and the admin app running, the board fills for the owner and stays empty —
+with a count of what was withheld — for the cashier.
+
 ### 6.2 Running it
 
 The generator is ready for use:
@@ -229,6 +327,29 @@ dotnet run --project src/Waymark.Pos -- --terminal=01JCWEQNC0W9W3YV7F0CPNDDCD --
 In a Debug build the till has a **Simulate scan** box that feeds a code through the real
 scanner. `2000000000015` is a milk at 143.00 DZD with stock; `2000000000039` is one with
 none.
+
+To run the expiry evaluator against the running server (PowerShell):
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:5290/api/engine/expiry -ContentType application/json -Body '{}'
+```
+
+It answers with how many batches it read, how many it flagged, how many earlier cards it
+replaced, and the window it used. Running it twice is safe and is worth doing: the second
+run should flag the same number and supersede exactly that many.
+
+Local Admin (hop 8) needs Node — 24.19.0 LTS, installed 20/09 via
+`winget install OpenJS.NodeJS.LTS`. **It lands on the machine PATH, so a terminal opened
+before the install will still say `npm: not recognized`; open a new one.** With StoreServer up
+on 5290:
+
+```bash
+cd waymark-admin && npm install && npm run dev
+```
+
+The dev server proxies `/api` to StoreServer. Type a staff id into the box: seed-42's cashier
+`01JCWEQNC0W9W3YV7F0CPNDDCB` sees only a count of withheld cards; the owner sees the
+near-expiry cards themselves.
 
 The guide is `src/Waymark.Generator/README.md`.
 

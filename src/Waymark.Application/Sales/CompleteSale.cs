@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text.Json;
 using Waymark.Application.Commands;
+using Waymark.Application.Sync;
 using Waymark.Domain;
 using Waymark.Domain.Catalogue;
 using Waymark.Domain.Enums;
@@ -7,6 +9,8 @@ using Waymark.Domain.Inventory;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Pricing;
 using Waymark.Domain.Sales;
+using Waymark.Domain.Statistics;
+using Waymark.Domain.Sync;
 using Waymark.Domain.Values;
 using Waymark.Domain.Work;
 
@@ -41,7 +45,10 @@ public sealed class SaleRefusedException(string reason) : Exception(reason);
 /// <item>one <c>stock_movements</c> row per item, and the batch's level lowered to match;</item>
 /// <item>one cash <c>transaction_payments</c> row for the exact total, and the difference the cash
 /// step makes in <c>rounding_variance</c>, never in the drawer's variance (D-034);</item>
-/// <item>a cash session for the terminal, when it has none open.</item>
+/// <item>a cash session for the terminal, when it has none open;</item>
+/// <item>the anonymous basket, as an <c>outbox</c> row on the statistics channel (D-043,
+/// D-064, hop 3). <b>It goes in with the sale</b>: both rows or neither (CLAUDE.md §3.6).
+/// Tier 2 is handed the same sale and keeps nothing in the skeleton (D-065).</item>
 /// </list>
 /// <para>
 /// <b>Every line is priced again here</b>, through the same lookup and rules as the scan
@@ -53,6 +60,8 @@ public sealed class CompleteSaleHandler(
     IProductLookup products,
     ISalesLedger ledger,
     IStaging staging,
+    IOutboxSequence outbox,
+    ITier2Writer tier2,
     IStoreCalendar calendar,
     TimeProvider clock) : ICommandHandler<CompleteSale, CompletedSale>
 {
@@ -86,17 +95,19 @@ public sealed class CompleteSaleHandler(
         var sessionId = await CashSession(command, store, now, context, cancellationToken);
         var transactionId = context.NewId();
         var (net, tax, total) = (zero, zero, zero);
+        var sold = new List<SoldLine>();
+        var tier2Lines = new List<Tier2Line>();
 
         foreach (var (product, count) in priced)
         {
-            var sold = product.Unit.Whole(count);
+            var wanted = product.Unit.Whole(count);
             var batches = await ledger.BatchesAsync(product.VariantId, product.Unit.Code, cancellationToken);
             if (batches.Count == 0)
             {
                 throw new SaleRefusedException($"{product.ProductName} has never been received: there is no batch to sell it from.");
             }
 
-            foreach (var (batch, taken) in BatchAllocation.Take(batches, sold, today))
+            foreach (var (batch, taken) in BatchAllocation.Take(batches, wanted, today))
             {
                 var amounts = SaleArithmetic.Line(product.PriceTtc, taken, zero, product.TvaRate, policy);
                 (net, tax, total) = (net + amounts.Split.Net, tax + amounts.Split.Tax, total + amounts.LineTotal);
@@ -135,6 +146,8 @@ public sealed class CompleteSaleHandler(
                 });
 
                 ledger.AdjustLevel(product.VariantId, batch.BatchId, QuantityDelta.Decrease(taken), now);
+                sold.Add(new SoldLine(product.ProductId, taken, amounts.LineTotal));
+                tier2Lines.Add(new Tier2Line(product.VariantId, taken, amounts.LineTotal));
             }
         }
 
@@ -192,7 +205,44 @@ public sealed class CompleteSaleHandler(
             });
         }
 
+        await EmitBasket(sold, today, context, now, store.StoreId, cancellationToken);
+        tier2.Record(new Tier2Sale(transactionId, today, calendar.HourOfDay, tier2Lines));
+
         return new CompletedSale(transactionId, invoice, total, tax, cash);
+    }
+
+    /// <summary>
+    /// The anonymous basket, staged as an outbox row in the sale's own unit of work (D-043,
+    /// CLAUDE.md §3.6). The row names no entity: <c>entity_type</c> and <c>entity_id</c> would
+    /// be the transaction, and the point of the basket is that nothing joins it back to the
+    /// till's row.
+    /// </summary>
+    private async Task EmitBasket(
+        IReadOnlyList<SoldLine> sold,
+        DateOnly today,
+        CommandContext context,
+        DateTimeOffset now,
+        string storeId,
+        CancellationToken cancellationToken)
+    {
+        var basket = AnonymousBasket.From(
+            context.NewId(),
+            storeId,
+            today,
+            calendar.HourOfDay,
+            sold,
+            AnonymousBasket.Cash,
+            hasDiscount: false);
+
+        staging.Add(new OutboxMessage
+        {
+            OutboxId = context.NewId(),
+            SequenceNumber = await outbox.LastAsync(cancellationToken) + 1,
+            Channel = OutboxMessageChannel.AStatistics,
+            MessageType = AnonymousBasket.MessageType,
+            PayloadJson = JsonSerializer.Serialize(basket),
+            CreatedAt = now,
+        });
     }
 
     /// <summary>The line priced by the scan's own rules, or the reason it cannot be sold.</summary>

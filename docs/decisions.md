@@ -17,7 +17,7 @@ Open questions (`O-nn`) are at the end.
 | :---- | :---- |
 | Phase 0 (done, titles only) | D-001–D-054 |
 | Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
-| Phase 0.5, the walking skeleton | D-063–D-070 |
+| Phase 0.5, the walking skeleton | D-063–D-074 |
 
 # **Phase 0 (Already done)**
 
@@ -611,8 +611,192 @@ confirmation.
 refusing a sale when the records show no stock (the product is in the customer's hand);
 numbering invoices outside the sale's transaction (a failed sale would leave a gap).
 
-### D-071 — Writes are checked against the current store. (session A, hop 2)
-`CompleteSale`, the first handler writing store-scoped rows, takes every `store_id` from the current store's own row, read through the filter, Although it can't write another store's. We'll add a check in `SaveChanges` that refuses any added store-scoped row whose `store_id` isn't the current store's
+### D-071 — Writes are checked against the current store (session A, hop 2; closes F-21)
+Hakim, 20/09/2026. The global filter keeps a context from *reading* another store's rows;
+nothing kept it from *writing* one, and a row under the wrong `store_id` is invisible to the
+store that made it and counted by the store it names (DPIA risk R9). `WaymarkDbContext`
+now overrides both `SaveChanges` and `SaveChangesAsync` and refuses any added or modified
+`IStoreScoped` row whose `store_id` is another store's, naming the entity and the store.
+Two boundaries, each with its reason:
+- **A null `store_id` is written.** On the entities that allow one it means every store (a
+  promotion that is not store-specific) or none (processing outside a store), and the
+  filter already reads those (D-030).
+- **A context with no store configured is unchecked.** There is nothing to compare against,
+  and such a context reads nothing belonging to a store; it is how the generator commissions
+  a store and how tests seed one. StoreServer always configures the store.
+
+`StoreWriteScopeTests` holds the rule, including the async path, which is the one the
+application actually uses.
+
+### D-072 — The sale's basket leaves in the sale's own transaction (session B, hops 3–5)
+Session B, 20/09/2026. `CompleteSale` now also stages the anonymous basket as an `outbox`
+row, and the executor commits it with the sale: **both rows or neither** (CLAUDE.md §3.6).
+A sale whose basket was lost would teach the cloud a shop that sells less than it does.
+- **The record** is built by `AnonymousBasket` (Application), a pure function tested on its
+  own, following D-043 and D-064: lines at **product** grain (a product taken from two
+  batches is one line), the store's **hour**, never the second, the weekday, the payment
+  class (`cash` is the only tender in the slice), a discount flag, and a **fresh opaque
+  basket id**. The outbox row's `entity_type` and `entity_id` stay null, because they would
+  be the transaction, and nothing may join the basket back to the till's row.
+- **The hour comes from the store's clock.** `IStoreCalendar` gained `Now` and `HourOfDay`
+  beside `Today` (D-067): a basket at 00:30 in Algiers belongs to hour 0 of the new day,
+  not hour 23 of yesterday in UTC.
+- **The sequence** is the last one plus one, read inside the same transaction, so a refused
+  sale spends no number and leaves no gap the cloud would read as a lost message
+  (sync-design §2.2). `IX_outbox_sequence_number` is unique, so a duplicate is refused by
+  the database; StoreServer runs one sale at a time (D-070). **The outbox belongs to the
+  store database, not to a store**: the table has no `store_id`, because one store database
+  is one store's.
+- **Figures are formatted once:** `Contracts.Figures` turns stored integers into exact
+  decimal text, and the outbox payloads and the till's answers now share it (D-044).
+- **Tier 2 (D-065):** the sale hands its lines to `ITier2Writer`, and `NullTier2Writer`
+  keeps nothing. *Provisional:* the call sits in the sale; Phase 2 decides whether the
+  tier 1→2 transform runs per sale or nightly, writes the real DuckDB one, encrypted
+  (O-23), and adds the pseudonym for sales that have a customer.
+- **The stub cloud (hop 5)** is a reader in the tests: it parses each pending row as
+  `AnonymousBasketRecord` and deletes it only after reading it (sync-design §2.3, an ack is
+  what allows deletion). No production code and no transport: that is Phase 4.
+
+**Rejected:** emitting after the sale commits (a crash between the two loses the basket, and
+the outbox pattern exists to make that impossible); numbering the sequence outside the
+transaction; putting the transaction id on the outbox row "for tracing" (it is exactly the
+join D-043 forbids).
+
+---
+
+### D-073 — The expiry evaluator compares, and the card argues its case (session C, hop 6)
+Session C, 20/09/2026. The first thing in Waymark that offers an opinion. `EvaluateExpiry`
+(Application) reads one parameter, reads what is on the shelf and writes a card per batch
+inside the window; the rule itself is `NearExpiry` in Domain, pure, so it can be argued with
+in a test that has no database. Marked **(provisional)** where it is waiting for Hakim.
+- **It compares and nothing more** (CLAUDE.md §5): two dates subtracted, one comparison, and
+  a sum of what the remaining stock cost. No fitting, no history, no iteration. The window is
+  the engine's number; the store only holds it up against what it has.
+- **The window is `near_expiry_window_days` in `parameter_registry`**, global scope, seven
+  days for every category, `source = 'cold_start_default'` and a `method` that says in words
+  that nobody measured it (D-069). `ColdStartParameters` installs it at start when the
+  registry has none, and **never repairs it**: a window the engine or a shopkeeper has since
+  set is theirs, and overwriting it each start would undo their decision silently. Every card
+  carries the version it was judged against. **A missing window refuses the run** rather than
+  being read as zero or as seven (D-037): "flag nothing" is indistinguishable from a shop
+  where everything is fresh.
+- **The window is inclusive** (provisional): a batch expiring on the seventh day is inside a
+  seven-day window. Exclusive would put the seventh day silently outside it.
+- **Already expired is `critical`, still in time is `warning`.** There is no third colour and
+  no positive state: a batch that is fine gets no card at all (CLAUDE.md §6). Past the date
+  the option offered is a **write-off**, not a markdown — a markdown then is not a cheaper
+  sale, it is an illegal one.
+- **The subject is the batch**, because expiry is a property of a delivery, not of a product.
+  A batch holds every variant that came in that delivery, so the figures are summed across
+  them: the money always adds up, and the quantity only when they share a selling unit —
+  pieces and kilogrammes do not add, and `Quantity` refuses to pretend they do (D-036). The
+  card then carries one figure fewer rather than a wrong one.
+- **Derived figures round half-even**, always, whatever the store's own policy is
+  (CLAUDE.md §3.1): a store's policy belongs to what it charges, and an analytical figure
+  that moved with it would not compare across stores.
+- **The Because block carries three figures**: days to expiry, units on hand, value at cost —
+  cost and not price, because what is at risk is the money already spent. Structured, never a
+  sentence (D-044); the headline is a rendering of it and the UI localises from the keys.
+  **No interval**, deliberately: days on a calendar and units on a shelf are counts, not
+  estimates, and the envelope reserves a null interval for exactly that. The day a card
+  carries a forecast — how much will sell before the date — it gets a range, and that is the
+  engine's work.
+- **A card is addressed by rank, not by role code.** D-069 says a manager decides an
+  inventory card and a cashier is refused, but `manager` is a code one shop uses and another
+  does not; naming a role a store has never heard of fails on the foreign key, which is how
+  this was found (the mini test store has only `owner` and `cashier`). So the evaluator asks
+  for **the lowest rank strictly above the lowest one**, which is the manager in a three-role
+  shop and the owner in a two-role one. A shop with one role addresses it to that role: a
+  card nobody may see is worse than one everybody may. Hop 7 compares the same ranks.
+- **Re-running replaces a batch's card** rather than adding a second one: the earlier card
+  moves to `superseded` and a new one is written, matched on the dedupe key (store, type,
+  subject type, subject — D-044). *Provisional:* D-044 describes updating the live row and
+  writing a superseded copy; this keeps one live card per batch, which is the outcome that
+  matters, with one fewer moving part.
+- **It writes cards, it does not retire them** (provisional): a batch that has since sold out
+  keeps its card. Silently deleting a suggestion a human has not answered is the one thing it
+  must not do; whether such a card expires or is withdrawn is Phase 1's.
+- **Nothing decides** (CLAUDE.md §4): no price changes, no stock moves, no decision row. And
+  **no `processing_log` entry**: a batch is not a person (D-045).
+- **The wire:** `POST /api/engine/expiry`, run on request. The engine "ran last night"; a
+  nightly job is Phase 1's, and what the skeleton has to prove is that a comparison over real
+  stock produces a card a human can be shown.
+
+Found while proving the tests fail: **the evaluator's reads are scoped three times over** —
+`inventories` and `batches` by the store filter, `batch_items` through its batch (D-062) —
+and the cross-store test only fails when all three are lifted. Defence in depth, not a gap,
+but worth knowing before anyone "simplifies" one of them away.
+
+**Rejected:** naming `manager` in the code (see above); reading a missing window as a default
+(absence is never zero); putting the comparison in Persistence next to the query (the rule
+would then need a database to argue with); giving the card an interval to satisfy §5
+literally (a fabricated range on a count is worse than an honest null).
+
+---
+
+### D-074 — A card is addressed by rank, answered by a person, and closed with the answer (session D, hops 7–8)
+Session D, 20/09/2026. The Integration Layer's store half and the first screen. A card the
+expiry evaluator wrote (D-073) is shown to somebody senior enough for it, and the one door it
+leaves by needs a human on the other side. Marked **(provisional)** where it waits for Hakim.
+- **The role check is one function, `CardAudience.MayDecide`, in Domain**, and both the board
+  and the decision go through the same copy. A rule about who may see what is the kind that
+  gets duplicated — once in the API, once in the UI, once in a report — and the copies drift
+  silently, because neither too strict nor too loose raises anything. ✍ **Hakim writes it**;
+  until then it refuses everybody, which is the only safe direction to be wrong in (D-030),
+  and seven tests that need it to say yes are skipped.
+- **Ranks, not role codes** (D-073's finding): the card carries a role code, the check
+  compares `roles.rank`, and the answer is "this rank and anything above it" — an owner
+  locked out of what a manager can do is not a shop anybody would run.
+- **A cashier is told how many cards are above their rank, never shown them.** An empty board
+  and a quiet shop look identical, and only one of them is true. The count crosses; the cards
+  do not.
+- **Unknown, foreign or suspended staff get no board at all**, and are refused rather than
+  given the most junior rank (D-037). The store filter on `staff` is what keeps a real manager
+  from another shop out, and it is tested by breaking it.
+- **The decision row and the card's move to `decided` commit together** (D-050) — the risky
+  rule of the hop. A decision whose card stayed pending is answered twice; a card marked
+  decided with no decision row is a suggestion that vanished with nobody's name on it, and
+  `recommendation_decisions` is the audit trail the whole surface exists for.
+- **A card is answered once.** Already decided, superseded or expired is refused: the decision
+  table is append-only, and a second row makes "what was decided" a question with two answers.
+- **The option has to be one of the card's.** An option id from another card passes the
+  foreign key and records a decision about the wrong thing.
+- **Accept and dismiss only.** Adjust needs an amended payload and snooze a date, and both are
+  CHECKs with nothing in the slice to satisfy them; refused on the way in, because it is a
+  question about the request and not about the person.
+- **Accepting does not carry the intent out** (D-069): no price marked down, no stock written
+  off, `applied_at` and the resulting entity left null for Phase 1 to fill.
+- **No `processing_log` entry**, and this is a deliberate departure from D-069's wording
+  ("Accept writes `recommendation_decisions` and the log"). `processing_log` records
+  operations on **personal data**, named by a `Pseudonym` (D-045, D-061); a card about a batch
+  names no data subject, and a log entry with no subject would be the guessing D-045 rules
+  out. The staff member's action is recorded where it belongs — on the decision row,
+  `decided_by`, append-only. *Provisional:* the first card whose subject is a customer makes
+  viewing it a consultation, and that entry is written then, in Phase 2 with the Integration
+  Layer's other half.
+- **The wire:** `GET /api/recommendations?staff=` and `POST /api/recommendations/decide`. The
+  staff member is named on the request, with no login until Phase 1 (D-069), and a refusal is
+  a 200 with its reason as everywhere else in the slice. `DecisionRequest` lives in Contracts
+  with every field nullable: a missing field is a refusal a person can read, not a framework's
+  model-binding message. The board's own envelope is snake_case like the contracts, so one
+  payload does not make a TypeScript reader change conventions halfway down.
+- **Local Admin (hop 8)** is the Vite/React/TypeScript/Tailwind scaffold the README always
+  said would come, with one page: the cards this person may act on, each with its Because
+  block, its computed-at age and its options. It **renders what the store said and decides
+  nothing** — no second copy of the audience rule. CSS logical properties throughout, the
+  brand tokens at the top of one stylesheet, engine cards white with a cyan top edge, the
+  urgency chip carrying a word. The dev server proxies `/api` to StoreServer rather than
+  StoreServer enabling CORS: the store's server has no business accepting cross-origin calls
+  so a dev server can be convenient.
+- **The scaffold has never been run**: there is no Node on the machine it was written on. It
+  is reviewed-but-unexecuted code, and `waymark-admin/README.md` says so at the top.
+
+**Rejected:** filtering the board in the UI (the second copy of the rule, and the one that
+ends up wrong); checking the audience after the request's details (leaks less, but the order
+that reads correctly is "who are you, which card, may you"); writing a `processing_log` entry
+for a batch card (an entry with no subject is the guess D-045 exists to prevent); a
+`requires_reidentification` flag on the card (D-044 already rejected it: derivable from the
+subject type and the role, and free to get out of step).
 
 ---
 

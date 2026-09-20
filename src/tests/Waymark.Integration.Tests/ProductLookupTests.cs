@@ -31,7 +31,11 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
 
     private sealed class FixedCalendar(DateOnly today) : IStoreCalendar
     {
-        public DateOnly Today { get; } = today;
+        public DateTimeOffset Now { get; } = new(today, new TimeOnly(10, 0), TimeSpan.FromHours(1));
+
+        public DateOnly Today => DateOnly.FromDateTime(Now.DateTime);
+
+        public int HourOfDay => Now.Hour;
     }
 
     // ----------------------------------------------------------- the shop

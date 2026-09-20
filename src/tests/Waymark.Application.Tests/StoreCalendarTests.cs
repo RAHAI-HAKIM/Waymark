@@ -27,6 +27,18 @@ public sealed class StoreCalendarTests
     }
 
     [Fact]
+    public void The_hour_is_the_stores_hour_which_is_a_baskets_bucket()
+    {
+        // D-043 buckets a basket by the hour it happened in, in the store.
+        var calendar = new StoreCalendar(
+            new FixedClock(DateTimeOffset.Parse("2026-09-17T23:30:00Z", System.Globalization.CultureInfo.InvariantCulture)),
+            StoreTimeZones.Resolve("Africa/Algiers"));
+
+        Assert.Equal(0, calendar.HourOfDay);
+        Assert.Equal(new DateOnly(2026, 9, 18), calendar.Today);
+    }
+
+    [Fact]
     public void Algiers_has_no_summer_time()
     {
         // Mid-January and mid-July both sit at UTC+1: the day turns at 23:00 UTC.
