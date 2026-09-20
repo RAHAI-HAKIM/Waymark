@@ -17,7 +17,7 @@ Open questions (`O-nn`) are at the end.
 | :---- | :---- |
 | Phase 0 (done, titles only) | D-001–D-054 |
 | Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
-| Phase 0.5, the walking skeleton | D-063–D-068 |
+| Phase 0.5, the walking skeleton | D-063–D-070 |
 
 # **Phase 0 (Already done)**
 
@@ -541,6 +541,78 @@ Hakim, 18/09/2026. The POS side of hop 1, in `Waymark.Pos`, with its logic teste
 **Rejected:** letting each lookup answer update the cart as it arrives (lines would land out
 of scan order, and a late notice could hide a later line); colouring the stock and code
 notices with warning and critical (brand deck, slide 11).
+
+### D-069 — Phase 0.5 is a thin slice: hops 2–8 in four sessions, one commit each
+Hakim, 19/09/2026. Hop 1 was built at Phase 1 depth (8 steps, a full rule set, notices).
+The depth found real defects (F-22, the `%2F` route, the relative-path keys directory),
+which is what a skeleton is for. The rest cost time and understanding, and "nothing merges
+that cannot be explained" matters more than breadth. So the remaining hops follow one rule:
+- **The minimum that makes the path real:** one store, cash, the happy path. Everything else
+  goes on the Phase 1 list in `status.md` §6, not into the code.
+- **Tests:** one happy path, plus tests on **the hop's one risky rule**, and only that rule
+  is proven by breaking it (D-012).
+- **One session per hop:** a one-paragraph hop spec with its decisions, then the build (with
+  one ✍ piece Hakim may write), then a short "how it works" guide, then Hakim's review and
+  **a commit per hop**.
+
+The hops, merged into four sessions: **A** complete sale (hop 2); **B** outbox, tier-2 stub
+and stub cloud (hops 3–5); **C** expiry evaluator (hop 6); **D** Integration Layer and
+Local Admin (hops 7–8). Decided with it:
+- **Stub cloud:** a tiny reader inside the outbox tests that parses what leaves and
+  acknowledges it. The real transport is Phase 4.
+- **Pseudonymisation is not exercised in 0.5.** Sales in the slice have no customer, and
+  the basket carries no pseudonym (D-064). The boundary comes alive with the customer period
+  record in Phase 2; Phase 0's key-custody tests still guard it.
+- **Expiry window:** one 7-day placeholder for every category, in `parameter_registry`,
+  labelled a placeholder. The per-category windows are Hakim's engine decision, in Phase 2.
+- **Roles:** a manager may see and decide inventory cards, and a cashier is refused, both
+  from `roles`. The staff member is named per request, with no login until Phase 1.
+
+**Rejected:** keeping hop 1's depth (Phase 0.5 would take about three weeks, which is Phase 1
+under another name); stopping 0.5 at hop 1 (the risky joins, sale ↔ outbox and the
+Integration Layer, are exactly what the skeleton must prove before the screens are built).
+
+### D-070 — A cash sale, completed in one unit of work (session A, hop 2)
+Session A, 19/09/2026. `CompleteSaleHandler` (Application) stages the whole sale and the
+executor commits it once (D-050): the transaction, its items, a stock movement per item
+with the batch level lowered, one cash payment, and the tender rounding. The rules marked
+**(provisional)** were chosen to keep the slice moving; each is waiting for Hakim's
+confirmation.
+- **The till sends codes and counts, never prices.** Every line is priced again on the
+  server by the lookup's own rules (D-066); the till's cart is a preview (D-068).
+- **Money:** each item goes through `SaleArithmetic` (moved from the generator into
+  `Domain/Sales`, so a generated receipt and a real one run the same code). TVA is
+  extracted from the TTC total (D-033), and the transaction's totals are the sums of its
+  items. The payment is the exact total; the 5 DZD cash step goes to `rounding_variance`
+  (D-034). A zero total writes no payment row (the CHECK refuses a zero amount).
+- **Batches (provisional):** first in, first out, as the synthetic store sells; expired and
+  empty batches are skipped, and a line splits across batches. What the records say is not
+  there comes out of the newest batch, so the level goes negative rather than the sale
+  being refused (CLAUDE.md §3.8). A variant never received has no batch to name
+  (`stock_movements.batch_id` is required), so it is refused. `inventories.quantity` is
+  lowered with each movement. `BatchAllocation` (Domain) holds the rule.
+- **Invoice numbers (provisional):** `{store code}-{calendar year}-{000001}`, the generator's
+  format, gapless. The number is read and staged inside the sale's transaction, so a
+  refused sale uses none. StoreServer runs one sale at a time, and the unique index on
+  (store, invoice number) refuses a duplicate if two ever raced.
+- **Cash session (provisional):** the terminal's open session, or one the first sale opens
+  with no float. Opening with a counted float is a cashier's action, in Phase 1.
+- **Who sells:** the till is configured with its terminal and staff ids (`--terminal=`,
+  `--staff=`); no login until Phase 1.
+- **No `processing_log` entry:** a sale with no customer touches no personal data (D-045).
+- **The wire:** `POST /api/sales`; a refusal is a 200 with its reason, as in the lookup.
+  At the till, **no answer is "outcome unknown", never "failed"**: the cart stays, with a
+  warning that the sale may have been recorded. A key that makes a repeated request
+  harmless is Phase 1.
+- **Staging:** handlers stage rows through `IStaging` (Domain), which the unit of work
+  implements; `ISalesLedger` holds the sale's reads.
+
+**Rejected:** trusting the till's prices (a stale or tampered preview would be sold);
+refusing a sale when the records show no stock (the product is in the customer's hand);
+numbering invoices outside the sale's transaction (a failed sale would leave a gap).
+
+### D-071 — Writes are checked against the current store. (session A, hop 2)
+`CompleteSale`, the first handler writing store-scoped rows, takes every `store_id` from the current store's own row, read through the filter, Although it can't write another store's. We'll add a check in `SaveChanges` that refuses any added store-scoped row whose `store_id` isn't the current store's
 
 ---
 

@@ -1,4 +1,5 @@
 using Waymark.Domain.Enums;
+using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
 using Waymark.Generator.Calendar;
 using Waymark.Generator.Randomness;

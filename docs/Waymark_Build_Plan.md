@@ -63,8 +63,23 @@ through every layer:
 One product, one store, one department, ugly UI. Its job is to prove the architecture
 holds end to end before 40 screens are built on it.
 
-**Done when** the whole path runs and every hop can be explained. The hop-by-hop gap list
-is in `status.md` §6 (Phase 0.5 is next).
+**Reframed 19/09 (D-069).** Hop 1 (scan → cart) was built at Phase 1 depth and is done. The
+rest is a genuinely thin slice in **four sessions, one commit each**:
+
+| Session | Hops | Thin version |
+| :---- | :---- | :---- |
+| A | 2 Complete sale | Cash only, one tender, no customer |
+| B | 3–5 Outbox, tier-2 stub, stub cloud | The basket row in the sale's transaction; a no-op tier-2 writer; a test-side reader that parses and acknowledges what leaves |
+| C | 6 Expiry evaluator | Compare only, one 7-day placeholder window |
+| D | 7–8 Integration Layer, Local Admin | Manager sees and decides, cashier is refused; one page of cards; Accept writes the decision and its log |
+
+Each hop tests its happy path and its one risky rule. Anything beyond that goes on the
+Phase 1 list in `status.md` §6. **Pseudonymisation is not exercised in 0.5**: sales have no
+customer, and the boundary comes alive with the customer period record in Phase 2 (D-064).
+Realistic length: hop 1 took two long sessions; A–D about one session each.
+
+**Done when** the whole path runs and every hop can be explained. Progress is in
+`status.md` §6.
 
 ---
 

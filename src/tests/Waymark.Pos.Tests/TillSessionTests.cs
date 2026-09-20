@@ -51,10 +51,19 @@ public sealed class TillSessionTests
     private static LookupAnswer.Answered Refused(string code, string reason) =>
         new LookupAnswer.Answered(new ProductLookup(ProductLookupOutcome.NotSellable, code, null, reason));
 
+    private static readonly TillIdentity Till = new("till-1", "staff-1");
+
+    /// <summary>For the tests about scanning, where nothing is paid.</summary>
+    private sealed class NoSales : IStoreSales
+    {
+        public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("These tests never pay.");
+    }
+
     private static (TillSession Session, ScriptedSource Source) Build()
     {
         var source = new ScriptedSource();
-        return (new TillSession(source), source);
+        return (new TillSession(source, new NoSales(), Till), source);
     }
 
     [Fact]
@@ -170,7 +179,7 @@ public sealed class TillSessionTests
     public async Task A_failed_lookup_does_not_stop_the_codes_behind_it()
     {
         var source = new ThrowingOnce();
-        var session = new TillSession(source);
+        var session = new TillSession(source, new NoSales(), Till);
 
         var first = session.SubmitAsync("boom");
         var second = session.SubmitAsync("111");

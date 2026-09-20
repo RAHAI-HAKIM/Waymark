@@ -24,8 +24,11 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var http = StoreServerClient.CreateHttp(ServerAddress(desktop.Args ?? []));
-            var session = new TillSession(new StoreServerClient(http));
+            var args = desktop.Args ?? [];
+            var http = StoreServerClient.CreateHttp(ServerAddress(args));
+            var server = new StoreServerClient(http);
+            var till = new TillIdentity(Setting(args, "--terminal=", "WAYMARK_TERMINAL"), Setting(args, "--staff=", "WAYMARK_STAFF"));
+            var session = new TillSession(server, server, till);
 
             desktop.MainWindow = new TillWindow(session, TimeProvider.System);
             desktop.Exit += (_, _) => http.Dispose();
@@ -34,6 +37,11 @@ public sealed class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    /// <summary>A <c>--switch=value</c> argument, else an environment variable, else null.</summary>
+    public static string? Setting(IReadOnlyList<string> args, string @switch, string variable) =>
+        args.FirstOrDefault(arg => arg.StartsWith(@switch, StringComparison.Ordinal))?[@switch.Length..]
+            ?? Environment.GetEnvironmentVariable(variable);
+
     /// <summary>
     /// <c>--server=http://host:port/</c>, else <c>WAYMARK_SERVER</c>, else the
     /// development address. The POS talks to StoreServer over HTTP only
@@ -41,8 +49,7 @@ public sealed class App : Application
     /// </summary>
     public static Uri ServerAddress(IReadOnlyList<string> args)
     {
-        var text = args.FirstOrDefault(arg => arg.StartsWith(ServerSwitch, StringComparison.Ordinal))?[ServerSwitch.Length..]
-            ?? Environment.GetEnvironmentVariable(ServerVariable);
+        var text = Setting(args, ServerSwitch, ServerVariable);
 
         if (string.IsNullOrWhiteSpace(text))
         {

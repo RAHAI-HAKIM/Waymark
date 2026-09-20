@@ -78,7 +78,7 @@ public sealed class CartTests
     {
         var cart = new Cart();
 
-        var line = cart.Add(Product());
+        var line = cart.Add(Product(), "6130000000017");
 
         Assert.Equal(1, line.Count);
         Assert.Equal(Quantity.FromThousandths(1_000, "pc"), line.Quantity);
@@ -90,9 +90,9 @@ public sealed class CartTests
     {
         var cart = new Cart();
 
-        cart.Add(Product());
-        cart.Add(Product());
-        cart.Add(Product());
+        cart.Add(Product(), "6130000000017");
+        cart.Add(Product(), "6130000000017");
+        cart.Add(Product(), "6130000000017");
 
         var line = Assert.Single(cart.Lines);
         Assert.Equal(3, line.Count);
@@ -104,9 +104,9 @@ public sealed class CartTests
     {
         var cart = new Cart();
 
-        cart.Add(Product("a"));
-        cart.Add(Product("b"));
-        cart.Add(Product("a"));
+        cart.Add(Product("a"), "6130000000017");
+        cart.Add(Product("b"), "6130000000017");
+        cart.Add(Product("a"), "6130000000017");
 
         Assert.Equal(["a", "b"], cart.Lines.Select(line => line.VariantId));
     }
@@ -116,9 +116,9 @@ public sealed class CartTests
     {
         var cart = new Cart();
 
-        cart.Add(Product("a", price: "120.50"));
-        cart.Add(Product("a", price: "120.50"));
-        cart.Add(Product("b", price: "35.00"));
+        cart.Add(Product("a", price: "120.50"), "6130000000017");
+        cart.Add(Product("a", price: "120.50"), "6130000000017");
+        cart.Add(Product("b", price: "35.00"), "6130000000017");
 
         Assert.Equal(Dzd(27_600), cart.Total);
     }
@@ -131,8 +131,8 @@ public sealed class CartTests
     public void Removing_a_line_takes_it_out_of_the_total()
     {
         var cart = new Cart();
-        cart.Add(Product("a", price: "120.50"));
-        cart.Add(Product("b", price: "35.00"));
+        cart.Add(Product("a", price: "120.50"), "6130000000017");
+        cart.Add(Product("b", price: "35.00"), "6130000000017");
 
         Assert.True(cart.Remove("a"));
 
@@ -144,9 +144,9 @@ public sealed class CartTests
     public void A_product_in_another_currency_is_refused_rather_than_summed()
     {
         var cart = new Cart();
-        cart.Add(Product("a"));
+        cart.Add(Product("a"), "6130000000017");
 
-        Assert.Throws<InvalidOperationException>(() => cart.Add(Product("b", currency: "EUR")));
+        Assert.Throws<InvalidOperationException>(() => cart.Add(Product("b", currency: "EUR"), "6130000000017"));
         Assert.Single(cart.Lines);
     }
 
@@ -154,9 +154,9 @@ public sealed class CartTests
     public void A_later_scan_brings_the_fresher_stock_level()
     {
         var cart = new Cart();
-        cart.Add(Product(stock: "10"));
+        cart.Add(Product(stock: "10"), "6130000000017");
 
-        var line = cart.Add(Product(stock: "4"));
+        var line = cart.Add(Product(stock: "4"), "6130000000017");
 
         Assert.Equal(Quantity.FromThousandths(4_000, "pc"), line.StockOnHand);
     }
@@ -177,7 +177,7 @@ public sealed class CartTests
         CartLine line = null!;
         for (var i = 0; i < scans; i++)
         {
-            line = cart.Add(Product(stock: stock));
+            line = cart.Add(Product(stock: stock), "6130000000017");
         }
 
         Assert.Equal(exceeds, line.ExceedsStockOnHand);

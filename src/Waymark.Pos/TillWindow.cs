@@ -45,6 +45,7 @@ public sealed class TillWindow : Window, IDisposable
     private readonly TextBlock _noticeText;
     private readonly StackPanel _lines;
     private readonly TextBlock _total;
+    private readonly Button _pay;
 
     public TillWindow(TillSession session, TimeProvider clock)
     {
@@ -91,11 +92,10 @@ public sealed class TillWindow : Window, IDisposable
         _lines = new StackPanel { Spacing = 2 };
         _total = new TextBlock { FontFamily = Mono, FontSize = 24, Foreground = Ink, HorizontalAlignment = HorizontalAlignment.Right };
 
-        var pay = ActionButton("Pay cash");
-        pay.IsEnabled = false;
-        ToolTip.SetTip(pay, "Completing a sale is hop 2.");
+        _pay = ActionButton("Pay cash");
+        _pay.Click += (_, _) => Pay();
 
-        var footer = new DockPanel { Children = { Docked(pay, Dock.Right), _total } };
+        var footer = new DockPanel { Children = { Docked(_pay, Dock.Right), _total } };
 
         Content = new DockPanel
         {
@@ -226,9 +226,11 @@ public sealed class TillWindow : Window, IDisposable
             {
                 TillNoticeKind.UnknownCode => "UNKNOWN CODE",
                 TillNoticeKind.NotSellable => "NOT SELLABLE",
+                TillNoticeKind.SaleRefused => "SALE REFUSED",
+                TillNoticeKind.SaleOutcomeUnknown => "SALE OUTCOME UNKNOWN",
                 _ => "STORESERVER UNAVAILABLE",
             };
-            ShowNotice($"{label} · {notice.Code}", notice.Detail);
+            ShowNotice(notice.Code == "-" ? label : $"{label} · {notice.Code}", notice.Detail);
         }
         else
         {
@@ -241,7 +243,28 @@ public sealed class TillWindow : Window, IDisposable
             _lines.Children.Add(LineRow(line));
         }
 
-        _total.Text = _session.Cart.Total is { } total ? $"Total (preview)  {total}" : "Total  —";
+        _pay.IsEnabled = _session.Cart.Lines.Count > 0;
+        _total.Text = (_session.Cart.Total, _session.LastSale) switch
+        {
+            ({ } total, _) => $"Total (preview)  {total}",
+            (null, { } sale) => $"{sale.InvoiceNumber} · collect {sale.CashToCollect} {sale.Currency} (total {sale.TotalTtc})",
+            _ => "Total  —",
+        };
+    }
+
+    private async void Pay()
+    {
+        // async void, as an event handler must be: so nothing may escape it.
+        try
+        {
+            await _session.PayAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowNotice("ERROR", exception.Message);
+        }
+
+        _input.Focus();
     }
 
     private void ShowNotice(string label, string detail)

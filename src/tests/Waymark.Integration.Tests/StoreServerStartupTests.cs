@@ -139,11 +139,13 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.True(before > 0);
 
         var barcode = SellableBarcodeIn(source);
+        var (terminal, staff) = TillOf(source);
         var first = Run(
             address =>
             {
                 AssertHealthy(address);
                 AssertLookup(address, barcode);
+                AssertSale(address, barcode, terminal, staff);
             },
             [.. store, $"--{WaymarkStoragePaths.ImportPlaintextSetting}={source}"]);
         Assert.True(first.Started, "The generated store was not imported and served:\n" + first.Output);
@@ -155,7 +157,8 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.DoesNotContain("Importing", second.Output, StringComparison.Ordinal);
 
         using var key = DatabaseKeyStore.Open(Keys, new DpapiKeyProtector());
-        Assert.Equal(before, CountTransactions(WaymarkStoragePaths.StoreDatabase(Data), key));
+        // Every generated sale survived the import, plus the one AssertSale made.
+        Assert.Equal(before + 1, CountTransactions(WaymarkStoragePaths.StoreDatabase(Data), key));
         Assert.True(WaymarkDatabaseEncryption.IsPlaintext(source), "The import changed the generated file.");
     }
 
@@ -233,6 +236,48 @@ public sealed class StoreServerStartupTests : IDisposable
         using var slashed = client.GetAsync(new Uri("/api/products/lookup?barcode=12%2F34", UriKind.Relative)).GetAwaiter().GetResult();
         using var echoed = JsonDocument.Parse(slashed.Content.ReadAsStringAsync().GetAwaiter().GetResult());
         Assert.Equal("12/34", echoed.RootElement.GetProperty("barcode").GetString());
+    }
+
+    /// <summary>
+    /// Hop 2 on the real process (D-070): the wiring (unit of work, executor, handler, ledger) is
+    /// only proven by a sale that goes through it and comes back completed, then an unknown code
+    /// that comes back refused rather than as an error.
+    /// </summary>
+    private static void AssertSale(Uri address, string barcode, string terminal, string staff)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+
+        using var sold = client.PostAsync(
+            new Uri("/api/sales", UriKind.Relative),
+            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","lines":[{"barcode":"{{barcode}}","count":2}]}""")).GetAwaiter().GetResult();
+        var body = sold.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(sold.StatusCode == HttpStatusCode.OK, $"The sale failed ({sold.StatusCode}):\n{body}");
+        using (var json = JsonDocument.Parse(body))
+        {
+            Assert.Equal("completed", json.RootElement.GetProperty("outcome").GetString());
+            // The generated store's invoices are all from an earlier year: this year starts at 1.
+            Assert.EndsWith("-000001", json.RootElement.GetProperty("invoice_number").GetString(), StringComparison.Ordinal);
+        }
+
+        using var refused = client.PostAsync(
+            new Uri("/api/sales", UriKind.Relative),
+            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","lines":[{"barcode":"0000000000000","count":1}]}""")).GetAwaiter().GetResult();
+        Assert.Equal(HttpStatusCode.OK, refused.StatusCode);
+        Assert.Contains("\"refused\"", refused.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+    }
+
+    private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
+
+    /// <summary>The generated store's till and one of its cashiers.</summary>
+    private static (string Terminal, string Staff) TillOf(string path)
+    {
+        using var context = new WaymarkDbContext(
+            new DbContextOptionsBuilder<WaymarkDbContext>().UseWaymarkSqlite(path, keyProvider: null).Options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
+        return (
+            context.Terminals.IgnoreQueryFilters().OrderBy(t => t.TerminalId).Select(t => t.TerminalId).First(),
+            context.Staff.IgnoreQueryFilters().Where(s => s.Role == "cashier").OrderBy(s => s.StaffId).Select(s => s.StaffId).First());
     }
 
     /// <summary>A barcode of an active, piece-sold variant in a generated (plaintext) store.</summary>

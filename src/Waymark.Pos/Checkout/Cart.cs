@@ -35,9 +35,10 @@ public sealed class Cart
     /// </summary>
     /// <exception cref="FormatException">A figure on the wire cannot be read exactly.</exception>
     /// <exception cref="InvalidOperationException">The product is priced in another currency than the cart.</exception>
-    public CartLine Add(WireProduct product)
+    public CartLine Add(WireProduct product, string barcode)
     {
         ArgumentNullException.ThrowIfNull(product);
+        ArgumentException.ThrowIfNullOrWhiteSpace(barcode);
 
         var price = WireFigures.Money(product.PriceTtc, product.Currency);
         var stock = WireFigures.Quantity(product.StockOnHand, product.SellingUnitCode);
@@ -50,7 +51,7 @@ public sealed class Cart
 
         var index = _lines.FindIndex(line => line.VariantId == product.VariantId);
         var line = index < 0
-            ? new CartLine(product.VariantId, product.ProductName, product.VariantName, product.SellingUnitCode, price, 1, stock)
+            ? new CartLine(product.VariantId, barcode, product.ProductName, product.VariantName, product.SellingUnitCode, price, 1, stock)
             : _lines[index] with { UnitPrice = price, Count = _lines[index].Count + 1, StockOnHand = stock };
 
         if (index < 0)
@@ -67,11 +68,16 @@ public sealed class Cart
 
     /// <summary>Takes a line out of the sale. False if there was no such line.</summary>
     public bool Remove(string variantId) => _lines.RemoveAll(line => line.VariantId == variantId) > 0;
+
+    /// <summary>Empties the cart once its sale is completed.</summary>
+    public void Clear() => _lines.Clear();
 }
 
 /// <summary>One product in the cart, however many times it was scanned.</summary>
+/// <param name="Barcode">The code scanned for it: what the sale sends, never the price (D-070).</param>
 public sealed record CartLine(
     string VariantId,
+    string Barcode,
     string ProductName,
     string VariantName,
     string UnitCode,

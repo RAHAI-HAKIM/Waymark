@@ -18,8 +18,12 @@ namespace Waymark.Persistence;
 /// it.
 /// </para>
 /// </summary>
-public sealed class WaymarkUnitOfWork(WaymarkDbContext context) : IUnitOfWork
+public sealed class WaymarkUnitOfWork(WaymarkDbContext context) : IUnitOfWork, IStaging
 {
+    /// <summary>Tracks the row as added; <see cref="CommitAsync"/> writes it, <see cref="Discard"/> drops it.</summary>
+    public void Add<TRow>(TRow row)
+        where TRow : class => context.Add(row);
+
     public Task<int> CommitAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
 

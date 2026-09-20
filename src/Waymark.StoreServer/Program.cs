@@ -1,20 +1,29 @@
 // Waymark.StoreServer — the authoritative process on the store premises.
 //
 // It owns the operational database, keeps it encrypted, and brings it up to date at start.
-// The POS reaches it over HTTP only (CLAUDE.md §2.2): Phase 0.5 serves the product lookup.
+// The POS reaches it over HTTP only (CLAUDE.md §2.2): Phase 0.5 serves the product lookup and
+// the cash sale.
 
 using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore;
+using Waymark.Application.Commands;
 using Waymark.Application.IdGenerator;
+using Waymark.Application.Sales;
 using Waymark.Application.Time;
+using Waymark.Contracts.Pos;
 using Waymark.Domain;
 using Waymark.Domain.Catalogue;
 using Waymark.Domain.Ids;
 using Waymark.Domain.Privacy;
+using Waymark.Domain.Sales;
+using Waymark.Domain.Work;
 using Waymark.Persistence;
 using Waymark.Persistence.Catalogue;
+using Waymark.Persistence.Privacy;
+using Waymark.Persistence.Sales;
 using Waymark.Pseudonymisation;
 using Waymark.StoreServer.Catalogue;
+using Waymark.StoreServer.Sales;
 
 // The till is Windows (D-017), and the keys are wrapped with DPAPI, which exists nowhere else.
 [assembly: SupportedOSPlatform("windows")]
@@ -69,7 +78,19 @@ builder.Services.AddSingleton<IStoreCalendar>(services => new StoreCalendar(
         "This store has no row in stores, so it has no time zone. Commission it (or import a store) first.")));
 
 // What the till may sell for a barcode (D-066). Scoped: one context, one request.
-builder.Services.AddScoped<IProductLookup, ProductLookup>();
+builder.Services.AddScoped<IProductLookup, Waymark.Persistence.Catalogue.ProductLookup>();
+
+// Commands (D-050): one unit of work per request, which stages every row and the executor
+// commits once. The same instance is the staging side and the committing side.
+builder.Services.AddScoped<WaymarkUnitOfWork>();
+builder.Services.AddScoped<IUnitOfWork>(services => services.GetRequiredService<WaymarkUnitOfWork>());
+builder.Services.AddScoped<IStaging>(services => services.GetRequiredService<WaymarkUnitOfWork>());
+builder.Services.AddScoped<IProcessingLog, ProcessingLogWriter>();
+builder.Services.AddScoped<CommandExecutor>();
+
+// Hop 2 (D-070): a cash sale.
+builder.Services.AddScoped<ISalesLedger, SalesLedger>();
+builder.Services.AddScoped<CompleteSaleHandler>();
 
 // The database key (D-042, F-1). Resolved only inside the startup block below, after the keys
 // directory has passed its check. A new key is made only when there is no database yet: an
@@ -185,5 +206,29 @@ app.MapGet("/api/products/lookup", async (
     string.IsNullOrWhiteSpace(barcode)
         ? Results.BadRequest("A barcode is required: /api/products/lookup?barcode=...")
         : Results.Ok(ProductLookupWire.ToWire(barcode, await lookup.FindForSaleAsync(barcode, cancellationToken))));
+
+// Hop 2 (D-070): a cash sale. One at a time: the invoice number is read and staged inside the
+// sale's transaction, and two sales interleaving would read the same last number (the unique
+// index would then refuse the second, but as a failure rather than a sale). A refusal is an
+// answer, a 200 like the lookup's; an error status only ever means the server failed.
+var oneSaleAtATime = new SemaphoreSlim(1, 1);
+app.MapPost("/api/sales", async (
+    SaleRequest request, CommandExecutor executor, CompleteSaleHandler handler, CancellationToken cancellationToken) =>
+{
+    await oneSaleAtATime.WaitAsync(cancellationToken);
+    try
+    {
+        var sale = await executor.ExecuteAsync(handler, SaleWire.ToCommand(request), cancellationToken);
+        return Results.Ok(SaleWire.Completed(sale));
+    }
+    catch (SaleRefusedException refusal)
+    {
+        return Results.Ok(SaleWire.Refused(refusal.Message));
+    }
+    finally
+    {
+        oneSaleAtATime.Release();
+    }
+});
 
 app.Run();

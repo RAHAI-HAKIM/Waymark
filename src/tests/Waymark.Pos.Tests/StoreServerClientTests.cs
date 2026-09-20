@@ -169,4 +169,74 @@ public sealed class StoreServerClientTests
 
         Assert.IsType<LookupAnswer.ServerUnavailable>(answer);
     }
+
+    // ----------------------------------------------------------------- sales
+
+    private static readonly SaleRequest ASale = new("till-1", "staff-1", [new SaleRequestLine("111", 2)]);
+
+    [Fact]
+    public async Task A_sale_is_posted_as_json_to_the_sales_route()
+    {
+        string? body = null;
+        var (client, server) = Build(async (request, token) =>
+        {
+            body = await request.Content!.ReadAsStringAsync(token);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"outcome":"refused","reason":"x"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await client.CompleteSaleAsync(ASale);
+
+        Assert.Equal("/api/sales", server.Asked.Single().AbsolutePath);
+        Assert.Contains("\"barcode\":\"111\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"count\":2", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("price", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_completed_sale_arrives_with_the_servers_figures()
+    {
+        var (client, _) = Replying("""
+            {"outcome":"completed","transaction_id":"t1","invoice_number":"S-2026-000001","total_ttc":"286.00",
+             "tax_total":"23.61","cash_to_collect":"285.00","currency":"DZD","reason":null}
+            """);
+
+        var outcome = Assert.IsType<SaleAnswer.Completed>(await client.CompleteSaleAsync(ASale)).Outcome;
+
+        Assert.Equal("S-2026-000001", outcome.InvoiceNumber);
+        Assert.Equal("285.00", outcome.CashToCollect);
+    }
+
+    [Fact]
+    public async Task A_refused_sale_is_an_answer_with_its_reason()
+    {
+        var (client, _) = Replying("""{"outcome":"refused","reason":"111: no product carries this code."}""");
+
+        var refused = Assert.IsType<SaleAnswer.Refused>(await client.CompleteSaleAsync(ASale));
+
+        Assert.Contains("no product", refused.Reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("""{"outcome":"completed","reason":null}""")]
+    [InlineData("""{"outcome":"refused","reason":null}""")]
+    [InlineData("""{"outcome":"maybe"}""")]
+    [InlineData("not json")]
+    public async Task A_sale_answer_the_till_cannot_read_is_unknown_never_completed(string body)
+    {
+        // Reading half an answer as "completed" would empty the cart for a sale that may not exist.
+        var (client, _) = Replying(body);
+
+        Assert.IsType<SaleAnswer.Unknown>(await client.CompleteSaleAsync(ASale));
+    }
+
+    [Fact]
+    public async Task A_sale_error_status_is_unknown_because_the_server_may_have_written_it()
+    {
+        var (client, _) = Replying("{}", HttpStatusCode.InternalServerError);
+
+        Assert.IsType<SaleAnswer.Unknown>(await client.CompleteSaleAsync(ASale));
+    }
 }

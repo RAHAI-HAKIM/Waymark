@@ -18,7 +18,7 @@ namespace Waymark.Pos.Server;
 /// than guessed around.
 /// </para>
 /// </summary>
-public sealed class StoreServerClient(HttpClient http) : IProductSource
+public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreSales
 {
     /// <summary>StoreServer's development address (its launch profile).</summary>
     public static readonly Uri DefaultAddress = new("http://localhost:5290/");
@@ -77,6 +77,52 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource
     }
 
     /// <summary>
+    /// Asks StoreServer to complete a cash sale (D-070). The request carries codes and counts;
+    /// the server prices them.
+    ///
+    /// <para>
+    /// <b>No answer is not a failed sale.</b> The server may have committed it and the answer
+    /// been lost. So an outage here says the outcome is unknown, and the till keeps the cart
+    /// for the cashier to check rather than selling it again blindly. A key that makes a
+    /// repeated request harmless is Phase 1.
+    /// </para>
+    /// </summary>
+    public async Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        try
+        {
+            using var response = await http.PostAsJsonAsync(new Uri("api/sales", UriKind.Relative), request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new SaleAnswer.Unknown($"StoreServer answered {(int)response.StatusCode} {response.ReasonPhrase}.");
+            }
+
+            var outcome = await response.Content.ReadFromJsonAsync<SaleOutcome>(cancellationToken);
+            return outcome switch
+            {
+                { Outcome: SaleOutcomes.Completed, InvoiceNumber: not null, TotalTtc: not null, CashToCollect: not null, Currency: not null } =>
+                    new SaleAnswer.Completed(outcome),
+                { Outcome: SaleOutcomes.Refused, Reason: { } reason } => new SaleAnswer.Refused(reason),
+                _ => new SaleAnswer.Unknown("StoreServer's answer could not be read."),
+            };
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new SaleAnswer.Unknown($"StoreServer did not answer within {http.Timeout.TotalSeconds:0} s.");
+        }
+        catch (HttpRequestException exception)
+        {
+            return new SaleAnswer.Unknown($"StoreServer could not be reached: {exception.Message}");
+        }
+        catch (JsonException)
+        {
+            return new SaleAnswer.Unknown("StoreServer's answer could not be read.");
+        }
+    }
+
+    /// <summary>
     /// Whether the answer is one of the three the contract defines, with what
     /// that outcome carries. A till showing half an answer (found, with no
     /// product) would show a blank line with a price of nothing.
@@ -97,6 +143,29 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource
 public interface IProductSource
 {
     Task<LookupAnswer> LookupAsync(string barcode, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Where the till sends a sale: <see cref="StoreServerClient"/>, or a script in tests.</summary>
+public interface IStoreSales
+{
+    Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, CancellationToken cancellationToken = default);
+}
+
+/// <summary>What became of a sale the till sent.</summary>
+public abstract record SaleAnswer
+{
+    private SaleAnswer()
+    {
+    }
+
+    /// <summary>Written. The figures are the server's.</summary>
+    public sealed record Completed(SaleOutcome Outcome) : SaleAnswer;
+
+    /// <summary>Not written, for this reason.</summary>
+    public sealed record Refused(string Reason) : SaleAnswer;
+
+    /// <summary>No usable answer: the sale may or may not have been written.</summary>
+    public sealed record Unknown(string Why) : SaleAnswer;
 }
 
 /// <summary>What the till got when it asked about a barcode.</summary>
