@@ -50,9 +50,9 @@ store generator** (D-046), the highest-leverage build in the phase.
 
 ---
 
-## Phase 0.5 — Walking skeleton
+## Phase 0.5 — Walking skeleton *(complete 21/09/2026; see `recaps/phase-0.5.md`)*
 
-**A three-to-five-day slice at the start of Phase 1, before any breadth.** One thin cut
+**A three-to-five-day slice at the start of Phase 1, before any breadth.** Built in three (18–20/09), closed 21/09. One thin cut
 through every layer:
 
 > scan a barcode → add to cart → complete sale → transaction, stock movement, tier 1 →
@@ -73,20 +73,24 @@ rest is a genuinely thin slice in **four sessions, one commit each**:
 | C | 6 Expiry evaluator | Compare only, one 7-day placeholder window |
 | D | 7–8 Integration Layer, Local Admin | Manager sees and decides, cashier is refused; one page of cards; Accept writes the decision and its log |
 
-Each hop tests its happy path and its one risky rule. Anything beyond that goes on the
-Phase 1 list in `status.md` §6. **Pseudonymisation is not exercised in 0.5**: sales have no
-customer, and the boundary comes alive with the customer period record in Phase 2 (D-064).
-Realistic length: hop 1 took two long sessions; A–D about one session each.
+Each hop tests its happy path and its one risky rule. Anything beyond that went on the
+Phase 1 list, now `recaps/phase-0.5.md` §6. **Pseudonymisation was not exercised in 0.5**:
+sales have no customer, and the boundary comes alive with the customer period record in
+Phase 2 (D-064).
 
-**Done when** the whole path runs and every hop can be explained. Progress is in
-`status.md` §6.
+**Closed 21/09/2026.** The whole path runs and every hop can be explained: twelve decisions,
+a reading guide per session (`status.md` §7), 995 tests, and seven defects the thin cut found
+that nothing else would have (`recaps/phase-0.5.md` §5). Actual length: hop 1 took two long
+sessions, A–D one each — three days against the three-to-five estimated.
 
 ---
 
 ## Phase 1 — The till runs a shop
 
 **Demo:** a real shop could open on this, with nothing intelligent yet. **150–200 h**, the
-largest and least compressible phase.
+largest and least compressible phase. **Opened 22/09/2026.** How it is executed — the pace,
+the work split, the design gates and the session backlog — is `phase-1-plan.md`; this
+section stays the authority on *what* and on the definition of done.
 
 **A. Checkout.**
 - Scan or search; quantity edit; line removal; manual weighted and PLU entry

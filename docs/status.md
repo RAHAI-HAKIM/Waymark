@@ -2,11 +2,10 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**20/09/2026**: All four sessions of Phase 0.5 are built and reviewed on branch
-`phase-0.5/session-a`, **uncommitted and green**. `CardAudience.MayDecide` is written
-(Hakim, 20/09) and Local Admin has now been installed, type-checked and built for the first
-time. That closes every hop of Phase 0.5; what is left is the commit and the full revision
-pass before Phase 1.
+**21/09/2026**: **Phase 0.5 is closed** — its recap is `recaps/phase-0.5.md`, its decisions
+are collapsed to titles in `decisions.md`, and CLAUDE.md §3.3 has been corrected now that
+writes are store-checked. **Phase 1 opens 22/09/2026**, planned in `phase-1-plan.md`.
+Nothing is in flight; the next session is **A1**, and it needs **O-24** answered first.
 
 ---
 
@@ -14,39 +13,28 @@ pass before Phase 1.
 
 | | |
 | :---- | :---- |
-| Phase | **0.5, the walking skeleton: in progress** (opened 18/09/2026). Phase 0 complete 17/09/2026 |
-| Build | `dotnet build src/Waymark.sln`, 16 projects (the new one is `Waymark.Pos.Tests`), **0 warnings**, Debug and Release. No vulnerable package |
-| Sessions | **A** cash sale ✅ · **B** outbox, tier-2 stub, stub cloud ✅ · **C** expiry evaluator ✅ · **D** role check, Local Admin ✅. All four reviewed, all four uncommitted on `phase-0.5/session-a` |
+| Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
+| Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**, Debug and Release. No vulnerable package |
 | Tests | **995 passing**: Domain 161 · Integration 421 · Generator 235 · Hardware 64 · Application 41 · Pos 73 |
-| Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `npx tsc --noEmit` clean, `vite build` clean (Tailwind compiles). Installed 20/09 |
-| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations: `InitialSchema`, `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType`, `AddRoundingPolicies`, `AddReceivables`, `RenameRoundingPolicyChecks` |
+| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
-| Recap | `docs/recaps/phase-0.md`: everything Phase 0 built, decided and found. §8 covers the revision, the final test and how the phase closed. Read it only when a question reaches back into Phase 0 |
+| Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
+| Recaps | `recaps/phase-0.md` and `recaps/phase-0.5.md`. Read one only when a question reaches back into a finished phase |
 
-## 2. Phase 0, closed
+## 2. Phase 0.5, closed
 
-All eleven work items are done (W1–W11). The revision fixed F-1, F-16, F-17 and O-18/O-20
-(D-055–D-057). The final test fixed four flaws:
-- the REPLACE bypass (D-058);
-- the keys allowlist (D-057);
-- printer command injection (D-059);
-- a generator drawer bug.
+The walking skeleton: **scan → cart → sale → outbox → stub cloud → expiry evaluator → role
+check → card → decision**, built in four sessions and eight hops (D-069), closed 21/09/2026.
 
-Hakim decided the other four:
-- F-14: the constraints renamed;
-- F-18: the erasure ledger's facts fixed and its outcome forward only (D-060);
-- F-19: child rows filtered through their parent (D-062);
-- F-20: an operation about one person names them (D-061).
+Everything in it is real except the cloud. `recaps/phase-0.5.md` holds what was built, the
+twelve decisions with their rejected alternatives, and **§5, the seven defects the thin cut
+found** — among them a time-zone resolution that could not work on Windows, a barcode with a
+slash looked up as `%2F`, writes never checked against the current store (F-21, closed by
+D-071), a role code the store might not have, and a role check written inverted.
 
-Every exit criterion is met:
-
-| Criterion | State |
-| :---- | :---- |
-| Solution builds; architecture tests pass and fail when a forbidden reference is added | ✅ (D-012), including POS→DB and the generator's isolation |
-| Migration creates the store database from empty, **encrypted**, every trigger in place | ✅ (D-056): `DatabaseEncryptionTests`, and `StoreServerStartupTests` on the real process |
-| The generator produces a plausible year of data that loads | ✅ Full grocery year, `report.md` reviewed by Hakim, `tools/verify-store` 39/39; StoreServer imports it, serves it and reopens it after a restart |
-| Value-object tests: both policies, exact allocation, TVA from TTC, currency mismatch, cash step, level/change algebra | ✅, and against an independent reference (`MoneyPropertyTests`) |
-| The tenant key cannot reach a backup payload or the outbox, proved by a failing-when-removed test | ✅ for the DB file, WAL and outbox; the keys directory's ACL is enforced at start (D-057). No backup job exists yet to test |
+**Confirmed 21/09/2026:** D-074's two points — no `processing_log` entry for a card whose
+subject is a batch, and accept/dismiss only. **Seven rules are still provisional**; the recap
+§6 names where each is settled, and three of them are settled by Phase 1 itself.
 
 ---
 
@@ -59,21 +47,24 @@ usually an `O-` entry). Close an item by deleting its row.
 | :---- | :---- | :---- | :---- | :---- |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else |
 
+Phase 0.5's own findings were all closed inside the phase; `recaps/phase-0.5.md` §5 lists
+them and what settled each.
+
 ## 4. Open questions
 
-The full text is in `docs/decisions.md`, "Open — waiting on Hakim".
+The full text is in `decisions.md`, "Open — waiting on Hakim".
 
 | # | Question | Disposition |
 | :---- | :---- | :---- |
-| O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer (Phase 2); 0.5 stubs it. The DPIA states the gap meanwhile |
-| O-24 | Which TVA rate applies when a product's categories disagree, or one has no rate? | The skeleton refuses both (D-066). Decide for Phase 1 checkout |
+| **O-24** | **Which TVA rate applies when a product's categories disagree, or one has no rate?** | ⛔ **Blocks session A1**, the first session of Phase 1. The skeleton refuses both cases (D-066). Candidates: the primary category's rate, a rate on the product or variant itself, or refusing until the catalogue is fixed. A wrong pick misstates TVA on every receipt, silently |
+| O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
 
 ---
 
-## 5. Tests carried into Phase 0.5
+## 5. Tests carried into Phase 1
 
-The final test's remaining ideas. None blocks the skeleton; take them as the code they touch
-is next changed.
+The final test's remaining ideas, still open after the skeleton. None blocks Phase 1; take
+each as the code it touches is next changed.
 
 1. **F-15 hunt**: the whole suite five times in a row straight after a clean build, with
    `--logger "console;verbosity=detailed"`, and once in Release.
@@ -102,49 +93,47 @@ A generated store is checked with `python tools/verify-store/verify_store.py <ru
 
 ---
 
-## 6. Next: Phase 0.5, the walking skeleton
+## 6. Next: Phase 1 — the till runs a shop
 
-One thin cut (Build Plan): scan → cart → complete sale → transaction and stock movement →
-outbox → stub cloud reads it → expiry evaluator flags a batch → envelope → Integration
-Layer role check → card in Local Admin → accept → decision written and logged.
+**The plan is `phase-1-plan.md`** — the pace, the work split, the design gates, the tool ramp
+and the session backlog. It is the *how*; `Waymark_Build_Plan.md` is the *what* and the
+definition of done. What follows is only the shape and the progress.
 
-**Reframed 19/09 (D-069): a thin slice, four sessions, one commit each.** Every hop ships:
-- the minimum that makes the path real: one store, cash, the happy path;
-- a happy-path test, plus tests on its **one risky rule**, proven by breaking it;
-- a short "how it works" guide;
-- Hakim's review and a commit.
+**Phase 1 is Phase 0.5 widened.** Every session names the Phase 0.5 file it expands, so the
+starting point is always code already reviewed. §7 below is the map.
 
-Anything more goes on the Phase 1 list below. Pseudonymisation is not exercised in 0.5 (D-069).
+**≈46 sessions of 4 h, one or two a day, every day: 23–46 days.**
 
-| Session | Hop | Thin version | Risky rule, tested | ✍ Hakim | State |
-| :---- | :---- | :---- | :---- | :---- | :---- |
-| — | 1 Scan, cart | The lookup (D-066), the store's date (D-067), the till (D-068) | Price in force, store scoping, exact figures | The lookup query | ✅ Committed `f3fe0fb` |
-| A | 2 Complete sale | Built (D-070, D-071): the sale's rows, the money, the batches, `POST /api/sales`, the till's Pay button, and the write guard that refuses another store's row | All-or-nothing, the figures, gapless invoices, cross-store writes: 21 tests, 11 breaks caught | Reviewed 20/09; D-071 decided | ✅ Built, in review |
-| B | 3–5 Outbox, tier-2 stub, stub cloud | Built (D-072): the sale stages its anonymous basket as an outbox row in the same transaction, with a gapless sequence; tier 2 is a port with a writer that keeps nothing; the stub cloud is a reader in the tests | The basket commits with the sale or not at all; no identifier in it; no gap after a refusal: 12 tests, 7 breaks caught | The emit mapping (written by Claude; review it) | ✅ Built, reviewed 20/09 |
-| C | 6 Expiry evaluator | Built (D-073): the comparison is `NearExpiry` in Domain, pure; the window is a 7-day cold-start placeholder in `parameter_registry`, installed at start and never repaired; a card carries its Because block, its window version and its computed-at time; `POST /api/engine/expiry` | The window's edge, the figures, cross-store reads, and running it twice: 23 tests, 9 breaks caught | The comparison (written by Claude; review it) | ✅ Built, reviewed 20/09 |
-| **D** | 7–8 Integration Layer, Local Admin | Built (D-074): the board and the decision both go through one role check, compared on `roles.rank`; a cashier is told how many cards are above their rank, never shown them; accepting writes the decision **and** closes the card in one transaction, and applies nothing. `waymark-admin` scaffolded (Vite, React, TS, Tailwind, RTL, brand tokens), one page, installed and built 20/09 | The decision and the card's status written together; a cashier, a stranger, another store's manager and a suspended manager all refused: 17 tests, 8 breaks caught | ✍ **`CardAudience.MayDecide`** — written 20/09 (first attempt inverted; four tests caught it) | ✅ Built, reviewed 20/09 |
+| Block | What | Sessions | State |
+| :---- | :---- | :--: | :---- |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **Next.** A1 is blocked on O-24 |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
+| **C** | Shift: counted float, X and Z reports, handover | 3 | |
+| **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
+| **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
+| **F** | Stock: receive against a PO, adjustments, counts, views | 4 | |
+| **G** | Customers and compliance: consents, objection, loyalty, rights tooling, `processing_log` | 7 | Needs design gate **G3**. The block most likely to grow |
+| **H** | Staff and store | 2 | |
+| **I** | Platform: Admin over the LAN, offline and the Level-2 cache, backup and restore, the recovery code, the evaluator nightly | 6 | |
+| **J** | The done-when: the simulated day, the consent-to-erasure walkthrough, the restore drill | 3 | |
 
-**Phase 1 picks this up** (left out of the slice on purpose):
-- from hop 1: search by name; weighted items and scales; promotional prices; O-24 (the TVA
-  rate when categories disagree); bundling the fonts (a download, so it needs Hakim's
-  permission); POS styling, and a brand decision on colours for POS notices; the notice
-  wording when `localhost` refuses (it reads "did not answer within 3 s");
-- from the thin hops: on-account payment and its credit-limit check (D-055); more than one
-  tender; returns and voids; the Level-2 cache; the pending-queue UI; applying an accepted
-  markdown to the price; logins;
-- from session C: running the evaluator nightly instead of on request; retiring a card whose
-  batch has sold out or been written off (it keeps its card today, D-073); carrying out an
-  accepted markdown or write-off;
-- from session D: logins (the staff member is named per request today); adjust and snooze;
-  a card's delivered-at ever being set; generating the TypeScript contracts from the C# ones
-  instead of hand-writing them; bundling Archivo and IBM Plex Mono (a download, so it needs
-  Hakim); the rest of the Admin stack (Radix, TanStack Table and Query, zod, Recharts).
+**Two gates before code:** design **G1** before block B (the till) and **G2**/**G3** before
+blocks E and G. Hakim brings the design; Claude reviews it against CLAUDE.md §6 first.
 
-**Phase 2, already planned:** the real tier 2, encrypted (D-065, O-23); the customer period
-record and its spend bands (D-064); pseudonym resolution with `objection_flag` (the
-Integration Layer, both halves); the per-category near-expiry windows.
+**Hakim writes the decision-bearing core this phase** — refunds and voids, discount
+allocation, tender and change, cash reconciliation, consent and rights, PIN and permissions.
+The handover is **tests first**: Claude writes the failing tests and a guiding comment, Hakim
+makes them green. Session D's inverted role check is why.
 
-### 6.1 Hop 1, read in the order a scan travels
+---
+
+## 7. The Phase 0.5 code, read in the order it runs
+
+The map Phase 1 expands from. Each guide walks one session's work in the order data moves
+through it; each file has its tests beside it under `src/tests/`, with the same name plus
+`Tests`.
+
+### 7.1 Hop 1, read in the order a scan travels
 
 1. **The keystroke:** `Waymark.Hardware/KeyboardWedgeScanner.cs`. `Accept` holds each
    character; `EndBurst` classifies it (8 or more is a scan, anything shorter was typed).
@@ -170,7 +159,7 @@ Each file has its tests beside it, under `src/tests/`, with the same name plus `
 To watch a code cross every stop, set breakpoints in `TillSession.Handle` and in the
 `MapGet` lambda, run both processes, and scan `2000000000015`.
 
-### 6.1b Session A, read in the order a sale travels
+### 7.2 Session A, read in the order a sale travels
 
 1. **The Pay button:** `Waymark.Pos/TillWindow.cs` (`Pay()`), then
    `Pos/Checkout/TillSession.cs` (`PayAsync` → `PayAfter`). It waits for scans still
@@ -204,7 +193,7 @@ To watch a code cross every stop, set breakpoints in `TillSession.Handle` and in
 To watch one sale: breakpoints in `CompleteSaleHandler.HandleAsync` and in
 `CommandExecutor.ExecuteAsync` (on `CommitAsync`), then scan and press Pay.
 
-### 6.1c Session B, read in the order a basket travels
+### 7.3 Session B, read in the order a basket travels
 
 1. **Where it starts:** `Application/Sales/CompleteSale.cs`. The sale loop now also collects
    `sold` (product, quantity, line total) and `tier2Lines` (variant grain); at the end,
@@ -232,7 +221,7 @@ To watch one sale: breakpoints in `CompleteSaleHandler.HandleAsync` and in
 To watch one basket: a breakpoint in `EmitBasket`, then sell. Afterwards the row is visible
 in the encrypted store (the outbox keeps it until something acknowledges it).
 
-### 6.1d Session C, read in the order a batch becomes a card
+### 7.4 Session C, read in the order a batch becomes a card
 
 1. **The rule, and the only file that matters:** `Domain/Engine/NearExpiry.cs`. Pure, no
    database. `Evaluate` returns a finding or **null** — null is "there is nothing to say",
@@ -263,7 +252,7 @@ seed-42 the first run flags around a hundred batches out of about three hundred 
 trading leaves a lot past its date — and the second run flags the same number and supersedes
 exactly that many.
 
-### 6.1e Session D, read in the order a card reaches a person
+### 7.5 Session D, read in the order a card reaches a person
 
 1. ✍ **Hakim's piece:** `Domain/Engine/CardAudience.cs`. One function, one comparison —
    `staffRank >= requiredRank`, "this rank and anything above it". Written 20/09, after a first
@@ -291,7 +280,9 @@ exactly that many.
 With StoreServer and the admin app running, the board fills for the owner and stays empty —
 with a count of what was withheld — for the cashier.
 
-### 6.2 Running it
+---
+
+## 8. Running it
 
 The generator is ready for use:
 
@@ -355,11 +346,18 @@ The guide is `src/Waymark.Generator/README.md`.
 
 ---
 
+---
+
 ## Division of labour
+
+Phase 1 moves Hakim from reviewing to writing the core. `phase-1-plan.md` §3 is the full
+table; this is the short form.
 
 | | Hakim | Claude |
 | :---- | :---- | :---- |
-| Arithmetic, schema, privacy boundary, sync rules, engine methods | Decides, reviews line by line | Drafts, tests first, proves each test fails |
-| Generator | Writes the parameter spec, reviews distributions | Writes the code |
-| Migrations | Reads the generated `Up()` before it runs | Generates, verifies, regenerates `schema_current.sql` |
+| Money and stock arithmetic | **Writes** refund and void rules, discount allocation, tender and change, cash reconciliation | The code around it, the wire, the screens, the failing tests it drops into |
+| Privacy | **Writes** consent, objection and rights logic, and anything touching `consent_events` or `processing_log` | The CRUD, the forms, the rendering |
+| Access | **Writes** PIN gating and permissions | Sessions, endpoints, plumbing |
+| Schema and migrations | Reads the generated `Up()` before it runs | Generates, verifies, regenerates `schema_current.sql` |
+| Design | **Brings the design** before any screen is built | Reviews it against CLAUDE.md §6, then builds |
 | UI, CRUD, glue, scaffolding | Reviews the result | Writes |
