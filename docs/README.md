@@ -21,6 +21,7 @@ goes.
 | Document | Tracks |
 | :---- | :---- |
 | `status.md` | Where the work stands, the findings register, what is next. **Read this first each session** |
+| `phase-1-plan.md` | How Phase 1 is executed: pace, who writes what, the session backlog and what each session expands. Subordinate to `Waymark_Build_Plan.md`. Edited rarely — at a re-forecast or a scope change, not daily |
 | `schema-changes.md` | How to change the schema. Read before any migration |
 | `recaps/` | One snapshot per finished phase: what was built, decided and found. **Not session reading**; open when a question reaches back into a finished phase |
 | `../src/Waymark.Generator/README.md` | The synthetic store generator: how a run works, its inputs and parameters, its outputs, and its use in later phases |

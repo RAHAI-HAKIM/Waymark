@@ -17,7 +17,7 @@ Open questions (`O-nn`) are at the end.
 | :---- | :---- |
 | Phase 0 (done, titles only) | D-001–D-054 |
 | Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
-| Phase 0.5, the walking skeleton | D-063 |
+| Phase 0.5, the walking skeleton (done, titles only) | D-063–D-074 |
 
 # **Phase 0 (Already done)**
 
@@ -415,27 +415,58 @@ Ten child tables read through their parent's store filter; the 31 other tables w
 
 ---
 
-# **Phase 0.5, the walking skeleton**
+# **Phase 0.5, the walking skeleton (done, titles only)**
+
+Reasoning, rejected alternatives, what the skeleton found and which rules are still
+provisional: `recaps/phase-0.5.md`.
 
 ### D-063 — A scan ends on silence, and every keystroke is held until classified (F-6)
-Hakim, 18/09/2026. `KeyboardWedgeScanner` groups characters arriving within 50 ms of each
-other into a burst. The burst ends when nothing arrives for 50 ms, or at once on any control
-character, and only then is it classified: 8 characters or more (EAN-8, the shortest retail
-code) is a scan; anything shorter was typed and goes back through `Typed`, in order, before
-any key that followed it. **Why silence:** a configured terminator broke whenever the
-scanner's suffix setting differed, and the old custom-terminator path never ended a scan;
-silence works whatever the suffix. A control character is kept as a shortcut so a scanner
-sending Enter doesn't pay the 50 ms, and a CR LF's second half is swallowed. **Why hold:** the
-first character of a scan is indistinguishable from a keystroke, so passing characters
-through meant half a barcode had already reached the focused box; holding costs typing at
-most 50 ms. **Why a minimum length:** once Enter is no longer required, two keys rolled over
-by a fast typist fit inside the window, and a PLU typed by hand is 4–5 digits. The silence
-timer comes from the injected `TimeProvider` and is posted back to the constructing thread's
-`SynchronizationContext`, so the scanner stays single-threaded. **Rejected:** a list of
-known terminators (Hakim's reason above); letting characters into the box and clearing them
-afterwards, hiding the box meanwhile (the box's change events still see the partial code,
-and restoring the caret and selection is fragile); a window wider than 50 ms (it meets fast
-typing at 60–100 ms and delays every typed key further).
+A burst ends after 50 ms of silence, or at once on a control character; 8 characters or more
+is a scan, anything shorter was typed and is handed back in order.
+
+### D-064 — Phase 0.5 emits only the anonymous basket; the customer period record is Phase 2
+A sale's outbox row is the `AnonymousBasketRecord`. The monthly customer period record and
+its spend bands wait for Phase 2, so no outbox row in 0.5 carries a pseudonym.
+
+### D-065 — Tier 2 is a stub in Phase 0.5, and it will be encrypted
+The tier-2 writer is a port with an implementation that keeps nothing. The real DuckDB one
+arrives in Phase 2, encrypted at rest; *how* stays open as O-23.
+
+### D-066 — What the till may sell for a barcode (hop 1)
+Five steps — variant, product and unit, TVA rate, price in force, stock on hand — and every
+refusal is an answer the till shows, never an error. The barcode is a query parameter.
+
+### D-067 — The store's time zone is resolved through a hand-kept IANA→Windows map (F-22)
+`InvariantGlobalization` blocks IANA ids on Windows, so `StoreTimeZones` maps them by hand
+and refuses a zone it does not know rather than falling back to UTC.
+
+### D-068 — The till in hop 1: a preview cart, a session that keeps scan order, neutral notices
+The cart is a preview and the server re-prices at payment; the session queues codes in scan
+order; notices stay neutral until the brand decides POS colours.
+
+### D-069 — Phase 0.5 is a thin slice: hops 2–8 in four sessions, one commit each
+The minimum that makes the path real, one happy-path test plus the hop's one risky rule
+proven by breaking it, a reading guide, and a commit per hop.
+
+### D-070 — A cash sale, completed in one unit of work (session A, hop 2)
+`CompleteSaleHandler` stages the transaction, its items with TVA from TTC, a movement and a
+level per line, the cash payment and the tender rounding; the executor commits once.
+
+### D-071 — Writes are checked against the current store (session A, hop 2; closes F-21)
+Both `SaveChanges` overrides refuse an added or modified `IStoreScoped` row whose `store_id`
+is another store's. A null store is written; a context with no store configured is unchecked.
+
+### D-072 — The sale's basket leaves in the sale's own transaction (session B, hops 3–5)
+The anonymous basket is staged as an outbox row with the sale — both rows or neither — with a
+gapless sequence read inside the same transaction.
+
+### D-073 — The expiry evaluator compares, and the card argues its case (session C, hop 6)
+One window from `parameter_registry`, two dates subtracted, no fitting and no history; the
+card carries its Because block, its parameter version and its computed-at time.
+
+### D-074 — A card is addressed by rank, answered by a person, and closed with the answer (session D, hops 7–8)
+One role check on `roles.rank`, used by both the board and the decision; the decision row and
+the card's move to `decided` commit together, and accepting applies nothing.
 
 ---
 
@@ -443,7 +474,8 @@ typing at 60–100 ms and delays every typed key further).
 
 | # | Question | Why it can't be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
-| O-23 | **Is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** | It holds transaction grain with the pseudonym (D-043), beside an encrypted tier 1. DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is, and leaving tier 2 plaintext makes "the store is encrypted" untrue for the pseudonymised copy | The tier-2 writer (Phase 0.5 decides stub or real). Until then the DPIA says so (§5.4) |
+| O-23 | **How is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is: a separate key, derived or its own, has to be chosen, with its custody (D-057) and its place in the backup set | The real tier-2 writer, Phase 2 (0.5 stubs it, D-065). Until then the DPIA states the gap (§5.4) |
+| O-24 | **Which TVA rate applies to a product whose categories disagree, or when one has no rate?** The skeleton refuses both (D-066) | A product can sit in several categories (`product_category`), and `categories.tax_rate` is nullable. Candidates: the primary category's rate (`is_primary`), a rate on the product or variant itself, or refusing until the catalogue is fixed. A wrong pick misstates TVA on every receipt, silently | **Phase 1 session A1**, which cannot start without it (`phase-1-plan.md` §6). Checkout and catalogue management both rest on it |
 
 ### Resolved
 | Open | Resolved by |

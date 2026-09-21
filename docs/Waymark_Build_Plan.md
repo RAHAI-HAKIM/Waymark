@@ -50,9 +50,9 @@ store generator** (D-046), the highest-leverage build in the phase.
 
 ---
 
-## Phase 0.5 — Walking skeleton
+## Phase 0.5 — Walking skeleton *(complete 21/09/2026; see `recaps/phase-0.5.md`)*
 
-**A three-to-five-day slice at the start of Phase 1, before any breadth.** One thin cut
+**A three-to-five-day slice at the start of Phase 1, before any breadth.** Built in three (18–20/09), closed 21/09. One thin cut
 through every layer:
 
 > scan a barcode → add to cart → complete sale → transaction, stock movement, tier 1 →
@@ -63,15 +63,34 @@ through every layer:
 One product, one store, one department, ugly UI. Its job is to prove the architecture
 holds end to end before 40 screens are built on it.
 
-**Done when** the whole path runs and every hop can be explained. The hop-by-hop gap list
-is in `status.md` §6 (Phase 0.5 is next).
+**Reframed 19/09 (D-069).** Hop 1 (scan → cart) was built at Phase 1 depth and is done. The
+rest is a genuinely thin slice in **four sessions, one commit each**:
+
+| Session | Hops | Thin version |
+| :---- | :---- | :---- |
+| A | 2 Complete sale | Cash only, one tender, no customer |
+| B | 3–5 Outbox, tier-2 stub, stub cloud | The basket row in the sale's transaction; a no-op tier-2 writer; a test-side reader that parses and acknowledges what leaves |
+| C | 6 Expiry evaluator | Compare only, one 7-day placeholder window |
+| D | 7–8 Integration Layer, Local Admin | Manager sees and decides, cashier is refused; one page of cards; Accept writes the decision and its log |
+
+Each hop tests its happy path and its one risky rule. Anything beyond that went on the
+Phase 1 list, now `recaps/phase-0.5.md` §6. **Pseudonymisation was not exercised in 0.5**:
+sales have no customer, and the boundary comes alive with the customer period record in
+Phase 2 (D-064).
+
+**Closed 21/09/2026.** The whole path runs and every hop can be explained: twelve decisions,
+a reading guide per session (`status.md` §7), 995 tests, and seven defects the thin cut found
+that nothing else would have (`recaps/phase-0.5.md` §5). Actual length: hop 1 took two long
+sessions, A–D one each — three days against the three-to-five estimated.
 
 ---
 
 ## Phase 1 — The till runs a shop
 
 **Demo:** a real shop could open on this, with nothing intelligent yet. **150–200 h**, the
-largest and least compressible phase.
+largest and least compressible phase. **Opened 22/09/2026.** How it is executed — the pace,
+the work split, the design gates and the session backlog — is `phase-1-plan.md`; this
+section stays the authority on *what* and on the definition of done.
 
 **A. Checkout.**
 - Scan or search; quantity edit; line removal; manual weighted and PLU entry
@@ -136,8 +155,9 @@ Admin polish, never POS function.
 **Demo: the pitch. Expiry works from day one with zero history, end to end.**
 **100–130 h.**
 
-- **Statistics for real:** the tier 1→2 boundary into local DuckDB (D-043) and the outbox
-  streams. The ~8–10 statistics the first departments need: demand rate, units sold by
+- **Statistics for real:** the tier 1→2 boundary into local DuckDB (D-043), encrypted
+  (D-065, how: O-23), replacing Phase 0.5's stub; and the outbox streams, including the
+  customer period record and its spend bands, deferred here from 0.5 (D-064). The ~8–10 statistics the first departments need: demand rate, units sold by
   period, stock and value, valuation, days remaining, sell-through, adjustments, gross
   profit, net sales, plus 4 dashboard tiles. Incremental recompute
 - **Integration Layer, both halves:** pseudonym-keyed emission; resolution at delivery
@@ -287,6 +307,8 @@ exists (Operating Rules).
 | Item | Needed by |
 | :---- | :---- |
 | Python↔.NET interchange for engine output | Phase 2 |
+| Tier-2 encryption: how, and which key (O-23) | Phase 2 |
+| Customer period record: spend bands (D-064) | Phase 2 |
 | Cloud API language, hosting provider | Phase 4 |
 | Precondition list per intent type | Phase 4 |
 | Level-2 credit ceiling | Phase 5 |

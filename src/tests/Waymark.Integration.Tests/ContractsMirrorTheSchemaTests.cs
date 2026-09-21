@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using Waymark.Contracts.Intents;
+using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
 using Waymark.Contracts.Sync;
 
@@ -264,6 +265,12 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(AnonymousBasketRecord), // D-043 outbox payload; shaped at emit, stored nowhere
             nameof(BasketLine),            // an element of that payload
             nameof(CustomerPeriodRecord),  // D-043 outbox payload; monthly grain, stored nowhere
+            nameof(ProductLookup),         // till ↔ StoreServer answer; a read over several tables
+            nameof(ProductForSale),        // an element of that answer
+            nameof(SaleRequest),           // till → StoreServer; codes and counts, never a row
+            nameof(SaleRequestLine),       // an element of that request
+            nameof(SaleOutcome),           // StoreServer → till; a summary over several tables
+            nameof(DecisionRequest),       // Local Admin → StoreServer; what was asked for, not what was written
         ];
 
         var declared = typeof(RecommendationEnvelope).Assembly.GetExportedTypes()

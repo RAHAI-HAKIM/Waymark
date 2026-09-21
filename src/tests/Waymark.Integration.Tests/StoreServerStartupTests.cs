@@ -136,10 +136,22 @@ public sealed class StoreServerStartupTests : IDisposable
         var source = Path.Combine(generated, "waymark-store.db");
         string[] store = [$"--Waymark:Store:StoreId={StoreIdOf(generated)}", "--Waymark:Store:Currency=DZD"];
         var before = CountTransactions(source, key: null);
+        var outboxBefore = CountOutbox(source, key: null);
         Assert.True(before > 0);
 
-        var first = Run(AssertHealthy, [.. store, $"--{WaymarkStoragePaths.ImportPlaintextSetting}={source}"]);
+        var barcode = SellableBarcodeIn(source);
+        var (terminal, staff) = TillOf(source);
+        var first = Run(
+            address =>
+            {
+                AssertHealthy(address);
+                AssertLookup(address, barcode);
+                AssertSale(address, barcode, terminal, staff);
+                AssertExpiryEvaluation(address);
+            },
+            [.. store, $"--{WaymarkStoragePaths.ImportPlaintextSetting}={source}"]);
         Assert.True(first.Started, "The generated store was not imported and served:\n" + first.Output);
+        Assert.Contains("Store time zone: Africa/Algiers", first.Output, StringComparison.Ordinal);
 
         // A second start: no import, an existing encrypted file, an existing key.
         var second = Run(AssertHealthy, store);
@@ -147,7 +159,11 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.DoesNotContain("Importing", second.Output, StringComparison.Ordinal);
 
         using var key = DatabaseKeyStore.Open(Keys, new DpapiKeyProtector());
-        Assert.Equal(before, CountTransactions(WaymarkStoragePaths.StoreDatabase(Data), key));
+        // Every generated sale survived the import, plus the one AssertSale made.
+        Assert.Equal(before + 1, CountTransactions(WaymarkStoragePaths.StoreDatabase(Data), key));
+
+        // And that sale put its anonymous basket in the outbox, in the same transaction (D-072).
+        Assert.Equal(outboxBefore + 1, CountOutbox(WaymarkStoragePaths.StoreDatabase(Data), key));
         Assert.True(WaymarkDatabaseEncryption.IsPlaintext(source), "The import changed the generated file.");
     }
 
@@ -195,6 +211,124 @@ public sealed class StoreServerStartupTests : IDisposable
         using var response = client.GetAsync(new Uri("/health", UriKind.Relative)).GetAwaiter().GetResult();
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("\"up\"", response.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Hop 1 end to end on the real process (D-066): a generated product is found at a price, in
+    /// today's store date, and a barcode nobody carries is an answer rather than an error.
+    /// </summary>
+    private static void AssertLookup(Uri address, string barcode)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+
+        using var found = client.GetAsync(new Uri($"/api/products/lookup?barcode={barcode}", UriKind.Relative)).GetAwaiter().GetResult();
+        var body = found.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(found.StatusCode == HttpStatusCode.OK, $"The lookup failed ({found.StatusCode}):\n{body}");
+
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal("found", json.RootElement.GetProperty("outcome").GetString());
+        var price = decimal.Parse(
+            json.RootElement.GetProperty("product").GetProperty("price_ttc").GetString()!,
+            System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(price > 0, $"A generated product was served at {price}.");
+
+        using var unknown = client.GetAsync(new Uri("/api/products/lookup?barcode=0000000000000", UriKind.Relative)).GetAwaiter().GetResult();
+        Assert.Equal(HttpStatusCode.OK, unknown.StatusCode);
+        Assert.Contains("\"unknown_barcode\"", unknown.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+
+        // Found in the step 7 run (18/09): as a path segment, "12/34" reached the lookup as
+        // "12%2F34". As a query parameter the server must see exactly the code that was sent.
+        using var slashed = client.GetAsync(new Uri("/api/products/lookup?barcode=12%2F34", UriKind.Relative)).GetAwaiter().GetResult();
+        using var echoed = JsonDocument.Parse(slashed.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        Assert.Equal("12/34", echoed.RootElement.GetProperty("barcode").GetString());
+    }
+
+    /// <summary>
+    /// Hop 2 on the real process (D-070): the wiring (unit of work, executor, handler, ledger) is
+    /// only proven by a sale that goes through it and comes back completed, then an unknown code
+    /// that comes back refused rather than as an error.
+    /// </summary>
+    private static void AssertSale(Uri address, string barcode, string terminal, string staff)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+
+        using var sold = client.PostAsync(
+            new Uri("/api/sales", UriKind.Relative),
+            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","lines":[{"barcode":"{{barcode}}","count":2}]}""")).GetAwaiter().GetResult();
+        var body = sold.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(sold.StatusCode == HttpStatusCode.OK, $"The sale failed ({sold.StatusCode}):\n{body}");
+        using (var json = JsonDocument.Parse(body))
+        {
+            Assert.Equal("completed", json.RootElement.GetProperty("outcome").GetString());
+            // The generated store's invoices are all from an earlier year: this year starts at 1.
+            Assert.EndsWith("-000001", json.RootElement.GetProperty("invoice_number").GetString(), StringComparison.Ordinal);
+        }
+
+        using var refused = client.PostAsync(
+            new Uri("/api/sales", UriKind.Relative),
+            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","lines":[{"barcode":"0000000000000","count":1}]}""")).GetAwaiter().GetResult();
+        Assert.Equal(HttpStatusCode.OK, refused.StatusCode);
+        Assert.Contains("\"refused\"", refused.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Hop 6 on the real process (D-073): the evaluator's wiring, and the cold-start window
+    /// installed at start. A year of synthetic trading leaves batches on the shelf that are
+    /// past their date, so a run over real data has something to say — and the second run has
+    /// to say the same thing without doubling the board.
+    /// </summary>
+    private static void AssertExpiryEvaluation(Uri address)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(30) };
+
+        var first = EvaluateExpiry(client);
+        Assert.Equal(7, first.GetProperty("windowDays").GetInt64());
+        Assert.Equal(1, first.GetProperty("parameterVersion").GetInt64());
+        Assert.True(first.GetProperty("batchesRead").GetInt32() > 0, "The generated store has stock on its shelves.");
+        var flagged = first.GetProperty("flagged").GetInt32();
+        Assert.True(flagged > 0, "A year of trading leaves batches inside a seven-day window.");
+        Assert.Equal(0, first.GetProperty("superseded").GetInt32());
+
+        var again = EvaluateExpiry(client);
+        Assert.Equal(flagged, again.GetProperty("flagged").GetInt32());
+        Assert.Equal(flagged, again.GetProperty("superseded").GetInt32());
+    }
+
+    private static JsonElement EvaluateExpiry(HttpClient client)
+    {
+        using var answer = client.PostAsync(new Uri("/api/engine/expiry", UriKind.Relative), JsonBody("{}"))
+            .GetAwaiter().GetResult();
+        var body = answer.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(answer.StatusCode == HttpStatusCode.OK, $"The evaluator failed ({answer.StatusCode}): {body}");
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
+
+    /// <summary>The generated store's till and one of its cashiers.</summary>
+    private static (string Terminal, string Staff) TillOf(string path)
+    {
+        using var context = new WaymarkDbContext(
+            new DbContextOptionsBuilder<WaymarkDbContext>().UseWaymarkSqlite(path, keyProvider: null).Options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
+        return (
+            context.Terminals.IgnoreQueryFilters().OrderBy(t => t.TerminalId).Select(t => t.TerminalId).First(),
+            context.Staff.IgnoreQueryFilters().Where(s => s.Role == "cashier").OrderBy(s => s.StaffId).Select(s => s.StaffId).First());
+    }
+
+    /// <summary>A barcode of an active, piece-sold variant in a generated (plaintext) store.</summary>
+    private static string SellableBarcodeIn(string path)
+    {
+        using var context = new WaymarkDbContext(
+            new DbContextOptionsBuilder<WaymarkDbContext>().UseWaymarkSqlite(path, keyProvider: null).Options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
+        return context.Variants
+            .Where(v => v.Barcode != null && !v.IsWeighted && v.Status == VariantStatus.Active)
+            .OrderBy(v => v.VariantId)
+            .Select(v => v.Barcode!)
+            .First();
     }
 
     private static void CreatePlaintextStore(string path)
@@ -245,6 +379,15 @@ public sealed class StoreServerStartupTests : IDisposable
     private static string StoreIdOf(string generated) =>
         JsonDocument.Parse(File.ReadAllText(Path.Combine(generated, "manifest.json")))
             .RootElement.GetProperty("store_id").GetString()!;
+
+    private static long CountOutbox(string path, IDatabaseKeyProvider? key)
+    {
+        using var context = new WaymarkDbContext(
+            new DbContextOptionsBuilder<WaymarkDbContext>().UseWaymarkSqlite(path, key).Options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
+        return context.Outbox.LongCount();
+    }
 
     private static long CountTransactions(string path, IDatabaseKeyProvider? key)
     {

@@ -291,6 +291,60 @@ public sealed class WaymarkDbContext(
             .HasQueryFilter(x => Set<Promotion>().Any(parent => parent.PromotionId == x.PromotionId));
     }
 
+    /// <inheritdoc />
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        RefuseAnotherStoresRows();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    /// <inheritdoc />
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        RefuseAnotherStoresRows();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>
+    /// The write side of store scoping (D-071, F-21). The global filter keeps a context from
+    /// <i>reading</i> another store's rows; nothing kept it from writing one, and a row written
+    /// under the wrong <c>store_id</c> is invisible to the store that made it and counted by a
+    /// store that did not. Cross-tenant leakage is DPIA risk R9.
+    ///
+    /// <para>
+    /// A null <c>store_id</c> is not another store's: on the entities that allow one it means
+    /// every store (a promotion that is not store-specific) or none (processing outside a store),
+    /// and the filter already reads those.
+    /// </para>
+    /// <para>
+    /// Checked only when a store is configured. With none there is nothing to compare against,
+    /// and the reads of such a context already return nothing that belongs to a store; it is how
+    /// the generator commissions a store and how tests seed one. StoreServer always configures it.
+    /// </para>
+    /// </summary>
+    private void RefuseAnotherStoresRows()
+    {
+        if (CurrentStoreId is not { } current)
+        {
+            return;
+        }
+
+        var offenders = ChangeTracker.Entries<IStoreScoped>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .Where(entry => entry.Entity.StoreId is not null && entry.Entity.StoreId != current)
+            .Select(entry => $"{entry.Entity.GetType().Name} for store {entry.Entity.StoreId}")
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (offenders.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"This context is store {current} and was asked to write rows of another store: "
+                + string.Join(", ", offenders)
+                + ". A row written under the wrong store_id is invisible here and counted there (D-071, DPIA R9).");
+        }
+    }
+
     private void FilterByStore<TEntity>(ModelBuilder modelBuilder, bool storeIdIsNullable)
         where TEntity : class, IStoreScoped
     {

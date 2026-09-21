@@ -2,7 +2,10 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**18/09/2026**: Phase 0.5 opened; F-6 fixed (D-063), awaiting Hakim's review.
+**21/09/2026**: **Phase 0.5 is closed** — its recap is `recaps/phase-0.5.md`, its decisions
+are collapsed to titles in `decisions.md`, and CLAUDE.md §3.3 has been corrected now that
+writes are store-checked. **Phase 1 opens 22/09/2026**, planned in `phase-1-plan.md`.
+Nothing is in flight; the next session is **A1**, and it needs **O-24** answered first.
 
 ---
 
@@ -10,37 +13,28 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 
 | | |
 | :---- | :---- |
-| Phase | **0.5, the walking skeleton: in progress** (opened 18/09/2026). Phase 0 complete 17/09/2026 |
-| Build | `dotnet build src/Waymark.sln`, 15 projects, **0 warnings**, Debug and Release. No vulnerable package |
-| Tests | **788 passing**: Domain 135 · Integration 326 · Generator 235 · Hardware 64 · Application 28 |
-| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations: `InitialSchema`, `AddRoundingVariance`, `ProcessingRegisterAndRecommendationType`, `AddRoundingPolicies`, `AddReceivables`, `RenameRoundingPolicyChecks` |
+| Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
+| Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**, Debug and Release. No vulnerable package |
+| Tests | **995 passing**: Domain 161 · Integration 421 · Generator 235 · Hardware 64 · Application 41 · Pos 73 |
+| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
-| Recap | `docs/recaps/phase-0.md`: everything Phase 0 built, decided and found. §8 covers the revision, the final test and how the phase closed. Read it only when a question reaches back into Phase 0 |
+| Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
+| Recaps | `recaps/phase-0.md` and `recaps/phase-0.5.md`. Read one only when a question reaches back into a finished phase |
 
-## 2. Phase 0, closed
+## 2. Phase 0.5, closed
 
-All eleven work items are done (W1–W11). The revision fixed F-1, F-16, F-17 and O-18/O-20
-(D-055–D-057). The final test fixed four flaws:
-- the REPLACE bypass (D-058);
-- the keys allowlist (D-057);
-- printer command injection (D-059);
-- a generator drawer bug.
+The walking skeleton: **scan → cart → sale → outbox → stub cloud → expiry evaluator → role
+check → card → decision**, built in four sessions and eight hops (D-069), closed 21/09/2026.
 
-Hakim decided the other four:
-- F-14: the constraints renamed;
-- F-18: the erasure ledger's facts fixed and its outcome forward only (D-060);
-- F-19: child rows filtered through their parent (D-062);
-- F-20: an operation about one person names them (D-061).
+Everything in it is real except the cloud. `recaps/phase-0.5.md` holds what was built, the
+twelve decisions with their rejected alternatives, and **§5, the seven defects the thin cut
+found** — among them a time-zone resolution that could not work on Windows, a barcode with a
+slash looked up as `%2F`, writes never checked against the current store (F-21, closed by
+D-071), a role code the store might not have, and a role check written inverted.
 
-Every exit criterion is met:
-
-| Criterion | State |
-| :---- | :---- |
-| Solution builds; architecture tests pass and fail when a forbidden reference is added | ✅ (D-012), including POS→DB and the generator's isolation |
-| Migration creates the store database from empty, **encrypted**, every trigger in place | ✅ (D-056): `DatabaseEncryptionTests`, and `StoreServerStartupTests` on the real process |
-| The generator produces a plausible year of data that loads | ✅ Full grocery year, `report.md` reviewed by Hakim, `tools/verify-store` 39/39; StoreServer imports it, serves it and reopens it after a restart |
-| Value-object tests: both policies, exact allocation, TVA from TTC, currency mismatch, cash step, level/change algebra | ✅, and against an independent reference (`MoneyPropertyTests`) |
-| The tenant key cannot reach a backup payload or the outbox, proved by a failing-when-removed test | ✅ for the DB file, WAL and outbox; the keys directory's ACL is enforced at start (D-057). No backup job exists yet to test |
+**Confirmed 21/09/2026:** D-074's two points — no `processing_log` entry for a card whose
+subject is a batch, and accept/dismiss only. **Seven rules are still provisional**; the recap
+§6 names where each is settled, and three of them are settled by Phase 1 itself.
 
 ---
 
@@ -52,22 +46,25 @@ usually an `O-` entry). Close an item by deleting its row.
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else |
-| F-21 | Low | **Writes are not checked against the current store.** D-062 filters reads; a context scoped to store A can still insert a row for store B. Hakim chose the read filter (17/09) | `WaymarkDbContext` | **Watch**: revisit when the first handler writes store-scoped rows (Phase 0.5) |
+
+Phase 0.5's own findings were all closed inside the phase; `recaps/phase-0.5.md` §5 lists
+them and what settled each.
 
 ## 4. Open questions
 
-The full text is in `docs/decisions.md`, "Open — waiting on Hakim".
+The full text is in `decisions.md`, "Open — waiting on Hakim".
 
 | # | Question | Disposition |
 | :---- | :---- | :---- |
-| O-23 | Is statistics tier 2 (local DuckDB) encrypted at rest, and with what key? | Raised by F-1: DuckDB's encryption is not SQLCipher. Decide with the tier-2 writer (Phase 0.5); the DPIA states the gap meanwhile |
+| **O-24** | **Which TVA rate applies when a product's categories disagree, or one has no rate?** | ⛔ **Blocks session A1**, the first session of Phase 1. The skeleton refuses both cases (D-066). Candidates: the primary category's rate, a rate on the product or variant itself, or refusing until the catalogue is fixed. A wrong pick misstates TVA on every receipt, silently |
+| O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
 
 ---
 
-## 5. Tests carried into Phase 0.5
+## 5. Tests carried into Phase 1
 
-The final test's remaining ideas. None blocks the skeleton; take them as the code they touch
-is next changed.
+The final test's remaining ideas, still open after the skeleton. None blocks Phase 1; take
+each as the code it touches is next changed.
 
 1. **F-15 hunt**: the whole suite five times in a row straight after a clean build, with
    `--logger "console;verbosity=detailed"`, and once in Release.
@@ -96,27 +93,196 @@ A generated store is checked with `python tools/verify-store/verify_store.py <ru
 
 ---
 
-## 6. Next: Phase 0.5, the walking skeleton
+## 6. Next: Phase 1 — the till runs a shop
 
-One thin cut (Build Plan): scan → cart → complete sale → transaction, stock movement and
-tier 1 → pseudonymise → outbox → stub cloud reads it → expiry evaluator flags a batch →
-envelope → Integration Layer role check → card in Local Admin → accept → decision written
-and logged.
+**The plan is `phase-1-plan.md`** — the pace, the work split, the design gates, the tool ramp
+and the session backlog. It is the *how*; `Waymark_Build_Plan.md` is the *what* and the
+definition of done. What follows is only the shape and the progress.
 
-| Hop | Exists | Missing |
-| :---- | :---- | :---- |
-| Scan, cart | `KeyboardWedgeScanner` (D-063). The POS forwards text input to `Accept`, inserts what `Typed` hands back, calls `Flush` before a non-text key and `Reset` on focus change; a generated store as product data | POS window, HTTP client, product lookup endpoint |
-| Complete sale | Money, TVA, cash tender, Quantity, executor, schema; the generator's `SaleWriter` shows the rows a sale must write, including the on-account charge (D-055) | `CompleteSale` handler; the credit-limit check before an on-account payment; StoreServer DI for UoW, log, executor, `TimeProvider`; API endpoint |
-| Pseudonymise → outbox | `IPseudonymiser`, `TenantKeyStore`, `AnonymousBasketRecord`, `OutboundEnvelope`; generated outboxes with real payloads; the keys directory and its ACL in StoreServer (D-057) | `TenantKeyStore` wired into StoreServer's DI; the emit step; outbox sequence assignment |
-| Tier 2 | nothing | The local DuckDB writer (D-043). *Stub or real for 0.5, and encrypted how (O-23)? Decide* |
-| Stub cloud | Generated outboxes under `offline_stretch` to drain | A local process that reads the outbox. *Language and shape: decide* |
-| Expiry evaluator | Schema (batches, parameter registry), cold-start markdown path; generated batches with expiries | Store-side evaluator (compare only, CLAUDE.md §5); near-expiry windows per category, *Hakim* |
-| Envelope, Integration Layer | Contracts, recommendation tables | Role gating, pending queue, pseudonym resolution with `objection_flag` and a log write that names its subject (D-061) |
-| Local Admin card, accept | Brand rules | `waymark-admin` scaffold (React, Vite, Tailwind); `AcceptRecommendation` handler |
+**Phase 1 is Phase 0.5 widened.** Every session names the Phase 0.5 file it expands, so the
+starting point is always code already reviewed. §7 below is the map.
 
-**Decisions Phase 0.5 needs from Hakim** (CLAUDE.md §7): the sale's outbox payload at emit
-(D-043 fields, spend bands); stub cloud and tier 2 shape; near-expiry windows; the
-minimal role model for the skeleton; O-23 with the tier-2 shape.
+**≈46 sessions of 4 h, one or two a day, every day: 23–46 days.**
+
+| Block | What | Sessions | State |
+| :---- | :---- | :--: | :---- |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **Next.** A1 is blocked on O-24 |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
+| **C** | Shift: counted float, X and Z reports, handover | 3 | |
+| **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
+| **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
+| **F** | Stock: receive against a PO, adjustments, counts, views | 4 | |
+| **G** | Customers and compliance: consents, objection, loyalty, rights tooling, `processing_log` | 7 | Needs design gate **G3**. The block most likely to grow |
+| **H** | Staff and store | 2 | |
+| **I** | Platform: Admin over the LAN, offline and the Level-2 cache, backup and restore, the recovery code, the evaluator nightly | 6 | |
+| **J** | The done-when: the simulated day, the consent-to-erasure walkthrough, the restore drill | 3 | |
+
+**Two gates before code:** design **G1** before block B (the till) and **G2**/**G3** before
+blocks E and G. Hakim brings the design; Claude reviews it against CLAUDE.md §6 first.
+
+**Hakim writes the decision-bearing core this phase** — refunds and voids, discount
+allocation, tender and change, cash reconciliation, consent and rights, PIN and permissions.
+The handover is **tests first**: Claude writes the failing tests and a guiding comment, Hakim
+makes them green. Session D's inverted role check is why.
+
+---
+
+## 7. The Phase 0.5 code, read in the order it runs
+
+The map Phase 1 expands from. Each guide walks one session's work in the order data moves
+through it; each file has its tests beside it under `src/tests/`, with the same name plus
+`Tests`.
+
+### 7.1 Hop 1, read in the order a scan travels
+
+1. **The keystroke:** `Waymark.Hardware/KeyboardWedgeScanner.cs`. `Accept` holds each
+   character; `EndBurst` classifies it (8 or more is a scan, anything shorter was typed).
+2. **The window:** `Waymark.Pos/TillWindow.cs`. The tunnel `OnTextInput` and `OnKeyDown`
+   feed the scanner; `Submit` hands the code to the session; `Render` draws. `App.cs` wires
+   it together.
+3. **What to do with a code:** `Pos/Checkout/TillSession.cs`. `_tail` keeps scan order;
+   `Handle` is one switch over the four answers.
+4. **The cart:** `Pos/Checkout/Cart.cs`, `WireFigures.cs`. Figures are read exactly;
+   `LineTotal = UnitPrice * Count`; `ExceedsStockOnHand`.
+5. **The HTTP call:** `Pos/Server/StoreServerClient.cs`, which returns `Answered` or
+   `ServerUnavailable`.
+6. **The wire shape:** `Contracts/Pos/ProductLookup.cs`.
+7. **The server's door:** `StoreServer/Program.cs` (DI, the startup checks and the time
+   zone, then `MapGet("/api/products/lookup")`) and `StoreServer/Catalogue/ProductLookupWire.cs`.
+8. **The store's date:** `Application/Time/StoreTimeZones.cs`, `StoreCalendar.cs`.
+9. **The rules:** `Persistence/Catalogue/ProductLookup.cs`, whose port is
+   `Domain/Catalogue/IProductLookup.cs`. Store scoping is the global filter in
+   `WaymarkDbContext` (`HasQueryFilter`); the query never names a store.
+10. **The whole path:** `StoreServerStartupTests.A_generated_store_is_imported_served_and_reopened_after_a_restart`.
+
+Each file has its tests beside it, under `src/tests/`, with the same name plus `Tests`.
+To watch a code cross every stop, set breakpoints in `TillSession.Handle` and in the
+`MapGet` lambda, run both processes, and scan `2000000000015`.
+
+### 7.2 Session A, read in the order a sale travels
+
+1. **The Pay button:** `Waymark.Pos/TillWindow.cs` (`Pay()`), then
+   `Pos/Checkout/TillSession.cs` (`PayAsync` → `PayAfter`). It waits for scans still
+   being looked up, sends codes and counts, and reacts to one of three answers: completed
+   (the cart empties, `LastSale`), refused (a notice, the cart kept), unknown (a warning,
+   the cart kept).
+2. **The HTTP call:** `Pos/Server/StoreServerClient.cs` (`CompleteSaleAsync`). Any answer
+   it can't read is `Unknown`, never `Completed`.
+3. **The wire:** `Contracts/Pos/Sale.cs`.
+4. **The door:** `StoreServer/Program.cs`. The DI block "Commands (D-050)" (the unit of
+   work is both `IUnitOfWork` and `IStaging`), then `MapPost("/api/sales")` with its
+   one-sale-at-a-time gate. `StoreServer/Sales/SaleWire.cs` maps the result;
+   `StoreServer/WireText.cs` formats the figures.
+5. **The executor:** `Application/Commands/CommandExecutor.cs`. The handler stages, the
+   executor commits once, or discards on any exception.
+6. **The handler, the heart of it:** `Application/Sales/CompleteSale.cs`. Read
+   `HandleAsync` top to bottom: re-price each line → session → per line, the batches →
+   per batch, `SaleArithmetic.Line` → stage the item, the movement, the level → invoice →
+   stage the transaction, the payment and the variance.
+7. **The rules it calls:**
+   - `Domain/Sales/SaleArithmetic.cs`: TVA from TTC; the same code as the generator;
+   - `Domain/Inventory/BatchAllocation.cs`: first in, first out, and the shortfall;
+   - `Money.ToCashTender()`: the 5 DZD step.
+8. **The reads:** `Domain/Sales/ISalesLedger.cs`, implemented in
+   `Persistence/Sales/SalesLedger.cs`. Store-scoped by the filter; `AdjustLevel` changes a
+   tracked `inventories` row.
+9. **The proof:** `Integration.Tests/CompleteSaleTests.cs`: atomicity, money, invoice,
+   session, batches. `Domain.Tests/BatchAllocationTests.cs`. And
+   `StoreServerStartupTests.AssertSale`, a sale on the real process.
+
+To watch one sale: breakpoints in `CompleteSaleHandler.HandleAsync` and in
+`CommandExecutor.ExecuteAsync` (on `CommitAsync`), then scan and press Pay.
+
+### 7.3 Session B, read in the order a basket travels
+
+1. **Where it starts:** `Application/Sales/CompleteSale.cs`. The sale loop now also collects
+   `sold` (product, quantity, line total) and `tier2Lines` (variant grain); at the end,
+   `EmitBasket` and the tier-2 call. Both are inside the command, so the executor commits
+   the outbox row with the sale's rows, or neither (CLAUDE.md §3.6).
+2. **What crosses:** `Application/Sync/AnonymousBasket.cs`. A pure function: product grain,
+   the store's hour, the weekday, the payment class, a fresh opaque basket id. The
+   comment says what must not be there and why.
+3. **The figures:** `Contracts/Figures.cs`, now the one place stored integers become wire
+   text (the till's answers use it through `StoreServer/WireText.cs`).
+4. **The hour:** `Domain/IStoreCalendar.cs` (`Now`, `Today`, `HourOfDay`) and
+   `Application/Time/StoreCalendar.cs`.
+5. **The sequence:** `Domain/Sync/IOutboxSequence.cs`, implemented in
+   `Persistence/Sync/OutboxSequence.cs`. Read inside the sale's transaction; the unique
+   index on `outbox.sequence_number` is the backstop.
+6. **Tier 2, stubbed:** `Domain/Statistics/ITier2Writer.cs` and
+   `Application/Statistics/NullTier2Writer.cs` (D-065).
+7. **The write guard (D-071):** `Persistence/WaymarkDbContext.cs`,
+   `RefuseAnotherStoresRows`, called by both `SaveChanges` overrides.
+8. **The proof:** `Integration.Tests/CompleteSaleTests.cs`, section "the outbox", including
+   `StubCloud`, the hop-5 reader that parses a pending row and acknowledges it;
+   `Application.Tests/AnonymousBasketTests.cs`; `Integration.Tests/StoreWriteScopeTests.cs`;
+   and the sale on the real process in `StoreServerStartupTests`.
+
+To watch one basket: a breakpoint in `EmitBasket`, then sell. Afterwards the row is visible
+in the encrypted store (the outbox keeps it until something acknowledges it).
+
+### 7.4 Session C, read in the order a batch becomes a card
+
+1. **The rule, and the only file that matters:** `Domain/Engine/NearExpiry.cs`. Pure, no
+   database. `Evaluate` returns a finding or **null** — null is "there is nothing to say",
+   which is most batches. Read the three early returns first: no shelf life, nothing left,
+   still outside the window. Then the two figures: the quantity, which needs one unit, and
+   the value at cost, which does not.
+2. **What it reads through:** `Domain/Engine/IExpiryLedger.cs` — the window, the shelf, the
+   board as it stands, and the one row it changes. Implemented in
+   `Persistence/Engine/ExpiryLedger.cs`: three queries, each scoped by the global filter
+   (`batch_items` through its batch, D-062).
+3. **The window:** `Persistence/Engine/ColdStartParameters.cs`. Seven days, installed at
+   start when the registry has none, never repaired. `Program.cs` calls it in the startup
+   block, after the time zone.
+4. **The card:** `Application/Engine/EvaluateExpiry.cs`. `HandleAsync` is the whole hop in
+   thirty lines: window → shelf → board → per finding, supersede then write. Then read
+   `Because` (three figures, each with its unit) and `Headline` (a rendering of them).
+   The class comment says why a card here has no interval.
+5. **Who it is addressed to:** `DecidingRoleAsync` in the ledger — the rung above the shop
+   floor, read off `roles.rank` rather than named in the code (D-073).
+6. **The door:** `StoreServer/Program.cs`, `MapPost("/api/engine/expiry")`.
+7. **The proof:** `Domain.Tests/NearExpiryTests.cs` (the window's edge, first section) and
+   `Integration.Tests/ExpiryEvaluatorTests.cs` (what it flags, what it stays quiet about,
+   running it twice). `StoreServerStartupTests.AssertExpiryEvaluation` runs it twice on the
+   real process over a generated store.
+
+To watch one batch: a breakpoint in `NearExpiry.Evaluate`, then post to the endpoint. On
+seed-42 the first run flags around a hundred batches out of about three hundred — a year of
+trading leaves a lot past its date — and the second run flags the same number and supersedes
+exactly that many.
+
+### 7.5 Session D, read in the order a card reaches a person
+
+1. ✍ **Hakim's piece:** `Domain/Engine/CardAudience.cs`. One function, one comparison —
+   `staffRank >= requiredRank`, "this rank and anything above it". Written 20/09, after a first
+   attempt with the comparison inverted, which four tests caught: a cashier passed and an owner
+   was locked out, both failure modes D-074 names, at once.
+2. **What the board reads:** `Domain/Engine/IRecommendationBoard.cs`, implemented in
+   `Persistence/Engine/RecommendationBoard.cs`. Note `StaffAsync`: active staff only, and a
+   role that is not an active row gives **no rank** rather than rank zero (D-037).
+3. **The board itself:** `Application/Engine/PendingCards.cs` — twelve lines. It filters with
+   `CardAudience` and reports what it held back as a **count**. The comment says why an empty
+   board is a lie.
+4. **The one door out:** `Application/Engine/DecideRecommendation.cs`. `HandleAsync` is six
+   numbered checks, then two staged writes: the decision row, and the card's move to
+   `decided`. They commit together or neither does, which is the risky rule of the hop.
+5. **The wire:** `StoreServer/Engine/RecommendationWire.cs` (a card crosses as the envelope of
+   D-044; the Because block and the option payloads are re-parsed here, not passed through as
+   strings) and `Contracts/Recommendations/DecisionRequest.cs`.
+6. **The doors:** `StoreServer/Program.cs`, `MapGet("/api/recommendations")` and
+   `MapPost("/api/recommendations/decide")`.
+7. **The screen:** `waymark-admin/src/Board.tsx`, and `src/index.css` for the brand tokens.
+   The page decides nothing — it renders the board the server already filtered.
+8. **The proof:** `Domain.Tests/CardAudienceTests.cs` (yours, three skipped) and
+   `Integration.Tests/RecommendationBoardTests.cs` (thirteen, four skipped).
+
+With StoreServer and the admin app running, the board fills for the owner and stays empty —
+with a count of what was withheld — for the cashier.
+
+---
+
+## 8. Running it
 
 The generator is ready for use:
 
@@ -124,21 +290,74 @@ The generator is ready for use:
 dotnet run --project src/Waymark.Generator -- --config src/Waymark.Generator/inputs/configs/grocery-dz.json --out artifacts/generated/seed-42
 ```
 
-To open a generated store in StoreServer, import it (D-056):
+To open a generated store in StoreServer, import it (D-056). **Paths must be absolute**:
+`dotnet run` starts StoreServer in its project directory, so relative paths land under
+`src/Waymark.StoreServer/` (found 18/09, with a keys directory in it). Run from the repository
+root, in Git Bash:
 
 ```bash
-dotnet run --project src/Waymark.StoreServer -- --Waymark:Storage:DataDirectory=artifacts/server/data --Waymark:Storage:KeysDirectory=artifacts/server/keys --Waymark:Storage:ImportPlaintextFrom=artifacts/generated/seed-42/waymark-store.db --Waymark:Store:StoreId=<store id from manifest.json>
+dotnet run --project src/Waymark.StoreServer --no-launch-profile -- --urls=http://localhost:5290 "--Waymark:Storage:DataDirectory=$PWD/artifacts/server/data" "--Waymark:Storage:KeysDirectory=$PWD/artifacts/server/keys" "--Waymark:Storage:ImportPlaintextFrom=$PWD/artifacts/generated/seed-42/waymark-store.db" --Waymark:Store:StoreId=01JCWEQNC0W9W3YV7F0CPNDDC9 --Waymark:Store:Currency=DZD
 ```
+
+The store id is seed-42's (`store_id` in `manifest.json`). Once imported, drop the
+`ImportPlaintextFrom` switch: the encrypted copy reopens as it is. In PowerShell (seed-42
+already imported), wait for `Now listening on: http://localhost:5290`:
+
+```powershell
+dotnet run --project src/Waymark.StoreServer --no-launch-profile -- --urls=http://localhost:5290 "--Waymark:Storage:DataDirectory=$PWD\artifacts\server\data" "--Waymark:Storage:KeysDirectory=$PWD\artifacts\server\keys" --Waymark:Store:StoreId=01JCWEQNC0W9W3YV7F0CPNDDC9 --Waymark:Store:Currency=DZD
+```
+
+Then start the till in a second terminal. It finds StoreServer at `http://localhost:5290/`
+by default. To **pay**, it also needs its terminal and staff ids (seed-42's till and first
+cashier are below); without them, Pay says so and sends nothing:
+
+```bash
+dotnet run --project src/Waymark.Pos -- --terminal=01JCWEQNC0W9W3YV7F0CPNDDCD --staff=01JCWEQNC0W9W3YV7F0CPNDDCB
+```
+
+In a Debug build the till has a **Simulate scan** box that feeds a code through the real
+scanner. `2000000000015` is a milk at 143.00 DZD with stock; `2000000000039` is one with
+none.
+
+To run the expiry evaluator against the running server (PowerShell):
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:5290/api/engine/expiry -ContentType application/json -Body '{}'
+```
+
+It answers with how many batches it read, how many it flagged, how many earlier cards it
+replaced, and the window it used. Running it twice is safe and is worth doing: the second
+run should flag the same number and supersede exactly that many.
+
+Local Admin (hop 8) needs Node — 24.19.0 LTS, installed 20/09 via
+`winget install OpenJS.NodeJS.LTS`. **It lands on the machine PATH, so a terminal opened
+before the install will still say `npm: not recognized`; open a new one.** With StoreServer up
+on 5290:
+
+```bash
+cd waymark-admin && npm install && npm run dev
+```
+
+The dev server proxies `/api` to StoreServer. Type a staff id into the box: seed-42's cashier
+`01JCWEQNC0W9W3YV7F0CPNDDCB` sees only a count of withheld cards; the owner sees the
+near-expiry cards themselves.
 
 The guide is `src/Waymark.Generator/README.md`.
 
 ---
 
+---
+
 ## Division of labour
+
+Phase 1 moves Hakim from reviewing to writing the core. `phase-1-plan.md` §3 is the full
+table; this is the short form.
 
 | | Hakim | Claude |
 | :---- | :---- | :---- |
-| Arithmetic, schema, privacy boundary, sync rules, engine methods | Decides, reviews line by line | Drafts, tests first, proves each test fails |
-| Generator | Writes the parameter spec, reviews distributions | Writes the code |
-| Migrations | Reads the generated `Up()` before it runs | Generates, verifies, regenerates `schema_current.sql` |
+| Money and stock arithmetic | **Writes** refund and void rules, discount allocation, tender and change, cash reconciliation | The code around it, the wire, the screens, the failing tests it drops into |
+| Privacy | **Writes** consent, objection and rights logic, and anything touching `consent_events` or `processing_log` | The CRUD, the forms, the rendering |
+| Access | **Writes** PIN gating and permissions | Sessions, endpoints, plumbing |
+| Schema and migrations | Reads the generated `Up()` before it runs | Generates, verifies, regenerates `schema_current.sql` |
+| Design | **Brings the design** before any screen is built | Reviews it against CLAUDE.md §6, then builds |
 | UI, CRUD, glue, scaffolding | Reviews the result | Writes |

@@ -217,7 +217,7 @@ unreachability, with a prompt saying the primary must stay off, and who and when
 
 | Item | Needed by |
 | :---- | :---- |
-| Outbox payload of a sale at emit (D-043 fields, spend bands) | Phase 0.5 |
+| Customer period record: fields at emit and spend bands (the basket is fixed by D-043; D-064) | Phase 2 |
 | Precondition list per intent type; lock the §6.3 windows | Phase 4 |
 | Erasure ledger format and restore-time re-application | Phase 4 |
 | Certificate enrolment and renewal, including the offline-past-expiry path | Phase 4 |

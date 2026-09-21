@@ -93,7 +93,9 @@ leakage is DPIA risk R9.
 - **Every other table without `store_id` is the tenant's or the database's**, and
   `ParentScopeTests` names each with its reason. A new table goes on one list or the other,
   or that test fails.
-- Writes are not yet checked against the current store (F-21).
+- **Writes are checked too** (D-071): both `SaveChanges` overrides refuse an added or modified
+  row whose `store_id` is another store's. A null `store_id` is not another store's, and a
+  context with no store configured is unchecked — that is how a store is commissioned.
 
 ### 3.4 Files — D-013, D-042, D-043
 
@@ -172,7 +174,10 @@ Breaking one of these is a legal problem, not a bug.
 
 The store-side evaluator **may** read local data and cloud parameters, compare values, and
 do arithmetic on a couple of quantities. It **may not** fit models, aggregate over history,
-iterate, or optimise.
+iterate, or optimise. **`Domain/Engine/NearExpiry.cs` is the first one and the model for the
+rest** (D-073): the rule is pure and lives in Domain, so it can be argued with in a test that
+has no database; reading the data and writing the card are somebody else's job. Derived
+figures round `HalfEven` whatever the store's own policy is.
 
 - The engine never participates in a live transaction. It ran last night.
 - **Every figure carries its interval.** A number without a range is a bug.
@@ -187,7 +192,11 @@ iterate, or optimise.
 - **Cyan `#0E8C86` is Almanac** — edges, fills, interval caps. **Never a button, link, text or card fill.** Cyan text is `#0A5F5B`; engine cards are white with a cyan top edge.
 - **Label before colour.** A coloured edge with no label is not a valid state.
 - **Two semantic colours only**, critical and warning. **There is no positive state** — a shelf that is fine gets no card.
-- Archivo for text, IBM Plex Mono for labels, SKUs, quantities and figures.
+- Archivo for text, IBM Plex Mono for labels, SKUs, quantities and figures. Neither is
+  bundled yet; that is a download and needs Hakim's word.
+- **Admin's tokens are at the top of `waymark-admin/src/index.css`**, so these rules can be
+  checked without reading a component. **No screen is built before its design exists**
+  (`docs/phase-1-plan.md` §3).
 - Voice: *"Suggested reorder: 240 units"*, never *"Reorder 240 units"*. Admit the range.
 
 ---
@@ -238,6 +247,7 @@ logic. **Low priority:** UI rendering, CRUD screens, styling.
 | `Waymark_Implementation` | How the software is built |
 | `/docs/sync-design.md` | Sync, intents, erasure, transport |
 | `Waymark_Build_Plan` | Phase contents and definitions of done |
+| `/docs/phase-1-plan.md` | How Phase 1 is executed: pace, who writes what, the session backlog and what each session expands |
 | `/docs/status.md` | Where things stand, findings register, next steps |
 | `/docs/recaps/` | One snapshot per finished phase. Only when needed, never at session start |
 | `src/Waymark.Generator/README.md` | How the synthetic store generator works, its parameters, and using it in later phases |
