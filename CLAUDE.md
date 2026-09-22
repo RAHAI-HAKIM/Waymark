@@ -71,6 +71,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
 - **The TVA rate comes from `TvaRate.Resolve`**, never from a query (D-075): categories that agree give their rate; none, a null, or a disagreement gives 19% marked `StandardFallback`.
+- **Reasons come from `IReasonCodes`** (D-079): active only, ordered, and the list is what the foreign key will accept. `requires_manager` is carried, never enforced — rank is `StaffPermissions`.
 - **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero. The `promotions` tables are B4's.
 - **TVA is extracted per line from the TTC price by subtraction**: `ht = round(ttc/(1+r))`, then `tva = ttc − ht`. Never round `tva` independently (D-033). Displayed prices are TTC under Law No. 04-02.
 - **Division by zero throws**, always; callers expecting zero use the nullable variant. **Absence is never zero** (D-037).

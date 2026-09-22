@@ -559,6 +559,31 @@ missing. **Rejected:** raising the test's 90 s timeout, which hides a 30 s till 
 skipping triggers already present, which would weaken "re-applied idempotently" into
 "re-applied when we think it is needed" — revisit if startup is still slow.
 
+### D-079 — `reason_codes` is read as data, and the list is what the database will accept (session A3)
+`IReasonCodes.ForAsync(appliesTo)` returns the shop's **active** reasons for one kind of
+action, ordered by `display_order` **then by code**. The second sort key is not tidiness:
+`display_order` defaults to 0, so a shop that never set one leaves every row tied and SQLite
+may return ties in any order, which reshuffles a dialog between two openings and makes
+picking by position pick wrongly. Inactive codes never cross — retiring a reason must not
+break the rows that already reference it. The vocabulary is the tenant's: `reason_codes` has
+no `store_id`, so **no filter applies**, which the reader says out loud because "no filter"
+and "a filter someone forgot" look identical in a query.
+
+`GET /api/reason-codes?applies_to=discount`. A kind nobody knows is a **400, not an empty
+list**: "this shop configured no reasons" and "there is no such kind of action" are different
+answers, and collapsing them lets a typo look like the first. Every column recording *why*
+something happened is a foreign key into this table, so the offered list is the set of values
+the database will accept; offering anything else fails at `SaveChanges`, mid-sale.
+
+**A3 carries `requires_manager` and enforces nothing.** Who counts as senior is
+`StaffPermissions` (A2, D-077). A client that treated the flag as the whole rule would be a
+second place deciding who may do what, which is how the copies drift. **Rejected:** defaulting
+either flag to true "to be safe", which would put a manager in front of every discount in the
+shop; and sorting again in the wire mapper, which would be a second opinion about the order.
+
+**No UI.** The till's reason picker waits for design gate **G1** and the A4 shell; building a
+screen before its design exists is what CLAUDE.md §6 forbids. B4, B5 and B8 are the consumers.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

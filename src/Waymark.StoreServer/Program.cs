@@ -17,6 +17,7 @@ using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
 using Waymark.Domain;
 using Waymark.Domain.Catalogue;
+using Waymark.Domain.Reference;
 using Waymark.Domain.Engine;
 using Waymark.Domain.Enums;
 using Waymark.Domain.Ids;
@@ -33,6 +34,7 @@ using Waymark.Persistence.Sales;
 using Waymark.Persistence.Sync;
 using Waymark.Pseudonymisation;
 using Waymark.StoreServer.Catalogue;
+using Waymark.StoreServer.Reference;
 using Waymark.StoreServer.Engine;
 using Waymark.StoreServer.Sales;
 
@@ -90,6 +92,10 @@ builder.Services.AddSingleton<IStoreCalendar>(services => new StoreCalendar(
 
 // What the till may sell for a barcode (D-066). Scoped: one context, one request.
 builder.Services.AddScoped<IProductLookup, Waymark.Persistence.Catalogue.ProductLookup>();
+
+// The reasons the shop accepts for a discount, a void, a cash movement (A3). A read, like
+// the lookup, and scoped for the same reason.
+builder.Services.AddScoped<IReasonCodes, Waymark.Persistence.Reference.ReasonCodes>();
 
 // Commands (D-050): one unit of work per request, which stages every row and the executor
 // commits once. The same instance is the staging side and the committing side.
@@ -246,6 +252,28 @@ app.MapGet("/api/products/lookup", async (
     string.IsNullOrWhiteSpace(barcode)
         ? Results.BadRequest("A barcode is required: /api/products/lookup?barcode=...")
         : Results.Ok(ProductLookupWire.ToWire(barcode, await lookup.FindForSaleAsync(barcode, cancellationToken))));
+
+// Session A3: the reasons this shop accepts for one kind of action. Every column that records
+// *why* something happened is a foreign key into reason_codes, so this list is not decoration
+// — it is the set of values the database will accept, and offering anything else fails at the
+// moment of sale. A kind nobody knows is a bad request, not an empty list: "no reasons
+// configured" and "no such kind" are different answers and a typo must not look like the
+// first. Inactive codes never appear.
+app.MapGet("/api/reason-codes", async (
+    string? applies_to, IReasonCodes reasons, CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(applies_to))
+    {
+        return Results.BadRequest("A kind is required: /api/reason-codes?applies_to=discount");
+    }
+
+    if (ReasonCodeWire.Parse(applies_to) is not { } kind)
+    {
+        return Results.BadRequest($"'{applies_to}' is not a kind of action reasons are recorded for.");
+    }
+
+    return Results.Ok(ReasonCodeWire.ToWire(kind, await reasons.ForAsync(kind, cancellationToken)));
+});
 
 // Hop 2 (D-070): a cash sale. One at a time: the invoice number is read and staged inside the
 // sale's transaction, and two sales interleaving would read the same last number (the unique

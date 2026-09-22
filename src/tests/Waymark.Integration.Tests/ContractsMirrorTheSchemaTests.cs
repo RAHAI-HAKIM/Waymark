@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Waymark.Contracts.Intents;
 using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
+using Waymark.Contracts.Reference;
 using Waymark.Contracts.Sync;
 
 namespace Waymark.Integration.Tests;
@@ -55,6 +56,20 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
 
     private static readonly Mirror[] Mirrors =
     [
+        new(typeof(ReasonCodeOption), "reason_codes",
+            WireOnly: new Dictionary<string, string>(),
+            ColumnOnly: new Dictionary<string, string>
+            {
+                ["applies_to"] = "The kind is what the client asked for, and it is on the list that holds the options. Repeating it on every option would be a second source of truth for the same fact.",
+                ["display_order"] = "It decides the order the options arrive in and says nothing else. Sending it would invite a client to sort again, and two opinions about the order drift.",
+                ["is_active"] = "A retired reason is never offered, so every option that crosses is active. A flag that is always true is not information.",
+                ["created_at"] = "Housekeeping. Nothing the cashier or the screen does depends on when a reason was added.",
+            },
+            Renamed: new Dictionary<string, string>
+            {
+                ["code"] = "reason_code",
+            }),
+
         new(typeof(RecommendationEnvelope), "recommendations",
             WireOnly: new Dictionary<string, string>
             {
@@ -271,6 +286,7 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(SaleRequestLine),       // an element of that request
             nameof(SaleOutcome),           // StoreServer → till; a summary over several tables
             nameof(DecisionRequest),       // Local Admin → StoreServer; what was asked for, not what was written
+            nameof(ReasonCodeList),        // the envelope around reason_codes rows; a kind and its options, stored nowhere
         ];
 
         var declared = typeof(RecommendationEnvelope).Assembly.GetExportedTypes()

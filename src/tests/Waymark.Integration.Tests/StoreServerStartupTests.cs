@@ -146,6 +146,7 @@ public sealed class StoreServerStartupTests : IDisposable
             {
                 AssertHealthy(address);
                 AssertLookup(address, barcode);
+                AssertReasonCodes(address);
                 AssertSale(address, barcode, terminal, staff);
                 AssertExpiryEvaluation(address);
             },
@@ -211,6 +212,38 @@ public sealed class StoreServerStartupTests : IDisposable
         using var response = client.GetAsync(new Uri("/health", UriKind.Relative)).GetAwaiter().GetResult();
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("\"up\"", response.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Session A3 end to end on the real process: the generated store's own reason codes come
+    /// back through the endpoint, and a kind nobody knows is refused rather than answered with
+    /// an empty list. This is the only thing that proves the DI registration and the route
+    /// exist — every other A3 test calls the reader or the mapping directly.
+    /// </summary>
+    private static void AssertReasonCodes(Uri address)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+
+        using var listed = client.GetAsync(new Uri("/api/reason-codes?applies_to=discount", UriKind.Relative)).GetAwaiter().GetResult();
+        var body = listed.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(listed.StatusCode == HttpStatusCode.OK, $"The reason codes failed ({listed.StatusCode}):" + body);
+
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal("discount", json.RootElement.GetProperty("applies_to").GetString());
+
+        // The generator seeds discount reasons from its config, so an empty list here means
+        // the endpoint is reading something other than the store that was just imported.
+        var codes = json.RootElement.GetProperty("reason_codes");
+        Assert.True(codes.GetArrayLength() > 0, "The generated store offered no discount reasons: " + body);
+
+        foreach (var option in codes.EnumerateArray())
+        {
+            Assert.False(string.IsNullOrWhiteSpace(option.GetProperty("code").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(option.GetProperty("label_fr").GetString()));
+        }
+
+        using var nonsense = client.GetAsync(new Uri("/api/reason-codes?applies_to=nonsense", UriKind.Relative)).GetAwaiter().GetResult();
+        Assert.Equal(HttpStatusCode.BadRequest, nonsense.StatusCode);
     }
 
     /// <summary>

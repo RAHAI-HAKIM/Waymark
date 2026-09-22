@@ -6,8 +6,8 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 D-075, the promotional price rule is D-076, and the tests are written and red. Phase 0.5's
 recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
-**A1 is green**: `TvaRate.Resolve` written by Hakim, 1020 tests passing, 0 warnings. §9 is
-its reading guide.
+**A1 is green** (§9). **A3 is green and A2 is mid-handover** (§10): `StaffPermissions` and
+`StaffPin` are stubs and are ✍ Hakim's, with 18 red tests waiting. Everything else passes.
 
 ---
 
@@ -17,7 +17,7 @@ its reading guide.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1023 passing** in Debug and Release: Integration 436 · Generator 235 · Domain 172 · Pos 75 · Hardware 64 · Application 41 |
+| Tests | **1075: 1057 passing, 18 red on purpose** — Integration 468 · Generator 237 (1 red) · Domain 190 (17 red) · Pos 75 · Hardware 64 · Application 41. Every red one is A2's two stubs; see §10 |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -108,7 +108,7 @@ starting point is always code already reviewed. §7 below is the map.
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
-| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **A1 done** (§9). **A2 next** |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **A1 and A3 done** (§9, §10). **A2 mid-handover**; A4 needs gate G1 |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
@@ -432,3 +432,81 @@ drift.
   against this schema and are Admin catalogue guidance at **block E**. The reasoning is in
   D-075.
 - Nothing lists products selling on `standard_fallback` yet. That screen is **block E**.
+
+---
+
+## 10. Sessions A2 and A3, one commit
+
+**A3 is green. A2 is ✍ Hakim's and its tests are red on purpose.** The two share no file.
+
+### ✍ A2 — what to write
+
+Two stubs, both pure Domain, no database and no clock.
+
+**1. `Domain/Organisation/StaffPermissions.cs`** — permissions from `roles.rank`, no table
+(D-077 is yours to write). `RequiredRank(Capability)` maps each capability to a minimum rank;
+`May(long? staffRank, Capability)` answers whether somebody may do it.
+
+- **The trap is the comparison**, the same one that went in backwards in session D (D-074):
+  a cashier could decide a manager's card and an owner could not. Inverted here **nothing
+  refuses** — a cashier discounts, overrides and voids all day, every receipt prints, and the
+  first sign is the month's takings.
+- **The second trap is null.** A staff member who is not active, or whose role is not an
+  active row, has **no** rank. Zero would make them the most junior person in the shop rather
+  than an error, and a junior person is still somebody (D-037;
+  `RecommendationBoard.StaffAsync` already returns null for exactly this).
+- `Deciding_a_card_asks_the_same_question_CardAudience_does` holds the new rule against
+  D-074's. They are one comparison, and the test fails if they ever disagree — so
+  `CardAudience.MayDecide` is a candidate to become a caller rather than a twin.
+- The **ranks are yours**. The tests assert only that every capability has a positive one,
+  that an unmapped member throws rather than defaulting, and that the three actions the build
+  plan already calls manager-gated (B5's override, B8's void, `ICashDrawer`'s no-sale) ask
+  for more than the shop floor.
+- The `Capability` list is a starting set, every member justified by code that already exists.
+  Extend it as B4, B5 and B8 land.
+
+**2. `Domain/Organisation/StaffPin.cs`** — `IsUsable(storedHash)`, asked **before** any PIN is
+checked. False for `"synthetic:no-login"` and for anything absent or blank, true otherwise.
+It is deliberately **not** the verifier and knows no algorithm: the KDF is still your choice
+and belongs in infrastructure, since Domain has zero dependencies (§2.1). The danger is the
+shape of the mistake — a verifier that merely hashes the offered PIN and finds it unequal to
+the sentinel refuses today *by luck*, and starts accepting the day the stored format changes.
+`Waymark.Generator.Tests/SyntheticPinTests` holds the generator's constant and Domain's
+together, because nothing that ships may reference the generator (D-054).
+
+**Still yours to decide, and untested until you do:** whether a till login session is a row or
+in-memory in StoreServer (nothing in the schema holds one today; B10's clock in/out and I2's
+offline cache may want the row), and which KDF hashes a PIN.
+
+When it is green, **break it on purpose** (D-012): invert the comparison and watch
+`Exactly_the_required_rank_is_allowed_and_so_is_anything_above_it` and
+`Below_the_required_rank_is_refused` fail together; then make `May(null, …)` true and watch
+`No_rank_at_all_is_never_permission` fail.
+
+### A3 — what was built, in the order a reason travels
+
+1. **The port:** `Domain/Reference/IReasonCodes.cs`. `ForAsync(appliesTo)` → the active
+   reasons, ordered. `ReasonCodeChoice` carries `requires_note` and `requires_manager` and
+   decides nothing with either.
+2. **The reader:** `Persistence/Reference/ReasonCodes.cs`. Active only, `display_order` then
+   **code** — ties are otherwise returned in whatever order SQLite likes, and a dialog that
+   reshuffles is one a cashier stops reading. No store filter, because the vocabulary is the
+   tenant's, and the comment says so out loud.
+3. **The wire:** `Contracts/Reference/ReasonCodes.cs`, mapped by
+   `StoreServer/Reference/ReasonCodeWire.cs`. `ReasonCodeOption` mirrors `reason_codes` in
+   `ContractsMirrorTheSchemaTests`, with a reason for each of the four columns that stay behind.
+4. **The door:** `GET /api/reason-codes?applies_to=discount`. An unknown kind is a **400**,
+   not an empty list.
+5. **The proof:** `Integration.Tests/ReasonCodeTests.cs` (nine, against a real database),
+   `ReasonCodeWireTests.cs` (the mapping and every kind), and `AssertReasonCodes` inside
+   `StoreServerStartupTests` — the only thing that proves the DI and the route exist, run
+   against a real generated store on the real process.
+
+**Broken on purpose** (D-012), three mutations, each failing only what it should: dropping
+`IsActive` failed `A_retired_reason_is_not_offered`; dropping the code tie-break failed
+`Reasons_that_share_a_display_order_are_still_in_a_fixed_order`; dropping the kind filter
+failed three, including `A_reason_for_another_kind_never_appears`.
+
+**Deliberately not done:** no UI. The till's picker waits for gate **G1** and the A4 shell
+(§6), and B4, B5 and B8 are the consumers. Nothing enforces `requires_manager` yet — that is
+A2's rank check, and B4/B5 wire the two together.
