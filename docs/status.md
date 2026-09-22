@@ -17,7 +17,7 @@ its reading guide.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1020 passing**: Integration 433 · Generator 235 · Domain 172 · Pos 75 · Hardware 64 · Application 41 |
+| Tests | **1023 passing** in Debug and Release: Integration 436 · Generator 235 · Domain 172 · Pos 75 · Hardware 64 · Application 41 |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -47,6 +47,7 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
+| F-17 | Low | The number *29* is hardcoded into every count check, This seems to be edited at every schema change | `Waymark.Integration.Tests.TriggerApplicationTests.cs` | Saved for claude to answer outside phase01 sessions |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
 
 Phase 0.5's own findings were all closed inside the phase; `recaps/phase-0.5.md` §5 lists

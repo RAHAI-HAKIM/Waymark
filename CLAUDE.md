@@ -70,8 +70,8 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
-- **The TVA rate comes from `TvaRate.Resolve`, never from a query** (D-075). Categories that agree give their rate; **no category, a category with no rate, or categories that disagree all give the standard 19%** (`BasisPoints.StandardVat`), and a null forces the fallback even beside a stated rate. The fallback is recorded rather than silent. 
-- **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero and no `promotion_id` is written. The `promotions` tables are block B4's.
+- **The TVA rate comes from `TvaRate.Resolve`**, never from a query (D-075): categories that agree give their rate; none, a null, or a disagreement gives 19% marked `StandardFallback`.
+- **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero. The `promotions` tables are B4's.
 - **TVA is extracted per line from the TTC price by subtraction**: `ht = round(ttc/(1+r))`, then `tva = ttc − ht`. Never round `tva` independently (D-033). Displayed prices are TTC under Law No. 04-02.
 - **Division by zero throws**, always; callers expecting zero use the nullable variant. **Absence is never zero** (D-037).
 - Almanac always uses `HalfEven`, stores full precision, rounds at display only.
@@ -207,6 +207,7 @@ figures round `HalfEven` whatever the store's own policy is.
 
 - **Tasks are small and scoped.** If one seems to need an architecture decision, stop and ask.
 - **Every non-obvious choice gets an entry in `/docs/decisions.md`** — what, why, what was rejected. One paragraph.
+- **Write documents short enough to be read.** A fact lives in **one** file; the others cite its number. **This file is the rule, never the argument**: one line each, **250 lines total**, and no detail `decisions.md` already carries. A rule that needs a paragraph to state belongs in its decision; a walkthrough belongs in `status.md`.
 - **Nothing merges that cannot be explained** to a sceptical judge asking why the safety-stock formula uses that z-score. "Roughly understood" fails.
 - **Needs Hakim's decision, not a best guess**: schema and migrations · the tier 1→2 boundary and the pseudonym scheme · sync conflict rules · the recommendation envelope and Integration Layer contract · engine method selection, cold-start fallbacks, intervals · anything the DPIA promises. Money and stock arithmetic are settled (D-031…D-037); changing one is a new decision.
 
@@ -240,18 +241,6 @@ logic. **Low priority:** UI rendering, CRUD screens, styling.
 
 ## 10. Reference documents
 
-| Document | Authority on |
-| :---- | :---- |
-| `Waymark_Operating_Rules` | Commercial, legal, privacy. **Wins over everything** |
-| `Waymark_DPIA_v1` | What is promised to the regulator |
-| `/docs/decisions.md` | Every non-obvious choice, what was rejected, open questions. Beats the three below on anything decided later |
-| `System_Architecture` | Module design: operations, statistics, engine, Integration Layer |
-| `Waymark_Implementation` | How the software is built |
-| `/docs/sync-design.md` | Sync, intents, erasure, transport |
-| `Waymark_Build_Plan` | Phase contents and definitions of done |
-| `/docs/phase-1-plan.md` | How Phase 1 is executed: pace, who writes what, the session backlog and what each session expands |
-| `/docs/status.md` | Where things stand, findings register, next steps |
-| `/docs/recaps/` | One snapshot per finished phase. Only when needed, never at session start |
-| `src/Waymark.Generator/README.md` | How the synthetic store generator works, its parameters, and using it in later phases |
-| `/docs/schema-changes.md` | How to change the schema without breaking it |
-| `/docs/diagrams` | The eight architecture diagrams |
+**`/docs/README.md` is the index**: which document answers which question, which wins when two
+disagree, and where new writing goes. `Waymark_Operating_Rules` beats everything;
+`/docs/decisions.md` beats the design documents on anything decided later.

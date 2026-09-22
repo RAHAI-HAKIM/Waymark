@@ -546,6 +546,19 @@ cashier would see nothing at all.
 does not demo this; teaching it to would change every canonical dump. Picked up at **E2**,
 where price-in-force gets an Admin surface.
 
+### D-078 — The append-only triggers are applied in one transaction (closes F-16)
+`ApplyTriggers` ran one `ExecuteSqlRaw` per trigger, and outside a transaction SQLite makes
+every statement its own durable commit: 29 triggers, 29 fsyncs on an encrypted file. It is
+unmeasurable on an SSD and cost 270–1240 ms each on a CI runner's disk, which timed out
+StoreServer's startup twice. **This path runs on every StoreServer start, not just the
+first** (§3.7), so a till on a slow disk paid it every morning. The loop now runs in one
+transaction, and joins the caller's if there is one — `Migrate()` still must stay outside a
+transaction, which `MigrateAndApplyTriggers` checks before it runs. It also makes the set
+atomic: a crash part-way no longer leaves some append-only guards installed and the rest
+missing. **Rejected:** raising the test's 90 s timeout, which hides a 30 s till startup; and
+skipping triggers already present, which would weaken "re-applied idempotently" into
+"re-applied when we think it is needed" — revisit if startup is still slow.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

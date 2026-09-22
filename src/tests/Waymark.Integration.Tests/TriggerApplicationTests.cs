@@ -1,5 +1,7 @@
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Waymark.Domain;
 using Waymark.Domain.Values;
 using Waymark.Persistence;
@@ -28,11 +30,17 @@ public sealed class TriggerApplicationTests : IDisposable
         Directory.CreateDirectory(_directory);
     }
 
-    private WaymarkDbContext NewContext(string name)
+    private WaymarkDbContext NewContext(string name, IInterceptor? interceptor = null)
     {
-        var options = new DbContextOptionsBuilder<WaymarkDbContext>()
-            .UseWaymarkSqlite(Path.Combine(_directory, name), keyProvider: null, enforceForeignKeys: false)
-            .Options;
+        var builder = new DbContextOptionsBuilder<WaymarkDbContext>()
+            .UseWaymarkSqlite(Path.Combine(_directory, name), keyProvider: null, enforceForeignKeys: false);
+
+        if (interceptor is not null)
+        {
+            builder = builder.AddInterceptors(interceptor);
+        }
+
+        var options = builder.Options;
 
         // No store: this suite is about triggers, which the store filter does
         // not touch.
@@ -40,6 +48,19 @@ public sealed class TriggerApplicationTests : IDisposable
             options,
             new FixedCurrentStore(null),
             new FixedLedgerCurrency(Currency.Dzd));
+    }
+
+    /// <summary>
+    /// Counts the transactions EF is asked to commit. Applying each trigger on its own leaves
+    /// this at zero, because SQLite commits every loose statement itself and EF never opens a
+    /// transaction at all; one explicit transaction around the set leaves it at one.
+    /// </summary>
+    private sealed class CommitCounter : DbTransactionInterceptor
+    {
+        public int Commits { get; private set; }
+
+        public override void TransactionCommitted(DbTransaction transaction, TransactionEndEventData eventData) =>
+            Commits++;
     }
 
     private static int CountTriggers(WaymarkDbContext context) =>
@@ -121,6 +142,64 @@ public sealed class TriggerApplicationTests : IDisposable
 
         Assert.Empty(context.FindMissingTriggers());
         Assert.Equal(29, CountTriggers(context));
+    }
+
+    // ------------------------------------------- one transaction (F-16)
+
+    [Fact]
+    public void The_whole_set_is_applied_in_one_transaction()
+    {
+        // 29 triggers applied one statement at a time are 29 durable commits.
+        // That is invisible on an SSD and cost a CI run 90 seconds of startup on
+        // a slow disk, on a path that runs at every StoreServer start. The guard
+        // is that ApplyTriggers opens exactly one transaction and commits once.
+        var counter = new CommitCounter();
+        using var context = NewContext("one-transaction.db", counter);
+        context.Database.Migrate();
+        var afterMigrate = counter.Commits;
+
+        context.ApplyTriggers();
+
+        Assert.Equal(afterMigrate + 1, counter.Commits);
+        Assert.Equal(29, CountTriggers(context));
+    }
+
+    [Fact]
+    public void A_caller_that_already_has_a_transaction_keeps_it()
+    {
+        // The fixtures call ApplyTriggers directly, and a caller may be inside a
+        // transaction of its own. Opening a second one would throw, so the
+        // method joins rather than begins, and does not commit what it did not
+        // start.
+        using var context = NewContext("ambient.db");
+        context.Database.Migrate();
+
+        using var transaction = context.Database.BeginTransaction();
+        context.ApplyTriggers();
+
+        Assert.NotNull(context.Database.CurrentTransaction);
+        transaction.Commit();
+
+        Assert.Equal(29, CountTriggers(context));
+        Assert.Empty(context.FindMissingTriggers());
+    }
+
+    [Fact]
+    public void A_rolled_back_caller_leaves_no_triggers_behind()
+    {
+        // The atomicity the single transaction buys: all of the guards or none,
+        // never a database carrying half its append-only protection while
+        // looking migrated.
+        using var context = NewContext("rollback.db");
+        context.Database.Migrate();
+
+        using (var transaction = context.Database.BeginTransaction())
+        {
+            context.ApplyTriggers();
+            transaction.Rollback();
+        }
+
+        Assert.Equal(0, CountTriggers(context));
     }
 
     [Fact]

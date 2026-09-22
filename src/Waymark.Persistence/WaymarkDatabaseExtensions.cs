@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace Waymark.Persistence;
@@ -96,16 +97,41 @@ public static class WaymarkDatabaseExtensions
 
         var tables = ExistingTables(context);
 
-        foreach (var trigger in TriggerScript.DeclaredTriggers())
+        // One transaction for all of them, never one each (F-16). Outside a
+        // transaction SQLite makes every statement its own durable commit, so
+        // 29 triggers cost 29 fsyncs on an encrypted file: unmeasurable on an
+        // SSD, 270-1240 ms apiece on a slow disk, and this runs on every
+        // StoreServer start, not just the first. It also makes the set atomic,
+        // so a crash part-way no longer leaves some append-only guards
+        // installed and the rest missing.
+        //
+        // A caller that already has one keeps it. Migrate() must stay outside a
+        // transaction (CLAUDE.md 3.7), which is why MigrateAndApplyTriggers
+        // refuses an ambient one before it runs; ApplyTriggers on its own has no
+        // such constraint, and the fixtures call it directly.
+        var owned = context.Database.CurrentTransaction is null
+            ? context.Database.BeginTransaction()
+            : null;
+
+        try
         {
-            if (!tables.Contains(trigger.Table))
+            foreach (var trigger in TriggerScript.DeclaredTriggers())
             {
-                continue;
-            }
+                if (!tables.Contains(trigger.Table))
+                {
+                    continue;
+                }
 
 #pragma warning disable EF1002 // The script is an embedded constant, not input.
-            context.Database.ExecuteSqlRaw(trigger.Sql);
+                context.Database.ExecuteSqlRaw(trigger.Sql);
 #pragma warning restore EF1002
+            }
+
+            owned?.Commit();
+        }
+        finally
+        {
+            owned?.Dispose();
         }
     }
 
