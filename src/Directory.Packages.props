@@ -50,11 +50,11 @@
         has no 12.x release yet, which says the same thing.
         Revisit when 12.x has a track record. -->
   <ItemGroup Label="POS">
-    <PackageVersion Include="Avalonia" Version="11.3.20" />
-    <PackageVersion Include="Avalonia.Desktop" Version="11.3.20" />
-    <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.20" />
-    <PackageVersion Include="Avalonia.Fonts.Inter" Version="11.3.20" />
-    <PackageVersion Include="Avalonia.Diagnostics" Version="11.3.20" />
+    <PackageVersion Include="Avalonia" Version="12.1.2" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.1.2" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.2" />
+    <PackageVersion Include="Avalonia.Diagnostics" Version="11.3.22" />
   </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />

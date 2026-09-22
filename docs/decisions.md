@@ -470,12 +470,26 @@ the card's move to `decided` commit together, and accepting applies nothing.
 
 ---
 
+# **Phase 1**
+
+### D-075 — When a product's classifications conflict or fall into an undefined category, the Standard TVA rate applies
+The system in Algeria (and in EU), uses a **Catch-all** rule, Article 21 and 23 of the CTCA declare that
+the 9% reduced rate is strictly a restrictive list reserved for specific essential goods,
+pharmaceutical items, and social or economic services. If a product isn't perfectly matched to that 9% list,
+or if its category is unclear, It will be defaulted to the Standard 19% rate.
+
+| Scenario | Rule Applied | Outcome |
+| :---- | :---- | :---- |
+| Composite Supply (One item is dominant, the other is secondary) | Principal vs. Ancillary Rule | The entire product takes the VAT rate of the main (dominant) item. The secondary item is ignored for tax purposes. |
+| Mixed Supply (Separate, distinct items sold together) | Unbundling / Apportionment Rule | The tax must be split proportionally based on the value of each distinct component, applying their respective rates. |
+| Indivisible Mixed Supply (Items cannot be split or valued separately) | Highest Rate Rule | If a business refuses or is unable to split the valuation of an indivisible mixed package, the highest applicable rate among those categories is charged on the whole bundle. |
+| Undefined / Category Disagreement | Standard Catch-All Rule | If the product defies clean classification or one potential category has no specified rate, the Standard Rate must be applied. |
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
 | O-23 | **How is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is: a separate key, derived or its own, has to be chosen, with its custody (D-057) and its place in the backup set | The real tier-2 writer, Phase 2 (0.5 stubs it, D-065). Until then the DPIA states the gap (§5.4) |
-| O-24 | **Which TVA rate applies to a product whose categories disagree, or when one has no rate?** The skeleton refuses both (D-066) | A product can sit in several categories (`product_category`), and `categories.tax_rate` is nullable. Candidates: the primary category's rate (`is_primary`), a rate on the product or variant itself, or refusing until the catalogue is fixed. A wrong pick misstates TVA on every receipt, silently | **Phase 1 session A1**, which cannot start without it (`phase-1-plan.md` §6). Checkout and catalogue management both rest on it |
 
 ### Resolved
 | Open | Resolved by |
