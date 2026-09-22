@@ -182,8 +182,6 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         NotSellableReason.NoCurrentPrice => "No price is in force for this product today.",
         NotSellableReason.PriceNotTaxInclusive => "Its price is recorded without tax (HT); the till sells TTC prices only.",
         NotSellableReason.Archived => "This product is archived.",
-        NotSellableReason.NoTaxRate => "Its category has no TVA rate.",
-        NotSellableReason.ConflictingTaxRates => "Its categories disagree on the TVA rate.",
         NotSellableReason.Weighted => "It is sold by weight, which the till does not handle yet.",
         _ => $"Not sellable ({reason}).",
     };

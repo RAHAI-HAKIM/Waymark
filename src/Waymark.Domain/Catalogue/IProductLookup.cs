@@ -32,7 +32,17 @@ public abstract record ProductLookupResult
     public sealed record NotSellable(NotSellableReason Reason) : ProductLookupResult;
 }
 
-/// <summary>Why a known variant may not be sold. Hakim's spec for hop 1 (D-066).</summary>
+/// <summary>
+/// Why a known variant may not be sold. Hakim's spec for hop 1 (D-066).
+///
+/// <para>
+/// <b>There is no TVA reason here any more.</b> <c>NoTaxRate</c> and
+/// <c>ConflictingTaxRates</c> were hop 1's two refusals while O-24 was open. D-075 answers it
+/// with a rate rather than a refusal, so neither state can occur, and a refusal the till can
+/// never receive is a lie in the contract. What the catalogue failed to say is carried
+/// instead by <see cref="ProductForSale.TvaRateSource"/>, on a product that sells.
+/// </para>
+/// </summary>
 public enum NotSellableReason
 {
     /// <summary>No retail price in force for this store today. Never sold at zero (D-037).</summary>
@@ -43,12 +53,6 @@ public enum NotSellableReason
 
     /// <summary>The variant is archived. A discontinued one still sells its remaining stock.</summary>
     Archived,
-
-    /// <summary>None of the product's categories carries a TVA rate. Absence is not zero.</summary>
-    NoTaxRate,
-
-    /// <summary>The product's categories carry different TVA rates (O-24 decides the real rule).</summary>
-    ConflictingTaxRates,
 
     /// <summary>Sold by weight: scales and weight-embedded codes are Phase 1.</summary>
     Weighted,
@@ -61,7 +65,16 @@ public enum NotSellableReason
 /// <param name="VariantName">For the cart line.</param>
 /// <param name="Unit">The selling unit and how many decimals a quantity in it may have.</param>
 /// <param name="TvaRate">The rate TVA is extracted at, from the TTC price (D-033).</param>
-/// <param name="PriceTtc">The retail price in force today, tax included.</param>
+/// <param name="TvaRateSource">
+/// Whether the catalogue gave that rate or D-075's catch-all did. Nothing at the till acts on
+/// it; it travels so Admin can list every product selling on the fallback (block E).
+/// </param>
+/// <param name="PriceTtc">The price in force today, tax included: promotional if one is in
+/// force, otherwise retail (D-076).</param>
+/// <param name="IsPromotionalPrice">
+/// True when <paramref name="PriceTtc"/> came from a <c>promotional</c> row rather than a
+/// <c>retail</c> one. The cashier is told, because customers ask.
+/// </param>
 /// <param name="StockOnHand">
 /// This store's level across its batches. Zero or negative is a warning at the
 /// till, never a refusal (CLAUDE.md §3.8).
@@ -73,5 +86,7 @@ public sealed record ProductForSale(
     string VariantName,
     UnitPrecision Unit,
     BasisPoints TvaRate,
+    TvaRateSource TvaRateSource,
     Money PriceTtc,
+    bool IsPromotionalPrice,
     Quantity StockOnHand);

@@ -38,11 +38,13 @@ public sealed class TillSessionTests
         }
     }
 
-    private static LookupAnswer.Answered Found(string code, string variantId, string price = "120.50", string stock = "10") =>
+    private static LookupAnswer.Answered Found(
+        string code, string variantId, string price = "120.50", string stock = "10", bool promotional = false) =>
         new LookupAnswer.Answered(new ProductLookup(
             ProductLookupOutcome.Found,
             code,
-            new ProductForSale(variantId, "p-" + variantId, "Lait", "1L", "pc", 0, 1_900, price, "DZD", stock),
+            new ProductForSale(variantId, "p-" + variantId, "Lait", "1L", "pc", 0, 1_900,
+                TvaRateSource.FromCategory, price, "DZD", promotional, stock),
             Reason: null));
 
     private static LookupAnswer.Answered Unknown(string code) =>

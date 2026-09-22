@@ -51,8 +51,20 @@ public sealed class Cart
 
         var index = _lines.FindIndex(line => line.VariantId == product.VariantId);
         var line = index < 0
-            ? new CartLine(product.VariantId, barcode, product.ProductName, product.VariantName, product.SellingUnitCode, price, 1, stock)
-            : _lines[index] with { UnitPrice = price, Count = _lines[index].Count + 1, StockOnHand = stock };
+            ? new CartLine(
+                product.VariantId, barcode, product.ProductName, product.VariantName,
+                product.SellingUnitCode, price, 1, stock, product.IsPromotionalPrice)
+            : _lines[index] with
+            {
+                UnitPrice = price,
+                Count = _lines[index].Count + 1,
+                StockOnHand = stock,
+
+                // Taken from this answer like the price and the level: a
+                // promotion that started or ended between two scans of the same
+                // product must not leave the line labelled by the first scan.
+                IsPromotionalPrice = product.IsPromotionalPrice,
+            };
 
         if (index < 0)
         {
@@ -75,6 +87,11 @@ public sealed class Cart
 
 /// <summary>One product in the cart, however many times it was scanned.</summary>
 /// <param name="Barcode">The code scanned for it: what the sale sends, never the price (D-070).</param>
+/// <param name="IsPromotionalPrice">
+/// The unit price came from a promotional row rather than a retail one (D-076). Shown to the
+/// cashier because customers ask; it changes no arithmetic, because a promotional price is
+/// the price and not a discount taken off one.
+/// </param>
 public sealed record CartLine(
     string VariantId,
     string Barcode,
@@ -83,7 +100,8 @@ public sealed record CartLine(
     string UnitCode,
     Money UnitPrice,
     int Count,
-    Quantity StockOnHand)
+    Quantity StockOnHand,
+    bool IsPromotionalPrice = false)
 {
     /// <summary>How much of the product the line holds, in its selling unit.</summary>
     public Quantity Quantity => Domain.Values.Quantity.FromThousandths(checked(Count * (long)Domain.Values.Quantity.Scale), UnitCode);

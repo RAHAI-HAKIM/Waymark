@@ -234,7 +234,9 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
         Assert.Equal("Brique 1L", product.VariantName);
         Assert.Equal(UnitPrecision.For(shop.UnitCode, 0), product.Unit);
         Assert.Equal(BasisPoints.StandardVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.FromCategory, product.TvaRateSource);
         Assert.Equal(Dzd(12_000), product.PriceTtc);
+        Assert.False(product.IsPromotionalPrice);
         Assert.Equal(Quantity.FromThousandths(24 * Quantity.Scale, shop.UnitCode), product.StockOnHand);
     }
 
@@ -310,22 +312,122 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
         Assert.Equal(Dzd(13_000), (await shop.Found(today: Tomorrow)).PriceTtc);
     }
 
+    // ------------------------------------------ the promotional price (D-076)
+
     [Fact]
-    public async Task A_promotional_price_is_ignored_in_the_skeleton()
+    public async Task A_promotional_price_in_force_beats_the_retail_price()
     {
+        // The skeleton ignored promotional rows. Inverted, this sells at full price through
+        // a promotion the shelf edge advertises: the total adds up, the drawer reconciles,
+        // and the customer is overcharged.
         var shop = new Shop(database)
             .Price(LastMonth, 12_000)
             .Price(Yesterday, 9_000, type: PriceType.Promotional);
 
-        Assert.Equal(Dzd(12_000), (await shop.Found()).PriceTtc);
+        var product = await shop.Found();
+
+        Assert.Equal(Dzd(9_000), product.PriceTtc);
+        Assert.True(product.IsPromotionalPrice);
     }
 
     [Fact]
-    public async Task A_promotional_price_alone_is_no_price()
+    public async Task A_promotional_price_alone_is_a_price()
     {
         var shop = new Shop(database).Price(Yesterday, 9_000, type: PriceType.Promotional);
 
-        Assert.Equal(NotSellableReason.NoCurrentPrice, await shop.Refused());
+        var product = await shop.Found();
+
+        Assert.Equal(Dzd(9_000), product.PriceTtc);
+        Assert.True(product.IsPromotionalPrice);
+    }
+
+    [Fact]
+    public async Task A_retail_price_alone_is_not_promotional()
+    {
+        var product = await new Shop(database).Price(LastMonth, 12_000).Found();
+
+        Assert.False(product.IsPromotionalPrice);
+    }
+
+    [Fact]
+    public async Task A_promotion_that_has_ended_leaves_the_retail_price()
+    {
+        // valid_to is exclusive here too: a promotion ending today ended yesterday.
+        var shop = new Shop(database)
+            .Price(LastMonth, 12_000)
+            .Price(LastMonth, 9_000, to: Today, type: PriceType.Promotional);
+
+        var product = await shop.Found();
+
+        Assert.Equal(Dzd(12_000), product.PriceTtc);
+        Assert.False(product.IsPromotionalPrice);
+    }
+
+    [Fact]
+    public async Task A_promotion_that_starts_tomorrow_leaves_the_retail_price()
+    {
+        var shop = new Shop(database)
+            .Price(LastMonth, 12_000)
+            .Price(Tomorrow, 9_000, type: PriceType.Promotional);
+
+        var product = await shop.Found();
+
+        Assert.Equal(Dzd(12_000), product.PriceTtc);
+        Assert.False(product.IsPromotionalPrice);
+    }
+
+    [Fact]
+    public async Task Of_two_promotions_in_force_the_latest_start_wins()
+    {
+        var shop = new Shop(database)
+            .Price(LastMonth, 12_000)
+            .Price(LastMonth, 9_000, type: PriceType.Promotional)
+            .Price(Yesterday, 8_500, type: PriceType.Promotional);
+
+        Assert.Equal(Dzd(8_500), (await shop.Found()).PriceTtc);
+    }
+
+    [Fact]
+    public async Task A_promotion_above_the_retail_price_is_still_the_price()
+    {
+        // A data error, and taken as written anyway. Quietly applying the lower of the two
+        // would be a rule nobody can see in the row, and the shop would never learn that its
+        // promotion is wrong (D-076).
+        var shop = new Shop(database)
+            .Price(LastMonth, 12_000)
+            .Price(Yesterday, 13_000, type: PriceType.Promotional);
+
+        var product = await shop.Found();
+
+        Assert.Equal(Dzd(13_000), product.PriceTtc);
+        Assert.True(product.IsPromotionalPrice);
+    }
+
+    [Fact]
+    public async Task A_promotional_price_that_is_ht_is_refused_rather_than_falling_back()
+    {
+        // Falling back to the retail row here would charge the full price for a product the
+        // shelf edge has on promotion, and the cashier would see nothing at all.
+        var shop = new Shop(database)
+            .Price(LastMonth, 12_000)
+            .Price(Yesterday, 9_000, type: PriceType.Promotional, taxInclusive: false);
+
+        Assert.Equal(NotSellableReason.PriceNotTaxInclusive, await shop.Refused());
+    }
+
+    [Fact]
+    public async Task Another_stores_promotion_is_invisible()
+    {
+        // The global filter, on the row that now decides the price (CLAUDE.md 3.3). The
+        // second store is the one the Shop built beside this one: a store id that is not a
+        // row fails the foreign key long before the filter is ever asked.
+        var shop = new Shop(database).Price(LastMonth, 12_000);
+        shop.Price(Yesterday, 9_000, type: PriceType.Promotional, storeId: shop.OtherStoreId);
+
+        var product = await shop.Found();
+
+        Assert.Equal(Dzd(12_000), product.PriceTtc);
+        Assert.False(product.IsPromotionalPrice);
     }
 
     [Fact]
@@ -404,40 +506,19 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
 
     // ------------------------------------------------------- the TVA rate
 
+    // The rule itself is Domain's and is argued with in TvaRateTests, which opens no
+    // database. These check that the query hands it the right facts: nulls kept, agreement
+    // preserved, and the source carried through to the till.
+
     [Fact]
     public async Task The_rate_comes_from_the_products_category()
     {
         var shop = new Shop(database, categoryRates: [900]).Price(LastMonth, 12_000);
 
-        Assert.Equal(BasisPoints.ReducedVat, (await shop.Found()).TvaRate);
-    }
+        var product = await shop.Found();
 
-    [Fact]
-    public async Task A_category_without_a_rate_is_not_sellable_rather_than_untaxed()
-    {
-        // Absence is not zero: a null tax_rate read as 0% would sell a taxed
-        // product with no TVA on the receipt.
-        var shop = new Shop(database, categoryRates: [null]).Price(LastMonth, 12_000);
-
-        Assert.Equal(NotSellableReason.NoTaxRate, await shop.Refused());
-    }
-
-    [Fact]
-    public async Task A_product_in_no_category_has_no_rate()
-    {
-        var shop = new Shop(database, categoryRates: []).Price(LastMonth, 12_000);
-
-        Assert.Equal(NotSellableReason.NoTaxRate, await shop.Refused());
-    }
-
-    [Fact]
-    public async Task Two_categories_with_different_rates_conflict()
-    {
-        // Which one is right is O-24's question. Until it is answered, the till
-        // refuses rather than picks.
-        var shop = new Shop(database, categoryRates: [1_900, 900]).Price(LastMonth, 12_000);
-
-        Assert.Equal(NotSellableReason.ConflictingTaxRates, await shop.Refused());
+        Assert.Equal(BasisPoints.ReducedVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.FromCategory, product.TvaRateSource);
     }
 
     [Fact]
@@ -445,7 +526,74 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
     {
         var shop = new Shop(database, categoryRates: [1_900, 1_900]).Price(LastMonth, 12_000);
 
-        Assert.Equal(BasisPoints.StandardVat, (await shop.Found()).TvaRate);
+        var product = await shop.Found();
+
+        Assert.Equal(BasisPoints.StandardVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.FromCategory, product.TvaRateSource);
+    }
+
+    [Fact]
+    public async Task A_category_without_a_rate_sells_at_the_standard_rate_and_says_so()
+    {
+        // D-075's catch-all replaces hop 1's refusal. The sale goes through, and the only
+        // trace that the catalogue is wrong is the source — which is why it is on the wire.
+        var shop = new Shop(database, categoryRates: [null]).Price(LastMonth, 12_000);
+
+        var product = await shop.Found();
+
+        Assert.Equal(BasisPoints.StandardVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.StandardFallback, product.TvaRateSource);
+    }
+
+    [Fact]
+    public async Task A_product_in_no_category_sells_at_the_standard_rate()
+    {
+        var shop = new Shop(database, categoryRates: []).Price(LastMonth, 12_000);
+
+        var product = await shop.Found();
+
+        Assert.Equal(BasisPoints.StandardVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.StandardFallback, product.TvaRateSource);
+    }
+
+    [Fact]
+    public async Task Two_categories_that_disagree_sell_at_the_standard_rate()
+    {
+        var shop = new Shop(database, categoryRates: [1_900, 900]).Price(LastMonth, 12_000);
+
+        var product = await shop.Found();
+
+        Assert.Equal(BasisPoints.StandardVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.StandardFallback, product.TvaRateSource);
+    }
+
+    [Fact]
+    public async Task A_silent_category_beside_a_reduced_one_reaches_the_rule_as_a_null()
+    {
+        // The query's own trap. The skeleton dropped nulls before counting, which would make
+        // this product agree on 9% and sell 10 points of TVA short on every receipt. The
+        // rule can only rule on what the query gives it, so the null has to survive the
+        // join, the Distinct and the projection to get here.
+        var shop = new Shop(database, categoryRates: [900, null]).Price(LastMonth, 12_000);
+
+        var product = await shop.Found();
+
+        Assert.Equal(BasisPoints.StandardVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.StandardFallback, product.TvaRateSource);
+    }
+
+    [Fact]
+    public async Task Distinct_does_not_collapse_a_null_away()
+    {
+        // Three categories, two of them silent: SQL's DISTINCT keeps one null, which is all
+        // the rule needs. If the projection ever drops nulls to make Distinct tidy, this is
+        // the test that notices.
+        var shop = new Shop(database, categoryRates: [null, null, 900]).Price(LastMonth, 12_000);
+
+        var product = await shop.Found();
+
+        Assert.Equal(BasisPoints.StandardVat, product.TvaRate);
+        Assert.Equal(TvaRateSource.StandardFallback, product.TvaRateSource);
     }
 
     [Fact]

@@ -61,7 +61,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 
 ## 3. Data rules
 
-### 3.1 Money — D-031…D-035, D-037
+### 3.1 Money — D-031…D-035, D-037, D-075, D-076
 
 - Monetary columns are `INTEGER` minor units, 1/100 of a currency unit for every currency. **Never `REAL`, never `TEXT`.**
 - C# side is always `Money`. Never `double` or `float` for money, quantity, or anything summed.
@@ -70,6 +70,8 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
+- **The TVA rate comes from `TvaRate.Resolve`, never from a query** (D-075). Categories that agree give their rate; **no category, a category with no rate, or categories that disagree all give the standard 19%** (`BasisPoints.StandardVat`), and a null forces the fallback even beside a stated rate. The fallback is recorded rather than silent. 
+- **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero and no `promotion_id` is written. The `promotions` tables are block B4's.
 - **TVA is extracted per line from the TTC price by subtraction**: `ht = round(ttc/(1+r))`, then `tva = ttc − ht`. Never round `tva` independently (D-033). Displayed prices are TTC under Law No. 04-02.
 - **Division by zero throws**, always; callers expecting zero use the nullable variant. **Absence is never zero** (D-037).
 - Almanac always uses `HalfEven`, stores full precision, rounds at display only.

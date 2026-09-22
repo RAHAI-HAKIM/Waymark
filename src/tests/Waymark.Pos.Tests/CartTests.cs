@@ -12,8 +12,10 @@ namespace Waymark.Pos.Tests;
 public sealed class CartTests
 {
     private static ProductForSale Product(
-        string variantId = "v1", string price = "120.50", string stock = "10", string currency = "DZD") =>
-        new(variantId, "p-" + variantId, "Lait UHT Candia", "Brique 1L", "pc", 0, 1_900, price, currency, stock);
+        string variantId = "v1", string price = "120.50", string stock = "10", string currency = "DZD",
+        bool promotional = false) =>
+        new(variantId, "p-" + variantId, "Lait UHT Candia", "Brique 1L", "pc", 0, 1_900,
+            TvaRateSource.FromCategory, price, currency, promotional, stock);
 
     private static Money Dzd(long minorUnits) => Money.FromMinorUnits(minorUnits, Currency.Dzd);
 
@@ -159,6 +161,32 @@ public sealed class CartTests
         var line = cart.Add(Product(stock: "4"), "6130000000017");
 
         Assert.Equal(Quantity.FromThousandths(4_000, "pc"), line.StockOnHand);
+    }
+
+    // ------------------------------------------- the promotional label (D-076)
+
+    [Fact]
+    public void A_line_says_when_its_price_is_promotional()
+    {
+        var cart = new Cart();
+
+        var line = cart.Add(Product(price: "90.00", promotional: true), "6130000000017");
+
+        Assert.True(line.IsPromotionalPrice);
+        Assert.Equal(Dzd(9_000), line.LineTotal);
+    }
+
+    [Fact]
+    public void A_promotion_that_ended_between_two_scans_unlabels_the_line()
+    {
+        // The label is taken from the latest answer, like the price and the level. Keeping
+        // the first scan's label would print PROMOTIONAL PRICE beside the retail price.
+        var cart = new Cart();
+        cart.Add(Product(price: "90.00", promotional: true), "6130000000017");
+
+        var line = cart.Add(Product(price: "120.50", promotional: false), "6130000000017");
+
+        Assert.False(line.IsPromotionalPrice);
     }
 
     // ------------------------------------------------------ the stock notice

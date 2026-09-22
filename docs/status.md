@@ -2,10 +2,12 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**21/09/2026**: **Phase 0.5 is closed** — its recap is `recaps/phase-0.5.md`, its decisions
-are collapsed to titles in `decisions.md`, and CLAUDE.md §3.3 has been corrected now that
-writes are store-checked. **Phase 1 opens 22/09/2026**, planned in `phase-1-plan.md`.
-Nothing is in flight; the next session is **A1**, and it needs **O-24** answered first.
+**22/09/2026**: **Phase 1 is open** and **session A1 is in flight** — O-24 is answered by
+D-075, the promotional price rule is D-076, and the tests are written and red. Phase 0.5's
+recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+
+**A1 is green**: `TvaRate.Resolve` written by Hakim, 1020 tests passing, 0 warnings. §9 is
+its reading guide.
 
 ---
 
@@ -14,8 +16,8 @@ Nothing is in flight; the next session is **A1**, and it needs **O-24** answered
 | | |
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
-| Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**, Debug and Release. No vulnerable package |
-| Tests | **995 passing**: Domain 161 · Integration 421 · Generator 235 · Hardware 64 · Application 41 · Pos 73 |
+| Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
+| Tests | **1020 passing**: Integration 433 · Generator 235 · Domain 172 · Pos 75 · Hardware 64 · Application 41 |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -45,7 +47,7 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
-| F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else |
+| F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
 
 Phase 0.5's own findings were all closed inside the phase; `recaps/phase-0.5.md` §5 lists
 them and what settled each.
@@ -56,7 +58,6 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 
 | # | Question | Disposition |
 | :---- | :---- | :---- |
-| **O-24** | **Which TVA rate applies when a product's categories disagree, or one has no rate?** | ⛔ **Blocks session A1**, the first session of Phase 1. The skeleton refuses both cases (D-066). Candidates: the primary category's rate, a rate on the product or variant itself, or refusing until the catalogue is fixed. A wrong pick misstates TVA on every receipt, silently |
 | O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
 
 ---
@@ -106,7 +107,7 @@ starting point is always code already reviewed. §7 below is the map.
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
-| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **Next.** A1 is blocked on O-24 |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **A1 done** (§9). **A2 next** |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
@@ -361,3 +362,72 @@ table; this is the short form.
 | Schema and migrations | Reads the generated `Up()` before it runs | Generates, verifies, regenerates `schema_current.sql` |
 | Design | **Brings the design** before any screen is built | Reviews it against CLAUDE.md §6, then builds |
 | UI, CRUD, glue, scaffolding | Reviews the result | Writes |
+
+---
+
+## 9. Session A1, read in the order a barcode is priced
+
+**In flight, 22/09/2026.** O-24 answered by D-075; the promotional price rule is D-076. It
+expands `Persistence/Catalogue/ProductLookup.cs` (D-066) — steps 3 and 4 of the five.
+
+### ✍ Hakim's piece
+
+**`Domain/Catalogue/TvaRate.cs`** — one function, `Resolve`, pure, no database and no clock,
+on the `NearExpiry` model (D-073). The class comment states D-075's four cases and the trap;
+`TvaRateTests.cs` argues each one separately. In short:
+
+1. one distinct rate and no category silent → that rate, `FromCategory`;
+2. no categories → 19%, `StandardFallback`;
+3. **any null among the rates** → 19%, `StandardFallback`, *even beside a stated rate*;
+4. two or more distinct rates → 19%, `StandardFallback`.
+
+**The trap is case 1.** Before D-075 a product whose categories disagreed was refused at the
+till and somebody fixed the catalogue; now it sells. Written one step too wide, the fallback
+fires on products whose categories agreed, and every 9% line in the shop — bread, milk,
+pharmacy — is taxed at 19%. Every receipt still recomputes from its own row and every total
+still adds up. The second trap is the source: deriving it from the rate makes
+`The_standard_rate_stated_by_a_category_is_not_the_fallback` pass by accident and hides every
+miscategorised standard-rated product from block E.
+
+**Broken on purpose** (D-012): pointing the promotional row at this store instead of the
+other one flips `Another_stores_promotion_is_invisible` from 120.00 to 90.00, so the store
+filter on the row that now decides the price is genuinely under test. The two rule mutations
+worth repeating if `TvaRate` is ever touched: fire the fallback on a single agreed rate
+(`One_category_with_a_rate_is_that_rate` and `The_rate_comes_from_the_products_category`
+must fail), and return `FromCategory` whenever the rate is 19%
+(`A_silent_category_beside_a_standard_one_is_still_the_fallback` must fail).
+
+### The rest, in the order it runs
+
+1. **The rates leave the database:** `Persistence/Catalogue/ProductLookup.cs`, step 3. The
+   join keeps nulls — the skeleton dropped them, which answers 9% for [9%, null]. `Distinct`
+   stays because SQL keeps one null and one of each value, so both signals survive it.
+2. **The rule:** `Domain/Catalogue/TvaRate.cs`. Above.
+3. **The price:** same file, step 4 (D-076). Both `retail` and `promotional` rows in force
+   come back; `Latest` picks the later `valid_from` within a type, and promotional beats
+   retail. `is_tax_inclusive` is checked on **whichever row won**, with no falling back to
+   retail — that would charge full price for a product on promotion and say nothing.
+4. **What crosses:** `Domain/Catalogue/IProductLookup.cs` — `ProductForSale` gains
+   `TvaRateSource` and `IsPromotionalPrice`, and `NotSellableReason` **loses** `NoTaxRate` and
+   `ConflictingTaxRates`. `Contracts/Pos/ProductLookup.cs` mirrors both, and
+   `StoreServer/Catalogue/ProductLookupWire.cs` maps them.
+5. **The cashier:** `Pos/Checkout/Cart.cs` (`CartLine.IsPromotionalPrice`, re-read on every
+   scan) and `Pos/TillWindow.cs` (`LineRow`, the words `PROMOTIONAL PRICE` in neutral slate).
+   The TVA source is deliberately **not** shown: a cashier cannot fix a catalogue, and block E
+   lists it instead.
+6. **The proof:** `Domain.Tests/TvaRateTests.cs`, then `ProductLookupTests.cs` — its TVA
+   section checks the query hands the rule the right facts, and its promotional section is
+   D-076 rule by rule.
+
+Nothing was needed from `CompleteSale`: it re-prices every line through `IProductLookup`
+itself (`CompleteSale.cs:249`), so the preview and the receipt changed together and cannot
+drift.
+
+### Carried out of A1
+
+- The generator seeds no promotional rows, so **seed-42 cannot demo a promotion**. Picked up
+  at **E2**; teaching the generator would change every canonical dump.
+- **D-075's other three rows** (composite, mixed, indivisible supply) are not implementable
+  against this schema and are Admin catalogue guidance at **block E**. The reasoning is in
+  D-075.
+- Nothing lists products selling on `standard_fallback` yet. That screen is **block E**.

@@ -7,7 +7,9 @@ using Waymark.Domain.Values;
 using Waymark.StoreServer.Catalogue;
 using DomainProduct = Waymark.Domain.Catalogue.ProductForSale;
 using DomainReason = Waymark.Domain.Catalogue.NotSellableReason;
+using DomainTvaSource = Waymark.Domain.Catalogue.TvaRateSource;
 using WireReason = Waymark.Contracts.Pos.NotSellableReason;
+using WireTvaSource = Waymark.Contracts.Pos.TvaRateSource;
 
 namespace Waymark.Integration.Tests;
 
@@ -19,14 +21,21 @@ namespace Waymark.Integration.Tests;
 [SupportedOSPlatform("windows")] // StoreServer is Windows-only (D-017), and so is its code.
 public sealed class ProductLookupWireTests
 {
-    private static DomainProduct Milk(long priceMinor = 12_050, long stockThousandths = 24_000, int decimals = 0) => new(
+    private static DomainProduct Milk(
+        long priceMinor = 12_050,
+        long stockThousandths = 24_000,
+        int decimals = 0,
+        DomainTvaSource tvaSource = DomainTvaSource.FromCategory,
+        bool promotional = false) => new(
         "variant-1",
         "product-1",
         "Lait UHT Candia",
         "Brique 1L",
         UnitPrecision.For("pc", decimals),
         BasisPoints.StandardVat,
+        tvaSource,
         Money.FromMinorUnits(priceMinor, Currency.Dzd),
+        promotional,
         Quantity.FromThousandths(stockThousandths, "pc"));
 
     [Fact]
@@ -46,8 +55,10 @@ public sealed class ProductLookupWireTests
         Assert.Equal("pc", product.SellingUnitCode);
         Assert.Equal(0, product.SellingUnitDecimalPlaces);
         Assert.Equal(1_900, product.TvaRateBasisPoints);
+        Assert.Equal(WireTvaSource.FromCategory, product.TvaRateSource);
         Assert.Equal("120.50", product.PriceTtc);
         Assert.Equal("DZD", product.Currency);
+        Assert.False(product.IsPromotionalPrice);
         Assert.Equal("24", product.StockOnHand);
     }
 
@@ -105,8 +116,6 @@ public sealed class ProductLookupWireTests
         { DomainReason.NoCurrentPrice, WireReason.NoCurrentPrice },
         { DomainReason.PriceNotTaxInclusive, WireReason.PriceNotTaxInclusive },
         { DomainReason.Archived, WireReason.Archived },
-        { DomainReason.NoTaxRate, WireReason.NoTaxRate },
-        { DomainReason.ConflictingTaxRates, WireReason.ConflictingTaxRates },
         { DomainReason.Weighted, WireReason.Weighted },
     };
 
@@ -130,6 +139,39 @@ public sealed class ProductLookupWireTests
     }
 
     [Fact]
+    public void No_refusal_is_about_TVA_any_more()
+    {
+        // D-075 answers O-24 with a rate, not a refusal. If either of hop 1's two TVA
+        // refusals comes back, something is deciding the rate in a query again.
+        // (PriceNotTaxInclusive stays: it is about the price row, not the rate.)
+        var names = Enum.GetNames<DomainReason>();
+
+        Assert.DoesNotContain("NoTaxRate", names);
+        Assert.DoesNotContain("ConflictingTaxRates", names);
+    }
+
+    public static TheoryData<DomainTvaSource, string> TvaSources() => new()
+    {
+        { DomainTvaSource.FromCategory, WireTvaSource.FromCategory },
+        { DomainTvaSource.StandardFallback, WireTvaSource.StandardFallback },
+    };
+
+    [Theory]
+    [MemberData(nameof(TvaSources))]
+    public void Each_TVA_source_crosses_with_its_own_name(DomainTvaSource source, string expected)
+    {
+        var wire = ProductLookupWire.ToWire("x", new ProductLookupResult.Found(Milk(tvaSource: source)));
+
+        Assert.Equal(expected, wire.Product!.TvaRateSource);
+    }
+
+    [Fact]
+    public void Every_domain_TVA_source_has_a_wire_name()
+    {
+        Assert.Equal(Enum.GetValues<DomainTvaSource>().Length, TvaSources().Count);
+    }
+
+    [Fact]
     public void The_json_uses_the_contracts_names()
     {
         var json = JsonSerializer.Serialize(
@@ -138,5 +180,18 @@ public sealed class ProductLookupWireTests
         Assert.Contains("\"outcome\":\"found\"", json, StringComparison.Ordinal);
         Assert.Contains("\"price_ttc\":\"120.50\"", json, StringComparison.Ordinal);
         Assert.Contains("\"tva_rate_basis_points\":1900", json, StringComparison.Ordinal);
+        Assert.Contains("\"tva_rate_source\":\"from_category\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"is_promotional_price\":false", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_promotional_price_says_so_in_the_json()
+    {
+        var json = JsonSerializer.Serialize(
+            ProductLookupWire.ToWire("6130000000017", new ProductLookupResult.Found(
+                Milk(tvaSource: DomainTvaSource.StandardFallback, promotional: true))));
+
+        Assert.Contains("\"tva_rate_source\":\"standard_fallback\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"is_promotional_price\":true", json, StringComparison.Ordinal);
     }
 }

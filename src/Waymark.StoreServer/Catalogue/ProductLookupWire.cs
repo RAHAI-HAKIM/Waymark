@@ -3,8 +3,10 @@ using Waymark.Contracts.Pos;
 using Waymark.Domain.Catalogue;
 using DomainProduct = Waymark.Domain.Catalogue.ProductForSale;
 using DomainReason = Waymark.Domain.Catalogue.NotSellableReason;
+using DomainTvaSource = Waymark.Domain.Catalogue.TvaRateSource;
 using WireProduct = Waymark.Contracts.Pos.ProductForSale;
 using WireReason = Waymark.Contracts.Pos.NotSellableReason;
+using WireTvaSource = Waymark.Contracts.Pos.TvaRateSource;
 
 namespace Waymark.StoreServer.Catalogue;
 
@@ -33,17 +35,24 @@ public static class ProductLookupWire
         product.Unit.Code,
         product.Unit.DecimalPlaces,
         product.TvaRate.Value,
+        TvaSource(product.TvaRateSource),
         WireText.Figure(product.PriceTtc),
         product.PriceTtc.Currency.Code,
+        product.IsPromotionalPrice,
         WireText.Figure(product.StockOnHand));
+
+    private static string TvaSource(DomainTvaSource source) => source switch
+    {
+        DomainTvaSource.FromCategory => WireTvaSource.FromCategory,
+        DomainTvaSource.StandardFallback => WireTvaSource.StandardFallback,
+        _ => throw new UnreachableException($"A TVA rate source this mapping does not know: {source}."),
+    };
 
     private static string Reason(DomainReason reason) => reason switch
     {
         DomainReason.NoCurrentPrice => WireReason.NoCurrentPrice,
         DomainReason.PriceNotTaxInclusive => WireReason.PriceNotTaxInclusive,
         DomainReason.Archived => WireReason.Archived,
-        DomainReason.NoTaxRate => WireReason.NoTaxRate,
-        DomainReason.ConflictingTaxRates => WireReason.ConflictingTaxRates,
         DomainReason.Weighted => WireReason.Weighted,
         _ => throw new UnreachableException($"A refusal this mapping does not know: {reason}."),
     };

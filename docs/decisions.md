@@ -485,6 +485,67 @@ or if its category is unclear, It will be defaulted to the Standard 19% rate.
 | Indivisible Mixed Supply (Items cannot be split or valued separately) | Highest Rate Rule | If a business refuses or is unable to split the valuation of an indivisible mixed package, the highest applicable rate among those categories is charged on the whole bundle. |
 | Undefined / Category Disagreement | Standard Catch-All Rule | If the product defies clean classification or one potential category has no specified rate, the Standard Rate must be applied. |
 
+**Only the last row is code (session A1).** It is the one decidable from what the database
+records: `product_category` is a flat many-to-many and `categories.tax_rate` is nullable, so
+"no categories", "a category that states no rate" and "categories that disagree" are all
+visible, and all three answer 19%. The other three rows are not. Composite and indivisible
+supply need to know that a variant *is* a bundle and which component dominates, which no
+table records — `product_category.is_primary` is a merchandising flag and reading it as
+tax-law dominance would be a silent reinterpretation. Apportionment would split one sale line
+across two rates, and `transaction_items` carries one `sell_price` and one `tax_amount`.
+Those three rows therefore describe **how a human classifies a product in the catalogue**,
+and belong to Admin guidance in block E, not to a barcode lookup.
+
+**The rule is `Domain/Catalogue/TvaRate.Resolve`**, pure and with no database, on the
+`NearExpiry` model (D-073). Two categories that state the same rate agree and are not a
+conflict. **A null among the rates forces the fallback even when another category did state
+one** — D-075's own words, "one potential category has no specified rate" — so [9%, null] is
+19%, not 9%; the skeleton dropped nulls before counting and would answer 9%. The standard
+rate is `BasisPoints.StandardVat`, a constant and not configuration: it is law, and a decree
+would be a code change and a catalogue migration together.
+
+**The refusal becomes a sale, so the fallback is recorded rather than silent.**
+`NotSellableReason.NoTaxRate` and `ConflictingTaxRates` are **deleted** from Domain and from
+`Waymark.Contracts` — D-075 requires a rate, so neither state can occur, and a refusal the
+till can never receive is a lie in the contract. What the catalogue failed to say crosses
+instead as `ProductForSale.TvaRateSource` (`from_category` or `standard_fallback`) on a
+product that sells. The source is about *how*, never *what*: a product whose categories say
+[19%, null] resolves to 19% `standard_fallback`, the same figure as a correctly classified
+one and the opposite verdict on the data. The till shows nothing for it — a cashier cannot
+fix a catalogue — and block E lists every product selling on the fallback. **Rejected:**
+keeping the two reasons as unreachable members (a contract that describes impossible
+answers), and deriving the source from the rate (which hides every miscategorised
+standard-rated product).
+
+### D-076 — A promotional price is a price, not a discount (session A1)
+The lookup reads `prices` rows of type `retail` **and** `promotional` (phase 0.5 read only
+`retail`). A promotional row in force beats a retail one; within a type the later `valid_from`
+wins; `valid_to` stays exclusive. It is **the unit price**, so nothing is taken off it,
+`transaction_items.discount_amount` stays zero, and `SaleArithmetic.Line` is called exactly as
+before. The till labels the line `PROMOTIONAL PRICE` in words, in the neutral slate of the
+stock notice: a promotion is neither critical nor a warning, and there is no positive state
+(CLAUDE.md §6). The label is re-read on every scan, so a promotion that ends between two scans
+of the same product does not leave a stale label.
+
+**The `promotions`, `promotion_product` and `promotion_variant` tables are not touched here.**
+They are percent / amount / bogo with `min_quantity`, `priority`, `is_stackable` and
+`max_redemptions` — a discount engine that needs cart context, since a bogo cannot be answered
+for one barcode in isolation. That is **block B4**, and it lands on
+`transaction_items.discount_amount` through `SaleArithmetic.Line`'s `discount` parameter and on
+`transaction_items.promotion_id`. A sale at a promotional *price* therefore leaves no
+`promotion_id`: the row records what was charged, and the receipt still recomputes from it.
+
+**A promotional row priced above the retail row is taken as written.** It is a data error, and
+quietly applying the lower of the two would be a rule nobody can see in the row, leaving the
+shop never to learn its promotion is wrong. **Rejected:** `min(retail, promotional)`.
+Likewise a promotional row marked HT **refuses** rather than falling back to retail: falling
+back would charge the full price for a product the shelf edge has on promotion, and the
+cashier would see nothing at all.
+
+**Not seeded by the generator.** `Waymark.Generator` writes no promotional rows, so seed-42
+does not demo this; teaching it to would change every canonical dump. Picked up at **E2**,
+where price-in-force gets an Admin surface.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

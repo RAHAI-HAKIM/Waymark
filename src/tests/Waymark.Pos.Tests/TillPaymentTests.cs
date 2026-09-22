@@ -17,7 +17,8 @@ public sealed class TillPaymentTests
             Task.FromResult<LookupAnswer>(new LookupAnswer.Answered(new ProductLookup(
                 ProductLookupOutcome.Found,
                 barcode,
-                new ProductForSale("v-" + barcode, "p-" + barcode, "Lait", "1L", "pc", 0, 900, "143.00", "DZD", "10"),
+                new ProductForSale("v-" + barcode, "p-" + barcode, "Lait", "1L", "pc", 0, 900,
+                    TvaRateSource.FromCategory, "143.00", "DZD", false, "10"),
                 Reason: null)));
     }
 

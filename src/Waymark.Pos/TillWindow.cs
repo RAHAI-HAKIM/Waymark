@@ -293,6 +293,19 @@ public sealed class TillWindow : Window, IDisposable
                     Foreground = Slate,
                     IsVisible = line.ExceedsStockOnHand,
                 },
+                new TextBlock
+                {
+                    // A promotional price is in force for this line (D-076). Labelled, not
+                    // coloured, and in the same neutral slate as the stock notice: POS colours
+                    // are not decided yet (D-068), and this is not a semantic state anyway --
+                    // a promotion is neither critical nor a warning, and there is no positive
+                    // state (CLAUDE.md 6).
+                    Text = "PROMOTIONAL PRICE",
+                    FontFamily = Mono,
+                    FontSize = 11,
+                    Foreground = Slate,
+                    IsVisible = line.IsPromotionalPrice,
+                },
             },
         };
 

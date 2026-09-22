@@ -46,8 +46,19 @@ public sealed record ProductLookup(
 /// How many decimals a quantity in that unit may have: 0 for pieces.
 /// </param>
 /// <param name="TvaRateBasisPoints">The TVA rate, in hundredths of a percent: 1900 is 19%.</param>
-/// <param name="PriceTtc">The current retail price, tax included, as exact decimal text.</param>
+/// <param name="TvaRateSource">
+/// One of <see cref="Pos.TvaRateSource"/>: whether the product's categories gave that rate,
+/// or D-075's catch-all did because they were silent or disagreed. The till shows nothing for
+/// it — the cashier cannot fix a catalogue — but the fact travels so Admin can list every
+/// product selling on the fallback.
+/// </param>
+/// <param name="PriceTtc">The price in force today, tax included, as exact decimal text.</param>
 /// <param name="Currency">The price's currency code.</param>
+/// <param name="IsPromotionalPrice">
+/// True when <paramref name="PriceTtc"/> came from a <c>promotional</c> row rather than a
+/// <c>retail</c> one (D-076). It is the price, not a discount: nothing is taken off it, and
+/// <c>transaction_items.discount_amount</c> stays zero.
+/// </param>
 /// <param name="StockOnHand">
 /// This store's level, in the selling unit, as exact decimal text. Zero or
 /// negative is a warning for the cashier, never a refusal: a level going
@@ -61,9 +72,24 @@ public sealed record ProductForSale(
     [property: JsonPropertyName("selling_unit_code")] string SellingUnitCode,
     [property: JsonPropertyName("selling_unit_decimal_places")] int SellingUnitDecimalPlaces,
     [property: JsonPropertyName("tva_rate_basis_points")] int TvaRateBasisPoints,
+    [property: JsonPropertyName("tva_rate_source")] string TvaRateSource,
     [property: JsonPropertyName("price_ttc")] string PriceTtc,
     [property: JsonPropertyName("currency")] string Currency,
+    [property: JsonPropertyName("is_promotional_price")] bool IsPromotionalPrice,
     [property: JsonPropertyName("stock_on_hand")] string StockOnHand);
+
+/// <summary>The values of <see cref="ProductForSale.TvaRateSource"/> (D-075).</summary>
+public static class TvaRateSource
+{
+    /// <summary>The product's categories agreed on a rate, and every one of them stated it.</summary>
+    public const string FromCategory = "from_category";
+
+    /// <summary>
+    /// The catch-all: the product is in no category, or a category states no rate, or its
+    /// categories disagree. The rate is the standard 19% and the catalogue needs fixing.
+    /// </summary>
+    public const string StandardFallback = "standard_fallback";
+}
 
 /// <summary>The values of <see cref="ProductLookup.Outcome"/>.</summary>
 public static class ProductLookupOutcome
@@ -78,7 +104,16 @@ public static class ProductLookupOutcome
     public const string NotSellable = "not_sellable";
 }
 
-/// <summary>The values of <see cref="ProductLookup.Reason"/>: Hakim's spec for hop 1 (D-066).</summary>
+/// <summary>
+/// The values of <see cref="ProductLookup.Reason"/>: Hakim's spec for hop 1 (D-066).
+///
+/// <para>
+/// <c>no_tax_rate</c> and <c>conflicting_tax_rates</c> were here while O-24 was open. D-075
+/// answers that question with a rate instead of a refusal, so the till can no longer receive
+/// either, and a reason it cannot receive is a lie in the contract. The catalogue's silence
+/// now crosses as <see cref="ProductForSale.TvaRateSource"/> on a product that sells.
+/// </para>
+/// </summary>
 public static class NotSellableReason
 {
     /// <summary>
@@ -92,12 +127,6 @@ public static class NotSellableReason
 
     /// <summary>The variant is archived. A discontinued one still sells.</summary>
     public const string Archived = "archived";
-
-    /// <summary>No category of the product carries a TVA rate.</summary>
-    public const string NoTaxRate = "no_tax_rate";
-
-    /// <summary>The product's categories carry different TVA rates (O-24).</summary>
-    public const string ConflictingTaxRates = "conflicting_tax_rates";
 
     /// <summary>Sold by weight: scales and weight-embedded codes are Phase 1.</summary>
     public const string Weighted = "weighted";
