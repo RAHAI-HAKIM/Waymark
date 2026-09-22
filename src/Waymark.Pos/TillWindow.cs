@@ -63,7 +63,7 @@ public sealed class TillWindow : Window, IDisposable
 
         _input = new TextBox
         {
-            Watermark = "Scan, or type a code and press Enter",
+            PlaceholderText = "Scan, or type a code and press Enter",
             FontFamily = Mono,
             FontSize = 20,
         };
@@ -117,7 +117,7 @@ public sealed class TillWindow : Window, IDisposable
 
 #if DEBUG
         // No scanner at hand: this feeds a code through the real scanner, as a scanner would.
-        var simulated = new TextBox { Watermark = "debug: code to scan", FontFamily = Mono, Width = 240 };
+        var simulated = new TextBox { PlaceholderText = "debug: code to scan", FontFamily = Mono, Width = 240 };
         var simulate = ActionButton("Simulate scan");
         simulate.Click += (_, _) =>
         {

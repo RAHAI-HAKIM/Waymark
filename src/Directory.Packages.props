@@ -44,11 +44,8 @@
   <ItemGroup Label="Hosting">
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
   </ItemGroup>
-  <!-- Avalonia stays on the mature 11.3 line, not 12.x. The till runs
-        unattended in a shop for years between visits, and a UI framework major
-        released weeks ago is not the place to be early. Avalonia.Diagnostics
-        has no 12.x release yet, which says the same thing.
-        Revisit when 12.x has a track record. -->
+  <!-- Avalonia will use 12.1, after investigating its stability I decided that
+  It's the best decision to make with performance enhancements.  -->
   <ItemGroup Label="POS">
     <PackageVersion Include="Avalonia" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Desktop" Version="12.1.2" />

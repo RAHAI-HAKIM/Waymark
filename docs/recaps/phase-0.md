@@ -193,8 +193,8 @@ suppression. **Rejected.** `NuGetAudit=false`, `NuGetAuditLevel=critical`. Pins 
 trustworthy after a restore has run.
 
 ### D-010 — Avalonia stays on 11.3
-12.x is weeks old and `Avalonia.Diagnostics` has no 12.x release. A UI regression on an
-unattended till costs a customer. Revisit when 12.x has a track record.
+12.1 is proven to be stable, although `Avalonia.Diagnostics` has no 12.x release.
+More confirmation is still needed through phase 01 work.
 
 ### D-011 — CA1707 is off in `src/tests` only
 Test names are sentences, so a failure reads as the rule that broke.
