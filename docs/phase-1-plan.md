@@ -65,7 +65,7 @@ The Build Plan's owner split, made concrete per session:
 3. **Hakim makes them green.** Starting from the 0.5 file the work expands, which he has
    already read.
 4. **Claude builds everything around it** — plumbing, endpoints, UI, DI, docs.
-5. **Break the code on purpose** (D-012) on the session's risky rule.
+5. **Break the code on purpose** (D-012) on the session's risky rule, and all parts concerned by a test.
 6. **Reading guide** appended to `status.md`, then review and **one commit**.
 
 **Why tests-first:** in session D the role check (D-074) was written with the comparison
