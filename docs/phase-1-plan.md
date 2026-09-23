@@ -109,7 +109,7 @@ TypeScript is needed, not optional — the Admin contracts are typed and `tsconf
 
 **H** = Hakim writes the core · **C** = Claude writes · **S/M/L** = 1 / 1–2 / 2–3 sessions.
 
-### Block A — The floor under everything (4 sessions)
+### Block A — The floor under everything (5 sessions)
 
 Discounts, overrides and voids all need PIN and permissions; checkout needs the TVA rule.
 
@@ -119,6 +119,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | A2 | Sessions, staff PIN, permissions | `Domain/Engine/CardAudience.cs` (D-074) | **H** | M |
 | A3 | `reason_codes` wired as data (the generator already seeds them) | `Domain/Reference/ReasonCode.cs` | C | S |
 | A4 | Till shell rebuilt to **G1** | `Pos/TillWindow.cs`, `App.cs` (D-068) | C | M |
+| A5 | Sign-in: PIN verification, the till login session, sign-out and switching cashier. Added 23/09 | `StaffPin` (D-077), `App.cs`'s `--staff=` | **H** verifier and session rule, C screen | M |
 
 ### Block B — Checkout depth (10 sessions) — the largest block
 

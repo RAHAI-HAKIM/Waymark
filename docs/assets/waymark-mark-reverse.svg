@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="3 0 64 64" role="img" aria-label="Waymark">
+  <title>Waymark</title>
+  
+  <polygon points="23,8 47,32 23,56 10,56 34,32 10,8" fill="#FFFFFF"></polygon>
+  <circle cx="54" cy="32" r="6" fill="#9B5CF0"></circle>
+</svg>

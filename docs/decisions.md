@@ -567,7 +567,7 @@ ships may reference the generator (D-054). **Rejected:** letting the verifier re
 by comparing hashes, which refuses by luck and starts accepting when the stored format changes.
 
 **Still open:** the KDF, and whether a till login session is a row or lives in StoreServer's
-memory. Both block sign-in at the till.
+memory. Both block sign-in at the till, which is session A5.
 
 ### D-078 — The append-only triggers are applied in one transaction (closes F-16)
 `ApplyTriggers` ran one `ExecuteSqlRaw` per trigger, and outside a transaction SQLite makes
@@ -607,11 +607,34 @@ shop; and sorting again in the wire mapper, which would be a second opinion abou
 **No UI.** The till's reason picker waits for design gate **G1** and the A4 shell; building a
 screen before its design exists is what CLAUDE.md §6 forbids. B4, B5 and B8 are the consumers.
 
+### D-080 — Archivo and IBM Plex Mono are bundled with the till as static TTFs
+Downloaded 23/09 on Hakim's word: Archivo Regular, Medium, SemiBold and Bold from its foundry's
+repository (Omnibus-Type, which Google Fonts builds from), IBM Plex Mono Regular, Medium and
+SemiBold from `google/fonts`, each with its OFL text, in `src/Waymark.Pos/Assets/Fonts`. A4
+embeds them. **Static cuts, not the variable file**: Avalonia's weight selection on variable
+fonts is unreliable, and a till that silently renders Regular where SemiBold was meant is the
+kind of drift nobody reports. **Neither family has Arabic glyphs**, so IBM Plex Sans Arabic
+(Regular to Bold, OFL, `google/fonts`) is bundled beside them: the same family as Plex Mono, so
+the two scripts read as one voice. Admin gets its own copy at block E (the Vite idiom is an npm
+font package), rather than reaching into the POS project. **Rejected:** Google's variable
+Archivo; a shared top-level `assets/`, which changes the monorepo layout (§9).
+
+### D-081 — An item missing from the catalogue sells as "Divers", for now (G1 review)
+Until O-25 is answered, the till's "Nouvel article" sells a fixed catalogue item, **Divers**,
+one variant per TVA rate, at a price typed at the till. Typing a price is a price override, so
+it is gated by `OverridePrice` (rank 3, D-077) and needs a reason (D-079). Divers lines are
+**kept out of Almanac's inputs by their category**: a line the cashier priced is not demand the
+engine can learn from. The variants are catalogue data, not schema. Built with B5. **Rejected:**
+a free-text name and price, which has no `variant_id`, no TVA category and no stock, and is the
+option cashiers would over-use (Hakim, 23/09).
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
 | O-23 | **How is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is: a separate key, derived or its own, has to be chosen, with its custody (D-057) and its place in the backup set | The real tier-2 writer, Phase 2 (0.5 stubs it, D-065). Until then the DPIA states the gap (§5.4) |
+| O-25 | **A product created at the till, tentative until the owner confirms it in Admin.** Replaces D-081's Divers | A schema change: a pending status on the product and variant, who created it, an Admin review queue, what happens to sales already made if the owner edits or rejects it, and Almanac excluding it until confirmed | Nothing in Phase 1. Replaces D-081 when decided; after E1, since it needs catalogue CRUD |
+| O-26 | **A weighed line priced by the person who weighed it (B3): which figure is exact?** The weight is inferred from the declared price | The customer pays the declared price, but the inferred weight has to round to the unit's decimals, so weight × unit price stops equalling it: 100,00 DA of tomatoes at 180,00/kg → 0,556 kg → 100,08. The row must still recompute from itself (D-053), and money arithmetic is settled (D-031…D-037) | **B3** |
 
 ### Resolved
 | Open | Resolved by |

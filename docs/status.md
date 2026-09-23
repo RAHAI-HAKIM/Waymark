@@ -43,6 +43,7 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
+| F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
 | F-17 | Low | The number *29* is hardcoded into every count check, This seems to be edited at every schema change | `Waymark.Integration.Tests.TriggerApplicationTests.cs` | Saved for claude to answer outside phase01 sessions |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
 
@@ -56,6 +57,8 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | # | Question | Disposition |
 | :---- | :---- | :---- |
 | O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
+| O-25 | A product created at the till, tentative until the owner confirms it in Admin | Schema change. Replaces D-081's Divers when decided; after E1 |
+| O-26 | A weighed line priced by whoever weighed it: which figure is exact once the weight is inferred and rounded? | Money arithmetic. **Blocks B3** |
 
 ---
 
@@ -100,11 +103,11 @@ definition of done. What follows is only the shape and the progress.
 **Phase 1 is Phase 0.5 widened.** Every session names the Phase 0.5 file it expands, so the
 starting point is always code already reviewed. §7 below is the map.
 
-**≈46 sessions of 4 h, one or two a day, every day: 23–46 days.**
+**≈47 sessions of 4 h (A5 added 23/09), one or two a day, every day: 24–47 days.**
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
-| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **A1–A3 done.** A4 next; needs **G1**, and sign-in needs the KDF and session decisions (D-077) |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **A1–A3 done.** A4 next, after G1. **A5 is sign-in**, added 23/09 |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
@@ -114,6 +117,13 @@ starting point is always code already reviewed. §7 below is the map.
 | **H** | Staff and store | 2 | |
 | **I** | Platform: Admin over the LAN, offline and the Level-2 cache, backup and restore, the recovery code, the evaluator nightly | 6 | |
 | **J** | The done-when: the simulated day, the consent-to-erasure walkthrough, the restore drill | 3 | |
+
+**A5, sign-in, comes straight after A4 and before block B.** B5's manager PIN and every gated
+action need a real signed-in person whose rank reaches `StaffPermissions.May`; `--staff=` on the
+command line cannot carry that. It follows A4 because the PIN screen lives in A4's shell. It
+opens with D-077's two open questions, the KDF and where a login session lives. A 4–6 digit PIN
+falls to offline guessing whatever the KDF, so the real defences are SQLCipher (D-056) and a
+lockout after failed attempts. G1 has to include the sign-in screen.
 
 **Two gates before code:** design **G1** before block B (the till) and **G2**/**G3** before
 blocks E and G. Hakim brings the design; Claude reviews it against CLAUDE.md §6 first.
@@ -478,3 +488,53 @@ failed three, including `A_reason_for_another_kind_never_appears`.
 **Deliberately not done:** no UI. The till's picker waits for gate **G1** and the A4 shell
 (§6), and B4, B5 and B8 are the consumers. Nothing enforces `requires_manager` yet — that is
 A2's rank check, and B4/B5 wire the two together.
+
+---
+
+## 11. G1 — the till design, in review
+
+Hakim's light-theme mock and `waymark-design-system.html` (40 tokens, two themes) are under
+review. **A4 starts when G1 closes.**
+
+**Agreed 23/09:** French by default. No ticket number until the sale completes (D-070).
+Encaisser shows the cash amount rounded to 5 DA (D-034). The ink-indigo bars stay. The
+right-hand column keeps its space; parts are added as their sessions land. Quick keys list
+active variants that have no barcode or are sold by weight. "Nouvel article" sells Divers
+(D-081) until O-25. A weighed line is priced by whoever weighed it (O-26, B3).
+**Recommendations are shown on the till.**
+
+**To change in the design:**
+
+1. "TICKET 0142" → "Ticket en cours · 14 lignes". The number appears on the receipt.
+2. Encaisser shows "Espèces 3 320,00 DA"; the total stays 3 320,80.
+3. The Almanac panel shows the **existing board for whoever is signed in** (`PendingCards`,
+   `CardAudience`), computed overnight and **never recomputed from the ticket** (§5): drop
+   "après ce ticket". The card follows the design system's weights: a forecast card carries a
+   primary action **and Adjust**, not "Voir" + "Ignorer". Add two states: the count a cashier sees
+   when every card is for a manager (a quiet card, no action; D-074), and Phase 1's only real
+   card, near-expiry.
+4. Locks come from `StaffPermissions` for whoever is signed in, not drawn once: "Annuler ticket"
+   needs one (rank 2), and "Retour" and "Petite caisse" need capabilities that don't exist yet
+   (B9, B10). A locked control stays pressable and asks for a manager PIN (B5). An unavailable
+   one uses the design system's disabled recipe, never lowered opacity.
+5. Encaisser's label is `on-action` (ink-black, 4.61:1), not white (4.05:1).
+6. Labels on the bars use dark `text-secondary` `#B5AEC4` (7.02:1). Light `text-muted` is
+   2.66:1 there, dark `text-muted` 4.24:1.
+7. "Annuler ticket" moves away from "Attente" and asks for confirmation.
+8. Leave room for logging a line removed before payment (B2/B8 decide whether it is logged).
+9. "À VÉRIFIER" says what to check: "AU-DELÀ DU STOCK ENREGISTRÉ".
+10. Text overflow at 1366 wide: the staff chip, "Pommes de te…", "Client · tél. ou carte",
+    "2 en attente".
+11. A Carnet / Crédit tender (B7).
+12. Controls on a touched screen are `control-lg`, 48 px.
+13. An icon set: the design system ships none and asks for one outline set, 1.5 px stroke on a
+    24 px grid. The mock needs search, person, pause, lock and chevron. A download, so Hakim's word.
+
+**Still owed for G1:** the dark mock; an Arabic right-to-left version of the main screen;
+notices (unknown code, not sellable, HORS LIGNE, sale not confirmed); the empty cart; the
+after-sale screen (change due); sign-in (A5, with no Almanac on it, per the design system); the
+manager PIN prompt (B5).
+
+**Open against the design system:** its RecommendationCard ships three actions (Review, Adjust,
+Dismiss) and says two turn a suggestion into an instruction. D-074, confirmed 21/09, is accept
+and dismiss only. Which one wins decides whether A4's card has an Adjust button.

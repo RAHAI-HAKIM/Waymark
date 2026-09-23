@@ -199,8 +199,7 @@ figures round `HalfEven` whatever the store's own policy is.
 - **Cyan `#0E8C86` is Almanac** — edges, fills, interval caps. **Never a button, link, text or card fill.** Cyan text is `#0A5F5B`; engine cards are white with a cyan top edge.
 - **Label before colour.** A coloured edge with no label is not a valid state.
 - **Two semantic colours only**, critical and warning. **There is no positive state** — a shelf that is fine gets no card.
-- Archivo for text, IBM Plex Mono for labels, SKUs, quantities and figures. Neither is
-  bundled yet; that is a download and needs Hakim's word.
+- Archivo for text, IBM Plex Mono for labels, SKUs, quantities and figures, IBM Plex Sans Arabic for Arabic: static TTFs in `Waymark.Pos/Assets/Fonts`, OFL (D-080).
 - **Admin's tokens are at the top of `waymark-admin/src/index.css`**, so these rules can be
   checked without reading a component. **No screen is built before its design exists**
   (`docs/phase-1-plan.md` §3).
