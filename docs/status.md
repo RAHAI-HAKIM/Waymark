@@ -2,12 +2,8 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**22/09/2026**: **Phase 1 is open** and **session A1 is in flight** — O-24 is answered by
-D-075, the promotional price rule is D-076, and the tests are written and red. Phase 0.5's
-recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
-
-**A1 is green** (§9). **A3 is green and A2 is mid-handover** (§10): `StaffPermissions` and
-`StaffPin` are stubs and are ✍ Hakim's, with 18 red tests waiting. Everything else passes.
+**23/09/2026**: **A1, A2 and A3 are done**; A4 is next and needs design gate **G1** first.
+Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -17,7 +13,7 @@ recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1075: 1057 passing, 18 red on purpose** — Integration 468 · Generator 237 (1 red) · Domain 190 (17 red) · Pos 75 · Hardware 64 · Application 41. Every red one is A2's two stubs; see §10 |
+| Tests | **1076 passing**: Integration 468 · Generator 237 · Domain 191 · Pos 75 · Hardware 64 · Application 41 |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -108,7 +104,7 @@ starting point is always code already reviewed. §7 below is the map.
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
-| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **A1 and A3 done** (§9, §10). **A2 mid-handover**; A4 needs gate G1 |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell | 4 | **A1–A3 done.** A4 next; needs **G1**, and sign-in needs the KDF and session decisions (D-077) |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
@@ -435,53 +431,25 @@ drift.
 
 ---
 
-## 10. Sessions A2 and A3, one commit
+## 10. Sessions A2 and A3
 
-**A3 is green. A2 is ✍ Hakim's and its tests are red on purpose.** The two share no file.
+### A2 — written by Hakim (D-077)
 
-### ✍ A2 — what to write
+1. **`Domain/Organisation/StaffPermissions.cs`** — `Capability`, a private ladder, and
+   `May(long? rank, capability)`: this rank and above, and **no rank is never permission**.
+   The ladder is private because `readonly` guards a field's reference, not its contents
+   (`Nothing_outside_the_class_can_change_the_ladder`).
+2. **`Domain/Organisation/StaffPin.cs`** — `IsUsable(storedHash)`, asked before any PIN check:
+   the generator's sentinel and anything blank can never authenticate.
+3. **The proof:** `StaffPermissionsTests`, `StaffPinTests`, and `SyntheticPinTests` in
+   Generator.Tests, which holds the two copies of the sentinel together.
 
-Two stubs, both pure Domain, no database and no clock.
+**Broken on purpose:** inverting the comparison failed four tests; allowing a null rank failed
+`No_rank_at_all_is_never_permission`.
 
-**1. `Domain/Organisation/StaffPermissions.cs`** — permissions from `roles.rank`, no table
-(D-077 is yours to write). `RequiredRank(Capability)` maps each capability to a minimum rank;
-`May(long? staffRank, Capability)` answers whether somebody may do it.
-
-- **The trap is the comparison**, the same one that went in backwards in session D (D-074):
-  a cashier could decide a manager's card and an owner could not. Inverted here **nothing
-  refuses** — a cashier discounts, overrides and voids all day, every receipt prints, and the
-  first sign is the month's takings.
-- **The second trap is null.** A staff member who is not active, or whose role is not an
-  active row, has **no** rank. Zero would make them the most junior person in the shop rather
-  than an error, and a junior person is still somebody (D-037;
-  `RecommendationBoard.StaffAsync` already returns null for exactly this).
-- `Deciding_a_card_asks_the_same_question_CardAudience_does` holds the new rule against
-  D-074's. They are one comparison, and the test fails if they ever disagree — so
-  `CardAudience.MayDecide` is a candidate to become a caller rather than a twin.
-- The **ranks are yours**. The tests assert only that every capability has a positive one,
-  that an unmapped member throws rather than defaulting, and that the three actions the build
-  plan already calls manager-gated (B5's override, B8's void, `ICashDrawer`'s no-sale) ask
-  for more than the shop floor.
-- The `Capability` list is a starting set, every member justified by code that already exists.
-  Extend it as B4, B5 and B8 land.
-
-**2. `Domain/Organisation/StaffPin.cs`** — `IsUsable(storedHash)`, asked **before** any PIN is
-checked. False for `"synthetic:no-login"` and for anything absent or blank, true otherwise.
-It is deliberately **not** the verifier and knows no algorithm: the KDF is still your choice
-and belongs in infrastructure, since Domain has zero dependencies (§2.1). The danger is the
-shape of the mistake — a verifier that merely hashes the offered PIN and finds it unequal to
-the sentinel refuses today *by luck*, and starts accepting the day the stored format changes.
-`Waymark.Generator.Tests/SyntheticPinTests` holds the generator's constant and Domain's
-together, because nothing that ships may reference the generator (D-054).
-
-**Still yours to decide, and untested until you do:** whether a till login session is a row or
-in-memory in StoreServer (nothing in the schema holds one today; B10's clock in/out and I2's
-offline cache may want the row), and which KDF hashes a PIN.
-
-When it is green, **break it on purpose** (D-012): invert the comparison and watch
-`Exactly_the_required_rank_is_allowed_and_so_is_anything_above_it` and
-`Below_the_required_rank_is_refused` fail together; then make `May(null, …)` true and watch
-`No_rank_at_all_is_never_permission` fail.
+**Not yet wired.** Nothing calls `May` — B4, B5 and B8 are the first callers. Card decisions
+still go through `CardAudience` with each card's own rank, so the ladder's
+`DecideRecommendation` value is not enforced anywhere (D-077).
 
 ### A3 — what was built, in the order a reason travels
 

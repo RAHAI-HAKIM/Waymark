@@ -546,6 +546,29 @@ cashier would see nothing at all.
 does not demo this; teaching it to would change every canonical dump. Picked up at **E2**,
 where price-in-force gets an Admin surface.
 
+### D-077 — Who may do what comes from `roles.rank`, and a synthetic PIN never authenticates (session A2)
+**No permissions table.** A `Capability` names a minimum rank, and `StaffPermissions.May` makes
+D-074's comparison: this rank and anything above it. A staff member with **no** rank — not
+active, or a role that is not an active row — is refused, never read as zero (D-037). The
+ladder is **private** and read only through `RequiredRank`, which throws for an unmapped
+capability rather than defaulting: `readonly` protects a field's reference, not its contents,
+so a public dictionary would be a write access point for the whole process. The ranks today:
+discount, void and no-sale need 2; a price override needs 3. `DecideRecommendation` is
+mapped to 3, but cards are still gated by `CardAudience` against each card's own rank
+(rank 2 for near-expiry cards in seed-42, D-073), so the ladder's value is not enforced
+anywhere yet. **Rejected:** a `role_permissions` table now — a migration with nothing to edit
+it until H2.
+
+**`StaffPin.IsUsable` is asked before any PIN is checked**: false for the generator's
+`"synthetic:no-login"` and for anything blank. It is not the verifier and knows no algorithm;
+the KDF is open and belongs in infrastructure, since Domain has no dependencies (§2.1).
+`SyntheticPinTests` holds the generator's constant and Domain's together, because nothing that
+ships may reference the generator (D-054). **Rejected:** letting the verifier refuse the sentinel
+by comparing hashes, which refuses by luck and starts accepting when the stored format changes.
+
+**Still open:** the KDF, and whether a till login session is a row or lives in StoreServer's
+memory. Both block sign-in at the till.
+
 ### D-078 — The append-only triggers are applied in one transaction (closes F-16)
 `ApplyTriggers` ran one `ExecuteSqlRaw` per trigger, and outside a transaction SQLite makes
 every statement its own durable commit: 29 triggers, 29 fsyncs on an encrypted file. It is

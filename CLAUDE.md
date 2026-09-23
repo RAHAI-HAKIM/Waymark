@@ -153,6 +153,10 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 - **No tab without `customers.credit_limit`**, and none beyond it. Null means no tab.
 - **Outstanding debt never reaches the outbox**: not banded, not flagged (D-043).
 
+### 3.10 Access — D-074, D-077
+
+- **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked.
+
 ---
 
 ## 4. Privacy — `Waymark_DPIA_v1`, D-045
@@ -242,6 +246,5 @@ logic. **Low priority:** UI rendering, CRUD screens, styling.
 
 ## 10. Reference documents
 
-**`/docs/README.md` is the index**: which document answers which question, which wins when two
-disagree, and where new writing goes. `Waymark_Operating_Rules` beats everything;
-`/docs/decisions.md` beats the design documents on anything decided later.
+**`/docs/README.md` is the index**: which document answers which question and where new writing goes.
+`Waymark_Operating_Rules` beats everything; `/docs/decisions.md` beats the design documents on anything decided later.
