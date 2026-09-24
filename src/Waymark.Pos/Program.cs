@@ -3,8 +3,9 @@ using Avalonia;
 namespace Waymark.Pos;
 
 /// <summary>
-/// Phase 0 placeholder. The till client exists so the solution builds; the
-/// checkout screen arrives in Phase 1.
+/// The till's entry point. <see cref="App"/> reads the switches and opens
+/// <see cref="TillWindow"/>. No font is registered here: the till draws in the faces it
+/// bundles (D-080), each addressed by its own file in <c>TillTheme</c>.
 /// </summary>
 internal static class Program
 {
@@ -16,6 +17,5 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .WithInterFont()
             .LogToTrace();
 }

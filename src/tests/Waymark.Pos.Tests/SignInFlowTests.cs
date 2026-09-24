@@ -286,6 +286,41 @@ public sealed class SignInFlowTests
     }
 
     [Fact]
+    public async Task A_list_the_server_could_not_give_is_asked_for_again_once_it_answers()
+    {
+        // Both processes start with Windows, and the till is often first: a list asked for once,
+        // at start, left the screen empty until the till was restarted.
+        var server = new Server { Staff = null };
+        var flow = new SignInFlow(server, new TillIdentity("till-1"));
+        Assert.True(flow.NeedsList);
+
+        await flow.LoadAsync();
+        Assert.True(flow.NeedsList);
+
+        server.Staff = new([Nabil]);
+        await flow.LoadAsync();
+        Assert.False(flow.NeedsList);
+    }
+
+    [Fact]
+    public async Task An_outage_during_a_sign_in_asks_for_the_list_again_and_an_answer_does_not()
+    {
+        var (flow, server) = await Loaded();
+        Assert.False(flow.NeedsList);
+
+        server.Answers.Enqueue(Answer(SignInOutcomes.WrongPin, left: 4));
+        flow.Select("nabil");
+        Type(flow, "0000");
+        await flow.SubmitAsync();
+        Assert.False(flow.NeedsList);
+
+        server.Answers.Enqueue(null);
+        Type(flow, "4821");
+        await flow.SubmitAsync();
+        Assert.True(flow.NeedsList);
+    }
+
+    [Fact]
     public async Task Somebody_who_left_the_list_is_no_longer_chosen()
     {
         var (flow, server) = await Loaded();

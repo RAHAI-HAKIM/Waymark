@@ -456,6 +456,67 @@ public sealed class TillScreenTests
         Assert.IsType<Rail.Paid>(TillScreen.Build(State(paid: new PaidTicket(Sale, [], Now), board: board)).Rail);
     }
 
+    // ============================================================= the redraw
+
+    [Fact]
+    public void The_first_frame_draws_every_region()
+    {
+        Assert.Equal(FrameChanges.All, TillScreen.Compare(null, TillScreen.Build(State())));
+    }
+
+    [Fact]
+    public void A_frame_with_nothing_new_redraws_nothing()
+    {
+        // Two frames of one state are two sets of lists holding equal items. Compared as records,
+        // every list differs by reference and every region redraws: that was the window's redraw
+        // every fifteen seconds, which replaced keys under the cashier's finger.
+        var cart = CartWith(("a", "65.00", 2), ("b", "120.00", 11));
+        var board = Board(1, NearExpiry("r1"));
+
+        var ringing = State(cart, selected: "a", board: board);
+        Assert.Equal(new FrameChanges(false, false, false, false, false), TillScreen.Compare(TillScreen.Build(ringing), TillScreen.Build(ringing)));
+
+        var settled = State(paid: new PaidTicket(Sale, [.. cart.Lines], Now), lastSale: Sale, lastSaleAt: Now);
+        Assert.Equal(new FrameChanges(false, false, false, false, false), TillScreen.Compare(TillScreen.Build(settled), TillScreen.Build(settled)));
+    }
+
+    [Fact]
+    public void A_minute_later_only_the_clock_is_redrawn()
+    {
+        var cart = CartWith(("a", "65.00", 2));
+        var drawn = TillScreen.Build(State(cart));
+        var next = TillScreen.Build(State(cart) with { Now = Now.AddMinutes(1) });
+
+        Assert.Equal(new FrameChanges(Top: true, Notice: false, Cart: false, Rail: false, Bottom: false), TillScreen.Compare(drawn, next));
+    }
+
+    [Fact]
+    public void A_scan_redraws_the_ticket_its_tab_the_notice_and_the_totals_but_not_the_rail()
+    {
+        var cart = CartWith(("a", "65.00", 1));
+        var drawn = TillScreen.Build(State(cart));
+        cart.Add(Product("b", "120.00"), "613b");
+
+        Assert.Equal(new FrameChanges(Top: true, Notice: true, Cart: true, Rail: false, Bottom: true), TillScreen.Compare(drawn, TillScreen.Build(State(cart))));
+    }
+
+    [Fact]
+    public void A_line_whose_only_change_is_a_label_is_redrawn()
+    {
+        // The labels are a list inside a line inside a list. Compared by reference they always
+        // differ; left out of the comparison, a label that came or went on its own would never be
+        // drawn.
+        var drawn = TillScreen.Build(State(CartWith(("a", "65.00", 1))));
+        var line = drawn.Cart.Lines[0];
+        var next = drawn with
+        {
+            Cart = drawn.Cart with { Lines = [line with { Chips = [.. line.Chips, new Chip(Tone.Warning, "AU-DELÀ DU STOCK ENREGISTRÉ")] }] },
+        };
+
+        Assert.True(TillScreen.Compare(drawn, next).Cart);
+        Assert.False(TillScreen.Compare(drawn, next).Bottom);
+    }
+
     // ================================================================= Arabic
 
     [Fact]

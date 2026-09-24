@@ -44,6 +44,14 @@ public sealed class SignInFlow(ITillServer server, TillIdentity till)
     /// <summary>Whether "Ouvrir la caisse" may be pressed.</summary>
     public bool MaySubmit => !Busy && SelectedId is not null && DigitCount >= MinimumDigits;
 
+    /// <summary>
+    /// Whether the list must be asked for again once the server answers: it was never had, or the
+    /// last thing the server did was not answer. A till switched on before StoreServer has finished
+    /// starting — both start with Windows at the Basic tier — otherwise shows nobody, and says it is
+    /// offline, until it is restarted.
+    /// </summary>
+    public bool NeedsList => Staff is null || Message?.Kind == SignInMessageKind.Offline;
+
     /// <summary>Raised after every change.</summary>
     public event EventHandler? Changed;
 

@@ -1,10 +1,12 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
 using Waymark.Hardware;
@@ -33,6 +35,11 @@ namespace Waymark.Pos;
 /// sign-in screen, typed digits go to the pad, and a scan is ignored. The ticket survives a lost
 /// session; it does not survive "Changer de caissier", which the session refuses while it has lines.
 /// </para>
+/// <para>
+/// <b>It redraws only what changed</b> (<see cref="TillScreen.Compare"/>), and it keeps the cart's
+/// scroll viewer and its panel of rows from one frame to the next, so a redraw never moves the
+/// ticket; <see cref="CartFollow"/> says when the ticket moves instead.
+/// </para>
 /// </summary>
 public sealed class TillWindow : Window, IDisposable
 {
@@ -50,7 +57,10 @@ public sealed class TillWindow : Window, IDisposable
     private readonly TextBox _input;
     private readonly Border _topHost = new();
     private readonly Border _noticeHost = new();
-    private readonly Border _cartHost = new();
+    private readonly Border _cartHeaderHost = new();
+    private readonly StackPanel _cartRows = new();
+    private readonly ScrollViewer _cartScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly Border _cartEmptyHost = new();
     private readonly Border _railHost = new();
     private readonly Border _bottomHost = new();
     private readonly List<DispatcherTimer> _timers = [];
@@ -64,6 +74,12 @@ public sealed class TillWindow : Window, IDisposable
     private string? _selected;
     private int _cardIndex;
     private TillScreen? _screen;
+    private SignInScreen? _signInScreen;
+    private Control? _signInView;
+
+    // What the cart looked like when the window last followed it (CartFollow).
+    private CartLine? _followedScan;
+    private string? _followedSelection;
 #if DEBUG
     private Control? _debug;
 #endif
@@ -137,11 +153,13 @@ public sealed class TillWindow : Window, IDisposable
             Open: OpenTill);
 
         _input = SearchField();
+        _cartScroll.Content = _cartRows;
         _layout = Layout();
         Focusable = true;
 
         AddHandler(TextInputEvent, OnTextInput, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+        AddHandler(GettingFocusEvent, OnGettingFocus, RoutingStrategies.Bubble);
         AddHandler(GotFocusEvent, (_, _) => _scanner.Reset(), RoutingStrategies.Bubble);
 
         _session.Changed += (_, _) => Render();
@@ -186,6 +204,8 @@ public sealed class TillWindow : Window, IDisposable
             Child = new StackPanel { Children = { field, _noticeHost } },
         };
 
+        // The column heads, then the lines in their scroll viewer or, with no line, the empty state
+        // in its place. The scroll viewer and its panel are the same controls for the window's life.
         var cartCard = new Border
         {
             Background = _theme.Card,
@@ -193,7 +213,15 @@ public sealed class TillWindow : Window, IDisposable
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(TillSizes.CardRadius),
             ClipToBounds = true,
-            Child = new DockPanel { Children = { Docked(strip, Dock.Top), _cartHost } },
+            Child = new DockPanel
+            {
+                Children =
+                {
+                    Docked(strip, Dock.Top),
+                    Docked(_cartHeaderHost, Dock.Top),
+                    new Panel { Children = { _cartScroll, _cartEmptyHost } },
+                },
+            },
         };
 
         var middle = new Grid
@@ -223,7 +251,14 @@ public sealed class TillWindow : Window, IDisposable
 #if DEBUG
         // No scanner at hand: this feeds a code through the real scanner, as a scanner would. It
         // sits in the rail's reserved space, which the B-block parts will take.
-        var simulated = new TextBox { PlaceholderText = "debug: code", Width = 220, FontFamily = TillTheme.Mono(FontWeight.Normal) };
+        var simulated = new TextBox
+        {
+            PlaceholderText = "debug: code",
+            Width = 220,
+            FontFamily = TillTheme.Mono(FontWeight.Normal),
+            SelectionBrush = _theme.Action,
+            SelectionForegroundBrush = _theme.ActionLabel,
+        };
         var simulate = new TillKey(_theme, KeyLook.Secondary, _theme.BodySmall("Simulate scan", _theme.Text), () =>
         {
             if (!string.IsNullOrWhiteSpace(simulated.Text))
@@ -259,6 +294,11 @@ public sealed class TillWindow : Window, IDisposable
             FontSize = 16,
             Foreground = _theme.Text,
             CaretBrush = _theme.Text,
+            // Selected text is the operator's active state (CLAUDE.md §6): the action colour, with
+            // the action label's colour on it. Fluent would otherwise paint it in the accent colour
+            // Windows is set to, which on a till set to red selected the code in red.
+            SelectionBrush = _theme.Action,
+            SelectionForegroundBrush = _theme.ActionLabel,
             Background = Brushes.Transparent,
             BorderThickness = default,
             VerticalContentAlignment = VerticalAlignment.Center,
@@ -295,6 +335,12 @@ public sealed class TillWindow : Window, IDisposable
         if (!ReferenceEquals(Content, _layout))
         {
             Content = _layout;
+            _signInView = null;
+
+            // Signed in, the window is not focusable: a touch on a line, the notice or the rail finds
+            // nothing focusable above it and leaves the scanner's focus where it is. Focusable, the
+            // window took it, and Entrée after a code typed by hand then sent nothing.
+            Focusable = false;
             _input.Focus();
         }
 
@@ -317,13 +363,105 @@ public sealed class TillWindow : Window, IDisposable
             _selected,
             _board,
             _cardIndex));
+        var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
-        _topHost.Child = TillViews.TopBar(screen.Top, _theme, SwitchCashier);
-        _noticeHost.Child = TillViews.Notice(screen.Notice, _theme);
-        _cartHost.Child = TillViews.CartTable(screen.Cart, _theme, _actions);
-        _railHost.Child = TillViews.Rail(screen.Rail, _theme, _actions);
-        _bottomHost.Child = TillViews.BottomBar(screen.Bottom, _theme, _actions, _session.Paid is not null);
+        if (changes.Top)
+        {
+            _topHost.Child = TillViews.TopBar(screen.Top, _theme, SwitchCashier);
+        }
+
+        if (changes.Notice)
+        {
+            _noticeHost.Child = TillViews.Notice(screen.Notice, _theme);
+        }
+
+        if (changes.Cart)
+        {
+            DrawCart(screen.Cart);
+        }
+
+        if (changes.Rail)
+        {
+            _railHost.Child = TillViews.Rail(screen.Rail, _theme, _actions);
+        }
+
+        if (changes.Bottom)
+        {
+            _bottomHost.Child = TillViews.BottomBar(screen.Bottom, _theme, _actions, _session.Paid is not null);
+        }
+
+        FollowCart();
+        KeepScannerFocus();
+    }
+
+    /// <summary>
+    /// The ticket: the rows go into the same panel, inside the same scroll viewer, every time, so
+    /// the offset the cashier scrolled to survives the redraw.
+    /// </summary>
+    private void DrawCart(CartView cart)
+    {
+        _cartHeaderHost.Child = TillViews.CartHeader(cart, _theme);
+        _cartRows.Children.Clear();
+        _cartRows.Children.AddRange(TillViews.CartRows(cart, _theme, _actions));
+        _cartScroll.IsVisible = cart.Empty is null;
+        _cartEmptyHost.Child = cart.Empty is { } empty ? TillViews.CartEmpty(empty, _theme) : null;
+    }
+
+    /// <summary>
+    /// Brings the line just scanned, or the actions of the line just touched, into view; anything
+    /// else leaves the ticket where the cashier left it (<see cref="CartFollow"/>).
+    /// </summary>
+    private void FollowCart()
+    {
+        var target = CartFollow.After(_followedScan, _session.Cart.LastAdded, _followedSelection, _selected);
+        _followedScan = _session.Cart.LastAdded;
+        _followedSelection = _selected;
+        if (target is null)
+        {
+            return;
+        }
+
+        Control? row = null;
+        Control? actions = null;
+        foreach (var child in _cartRows.Children)
+        {
+            if (row is null)
+            {
+                row = child.Tag is LineRow { Struck: false } line && line.VariantId == target.VariantId ? child : null;
+            }
+            else
+            {
+                actions = child.Tag is LineActions ? child : null;
+                break;
+            }
+        }
+
+        if (row is null)
+        {
+            return;
+        }
+
+        // A row has no place until it has been laid out, and these were just drawn.
+        _cartRows.UpdateLayout();
+        row.BringIntoView();
+        if (target.WithActions)
+        {
+            actions?.BringIntoView();
+        }
+    }
+
+    /// <summary>
+    /// The search field keeps the scanner's focus (G1 kit §9). A key keeps the focus Tab gave it
+    /// until a redraw replaces the key; the field takes it back then, because a code typed by hand
+    /// is sent by Entrée from the field and from nowhere else.
+    /// </summary>
+    private void KeepScannerFocus()
+    {
+        if (Focused() is not Visual focused || !this.IsVisualAncestorOf(focused))
+        {
+            _input.Focus();
+        }
     }
 
     private void RenderSignIn()
@@ -341,10 +479,20 @@ public sealed class TillWindow : Window, IDisposable
             _signIn.Busy,
             _signIn.MaySubmit));
 
-        Content = TillViews.SignIn(screen, _theme, _signInActions);
+        // Drawn again only when something on it changed, so the clock does not replace the pad
+        // under a finger every few seconds.
+        if (ReferenceEquals(Content, _signInView) && SignInScreen.Same(_signInScreen, screen))
+        {
+            return;
+        }
 
-        // Keys reach the window's handlers only through something focused; the content was just
-        // replaced, so the window itself takes the keyboard.
+        _signInScreen = screen;
+        _signInView = TillViews.SignIn(screen, _theme, _signInActions);
+        Content = _signInView;
+
+        // Keys reach the window's handlers only through something focused, and the sign-in screen
+        // has no field: the window itself takes the keyboard.
+        Focusable = true;
         Focus();
     }
 
@@ -353,15 +501,9 @@ public sealed class TillWindow : Window, IDisposable
     private async Task LoadAsync()
     {
         // Asked at once, not after the first health tick: a till that has never reached its
-        // server must not open saying "EN LIGNE" for ten seconds.
+        // server must not open saying "EN LIGNE" for ten seconds. When the server answers, the
+        // same check loads the store's names and the list of who may sign in.
         await CheckHealthAsync();
-        await LoadContextAsync();
-
-        if (_session.SignedIn is null)
-        {
-            await _signIn.LoadAsync();
-        }
-
         await RefreshBoardAsync();
     }
 
@@ -380,7 +522,32 @@ public sealed class TillWindow : Window, IDisposable
         Render();
     }
 
-    private async Task CheckHealthAsync() => _session.ReportHealth(await _server.HealthAsync());
+    /// <summary>
+    /// Whether the server answers, and, when it does, whatever the till could not get from it
+    /// before. Both processes start with Windows at the Basic tier, and the till is often the
+    /// first up: loaded once at start and never again, the sign-in screen stayed empty and said
+    /// "HORS LIGNE" after the server had come up, until the till was restarted.
+    /// </summary>
+    private async Task CheckHealthAsync()
+    {
+        var reachable = await _server.HealthAsync();
+        _session.ReportHealth(reachable);
+        if (!reachable)
+        {
+            return;
+        }
+
+        if (_context is null && !string.IsNullOrWhiteSpace(_till.TerminalId))
+        {
+            await LoadContextAsync();
+            Render();
+        }
+
+        if (_session.SignedIn is null && _signIn.NeedsList)
+        {
+            await _signIn.LoadAsync();
+        }
+    }
 
     private async void Decide(string recommendationId, string decision, string? optionId)
     {
@@ -482,6 +649,20 @@ public sealed class TillWindow : Window, IDisposable
                 // first, so a held digit lands before the key pressed after it.
                 _scanner.Flush();
                 break;
+        }
+    }
+
+    /// <summary>
+    /// A key that is touched does not take the focus: the search field keeps the scanner's (G1
+    /// kit §9). A touch on the staff chip that the session refused redraws only the notice, so the
+    /// chip kept the focus, and the next code typed by hand went to the field while its Entrée went
+    /// to the chip. Tab still reaches a key, which is how the keyboard presses one.
+    /// </summary>
+    private void OnGettingFocus(object? sender, FocusChangingEventArgs e)
+    {
+        if (_session.SignedIn is not null && e.NavigationMethod == NavigationMethod.Pointer && e.NewFocusedElement is TillKey)
+        {
+            e.TryCancel();
         }
     }
 

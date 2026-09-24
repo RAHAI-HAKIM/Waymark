@@ -19,9 +19,10 @@ public interface IStaffCredentials
     Task<string?> PinHashAsync(string staffId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Stages a new <c>pin_hash</c> for an active staff member, written at commit (D-050).
+    /// Stages a new <c>pin_hash</c> for somebody who may sign in — the people
+    /// <see cref="PinHashAsync"/> reads a hash for — written at commit (D-050).
     /// </summary>
-    /// <returns>False, staging nothing, when this store has no such active staff member.</returns>
+    /// <returns>False, staging nothing, when this store has no such person: not active staff, or their role is retired.</returns>
     Task<bool> StagePinHashAsync(string staffId, string pinHash, DateTimeOffset at, CancellationToken cancellationToken = default);
 }
 
