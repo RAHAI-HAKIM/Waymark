@@ -31,11 +31,12 @@ public sealed class App : Application
             var args = desktop.Args ?? [];
             var http = StoreServerClient.CreateHttp(ServerAddress(args));
             var server = new StoreServerClient(http);
-            var till = new TillIdentity(Setting(args, "--terminal=", "WAYMARK_TERMINAL"), Setting(args, "--staff=", "WAYMARK_STAFF"));
+            // The till's own id. Who sells at it is whoever signs in (A5, D-083): there is no --staff=.
+            var till = new TillIdentity(Setting(args, "--terminal=", "WAYMARK_TERMINAL"));
             var session = new TillSession(server, server, till, TimeProvider.System);
 
-            // French unless told otherwise (G1, 23/09). Whether the language follows the person
-            // signed in or the till is A5's to settle; until then a switch sets it.
+            // French unless told otherwise (G1, 23/09). The language is the till's, not the person's:
+            // following the person would need a column on staff, which is a schema decision (D-083).
             var language = Setting(args, "--lang=", "WAYMARK_LANG") is "ar" ? TillLanguage.Arabic : TillLanguage.French;
             var theme = ThemeOf(Setting(args, "--theme=", "WAYMARK_THEME"), PlatformSettings);
 
@@ -48,18 +49,22 @@ public sealed class App : Application
 
 #if DEBUG
             // Renders the shell to a PNG and exits, for reviewing it against the G1 boards:
-            // --snapshot=out.png [--scan=code,code] [--pay] [--select]
+            // --snapshot=out.png [--staff=id [--pin=digits [--open]]] [--scan=code,code] [--pay] [--select]
+            // Without --open it shows the sign-in screen: a PIN on a command line is for a demo store only.
             if (Setting(args, "--snapshot=", "WAYMARK_SNAPSHOT") is { } snapshot)
             {
                 var codes = (Setting(args, "--scan=", "WAYMARK_SCAN") ?? string.Empty)
                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var pay = args.Contains("--pay");
                 var select = args.Contains("--select");
+                var staff = Setting(args, "--staff=", "WAYMARK_SNAPSHOT_STAFF");
+                var pin = Setting(args, "--pin=", "WAYMARK_SNAPSHOT_PIN");
+                var open = args.Contains("--open");
                 window.Opened += async (_, _) =>
                 {
                     try
                     {
-                        await window.SnapshotAsync(snapshot, codes, pay, select);
+                        await window.SnapshotAsync(snapshot, codes, pay, select, staff, pin, open);
                     }
                     finally
                     {

@@ -148,15 +148,28 @@ public sealed class StoreServerStartupTests : IDisposable
                 AssertLookup(address, barcode);
                 AssertReasonCodes(address);
                 AssertTillContext(address, terminal, staff);
-                AssertSale(address, barcode, terminal, staff);
+                AssertNobodyCanSellYet(address, barcode, terminal, staff);
                 AssertExpiryEvaluation(address);
             },
             [.. store, $"--{WaymarkStoragePaths.ImportPlaintextSetting}={source}"]);
         Assert.True(first.Started, "The generated store was not imported and served:\n" + first.Output);
         Assert.Contains("Store time zone: Africa/Algiers", first.Output, StringComparison.Ordinal);
 
-        // A second start: no import, an existing encrypted file, an existing key.
-        var second = Run(AssertHealthy, store);
+        // A5 (D-083): the maintenance switch sets the cashier's PIN on the encrypted store, typed
+        // twice on the console, and exits without serving anything.
+        var setPin = RunToExit($"{DemoPin}\n{DemoPin}\n", [.. store, $"--set-pin={staff}"]);
+        Assert.True(setPin.ExitCode == 0, "--set-pin did not set the PIN:\n" + setPin.Output);
+        Assert.Contains("PIN set", setPin.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Now listening", setPin.Output, StringComparison.Ordinal);
+
+        // A second start: no import, an existing encrypted file, an existing key — and the PIN.
+        var second = Run(
+            address =>
+            {
+                AssertHealthy(address);
+                AssertSignInAndSale(address, barcode, terminal, staff);
+            },
+            store);
         Assert.True(second.Started, "StoreServer did not reopen its own encrypted store:\n" + second.Output);
         Assert.DoesNotContain("Importing", second.Output, StringComparison.Ordinal);
 
@@ -299,32 +312,114 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.Equal("12/34", echoed.RootElement.GetProperty("barcode").GetString());
     }
 
+    /// <summary>The PIN the end-to-end run sets for the generated cashier. A test store's, nobody's.</summary>
+    private const string DemoPin = "4821";
+
     /// <summary>
-    /// Hop 2 on the real process (D-070): the wiring (unit of work, executor, handler, ledger) is
-    /// only proven by a sale that goes through it and comes back completed, then an unknown code
-    /// that comes back refused rather than as an error.
+    /// A5 before any PIN exists (D-083): the generated cashier is listed without one, cannot sign
+    /// in, and a sale that names them in the body is not a sale: nobody is signed in.
     /// </summary>
-    private static void AssertSale(Uri address, string barcode, string terminal, string staff)
+    private static void AssertNobodyCanSellYet(Uri address, string barcode, string terminal, string staff)
     {
         using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
 
-        using var sold = client.PostAsync(
+        using var listed = JsonDocument.Parse(Get(client, "/api/till/staff"));
+        var cashier = listed.RootElement.GetProperty("staff").EnumerateArray()
+            .Single(person => person.GetProperty("staff_id").GetString() == staff);
+        Assert.False(cashier.GetProperty("has_pin").GetBoolean(), "A generated cashier has a usable PIN.");
+        Assert.DoesNotContain("synthetic", listed.RootElement.GetRawText(), StringComparison.Ordinal);
+
+        Assert.Equal("no_pin", SignIn(client, terminal, staff, DemoPin).GetProperty("outcome").GetString());
+
+        using var claimed = client.PostAsync(
             new Uri("/api/sales", UriKind.Relative),
-            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","lines":[{"barcode":"{{barcode}}","count":2}]}""")).GetAwaiter().GetResult();
-        var body = sold.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-        Assert.True(sold.StatusCode == HttpStatusCode.OK, $"The sale failed ({sold.StatusCode}):\n{body}");
-        using (var json = JsonDocument.Parse(body))
+            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","lines":[{"barcode":"{{barcode}}","count":1}]}""")).GetAwaiter().GetResult();
+        Assert.Contains("\"not_signed_in\"", claimed.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A5 on the real process (D-083), after --set-pin: a wrong PIN is counted, the right one opens
+    /// a session, the session's token sells, and nothing else does — not another till's id, not a
+    /// token after sign-out.
+    /// </summary>
+    private static void AssertSignInAndSale(Uri address, string barcode, string terminal, string staff)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+
+        using (var listed = JsonDocument.Parse(Get(client, "/api/till/staff")))
         {
-            Assert.Equal("completed", json.RootElement.GetProperty("outcome").GetString());
-            // The generated store's invoices are all from an earlier year: this year starts at 1.
-            Assert.EndsWith("-000001", json.RootElement.GetProperty("invoice_number").GetString(), StringComparison.Ordinal);
+            Assert.True(listed.RootElement.GetProperty("staff").EnumerateArray()
+                .Single(person => person.GetProperty("staff_id").GetString() == staff)
+                .GetProperty("has_pin").GetBoolean());
         }
 
-        using var refused = client.PostAsync(
-            new Uri("/api/sales", UriKind.Relative),
-            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","lines":[{"barcode":"0000000000000","count":1}]}""")).GetAwaiter().GetResult();
-        Assert.Equal(HttpStatusCode.OK, refused.StatusCode);
-        Assert.Contains("\"refused\"", refused.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+        var wrong = SignIn(client, terminal, staff, "0000");
+        Assert.Equal("wrong_pin", wrong.GetProperty("outcome").GetString());
+        Assert.Equal(4, wrong.GetProperty("attempts_left").GetInt32());
+
+        var right = SignIn(client, terminal, staff, DemoPin);
+        Assert.Equal("signed_in", right.GetProperty("outcome").GetString());
+        var token = right.GetProperty("session_token").GetString()!;
+
+        AssertSale(client, barcode, terminal, token);
+
+        // The token is this till's: at another till's id it sells nothing.
+        Assert.Equal("not_signed_in", Sell(client, "no-such-till", barcode, token).GetProperty("outcome").GetString());
+
+        using var signOut = new HttpRequestMessage(HttpMethod.Post, new Uri("/api/till/sign-out", UriKind.Relative));
+        signOut.Headers.Add("X-Waymark-Session", token);
+        using (var ended = client.SendAsync(signOut).GetAwaiter().GetResult())
+        {
+            Assert.Equal(HttpStatusCode.NoContent, ended.StatusCode);
+        }
+
+        Assert.Equal("not_signed_in", Sell(client, terminal, barcode, token).GetProperty("outcome").GetString());
+    }
+
+    private static string Get(HttpClient client, string path)
+    {
+        using var response = client.GetAsync(new Uri(path, UriKind.Relative)).GetAwaiter().GetResult();
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"{path} failed ({response.StatusCode}): {body}");
+        return body;
+    }
+
+    private static JsonElement SignIn(HttpClient client, string terminal, string staff, string pin)
+    {
+        using var response = client.PostAsync(
+            new Uri("/api/till/sign-in", UriKind.Relative),
+            JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","pin":"{{pin}}"}""")).GetAwaiter().GetResult();
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"The sign-in failed ({response.StatusCode}): {body}");
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    private static JsonElement Sell(HttpClient client, string terminal, string barcode, string token, int count = 1)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/api/sales", UriKind.Relative))
+        {
+            Content = JsonBody($$"""{"terminal_id":"{{terminal}}","lines":[{"barcode":"{{barcode}}","count":{{count}}}]}"""),
+        };
+        request.Headers.Add("X-Waymark-Session", token);
+        using var response = client.SendAsync(request).GetAwaiter().GetResult();
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"The sale failed ({response.StatusCode}):\n{body}");
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Hop 2 on the real process (D-070): the wiring (unit of work, executor, handler, ledger) is
+    /// only proven by a sale that goes through it and comes back completed, then an unknown code
+    /// that comes back refused rather than as an error. Sold by the session's person (A5).
+    /// </summary>
+    private static void AssertSale(HttpClient client, string barcode, string terminal, string token)
+    {
+        var sold = Sell(client, terminal, barcode, token, count: 2);
+        Assert.Equal("completed", sold.GetProperty("outcome").GetString());
+        // The generated store's invoices are all from an earlier year: this year starts at 1.
+        Assert.EndsWith("-000001", sold.GetProperty("invoice_number").GetString(), StringComparison.Ordinal);
+
+        Assert.Equal("refused", Sell(client, terminal, "0000000000000", token).GetProperty("outcome").GetString());
     }
 
     /// <summary>
@@ -455,6 +550,46 @@ public sealed class StoreServerStartupTests : IDisposable
     }
 
     private (bool Started, string Output) Run(params string[] extra) => Run(null, extra);
+
+    /// <summary>Runs StoreServer with <paramref name="input"/> on its console until it exits: a maintenance switch.</summary>
+    private (int ExitCode, string Output) RunToExit(string input, params string[] extra)
+    {
+        var server = BuiltAssembly("Waymark.StoreServer");
+        var start = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = Path.GetDirectoryName(server)!,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add(server);
+        start.ArgumentList.Add($"--{WaymarkStoragePaths.DataDirectorySetting}={Data}");
+        start.ArgumentList.Add($"--{WaymarkStoragePaths.KeysDirectorySetting}={Keys}");
+        start.ArgumentList.Add("--urls=http://127.0.0.1:0");
+        foreach (var argument in extra)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+        start.Environment["Logging__Console__FormatterName"] = "simple";
+
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
+        process.StandardInput.Write(input);
+        process.StandardInput.Close();
+
+        if (!process.WaitForExit(Patience))
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            return (-1, "Did not exit.\n" + output.Result + errors.Result);
+        }
+
+        return (process.ExitCode, output.Result + errors.Result);
+    }
 
     /// <summary>
     /// Runs StoreServer until it reports that it started, or exits; if it started, calls

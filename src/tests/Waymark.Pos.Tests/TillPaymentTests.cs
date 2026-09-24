@@ -26,12 +26,17 @@ public sealed class TillPaymentTests
     {
         public List<SaleRequest> Sent { get; } = [];
 
-        public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, CancellationToken cancellationToken = default)
+        public List<string> Tokens { get; } = [];
+
+        public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, string sessionToken, CancellationToken cancellationToken = default)
         {
             Sent.Add(request);
+            Tokens.Add(sessionToken);
             return Task.FromResult(answer);
         }
     }
+
+    private static readonly SignedInStaff Cashier = new("staff-1", "token-1");
 
     private static readonly SaleOutcome Done =
         new(SaleOutcomes.Completed, "t1", "S-2026-000001", "286.00", "23.61", "285.00", "DZD", null);
@@ -39,7 +44,8 @@ public sealed class TillPaymentTests
     private static async Task<(TillSession Session, Sales Sales)> CartOf(SaleAnswer answer, TillIdentity? till = null, params string[] codes)
     {
         var sales = new Sales(answer);
-        var session = new TillSession(new Products(), sales, till ?? new TillIdentity("till-1", "staff-1"));
+        var session = new TillSession(new Products(), sales, till ?? new TillIdentity("till-1"));
+        session.SignIn(Cashier);
         foreach (var code in codes)
         {
             await session.SubmitAsync(code);
@@ -57,8 +63,93 @@ public sealed class TillPaymentTests
 
         var request = Assert.Single(sales.Sent);
         Assert.Equal("till-1", request.TerminalId);
-        Assert.Equal("staff-1", request.StaffId);
         Assert.Equal([new SaleRequestLine("111", 2), new SaleRequestLine("222", 1)], request.Lines);
+    }
+
+    // ------------------------------------------------ who is selling (A5, D-083)
+
+    [Fact]
+    public void A_sale_names_nobody_the_session_token_does()
+    {
+        // The request has no staff field at all: the server takes the seller from the session.
+        Assert.DoesNotContain(typeof(SaleRequest).GetProperties(), property => property.Name.Contains("Staff", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_signed_in_persons_token_goes_with_the_sale()
+    {
+        var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
+
+        await session.PayAsync();
+
+        Assert.Equal(["token-1"], sales.Tokens);
+    }
+
+    [Fact]
+    public async Task Nobody_signed_in_sends_nothing_and_keeps_the_ticket()
+    {
+        var sales = new Sales(new SaleAnswer.Completed(Done));
+        var session = new TillSession(new Products(), sales, new TillIdentity("till-1"));
+        await session.SubmitAsync("111");
+
+        await session.PayAsync();
+
+        Assert.Empty(sales.Sent);
+        Assert.Equal(TillNoticeKind.NotSignedIn, session.Notice!.Kind);
+        Assert.Single(session.Cart.ActiveLines);
+    }
+
+    [Fact]
+    public async Task A_session_the_server_no_longer_holds_signs_the_till_out_and_keeps_the_ticket()
+    {
+        // The server restarted: nothing was written. The till asks for a PIN, and the ticket is
+        // there for whoever signs in, rather than lost with the session.
+        var (session, _) = await CartOf(new SaleAnswer.NotSignedIn(), null, "111", "222");
+
+        await session.PayAsync();
+
+        Assert.Null(session.SignedIn);
+        Assert.Equal(TillNoticeKind.NotSignedIn, session.Notice!.Kind);
+        Assert.Equal(2, session.Cart.ActiveLines.Count);
+        Assert.Null(session.Paid);
+        Assert.True(session.Server.IsReachable);
+    }
+
+    [Fact]
+    public async Task Changing_cashier_is_refused_while_the_ticket_has_lines()
+    {
+        // Until B2 parks a ticket, handing the till over mid-ticket would sell one person's
+        // ticket under the next person's name.
+        var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
+
+        Assert.Null(session.SignOut());
+
+        Assert.Equal(Cashier, session.SignedIn);
+        Assert.Equal(TillNoticeKind.SwitchRefused, session.Notice!.Kind);
+        Assert.Single(session.Cart.ActiveLines);
+    }
+
+    [Fact]
+    public async Task Changing_cashier_after_a_sale_hands_back_the_token_and_clears_the_till()
+    {
+        var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
+        await session.PayAsync();
+
+        Assert.Equal("token-1", session.SignOut());
+
+        Assert.Null(session.SignedIn);
+        Assert.Null(session.Paid);
+        Assert.Empty(session.Cart.Lines);
+    }
+
+    [Fact]
+    public async Task A_ticket_whose_every_line_was_removed_does_not_block_the_change()
+    {
+        var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
+        session.Remove("v-111");
+
+        Assert.Equal("token-1", session.SignOut());
+        Assert.Empty(session.Cart.Lines);
     }
 
     // ------------------------------------------------ a line taken out (G1)
@@ -182,12 +273,10 @@ public sealed class TillPaymentTests
         Assert.Empty(sales.Sent);
     }
 
-    [Theory]
-    [InlineData(null, "staff-1")]
-    [InlineData("till-1", null)]
-    public async Task A_till_without_a_terminal_or_staff_sends_nothing(string? terminal, string? staff)
+    [Fact]
+    public async Task A_till_without_a_terminal_sends_nothing()
     {
-        var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), new TillIdentity(terminal, staff), "111");
+        var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), new TillIdentity(null), "111");
 
         await session.PayAsync();
 
@@ -202,7 +291,8 @@ public sealed class TillPaymentTests
         // Scan, then press Pay at once: the scan's line must be in the sale.
         var slow = new SlowProducts();
         var sales = new Sales(new SaleAnswer.Completed(Done));
-        var session = new TillSession(slow, sales, new TillIdentity("till-1", "staff-1"));
+        var session = new TillSession(slow, sales, new TillIdentity("till-1"));
+        session.SignIn(Cashier);
 
         var scan = session.SubmitAsync("111");
         var pay = session.PayAsync();

@@ -14,6 +14,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Staff PINs, Argon2id (D-083). The host is the one place a PIN is checked. -->
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Design-time only, and here rather than only in Persistence because the
           EF tools resolve against the STARTUP project. Persistence marks it
           PrivateAssets="all", so it does not flow through the project

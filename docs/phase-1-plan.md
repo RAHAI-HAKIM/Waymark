@@ -119,7 +119,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | A2 | Sessions, staff PIN, permissions | `Domain/Engine/CardAudience.cs` (D-074) | **H** | M |
 | A3 | `reason_codes` wired as data (the generator already seeds them) | `Domain/Reference/ReasonCode.cs` | C | S |
 | A4 | Till shell rebuilt to **G1** | `Pos/TillWindow.cs`, `App.cs` (D-068) | C | M |
-| A5 | Sign-in: PIN verification, the till login session, sign-out and switching cashier. Added 23/09 | `StaffPin` (D-077), `App.cs`'s `--staff=` | **H** verifier and session rule, C screen | M |
+| A5 | Sign-in: PIN verification, the till login session, sign-out and switching cashier. Added 23/09; built 24/09 (D-083) | `StaffPin` (D-077), `App.cs`'s `--staff=` | **H** verifier and session rule, C screen | M |
 
 ### Block B — Checkout depth (10 sessions) — the largest block
 
@@ -189,7 +189,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | H1 | Staff CRUD, roles, PIN, clock, basic scheduling, deactivation | A2 | C | M |
 | H2 | Store profile, terminals, roles and permissions. Single store | `stores`, D-071's write guard | C | M |
 
-### Block I — Platform (6 sessions)
+### Block I — Platform (5 sessions)
 
 | # | Work | Expands (0.5) | Who | Size |
 | :-- | :---- | :---- | :--: | :--: |
@@ -199,7 +199,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | I4 | The recovery-code screen | D-042 | **H** | M |
 | I5 | The evaluator **nightly**; retire a card whose batch is gone; **carry out** an accepted markdown or write-off | D-073, and D-074's "applies nothing" | **H** the apply, C the schedule | M |
 
-### Block J — The done-when (3 sessions)
+### Block J — The done-when (4 sessions)
 
 | # | Work | Who | Size |
 | :-- | :---- | :--: | :--: |

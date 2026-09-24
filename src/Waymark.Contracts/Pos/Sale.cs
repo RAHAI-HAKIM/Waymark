@@ -8,11 +8,14 @@ namespace Waymark.Contracts.Pos;
 /// price that changed since the scan is caught, not sold.
 /// </summary>
 /// <param name="TerminalId">The till selling.</param>
-/// <param name="StaffId">Who is selling. No login until Phase 1; the till is configured with it.</param>
 /// <param name="Lines">What was scanned, one line per code.</param>
+/// <remarks>
+/// <b>It does not say who is selling</b> (D-083). The till sends its session token in
+/// <see cref="TillSessionHeader.Name"/>, and the server takes the seller from the session that
+/// token opened: a field here would be a claim the server had to decide whether to believe.
+/// </remarks>
 public sealed record SaleRequest(
     [property: JsonPropertyName("terminal_id")] string TerminalId,
-    [property: JsonPropertyName("staff_id")] string StaffId,
     [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines);
 
 /// <summary>One scanned code and how many units of it.</summary>
@@ -50,4 +53,10 @@ public static class SaleOutcomes
 
     /// <summary>Nothing was written; <see cref="SaleOutcome.Reason"/> says why.</summary>
     public const string Refused = "refused";
+
+    /// <summary>
+    /// Nothing was written: the till's session is not one the server holds (never opened, signed
+    /// out, or the server restarted), or it is another till's. The till asks for a PIN again.
+    /// </summary>
+    public const string NotSignedIn = "not_signed_in";
 }

@@ -133,6 +133,12 @@ public sealed record TillScreen(
             case { Kind: TillNoticeKind.SaleRefused } saleRefused:
                 return new NoticeLine(Tone.Critical, text.SaleRefused, saleRefused.Detail);
 
+            case { Kind: TillNoticeKind.SwitchRefused }:
+                return new NoticeLine(Tone.Warning, text.TicketInProgress, text.FinishBeforeSwitching);
+
+            case { Kind: TillNoticeKind.NotSignedIn }:
+                return new NoticeLine(Tone.Warning, text.SessionEnded, text.SessionEndedDetail);
+
             // An unconfirmed sale takes the rail (RailOf), where its instructions fit; the slot
             // goes on saying what it would otherwise say.
         }
@@ -424,7 +430,8 @@ public sealed record TillScreen(
     }
 }
 
-public sealed record TopBar(string? Place, TicketTab Tab, Connection Connection, StaffChip? Staff, string Clock);
+/// <param name="Tab">The open ticket; null on the sign-in screen, where there is none.</param>
+public sealed record TopBar(string? Place, TicketTab? Tab, Connection Connection, StaffChip? Staff, string Clock);
 
 /// <summary>"Ticket en cours · 14 lignes". No number until the sale is recorded (D-070).</summary>
 public sealed record TicketTab(string Title, string Detail);

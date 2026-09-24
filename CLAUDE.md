@@ -153,9 +153,10 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 - **No tab without `customers.credit_limit`**, and none beyond it. Null means no tab.
 - **Outstanding debt never reaches the outbox**: not banded, not flagged (D-043).
 
-### 3.10 Access — D-074, D-077
+### 3.10 Access — D-074, D-077, D-083
 
 - **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked.
+- **Who acts is the session's, never a field the till sends.** A PIN is checked in StoreServer only, and the lockout is asked first.
 
 ---
 

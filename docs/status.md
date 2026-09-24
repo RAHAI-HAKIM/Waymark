@@ -2,8 +2,8 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**23/09/2026**: **A1–A4 are done**; G1 is closed and the till has its shell (§12). A5,
-sign-in, is next. Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+**24/09/2026**: **A1–A4 are done**, and **A5, sign-in, waits on Hakim's three pieces** (§13);
+it closes block A. B2 is next. Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -13,7 +13,7 @@ sign-in, is next. Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1197 passing** in Debug and Release: Integration 479 · Generator 237 · Domain 191 · Pos 185 · Hardware 64 · Application 41 |
+| Tests | **1349** once A5's three pieces are in (Integration 532 · Pos 257 · Generator 237 · Domain 218 · Hardware 64 · Application 41). Until then **67 are red on purpose**, each on a "✍ Hakim's piece" exception (§13) |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -63,6 +63,7 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | O-26 | A weighed line priced by whoever weighed it: which figure is exact once the weight is inferred and rounded? | Money arithmetic. **Blocks B3** |
 | O-27 | Can a sale be sent twice safely? An unconfirmed sale offers no retry until it can | A key the server recognises. **Blocks "Réessayer" and I2** |
 | O-28 | Does a recommendation have an Adjust answer (design system) or not (D-074)? | Ajuster is shown unavailable until decided |
+| O-29 | Should a sign-in end when the till is idle, and a lockout survive a restart? Both are memory today (D-083) | Nothing in Phase 1's flow. **Before a pilot** |
 
 ---
 
@@ -319,12 +320,20 @@ already imported), wait for `Now listening on: http://localhost:5290`:
 dotnet run --project src/Waymark.StoreServer --no-launch-profile -- --urls=http://localhost:5290 "--Waymark:Storage:DataDirectory=$PWD\artifacts\server\data" "--Waymark:Storage:KeysDirectory=$PWD\artifacts\server\keys" --Waymark:Store:StoreId=01JCWEQNC0W9W3YV7F0CPNDDC9 --Waymark:Store:Currency=DZD
 ```
 
-Then start the till in a second terminal. It finds StoreServer at `http://localhost:5290/`
-by default. To **pay**, it also needs its terminal and staff ids (seed-42's till and first
-cashier are below); without them, Pay says so and sends nothing:
+**Nobody can sign in until somebody has a PIN** (A5, D-083): every generated person has the
+unusable `synthetic:no-login`. Set one for seed-42's first cashier with StoreServer stopped; it
+asks twice, without echo, and exits:
 
 ```bash
-dotnet run --project src/Waymark.Pos -- --terminal=01JCWEQNC0W9W3YV7F0CPNDDCD --staff=01JCWEQNC0W9W3YV7F0CPNDDCB
+dotnet run --project src/Waymark.StoreServer --no-launch-profile -- "--Waymark:Storage:DataDirectory=$PWD/artifacts/server/data" "--Waymark:Storage:KeysDirectory=$PWD/artifacts/server/keys" --Waymark:Store:StoreId=01JCWEQNC0W9W3YV7F0CPNDDC9 --Waymark:Store:Currency=DZD --set-pin=01JCWEQNC0W9W3YV7F0CPNDDCB
+```
+
+Then start StoreServer as above, and the till in a second terminal. It finds StoreServer at
+`http://localhost:5290/` by default and needs its terminal id (seed-42's till); who sells is
+whoever signs in:
+
+```bash
+dotnet run --project src/Waymark.Pos -- --terminal=01JCWEQNC0W9W3YV7F0CPNDDCD
 ```
 
 In a Debug build the till has a **Simulate scan** box that feeds a code through the real
@@ -542,3 +551,41 @@ completes a real sale on whichever store the server has open.
 **Not in A4, and where it goes:** the rail's operation keys, quick keys and the Carte, Mobile and
 Carnet tenders are B-block; sign-in, the staff menu and the clock-in time are A5 and B10;
 "Espèces reçues" and the change due are B6.
+
+---
+
+## 13. Session A5, sign-in, read in the order a PIN travels
+
+**✍ Hakim's three pieces**, each with its red tests and its rules in the doc comment:
+`Domain/Organisation/StaffPin.IsWellFormed` (StaffPinTests), `Domain/Organisation/SignInLockout.cs`
+(SignInLockoutTests) and `StoreServer/Security/Argon2PinHasher.cs` (Argon2PinHasherTests). The rest
+of the 67 red tests turn green with them: `TillSessionsTests`, `StaffCredentialsTests` and the
+end-to-end `StoreServerStartupTests`, which imports a store, sets a PIN through `--set-pin`,
+restarts, and signs in and sells over HTTP.
+
+1. **Who is listed:** `Domain/Organisation/IStaffCredentials.cs`, then
+   `Persistence/Organisation/StaffCredentials.cs`: active staff, active role, through the store
+   filter, with a "has a PIN" flag and never the hash. `GET /api/till/staff`.
+2. **The PIN typed:** `Pos/Checkout/SignInFlow.cs` (pad state, ASCII digits only, forgotten once
+   sent), `Pos/Screen/SignInScreen.cs` (the model: four dots until a fifth digit), `Ui/SignInViews.cs`.
+3. **The PIN checked:** `POST /api/till/sign-in` → `StoreServer/Security/TillSessions.cs`, where
+   the terminal is checked first, then the person, a missing PIN, the lock, and only then the hash.
+   It hands out the token.
+4. **A sale:** the till sends the token in `X-Waymark-Session`; `SaleWire.Seller` takes the seller
+   from the session, only at its own till. `SaleRequest` no longer carries `staff_id`.
+5. **Switching:** the staff chip in the top bar. `TillSession.SignOut` refuses while the ticket has
+   lines; otherwise `POST /api/till/sign-out` and back to the list.
+6. **Setting a PIN:** `StoreServer --set-pin=<id>` → `Security/SetPinSwitch.cs` →
+   `Application/Organisation/SetStaffPin.cs`, staged and committed by the executor (D-050).
+
+**Broken on purpose** (D-012), ten mutations, each caught by its own tests: no sign-in gate, the
+previous session kept at a till, a locked PIN checked anyway, the seller's till ignored, a retired
+role signing in, the pad taking Arabic-Indic digits, digits kept when another person is chosen,
+switching cashier mid-ticket, the PIN field sized to the PIN, and `not_signed_in` read as unknown.
+
+**To look at it:** `--snapshot=out.png --staff=<id> [--pin=digits [--open]]` shows the sign-in
+screen at that point (Debug only; the PIN on a command line is for a demo store).
+
+**Not in A5:** clock-in and "Pointer sans ouvrir la caisse" (B10), parking a ticket to switch
+mid-sale (B2), Admin sign-in (I1), an idle timeout and a lockout that survives a restart (O-29).
+

@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Waymark.Application.Commands;
 using Waymark.Application.Engine;
 using Waymark.Application.IdGenerator;
+using Waymark.Application.Organisation;
 using Waymark.Application.Sales;
 using Waymark.Application.Statistics;
 using Waymark.Application.Sync;
@@ -39,6 +40,7 @@ using Waymark.StoreServer.Organisation;
 using Waymark.StoreServer.Reference;
 using Waymark.StoreServer.Engine;
 using Waymark.StoreServer.Sales;
+using Waymark.StoreServer.Security;
 
 // The till is Windows (D-017), and the keys are wrapped with DPAPI, which exists nowhere else.
 [assembly: SupportedOSPlatform("windows")]
@@ -101,6 +103,14 @@ builder.Services.AddScoped<IReasonCodes, Waymark.Persistence.Reference.ReasonCod
 
 // Who and where the till is, for its top bar (A4). A read, scoped like the others.
 builder.Services.AddScoped<ITillDirectory, Waymark.Persistence.Organisation.TillDirectory>();
+
+// Sign-in (A5, D-083). The hasher is here, in the host, because nothing else may reach
+// System.Security.Cryptography; the sessions are one per server, in memory, and a restart ends
+// them all. The credentials read is scoped like every other read.
+builder.Services.AddSingleton<IPinHasher, Argon2PinHasher>();
+builder.Services.AddSingleton<TillSessions>();
+builder.Services.AddScoped<IStaffCredentials, Waymark.Persistence.Organisation.StaffCredentials>();
+builder.Services.AddScoped<SetStaffPinHandler>();
 
 // Commands (D-050): one unit of work per request, which stages every row and the executor
 // commits once. The same instance is the staging side and the committing side.
@@ -238,6 +248,19 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// --set-pin=<staffId> (A5, D-083): set one person's PIN on the store just opened, and exit. After
+// the startup checks, so it writes only to an encrypted, migrated store; before anything is served.
+if (app.Configuration[SetPinSwitch.Setting] is { } pinFor)
+{
+    using var scope = app.Services.CreateScope();
+    return await SetPinSwitch.RunAsync(
+        pinFor,
+        SetPinSwitch.ReadHidden,
+        Console.Out,
+        scope.ServiceProvider.GetRequiredService<CommandExecutor>(),
+        scope.ServiceProvider.GetRequiredService<SetStaffPinHandler>());
+}
+
 // The POS uses this to decide whether the server is reachable before falling
 // back to its Level-2 cache.
 app.MapGet("/health", () => Results.Ok(new
@@ -267,6 +290,31 @@ app.MapGet("/api/till/context", async (
         ? Results.BadRequest("A terminal is required: /api/till/context?terminal=...&staff=...")
         : Results.Ok(TillContextWire.ToWire(await directory.DescribeAsync(terminal, staff, cancellationToken))));
 
+// Session A5 (D-083): who may open this till. Names and roles, and whether a PIN is set; never a hash.
+app.MapGet("/api/till/staff", async (IStaffCredentials credentials, CancellationToken cancellationToken) =>
+    Results.Ok(new TillStaff([.. (await credentials.CandidatesAsync(cancellationToken)).Select(candidate =>
+        new TillStaffMember(candidate.StaffId, candidate.StaffName, candidate.RoleLabelFr, candidate.RoleLabelAr, candidate.HasPin))])));
+
+// A PIN typed at a till. Every outcome is a 200 with its answer; the token in a "signed_in" one is
+// what the till sends with each sale from now on.
+app.MapPost("/api/till/sign-in", async (
+    SignInRequest request, TillSessions sessions, ITillDirectory directory, IStaffCredentials credentials,
+    CancellationToken cancellationToken) =>
+{
+    var terminalKnown = !string.IsNullOrWhiteSpace(request.TerminalId)
+        && await directory.DescribeAsync(request.TerminalId, null, cancellationToken) is not null;
+
+    return Results.Ok(await sessions.SignInAsync(request, terminalKnown, credentials, cancellationToken));
+});
+
+// Ends the session the header names. Always a 204: a token the server does not hold is already
+// signed out, and saying so would tell a guesser which tokens exist.
+app.MapPost("/api/till/sign-out", (HttpRequest http, TillSessions sessions) =>
+{
+    sessions.SignOut(http.Headers[TillSessionHeader.Name].ToString());
+    return Results.NoContent();
+});
+
 // Session A3: the reasons this shop accepts for one kind of action. Every column that records
 // *why* something happened is a foreign key into reason_codes, so this list is not decoration
 // — it is the set of values the database will accept, and offering anything else fails at the
@@ -294,13 +342,22 @@ app.MapGet("/api/reason-codes", async (
 // index would then refuse the second, but as a failure rather than a sale). A refusal is an
 // answer, a 200 like the lookup's; an error status only ever means the server failed.
 var oneSaleAtATime = new SemaphoreSlim(1, 1);
+//
+// The seller is whoever the session header's token signed in (A5, D-083); the request no longer
+// names anyone. No session, or another till's, is "not_signed_in" and nothing is written.
 app.MapPost("/api/sales", async (
-    SaleRequest request, CommandExecutor executor, CompleteSaleHandler handler, CancellationToken cancellationToken) =>
+    SaleRequest request, HttpRequest http, TillSessions sessions, CommandExecutor executor, CompleteSaleHandler handler,
+    CancellationToken cancellationToken) =>
 {
+    if (SaleWire.Seller(sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()), request) is not { } seller)
+    {
+        return Results.Ok(SaleWire.NotSignedIn());
+    }
+
     await oneSaleAtATime.WaitAsync(cancellationToken);
     try
     {
-        var sale = await executor.ExecuteAsync(handler, SaleWire.ToCommand(request), cancellationToken);
+        var sale = await executor.ExecuteAsync(handler, SaleWire.ToCommand(request, seller), cancellationToken);
         return Results.Ok(SaleWire.Completed(sale));
     }
     catch (SaleRefusedException refusal)
@@ -354,6 +411,7 @@ app.MapPost("/api/recommendations/decide", async (
 });
 
 app.Run();
+return 0;
 
 // Accept and dismiss only: adjust needs an amended payload and snooze a date, and neither is
 // in the slice (D-069). An unknown word is refused here rather than mapped to something.

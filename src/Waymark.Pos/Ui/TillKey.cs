@@ -23,6 +23,9 @@ public enum KeyLook
 
     /// <summary>A bordered key on the bar.</summary>
     Bar,
+
+    /// <summary>A PIN pad key: the tile ground, no edge (G1 "Connexion").</summary>
+    Pad,
 }
 
 /// <summary>
@@ -57,6 +60,7 @@ public sealed class TillKey : Border
             (_, false) => (theme.DisabledFill, null),
             (KeyLook.Primary, true) => (theme.Action, null),
             (KeyLook.Secondary, true) => (theme.Card, theme.Border),
+            (KeyLook.Pad, true) => (theme.Tile, null),
             _ => ((IBrush?)null, (IBrush?)null),
         };
 

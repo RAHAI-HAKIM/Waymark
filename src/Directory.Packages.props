@@ -44,6 +44,12 @@
   <ItemGroup Label="Hosting">
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
   </ItemGroup>
+  <!-- Staff PINs are hashed with Argon2id (D-083, Hakim 24/09). Pure managed code, MIT, no native
+       library to ship with the till. Used by StoreServer alone: the architecture tests keep
+       System.Security.Cryptography out of every project but Pseudonymisation and the hosts. -->
+  <ItemGroup Label="Security">
+    <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
+  </ItemGroup>
   <!-- Avalonia will use 12.1, after investigating its stability I decided that
   It's the best decision to make with performance enhancements.  -->
   <ItemGroup Label="POS">

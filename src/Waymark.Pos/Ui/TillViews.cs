@@ -22,11 +22,12 @@ public sealed record TillActions(
 /// Nothing here decides: a label, a tone, whether a key is available — all of it arrives in the
 /// model, where it is tested.
 /// </summary>
-public static class TillViews
+public static partial class TillViews
 {
     // ================================================================ top bar
 
-    public static Control TopBar(TopBar top, TillTheme theme)
+    /// <param name="switchCashier">What touching the staff chip does ("Changer de caissier", A5); null draws it inert.</param>
+    public static Control TopBar(TopBar top, TillTheme theme, Action? switchCashier = null)
     {
         var start = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
         start.Children.Add(Words("Waymark", 16, FontWeight.SemiBold, theme.BarText, theme));
@@ -37,7 +38,8 @@ public static class TillViews
         }
 
         // The open ticket is a tab joined to the page below it (kit §9, "onglets dans la barre haute").
-        var tab = new Border
+        // The sign-in screen has no ticket, and no tab.
+        var tab = top.Tab is null ? null : new Border
         {
             Background = theme.Page,
             CornerRadius = new CornerRadius(TillSizes.KeyRadius, TillSizes.KeyRadius, 0, 0),
@@ -61,12 +63,12 @@ public static class TillViews
         if (top.Staff is { } staff)
         {
             end.Children.Add(Words("·", 14, FontWeight.Normal, theme.BarLabel, theme));
-            end.Children.Add(new Border
+
+            // A bar key: touching it hands the till to somebody else (A5). Whether that is allowed
+            // now is the session's to say, not the chip's.
+            end.Children.Add(new TillKey(theme, KeyLook.Bar, new Border
             {
-                BorderBrush = theme.BarKeyBorder,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(TillSizes.KeyRadius),
-                Padding = new Thickness(12, 4),
+                Padding = new Thickness(0, 4),
                 Child = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -84,7 +86,7 @@ public static class TillViews
                         TillTheme.Icon(LucideIcons.ChevronDown, theme.BarLabel, 16),
                     },
                 },
-            });
+            }, switchCashier, available: true, height: 44) { VerticalAlignment = VerticalAlignment.Center });
         }
 
         end.Children.Add(Words("·", 14, FontWeight.Normal, theme.BarLabel, theme));
@@ -92,7 +94,11 @@ public static class TillViews
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto"), Margin = new Thickness(TillSizes.Margin, 0) };
         grid.Children.Add(Cell(start, 0));
-        grid.Children.Add(Cell(tab, 1));
+        if (tab is not null)
+        {
+            grid.Children.Add(Cell(tab, 1));
+        }
+
         grid.Children.Add(Cell(end, 3));
 
         return new Border { Background = theme.Bar, Height = TillSizes.TopBar, Child = grid };

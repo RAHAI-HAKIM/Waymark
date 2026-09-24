@@ -178,6 +178,57 @@ public abstract class TillText
     /// <summary>"2 cartes attendent le responsable": cards above this person's rank, counted, never shown.</summary>
     public abstract string CardsAwaitingManager(int count);
 
+    // ------------------------------------------------------------------ sign-in (A5)
+
+    public abstract string WhoOpensTheTill { get; }
+
+    public abstract string ChooseYourName { get; }
+
+    /// <summary>"Code PIN de Nabil B.".</summary>
+    public abstract string PinOf(string name);
+
+    public abstract string ClearKey { get; }
+
+    public abstract string OpenTheTill { get; }
+
+    /// <summary>A person with no PIN set, on their row and as a message.</summary>
+    public abstract string NoPinLabel { get; }
+
+    public abstract string NoPinDetail { get; }
+
+    public abstract string NobodyMaySignIn { get; }
+
+    public abstract string NobodyMaySignInHint { get; }
+
+    public abstract string WrongPin { get; }
+
+    /// <summary>"Encore 3 essais avant le blocage".</summary>
+    public abstract string AttemptsLeft(int count);
+
+    public abstract string Locked { get; }
+
+    /// <summary>"Trop d'essais. Réessayez à 08:06.".</summary>
+    public abstract string LockedUntil(string clock);
+
+    public abstract string UnknownStaff { get; }
+
+    public abstract string UnknownStaffDetail { get; }
+
+    public abstract string UnknownTerminal { get; }
+
+    public abstract string UnknownTerminalDetail { get; }
+
+    public abstract string NoTerminalDetail { get; }
+
+    public abstract string SessionEnded { get; }
+
+    public abstract string SessionEndedDetail { get; }
+
+    /// <summary>"Changer de caissier" refused: the ticket still has lines in the sale.</summary>
+    public abstract string TicketInProgress { get; }
+
+    public abstract string FinishBeforeSwitching { get; }
+
     // ================================================================== French
 
     private sealed class FrenchText : TillText
@@ -277,6 +328,31 @@ public abstract class TillText
         public override string CardsAwaitingManager(int count) => count == 1
             ? "1 carte attend le responsable"
             : $"{DisplayFigures.Count(count)} cartes attendent le responsable";
+
+        public override string WhoOpensTheTill => "Qui ouvre la caisse ?";
+        public override string ChooseYourName => "Choisissez votre nom";
+        public override string PinOf(string name) => $"Code PIN de {name}";
+        public override string ClearKey => "Effacer";
+        public override string OpenTheTill => "Ouvrir la caisse";
+        public override string NoPinLabel => "SANS CODE PIN";
+        public override string NoPinDetail => "Aucun code PIN n'est défini pour cette personne. Le responsable le définit sur le serveur du magasin.";
+        public override string NobodyMaySignIn => "Personne ne peut ouvrir cette caisse";
+        public override string NobodyMaySignInHint => "Aucun membre actif du personnel n'est enregistré pour ce magasin.";
+        public override string WrongPin => "CODE INCORRECT";
+        public override string AttemptsLeft(int count) => count == 1
+            ? "Encore 1 essai avant le blocage"
+            : $"Encore {DisplayFigures.Count(count)} essais avant le blocage";
+        public override string Locked => "BLOQUÉ";
+        public override string LockedUntil(string clock) => $"Trop d'essais. Réessayez à {clock}.";
+        public override string UnknownStaff => "PERSONNE INCONNUE";
+        public override string UnknownStaffDetail => "Cette personne ne peut plus ouvrir la caisse. La liste a été mise à jour.";
+        public override string UnknownTerminal => "CAISSE INCONNUE";
+        public override string UnknownTerminalDetail => "Le serveur du magasin ne connaît pas cette caisse. Vérifiez son identifiant (--terminal=).";
+        public override string NoTerminalDetail => "Cette caisse n'a pas d'identifiant (--terminal=).";
+        public override string SessionEnded => "SESSION TERMINÉE";
+        public override string SessionEndedDetail => "Le serveur ne reconnaît plus cette session. Reconnectez-vous : le ticket en cours est conservé.";
+        public override string TicketInProgress => "TICKET EN COURS";
+        public override string FinishBeforeSwitching => "Encaissez ou retirez les lignes avant de changer de caissier.";
     }
 
     // ================================================================== Arabic
@@ -378,6 +454,31 @@ public abstract class TillText
         public override string NoCardsForYou => "لا توجد بطاقات لك حاليًا."; // ar: à relire
         public override string CardsAwaitingManager(int count) =>
             ArabicCount(count, "بطاقة واحدة", "بطاقتان", "بطاقات", "بطاقة") + " بانتظار المسؤول";
+
+        // Sign-in (A5). No Arabic board shows this screen: every string here is to be read.
+        public override string WhoOpensTheTill => "من يفتح الصندوق؟"; // ar: à relire
+        public override string ChooseYourName => "اختر اسمك"; // ar: à relire
+        public override string PinOf(string name) => $"الرمز السري لـ {name}"; // ar: à relire
+        public override string ClearKey => "مسح"; // ar: à relire
+        public override string OpenTheTill => "فتح الصندوق"; // ar: à relire
+        public override string NoPinLabel => "بدون رمز سري"; // ar: à relire
+        public override string NoPinDetail => "لم يُحدَّد رمز سري لهذا الشخص. يحدّده المسؤول على خادم المتجر."; // ar: à relire
+        public override string NobodyMaySignIn => "لا أحد يمكنه فتح هذا الصندوق"; // ar: à relire
+        public override string NobodyMaySignInHint => "لا يوجد موظف نشط مسجّل لهذا المتجر."; // ar: à relire
+        public override string WrongPin => "رمز خاطئ"; // ar: à relire
+        public override string AttemptsLeft(int count) => // ar: à relire
+            "يتبقى " + ArabicCount(count, "محاولة واحدة", "محاولتان", "محاولات", "محاولة") + " قبل القفل";
+        public override string Locked => "مقفل"; // ar: à relire
+        public override string LockedUntil(string clock) => $"محاولات كثيرة. أعد المحاولة على {clock}."; // ar: à relire
+        public override string UnknownStaff => "شخص غير معروف"; // ar: à relire
+        public override string UnknownStaffDetail => "لم يعد بإمكان هذا الشخص فتح الصندوق. تم تحديث القائمة."; // ar: à relire
+        public override string UnknownTerminal => "صندوق غير معروف"; // ar: à relire
+        public override string UnknownTerminalDetail => "خادم المتجر لا يعرف هذا الصندوق. تحقّق من معرّفه (--terminal=)."; // ar: à relire
+        public override string NoTerminalDetail => "هذا الصندوق بلا معرّف (--terminal=)."; // ar: à relire
+        public override string SessionEnded => "انتهت الجلسة"; // ar: à relire
+        public override string SessionEndedDetail => "لم يعد الخادم يعرف هذه الجلسة. سجّل الدخول مجددًا: التذكرة الحالية محفوظة."; // ar: à relire
+        public override string TicketInProgress => "تذكرة جارية"; // ar: à relire
+        public override string FinishBeforeSwitching => "ادفع أو أزل الأسطر قبل تغيير البائع."; // ar: à relire
 
         private static string ArabicCount(int count, string one, string two, string few, string many) => count switch
         {

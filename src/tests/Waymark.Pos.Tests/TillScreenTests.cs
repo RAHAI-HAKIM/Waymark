@@ -73,7 +73,7 @@ public sealed class TillScreenTests
     [Fact]
     public void An_empty_till_offers_a_new_ticket()
     {
-        var tab = TillScreen.Build(State()).Top.Tab;
+        var tab = TillScreen.Build(State()).Top.Tab!;
 
         Assert.Equal(("Nouveau ticket", "vide"), (tab.Title, tab.Detail));
     }
@@ -86,7 +86,7 @@ public sealed class TillScreenTests
         var cart = CartWith(("a", "65.00", 1), ("b", "120.00", 1), ("c", "10.00", 1));
         cart.Remove("c", Now);
 
-        var tab = TillScreen.Build(State(cart)).Top.Tab;
+        var tab = TillScreen.Build(State(cart)).Top.Tab!;
 
         Assert.Equal(("Ticket en cours", "2 lignes"), (tab.Title, tab.Detail));
     }
@@ -96,7 +96,7 @@ public sealed class TillScreenTests
     {
         var paid = new PaidTicket(Sale, [], Now);
 
-        var tab = TillScreen.Build(State(paid: paid)).Top.Tab;
+        var tab = TillScreen.Build(State(paid: paid)).Top.Tab!;
 
         Assert.Equal(("Ticket n° 0142", "payé"), (tab.Title, tab.Detail));
     }
@@ -464,7 +464,7 @@ public sealed class TillScreenTests
         var screen = TillScreen.Build(State(CartWith(("a", "65.00", 4)), language: TillLanguage.Arabic));
 
         Assert.True(screen.RightToLeft);
-        Assert.Equal("التذكرة الحالية", screen.Top.Tab.Title);
+        Assert.Equal("التذكرة الحالية", screen.Top.Tab!.Title);
         Assert.Equal("سطر واحد", screen.Top.Tab.Detail);
         Assert.Equal("أمين صندوق", screen.Top.Staff!.Role);
         Assert.Equal("260,00\u00A0د.ج", screen.Bottom.BigFigure);

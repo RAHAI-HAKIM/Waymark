@@ -566,8 +566,7 @@ the KDF is open and belongs in infrastructure, since Domain has no dependencies 
 ships may reference the generator (D-054). **Rejected:** letting the verifier refuse the sentinel
 by comparing hashes, which refuses by luck and starts accepting when the stored format changes.
 
-**Still open:** the KDF, and whether a till login session is a row or lives in StoreServer's
-memory. Both block sign-in at the till, which is session A5.
+**Closed by D-083** (A5): the KDF is Argon2id, and the till's session lives in StoreServer's memory.
 
 ### D-078 — The append-only triggers are applied in one transaction (closes F-16)
 `ApplyTriggers` ran one `ExecuteSqlRaw` per trigger, and outside a transaction SQLite makes
@@ -649,6 +648,31 @@ repaint on hover with a grey outside the palette. `GET /api/till/context` names 
 and person for the top bar, through the store filter. **Rejected:** rules in the window; colours
 in each view; the kit's dark ring as drawn; a retry that could record a sale twice.
 
+### D-083 — Sign-in: Argon2id in the host, a session in StoreServer's memory, five wrong PINs lock for five minutes (session A5)
+**A PIN is 4 to 8 ASCII digits** (`StaffPin.IsWellFormed`): `char.IsDigit` would accept
+Arabic-Indic digits, and a PIN set in them can never be typed on the pad. **Hashed with Argon2id**
+(`Konscious.Security.Cryptography.Argon2` 1.3.1, MIT, pure managed) at OWASP's minimum, m=19 MiB,
+t=2, p=1, stored as a PHC string so the parameters travel with the hash and can rise later,
+compared with `FixedTimeEquals`; a malformed row verifies false, never throws. The hasher is
+**StoreServer's**, behind Domain's `IPinHasher`: only Pseudonymisation and the hosts may reach
+`System.Security.Cryptography`, and Pseudonymisation is a legal boundary, not a crypto library. A
+short PIN falls to offline guessing under any hash, so the defences are SQLCipher (D-056) and
+**`SignInLockout`: five wrong in a row lock that person for five minutes**, asked before any PIN is
+checked, so a right PIN during a lock is refused unchecked. Sign-ins are handled one at a time;
+otherwise ten guesses sent together are all checked before the fifth locks.
+**The session lives in StoreServer's memory** (`TillSessions`): a 32-byte token from the OS
+generator, one session per till, and one person may hold two tills. **`SaleRequest` names no
+seller**: the server takes it from the session that the `X-Waymark-Session` header names, and only
+if that session was opened at the same till. Otherwise the answer is `not_signed_in` and nothing is
+written. A lost session keeps the till's ticket for whoever signs in next. "Changer de caissier" is
+refused while the ticket has lines, until B2 parks one. A restart ends every session and, knowingly,
+**forgets every lockout** (O-29). **PINs are set with `StoreServer --set-pin=<staffId>`**, typed
+twice without echo, after the startup checks, and never passed as an argument. Not yet covered:
+`POST /api/recommendations/decide` still trusts its `staff_id` until Admin signs in (I1), and the
+language stays the till's, because following the person needs a staff column.
+**Rejected:** PBKDF2 from the BCL (no package, a weaker KDF for a short secret); a
+`till_sessions` table; a lockout per till, which a guesser beats by walking to the next one.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
@@ -657,6 +681,7 @@ in each view; the kit's dark ring as drawn; a retry that could record a sale twi
 | O-25 | **A product created at the till, tentative until the owner confirms it in Admin.** Replaces D-081's Divers | A schema change: a pending status on the product and variant, who created it, an Admin review queue, what happens to sales already made if the owner edits or rejects it, and Almanac excluding it until confirmed | Nothing in Phase 1. Replaces D-081 when decided; after E1, since it needs catalogue CRUD |
 | O-26 | **A weighed line priced by the person who weighed it (B3): which figure is exact?** The weight is inferred from the declared price | The customer pays the declared price, but the inferred weight has to round to the unit's decimals, so weight × unit price stops equalling it: 100,00 DA of tomatoes at 180,00/kg → 0,556 kg → 100,08. The row must still recompute from itself (D-053), and money arithmetic is settled (D-031…D-037) | **B3** |
 | O-27 | **Can a sale be sent twice safely?** A sale with no answer may have been recorded | The till keeps the cart and offers no retry (D-082), because a retry of a recorded sale records it twice. Retrying safely needs a key the server recognises, such as a sale id the till generates, which is a contract and a schema decision | A "Réessayer" button on an unconfirmed sale; **I2**, whose offline queue replays sales |
+| O-29 | **Should a sign-in end when the till sits idle, and should a lockout survive a restart?** | Both live in StoreServer's memory (D-083), so rebooting the till clears every lockout: five guesses per reboot. An idle timeout is a rule about the shop floor; a lockout that survives needs a table | Nothing in Phase 1's flow. Before a pilot, since the DPIA's access-control line rests on the lockout |
 | O-28 | **Does a recommendation have an Adjust answer?** The design system says a suggestion has three (Review, Adjust, Dismiss); D-074, confirmed 21/09, records accept and dismiss | The brand promise against a confirmed rule. Adjust needs a rule for what an adjusted payload is and how it is recorded | Ajuster on the till's Almanac card and in Admin, shown unavailable until decided |
 
 ### Resolved

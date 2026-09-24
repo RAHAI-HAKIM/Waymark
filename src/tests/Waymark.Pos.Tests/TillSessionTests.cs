@@ -53,12 +53,12 @@ public sealed class TillSessionTests
     private static LookupAnswer.Answered Refused(string code, string reason) =>
         new LookupAnswer.Answered(new ProductLookup(ProductLookupOutcome.NotSellable, code, null, reason));
 
-    private static readonly TillIdentity Till = new("till-1", "staff-1");
+    private static readonly TillIdentity Till = new("till-1");
 
     /// <summary>For the tests about scanning, where nothing is paid.</summary>
     private sealed class NoSales : IStoreSales
     {
-        public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, CancellationToken cancellationToken = default) =>
+        public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("These tests never pay.");
     }
 

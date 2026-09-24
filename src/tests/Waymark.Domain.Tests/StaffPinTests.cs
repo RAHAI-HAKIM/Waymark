@@ -61,4 +61,41 @@ public sealed class StaffPinTests
         Assert.False(StaffPin.IsUsable(StaffPin.NeverUsable));
         Assert.True(StaffPin.IsUsable("anything-else"));
     }
+
+    // ------------------------------------------------- the PIN itself (A5, D-083)
+
+    [Theory]
+    [InlineData("1234")]
+    [InlineData("0000")]
+    [InlineData("12345678")]
+    [InlineData("908172")]
+    public void Four_to_eight_digits_is_a_pin(string pin) =>
+        Assert.True(StaffPin.IsWellFormed(pin));
+
+    [Theory]
+    [InlineData("123")]
+    [InlineData("123456789")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Too_short_too_long_or_absent_is_not(string? pin) =>
+        Assert.False(StaffPin.IsWellFormed(pin));
+
+    [Theory]
+    [InlineData("12a4")]
+    [InlineData("12 4")]
+    [InlineData(" 1234")]
+    [InlineData("1234 ")]
+    [InlineData("-123")]
+    [InlineData("12.4")]
+    public void Anything_but_digits_is_not(string pin) =>
+        Assert.False(StaffPin.IsWellFormed(pin));
+
+    [Theory]
+    // Arabic-Indic and Eastern Arabic digits: char.IsDigit says yes to both. The pad can only
+    // type '0' to '9', so a PIN set in these could never be typed again.
+    [InlineData("١٢٣٤")]
+    [InlineData("۱۲۳۴")]
+    [InlineData("１２３４")]
+    public void Digits_from_another_script_are_not(string pin) =>
+        Assert.False(StaffPin.IsWellFormed(pin));
 }

@@ -44,6 +44,18 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// <summary>Whether StoreServer answered the last time it was asked, and since when it has not.</summary>
     public ServerState Server { get; private set; } = ServerState.Reachable;
 
+    /// <summary>
+    /// Who is signed in, and the token their sales carry (A5, D-083). Null until somebody types
+    /// their PIN, and again after a sign-out or when the server no longer holds the session.
+    /// </summary>
+    public SignedInStaff? SignedIn { get; private set; }
+
+    /// <summary>
+    /// Whether the cashier may change now: not while the ticket has lines still in the sale. Until
+    /// B2 parks a ticket, changing hands would sell one person's ticket under another's name.
+    /// </summary>
+    public bool MaySwitchCashier => Cart.ActiveLines.Count == 0;
+
     /// <summary>Raised after every change to <see cref="Cart"/> or <see cref="Notice"/>.</summary>
     public event EventHandler? Changed;
 
@@ -81,6 +93,43 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         {
             Raise();
         }
+    }
+
+    /// <summary>Somebody's PIN was right: their sales are theirs from now on.</summary>
+    public void SignIn(SignedInStaff person)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        SignedIn = person;
+        Notice = null;
+        Raise();
+    }
+
+    /// <summary>
+    /// Ends the signed-in person's turn at the till ("Changer de caissier"). Refused, with a notice,
+    /// while the ticket has lines in the sale (<see cref="MaySwitchCashier"/>).
+    /// </summary>
+    /// <returns>The token to end on the server; null when refused or nobody was signed in.</returns>
+    public string? SignOut()
+    {
+        if (SignedIn is not { } person)
+        {
+            return null;
+        }
+
+        if (!MaySwitchCashier)
+        {
+            Notice = new TillNotice(TillNoticeKind.SwitchRefused, "-", string.Empty);
+            Raise();
+            return null;
+        }
+
+        // Only struck lines can be left: an abandoned ticket, not a sale. The next person starts clean.
+        SignedIn = null;
+        Cart.Clear();
+        Paid = null;
+        Notice = null;
+        Raise();
+        return person.Token;
     }
 
     /// <summary>The cashier has seen the change and starts the next sale ("Nouvelle vente").</summary>
@@ -154,21 +203,27 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(till.TerminalId) || string.IsNullOrWhiteSpace(till.StaffId))
+        if (string.IsNullOrWhiteSpace(till.TerminalId))
         {
-            Notice = new TillNotice(TillNoticeKind.SaleRefused, "-", "This till has no terminal or staff configured (--terminal=, --staff=).");
+            Notice = new TillNotice(TillNoticeKind.SaleRefused, "-", "This till has no terminal configured (--terminal=).");
+            Raise();
+            return;
+        }
+
+        if (SignedIn is not { } seller)
+        {
+            Notice = new TillNotice(TillNoticeKind.NotSignedIn, "-", string.Empty);
             Raise();
             return;
         }
 
         var request = new SaleRequest(
             till.TerminalId,
-            till.StaffId,
             // Only what is still in the sale. A line taken out stays on screen, struck, and must
             // never be charged: sending it would put back what the cashier removed.
             [.. Cart.ActiveLines.Select(line => new SaleRequestLine(line.Barcode, line.Count))]);
 
-        switch (await sales.CompleteSaleAsync(request))
+        switch (await sales.CompleteSaleAsync(request, seller.Token))
         {
             case SaleAnswer.Completed completed:
                 Observe(reachable: true);
@@ -183,6 +238,15 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             case SaleAnswer.Refused refused:
                 Observe(reachable: true);
                 Notice = new TillNotice(TillNoticeKind.SaleRefused, "-", refused.Reason);
+                break;
+
+            case SaleAnswer.NotSignedIn:
+                // The server holds no session for this till (it restarted, or somebody signed in
+                // elsewhere with this till's id). Nothing was written; the ticket is kept for
+                // whoever signs in next.
+                Observe(reachable: true);
+                SignedIn = null;
+                Notice = new TillNotice(TillNoticeKind.NotSignedIn, "-", string.Empty);
                 break;
 
             case SaleAnswer.Unknown unknown:
@@ -253,10 +317,19 @@ public enum TillNoticeKind
 
     /// <summary>No answer to a sale: it may or may not have been written.</summary>
     SaleOutcomeUnknown,
+
+    /// <summary>Nobody is signed in, or the server no longer holds the session: nothing was sent, or nothing written.</summary>
+    NotSignedIn,
+
+    /// <summary>"Changer de caissier" while the ticket has lines in the sale.</summary>
+    SwitchRefused,
 }
 
-/// <summary>Who is selling at which till. No login until Phase 1: the till is configured with both.</summary>
-public sealed record TillIdentity(string? TerminalId, string? StaffId);
+/// <summary>Which till this is: its terminal id, from <c>--terminal=</c>. Who sells at it is the sign-in's (A5).</summary>
+public sealed record TillIdentity(string? TerminalId);
+
+/// <summary>The person signed in at this till, and the token StoreServer gave them (D-083).</summary>
+public sealed record SignedInStaff(string StaffId, string Token);
 
 /// <summary>
 /// What the cashier is told: the kind, the code, and the detail the screen turns into words.

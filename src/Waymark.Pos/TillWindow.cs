@@ -28,6 +28,11 @@ namespace Waymark.Pos;
 /// caret is. A scanner's suffix arrives as a key (Enter, Tab), not as text, so those keys go to
 /// the scanner first as well. The search field keeps the scanner's focus (G1 kit §9).
 /// </para>
+/// <para>
+/// <b>Nobody signed in, no till</b> (A5, D-083): until a PIN is accepted the window shows the
+/// sign-in screen, typed digits go to the pad, and a scan is ignored. The ticket survives a lost
+/// session; it does not survive "Changer de caissier", which the session refuses while it has lines.
+/// </para>
 /// </summary>
 public sealed class TillWindow : Window, IDisposable
 {
@@ -50,6 +55,9 @@ public sealed class TillWindow : Window, IDisposable
     private readonly Border _bottomHost = new();
     private readonly List<DispatcherTimer> _timers = [];
     private readonly TillActions _actions;
+    private readonly SignInFlow _signIn;
+    private readonly SignInActions _signInActions;
+    private readonly DockPanel _layout;
 
     private TillContext? _context;
     private BoardAnswer? _board;
@@ -65,14 +73,35 @@ public sealed class TillWindow : Window, IDisposable
         _session = session;
         _server = server;
         _till = till;
+        _signIn = new SignInFlow(server, till);
         _clock = clock;
         _text = TillText.For(language);
         _theme = new TillTheme(TillPalette.For(themeKind), language);
 
         // Built here, on the UI thread, so its silence timer posts back to it (D-063).
         _scanner = new KeyboardWedgeScanner(clock);
-        _scanner.Scanned += (_, scan) => Submit(scan.Code);
-        _scanner.Typed += (_, text) => InsertTyped(text);
+        _scanner.Scanned += (_, scan) =>
+        {
+            // A scan at the sign-in screen belongs to no sale, and a barcode is not a PIN.
+            if (_session.SignedIn is not null)
+            {
+                Submit(scan.Code);
+            }
+        };
+        _scanner.Typed += (_, text) =>
+        {
+            if (_session.SignedIn is null)
+            {
+                foreach (var character in text)
+                {
+                    _signIn.Press(character);
+                }
+            }
+            else
+            {
+                InsertTyped(text);
+            }
+        };
 
         Title = "Waymark";
         Width = 1366;
@@ -100,14 +129,23 @@ public sealed class TillWindow : Window, IDisposable
                 Render();
             });
 
+        _signInActions = new SignInActions(
+            Select: _signIn.Select,
+            Digit: _signIn.Press,
+            Backspace: _signIn.Backspace,
+            Clear: _signIn.Clear,
+            Open: OpenTill);
+
         _input = SearchField();
-        Content = Layout();
+        _layout = Layout();
+        Focusable = true;
 
         AddHandler(TextInputEvent, OnTextInput, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
         AddHandler(GotFocusEvent, (_, _) => _scanner.Reset(), RoutingStrategies.Bubble);
 
         _session.Changed += (_, _) => Render();
+        _signIn.Changed += (_, _) => Render();
         Opened += (_, _) =>
         {
             _input.Focus();
@@ -248,6 +286,18 @@ public sealed class TillWindow : Window, IDisposable
 
     private void Render()
     {
+        if (_session.SignedIn is null)
+        {
+            RenderSignIn();
+            return;
+        }
+
+        if (!ReferenceEquals(Content, _layout))
+        {
+            Content = _layout;
+            _input.Focus();
+        }
+
         if (_selected is not null && !_session.Cart.ActiveLines.Any(line => line.VariantId == _selected))
         {
             _selected = null;
@@ -269,11 +319,33 @@ public sealed class TillWindow : Window, IDisposable
             _cardIndex));
         _screen = screen;
 
-        _topHost.Child = TillViews.TopBar(screen.Top, _theme);
+        _topHost.Child = TillViews.TopBar(screen.Top, _theme, SwitchCashier);
         _noticeHost.Child = TillViews.Notice(screen.Notice, _theme);
         _cartHost.Child = TillViews.CartTable(screen.Cart, _theme, _actions);
         _railHost.Child = TillViews.Rail(screen.Rail, _theme, _actions);
         _bottomHost.Child = TillViews.BottomBar(screen.Bottom, _theme, _actions, _session.Paid is not null);
+    }
+
+    private void RenderSignIn()
+    {
+        var screen = SignInScreen.Build(new SignInState(
+            _text,
+            TimeZoneInfo.Local,
+            _clock.GetUtcNow(),
+            _session.Server,
+            _context,
+            _signIn.Staff,
+            _signIn.SelectedId,
+            _signIn.DigitCount,
+            _signIn.Message,
+            _signIn.Busy,
+            _signIn.MaySubmit));
+
+        Content = TillViews.SignIn(screen, _theme, _signInActions);
+
+        // Keys reach the window's handlers only through something focused; the content was just
+        // replaced, so the window itself takes the keyboard.
+        Focus();
     }
 
     // =================================================================== server
@@ -283,18 +355,28 @@ public sealed class TillWindow : Window, IDisposable
         // Asked at once, not after the first health tick: a till that has never reached its
         // server must not open saying "EN LIGNE" for ten seconds.
         await CheckHealthAsync();
+        await LoadContextAsync();
 
-        if (!string.IsNullOrWhiteSpace(_till.TerminalId))
+        if (_session.SignedIn is null)
         {
-            _context = await _server.ContextAsync(_till.TerminalId, _till.StaffId);
+            await _signIn.LoadAsync();
         }
 
         await RefreshBoardAsync();
     }
 
+    /// <summary>The store, the till and, once somebody is signed in, who they are.</summary>
+    private async Task LoadContextAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_till.TerminalId))
+        {
+            _context = await _server.ContextAsync(_till.TerminalId, _session.SignedIn?.StaffId);
+        }
+    }
+
     private async Task RefreshBoardAsync()
     {
-        _board = string.IsNullOrWhiteSpace(_till.StaffId) ? null : await _server.BoardAsync(_till.StaffId);
+        _board = _session.SignedIn is { } person ? await _server.BoardAsync(person.StaffId) : null;
         Render();
     }
 
@@ -305,10 +387,10 @@ public sealed class TillWindow : Window, IDisposable
         // async void, as an event handler must be: so nothing may escape it.
         try
         {
-            if (!string.IsNullOrWhiteSpace(_till.StaffId))
+            if (_session.SignedIn is { } person)
             {
                 // The rank check is the server's (CardAudience, D-074): this sends and re-reads.
-                await _server.DecideAsync(new DecisionRequest(recommendationId, _till.StaffId, decision, optionId));
+                await _server.DecideAsync(new DecisionRequest(recommendationId, person.StaffId, decision, optionId));
             }
 
             await RefreshBoardAsync();
@@ -339,6 +421,12 @@ public sealed class TillWindow : Window, IDisposable
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
+        if (_session.SignedIn is null)
+        {
+            OnSignInKeyDown(e);
+            return;
+        }
+
         switch (e.Key)
         {
             case Key.Enter or Key.Tab:
@@ -397,6 +485,39 @@ public sealed class TillWindow : Window, IDisposable
         }
     }
 
+    /// <summary>The sign-in screen's keys: Enter opens the till, Backspace and Escape take digits back.</summary>
+    private void OnSignInKeyDown(KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.Enter or Key.Tab:
+                if (_scanner.Accept(e.Key == Key.Tab ? '\t' : '\r'))
+                {
+                    // The end of a scan, which the Scanned handler ignores here.
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Enter)
+                {
+                    OpenTill();
+                    e.Handled = true;
+                }
+
+                break;
+
+            case Key.Back or Key.Delete:
+                _scanner.Flush();
+                _signIn.Backspace();
+                e.Handled = true;
+                break;
+
+            case Key.Escape:
+                _scanner.Flush();
+                _signIn.Clear();
+                e.Handled = true;
+                break;
+        }
+    }
+
     /// <summary>Puts released keystrokes where the caret is, replacing any selection.</summary>
     private void InsertTyped(string text)
     {
@@ -417,6 +538,51 @@ public sealed class TillWindow : Window, IDisposable
         {
             _selected = null;
             _session.Remove(id);
+        }
+    }
+
+    /// <summary>"Ouvrir la caisse": sends the PIN, and on a right one hands the till to that person.</summary>
+    private async void OpenTill()
+    {
+        // async void, as an event handler must be: so nothing may escape it.
+        try
+        {
+            if (await _signIn.SubmitAsync() is { } person)
+            {
+                _session.SignIn(person);
+                await LoadContextAsync();
+                await RefreshBoardAsync();
+            }
+        }
+        catch (Exception)
+        {
+            _session.ReportHealth(reachable: false);
+        }
+    }
+
+    /// <summary>
+    /// The staff chip: "Changer de caissier". The session refuses while the ticket has lines; when
+    /// it does not, the server's session is ended and the till asks who is next.
+    /// </summary>
+    private async void SwitchCashier()
+    {
+        // async void, as an event handler must be: so nothing may escape it.
+        try
+        {
+            if (_session.SignOut() is not { } token)
+            {
+                return;
+            }
+
+            _selected = null;
+            _board = null;
+            await _server.SignOutAsync(token);
+            await LoadContextAsync();
+            await _signIn.LoadAsync();
+        }
+        catch (Exception)
+        {
+            _session.ReportHealth(reachable: false);
         }
     }
 
@@ -441,6 +607,16 @@ public sealed class TillWindow : Window, IDisposable
         try
         {
             await _session.PayAsync();
+            if (_session.SignedIn is null)
+            {
+                // The server held no session for this till: back to the PIN, the ticket kept.
+                _board = null;
+                _signIn.Tell(SignInMessageKind.SessionEnded);
+                await LoadContextAsync();
+                await _signIn.LoadAsync();
+                return;
+            }
+
             await RefreshBoardAsync();
         }
         catch (Exception)
@@ -472,7 +648,9 @@ public sealed class TillWindow : Window, IDisposable
     /// Renders the window to a PNG after feeding it <paramref name="codes"/> through the real
     /// scanner path, for reviewing the shell against the G1 boards. Debug builds only.
     /// </summary>
-    public async Task SnapshotAsync(string path, IReadOnlyList<string> codes, bool pay, bool select)
+    /// <param name="staffId">Touched on the sign-in screen; with <paramref name="pin"/> typed, and <paramref name="open"/> sent.</param>
+    public async Task SnapshotAsync(
+        string path, IReadOnlyList<string> codes, bool pay, bool select, string? staffId, string? pin, bool open)
     {
         if (_debug is not null)
         {
@@ -480,6 +658,22 @@ public sealed class TillWindow : Window, IDisposable
         }
 
         await LoadAsync();
+        if (staffId is not null)
+        {
+            _signIn.Select(staffId);
+            foreach (var digit in pin ?? string.Empty)
+            {
+                _signIn.Press(digit);
+            }
+
+            if (open && await _signIn.SubmitAsync() is { } person)
+            {
+                _session.SignIn(person);
+                await LoadContextAsync();
+                await RefreshBoardAsync();
+            }
+        }
+
         foreach (var code in codes)
         {
             await _session.SubmitAsync(code);

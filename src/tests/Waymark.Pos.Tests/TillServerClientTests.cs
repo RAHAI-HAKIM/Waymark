@@ -151,4 +151,108 @@ public sealed class TillServerClientTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.HealthAsync(cancelled.Token));
     }
+
+    // ================================================================= sign-in (A5)
+
+    [Fact]
+    public async Task The_staff_list_is_read_as_sent()
+    {
+        var (client, server) = Build(_ => Json("""
+            {"staff":[{"staff_id":"s1","staff_name":"Nabil B.","role_label_fr":"Caissier","role_label_ar":"أمين الصندوق","has_pin":true}]}
+            """));
+
+        var staff = await client.StaffAsync();
+
+        Assert.Equal("/api/till/staff", Assert.Single(server.Asked).PathAndQuery);
+        Assert.Equal(new TillStaffMember("s1", "Nabil B.", "Caissier", "أمين الصندوق", true), Assert.Single(staff!.Staff));
+    }
+
+    [Fact]
+    public async Task No_staff_list_when_the_server_cannot_say_rather_than_an_empty_one()
+    {
+        // An empty list says "nobody may open this till"; an outage must not say that.
+        var (refused, _) = Build(Refused);
+        var (garbled, _) = Build(_ => Json("{}"));
+
+        Assert.Null(await refused.StaffAsync());
+        Assert.Null(await garbled.StaffAsync());
+    }
+
+    [Fact]
+    public async Task A_pin_is_posted_to_the_sign_in_route()
+    {
+        string? body = null;
+        var (client, server) = Build(async request =>
+        {
+            body = await request.Content!.ReadAsStringAsync();
+            return await Json("""{"outcome":"signed_in","session_token":"tok"}""");
+        });
+
+        var answer = await client.SignInAsync(new SignInRequest("till-1", "s1", "4821"));
+
+        Assert.Equal("/api/till/sign-in", Assert.Single(server.Asked).PathAndQuery);
+        Assert.Contains("\"pin\":\"4821\"", body, StringComparison.Ordinal);
+        Assert.Equal(("signed_in", "tok"), (answer!.Outcome, answer.SessionToken));
+    }
+
+    [Theory]
+    [InlineData("""{"outcome":"wrong_pin","attempts_left":3}""")]
+    [InlineData("""{"outcome":"locked","locked_until":"2026-09-24T08:06:00+00:00"}""")]
+    [InlineData("""{"outcome":"no_pin"}""")]
+    [InlineData("""{"outcome":"unknown_staff"}""")]
+    [InlineData("""{"outcome":"unknown_terminal"}""")]
+    public async Task Every_refusal_is_an_answer(string json)
+    {
+        var (client, _) = Build(_ => Json(json));
+
+        Assert.NotNull(await client.SignInAsync(new SignInRequest("till-1", "s1", "0000")));
+    }
+
+    [Theory]
+    [InlineData("""{"outcome":"signed_in"}""")]
+    [InlineData("""{"outcome":"signed_in","session_token":""}""")]
+    [InlineData("""{"outcome":"locked"}""")]
+    [InlineData("""{"outcome":"welcome"}""")]
+    [InlineData("not json")]
+    public async Task A_sign_in_answer_the_till_cannot_use_is_no_answer(string json)
+    {
+        // Signed in with no token would sell as nobody; locked with no time would say nothing.
+        var (client, _) = Build(_ => Json(json));
+
+        Assert.Null(await client.SignInAsync(new SignInRequest("till-1", "s1", "4821")));
+    }
+
+    [Fact]
+    public async Task No_sign_in_answer_when_the_server_cannot_say()
+    {
+        var (refused, _) = Build(Refused);
+        var (failing, _) = Build(_ => Json("{}", HttpStatusCode.InternalServerError));
+
+        Assert.Null(await refused.SignInAsync(new SignInRequest("till-1", "s1", "4821")));
+        Assert.Null(await failing.SignInAsync(new SignInRequest("till-1", "s1", "4821")));
+    }
+
+    [Fact]
+    public async Task Signing_out_sends_the_token_in_the_session_header()
+    {
+        string? token = null;
+        var (client, server) = Build(request =>
+        {
+            token = request.Headers.GetValues(TillSessionHeader.Name).Single();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        });
+
+        await client.SignOutAsync("tok");
+
+        Assert.Equal("/api/till/sign-out", Assert.Single(server.Asked).PathAndQuery);
+        Assert.Equal("tok", token);
+    }
+
+    [Fact]
+    public async Task Signing_out_of_a_server_that_is_gone_is_quiet()
+    {
+        var (client, _) = Build(Refused);
+
+        await client.SignOutAsync("tok");
+    }
 }

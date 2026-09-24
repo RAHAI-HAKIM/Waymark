@@ -3,6 +3,7 @@ using Waymark.Application.Sales;
 using Waymark.Contracts.Pos;
 using Waymark.Domain.Values;
 using Waymark.StoreServer.Sales;
+using Waymark.StoreServer.Security;
 
 namespace Waymark.Integration.Tests;
 
@@ -45,11 +46,46 @@ public sealed class SaleWireTests
     [Fact]
     public void The_request_becomes_the_command_line_for_line()
     {
-        var command = SaleWire.ToCommand(new SaleRequest("till-1", "staff-1", [new("111", 2), new("222", 1)]));
+        var command = SaleWire.ToCommand(new SaleRequest("till-1", [new("111", 2), new("222", 1)]), "staff-1");
 
         Assert.Equal("till-1", command.TerminalId);
         Assert.Equal("staff-1", command.StaffId);
         Assert.Equal([new SaleLineRequest("111", 2), new SaleLineRequest("222", 1)], command.Lines);
+    }
+
+    // ------------------------------------------------ who is selling (A5, D-083)
+
+    private static readonly SaleRequest AtTillOne = new("till-1", [new("111", 1)]);
+
+    [Fact]
+    public void The_seller_is_the_person_the_session_signed_in()
+    {
+        Assert.Equal("staff-7", SaleWire.Seller(new SignedInTill("staff-7", "till-1", DateTimeOffset.UnixEpoch), AtTillOne));
+    }
+
+    [Fact]
+    public void No_session_sells_nothing()
+    {
+        Assert.Null(SaleWire.Seller(null, AtTillOne));
+    }
+
+    [Fact]
+    public void A_session_opened_at_another_till_sells_nothing()
+    {
+        // A token copied from one till must not sell at the next: the sale would carry a person
+        // who was never at that till.
+        Assert.Null(SaleWire.Seller(new SignedInTill("staff-7", "till-2", DateTimeOffset.UnixEpoch), AtTillOne));
+    }
+
+    [Fact]
+    public void Not_signed_in_is_its_own_answer_with_no_figures()
+    {
+        var wire = SaleWire.NotSignedIn();
+
+        Assert.Equal(SaleOutcomes.NotSignedIn, wire.Outcome);
+        Assert.Null(wire.InvoiceNumber);
+        Assert.Null(wire.TotalTtc);
+        Assert.False(string.IsNullOrWhiteSpace(wire.Reason));
     }
 
     private static string WireText(Money money) => StoreServer.WireText.Figure(money);

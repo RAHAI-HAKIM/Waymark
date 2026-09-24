@@ -288,6 +288,10 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(DecisionRequest),       // Local Admin → StoreServer; what was asked for, not what was written
             nameof(ReasonCodeList),        // the envelope around reason_codes rows; a kind and its options, stored nowhere
             nameof(TillContext),           // StoreServer → till; names read from stores, terminals, staff and roles
+            nameof(TillStaff),             // StoreServer → till; who may sign in, read from staff and roles, never a hash
+            nameof(TillStaffMember),       // an element of that list
+            nameof(SignInRequest),         // till → StoreServer; a PIN, checked and never stored
+            nameof(SignInAnswer),          // StoreServer → till; a session lives in the server's memory, not a table (D-083)
             nameof(BoardAnswer),           // the board: a person's cards and a withheld count, computed per request
             nameof(DecisionAnswer),        // what a decision answers with; the row it records is recommendation_decisions
         ];

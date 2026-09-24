@@ -172,7 +172,9 @@ public sealed class StoreServerClientTests
 
     // ----------------------------------------------------------------- sales
 
-    private static readonly SaleRequest ASale = new("till-1", "staff-1", [new SaleRequestLine("111", 2)]);
+    private static readonly SaleRequest ASale = new("till-1", [new SaleRequestLine("111", 2)]);
+
+    private const string Token = "session-token";
 
     [Fact]
     public async Task A_sale_is_posted_as_json_to_the_sales_route()
@@ -187,12 +189,44 @@ public sealed class StoreServerClientTests
             };
         });
 
-        await client.CompleteSaleAsync(ASale);
+        await client.CompleteSaleAsync(ASale, Token);
 
         Assert.Equal("/api/sales", server.Asked.Single().AbsolutePath);
         Assert.Contains("\"barcode\":\"111\"", body, StringComparison.Ordinal);
         Assert.Contains("\"count\":2", body, StringComparison.Ordinal);
         Assert.DoesNotContain("price", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_sale_carries_its_session_token_in_the_header_and_names_nobody_in_the_body()
+    {
+        // D-083: the server takes the seller from the session. A staff id in the body would be a
+        // claim, and the header is what it believes.
+        string? header = null;
+        string? body = null;
+        var (client, _) = Build(async (request, token) =>
+        {
+            header = request.Headers.GetValues(TillSessionHeader.Name).Single();
+            body = await request.Content!.ReadAsStringAsync(token);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"outcome":"refused","reason":"x"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await client.CompleteSaleAsync(ASale, Token);
+
+        Assert.Equal(Token, header);
+        Assert.DoesNotContain("staff", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Not_signed_in_is_its_own_answer_never_unknown()
+    {
+        // Unknown would tell the cashier the sale may have been written; this one certainly was not.
+        var (client, _) = Replying("""{"outcome":"not_signed_in","reason":"Nobody is signed in."}""");
+
+        Assert.IsType<SaleAnswer.NotSignedIn>(await client.CompleteSaleAsync(ASale, Token));
     }
 
     [Fact]
@@ -203,7 +237,7 @@ public sealed class StoreServerClientTests
              "tax_total":"23.61","cash_to_collect":"285.00","currency":"DZD","reason":null}
             """);
 
-        var outcome = Assert.IsType<SaleAnswer.Completed>(await client.CompleteSaleAsync(ASale)).Outcome;
+        var outcome = Assert.IsType<SaleAnswer.Completed>(await client.CompleteSaleAsync(ASale, Token)).Outcome;
 
         Assert.Equal("S-2026-000001", outcome.InvoiceNumber);
         Assert.Equal("285.00", outcome.CashToCollect);
@@ -214,7 +248,7 @@ public sealed class StoreServerClientTests
     {
         var (client, _) = Replying("""{"outcome":"refused","reason":"111: no product carries this code."}""");
 
-        var refused = Assert.IsType<SaleAnswer.Refused>(await client.CompleteSaleAsync(ASale));
+        var refused = Assert.IsType<SaleAnswer.Refused>(await client.CompleteSaleAsync(ASale, Token));
 
         Assert.Contains("no product", refused.Reason, StringComparison.Ordinal);
     }
@@ -229,7 +263,7 @@ public sealed class StoreServerClientTests
         // Reading half an answer as "completed" would empty the cart for a sale that may not exist.
         var (client, _) = Replying(body);
 
-        Assert.IsType<SaleAnswer.Unknown>(await client.CompleteSaleAsync(ASale));
+        Assert.IsType<SaleAnswer.Unknown>(await client.CompleteSaleAsync(ASale, Token));
     }
 
     [Fact]
@@ -237,6 +271,6 @@ public sealed class StoreServerClientTests
     {
         var (client, _) = Replying("{}", HttpStatusCode.InternalServerError);
 
-        Assert.IsType<SaleAnswer.Unknown>(await client.CompleteSaleAsync(ASale));
+        Assert.IsType<SaleAnswer.Unknown>(await client.CompleteSaleAsync(ASale, Token));
     }
 }

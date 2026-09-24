@@ -87,14 +87,24 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     /// for the cashier to check rather than selling it again blindly. A key that makes a
     /// repeated request harmless is Phase 1.
     /// </para>
+    /// <para>
+    /// <b>Who is selling is the session's</b> (A5, D-083): the token goes in
+    /// <see cref="TillSessionHeader.Name"/>, and the request names nobody.
+    /// </para>
     /// </summary>
-    public async Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, CancellationToken cancellationToken = default)
+    public async Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, string sessionToken, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionToken);
 
         try
         {
-            using var response = await http.PostAsJsonAsync(new Uri("api/sales", UriKind.Relative), request, cancellationToken);
+            using var message = new HttpRequestMessage(HttpMethod.Post, new Uri("api/sales", UriKind.Relative))
+            {
+                Content = JsonContent.Create(request),
+            };
+            message.Headers.Add(TillSessionHeader.Name, sessionToken);
+            using var response = await http.SendAsync(message, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return new SaleAnswer.Unknown($"StoreServer answered {(int)response.StatusCode} {response.ReasonPhrase}.");
@@ -106,6 +116,7 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
                 { Outcome: SaleOutcomes.Completed, InvoiceNumber: not null, TotalTtc: not null, CashToCollect: not null, Currency: not null } =>
                     new SaleAnswer.Completed(outcome),
                 { Outcome: SaleOutcomes.Refused, Reason: { } reason } => new SaleAnswer.Refused(reason),
+                { Outcome: SaleOutcomes.NotSignedIn } => new SaleAnswer.NotSignedIn(),
                 _ => new SaleAnswer.Unknown("StoreServer's answer could not be read."),
             };
         }
@@ -120,6 +131,60 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         catch (JsonException)
         {
             return new SaleAnswer.Unknown("StoreServer's answer could not be read.");
+        }
+    }
+
+    /// <summary>Who may open this till (A5). Null when the server could not say.</summary>
+    public async Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default)
+    {
+        var staff = await GetAsync<TillStaff>("api/till/staff", cancellationToken);
+        return staff?.Staff is null ? null : staff;
+    }
+
+    /// <summary>
+    /// A PIN typed at this till (A5, D-083). Null when the server could not say: the till then
+    /// says it is offline, never that the PIN was wrong.
+    /// </summary>
+    public async Task<SignInAnswer?> SignInAsync(SignInRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        try
+        {
+            using var response = await http.PostAsJsonAsync(new Uri("api/till/sign-in", UriKind.Relative), request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var answer = await response.Content.ReadFromJsonAsync<SignInAnswer>(cancellationToken);
+            return answer switch
+            {
+                { Outcome: SignInOutcomes.SignedIn, SessionToken: { Length: > 0 } } => answer,
+                { Outcome: SignInOutcomes.Locked, LockedUntil: not null } => answer,
+                { Outcome: SignInOutcomes.WrongPin or SignInOutcomes.NoPin or SignInOutcomes.UnknownStaff or SignInOutcomes.UnknownTerminal } => answer,
+                _ => null,
+            };
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Ends this till's session. Best effort: a server that cannot be reached has no session to end after a restart.</summary>
+    public async Task SignOutAsync(string sessionToken, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionToken);
+
+        try
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Post, new Uri("api/till/sign-out", UriKind.Relative));
+            message.Headers.Add(TillSessionHeader.Name, sessionToken);
+            using var response = await http.SendAsync(message, cancellationToken);
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
         }
     }
 
@@ -228,6 +293,12 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
 /// </summary>
 public interface ITillServer
 {
+    Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default);
+
+    Task<SignInAnswer?> SignInAsync(SignInRequest request, CancellationToken cancellationToken = default);
+
+    Task SignOutAsync(string sessionToken, CancellationToken cancellationToken = default);
+
     Task<TillContext?> ContextAsync(string terminalId, string? staffId, CancellationToken cancellationToken = default);
 
     Task<BoardAnswer?> BoardAsync(string staffId, CancellationToken cancellationToken = default);
@@ -245,7 +316,7 @@ public interface IProductSource
 /// <summary>Where the till sends a sale: <see cref="StoreServerClient"/>, or a script in tests.</summary>
 public interface IStoreSales
 {
-    Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, CancellationToken cancellationToken = default);
+    Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, string sessionToken, CancellationToken cancellationToken = default);
 }
 
 /// <summary>What became of a sale the till sent.</summary>
@@ -260,6 +331,9 @@ public abstract record SaleAnswer
 
     /// <summary>Not written, for this reason.</summary>
     public sealed record Refused(string Reason) : SaleAnswer;
+
+    /// <summary>Not written: the server holds no session for this till. The till asks for a PIN again.</summary>
+    public sealed record NotSignedIn : SaleAnswer;
 
     /// <summary>No usable answer: the sale may or may not have been written.</summary>
     public sealed record Unknown(string Why) : SaleAnswer;
