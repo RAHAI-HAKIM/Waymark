@@ -147,6 +147,7 @@ public sealed class StoreServerStartupTests : IDisposable
                 AssertHealthy(address);
                 AssertLookup(address, barcode);
                 AssertReasonCodes(address);
+                AssertTillContext(address, terminal, staff);
                 AssertSale(address, barcode, terminal, staff);
                 AssertExpiryEvaluation(address);
             },
@@ -212,6 +213,28 @@ public sealed class StoreServerStartupTests : IDisposable
         using var response = client.GetAsync(new Uri("/health", UriKind.Relative)).GetAwaiter().GetResult();
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("\"up\"", response.Content.ReadAsStringAsync().GetAwaiter().GetResult(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Session A4 end to end on the real process: the generated store's own till and cashier are
+    /// named for the top bar, and a terminal this store does not have is an answer, not an error.
+    /// </summary>
+    private static void AssertTillContext(Uri address, string terminal, string staff)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+
+        using var found = client.GetAsync(new Uri($"/api/till/context?terminal={terminal}&staff={staff}", UriKind.Relative)).GetAwaiter().GetResult();
+        var body = found.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(found.StatusCode == HttpStatusCode.OK, $"The till context failed ({found.StatusCode}): " + body);
+
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal("found", json.RootElement.GetProperty("outcome").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("store_name").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("staff_name").GetString()));
+
+        using var unknown = client.GetAsync(new Uri("/api/till/context?terminal=no-such-till", UriKind.Relative)).GetAwaiter().GetResult();
+        using var unknownJson = JsonDocument.Parse(unknown.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        Assert.Equal("unknown_terminal", unknownJson.RootElement.GetProperty("outcome").GetString());
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Waymark.Contracts.Pos;
+using Waymark.Contracts.Recommendations;
 
 namespace Waymark.Pos.Server;
 
@@ -18,7 +19,7 @@ namespace Waymark.Pos.Server;
 /// than guessed around.
 /// </para>
 /// </summary>
-public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreSales
+public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreSales, ITillServer
 {
     /// <summary>StoreServer's development address (its launch profile).</summary>
     public static readonly Uri DefaultAddress = new("http://localhost:5290/");
@@ -122,6 +123,87 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         }
     }
 
+    /// <summary>The store, the till and the person selling (A4). Null when the server could not say.</summary>
+    public async Task<TillContext?> ContextAsync(string terminalId, string? staffId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(terminalId);
+        var query = $"api/till/context?terminal={Uri.EscapeDataString(terminalId)}"
+            + (string.IsNullOrWhiteSpace(staffId) ? string.Empty : $"&staff={Uri.EscapeDataString(staffId)}");
+
+        var context = await GetAsync<TillContext>(query, cancellationToken);
+        return context?.Outcome is TillContextOutcome.Found or TillContextOutcome.UnknownTerminal ? context : null;
+    }
+
+    /// <summary>The Almanac board for this person (D-074). Null when the server could not say.</summary>
+    public async Task<BoardAnswer?> BoardAsync(string staffId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(staffId);
+        var board = await GetAsync<BoardAnswer>($"api/recommendations?staff={Uri.EscapeDataString(staffId)}", cancellationToken);
+        return board?.Outcome is BoardOutcome.Answered or BoardOutcome.UnknownStaff && board.Cards is not null ? board : null;
+    }
+
+    /// <summary>
+    /// Accepts or dismisses a card (D-074). Null when the server could not say; the board is
+    /// fetched again either way, so a decision that did land shows as gone.
+    /// </summary>
+    public async Task<DecisionAnswer?> DecideAsync(DecisionRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        try
+        {
+            using var response = await http.PostAsJsonAsync(new Uri("api/recommendations/decide", UriKind.Relative), request, cancellationToken);
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<DecisionAnswer>(cancellationToken)
+                : null;
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Whether StoreServer answers at all. An idle till asks this so it learns of an outage, and of the end of one.</summary>
+    public async Task<bool> HealthAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await http.GetAsync(new Uri("health", UriKind.Relative), cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
+            return false;
+        }
+    }
+
+    private async Task<T?> GetAsync<T>(string path, CancellationToken cancellationToken)
+        where T : class
+    {
+        try
+        {
+            using var response = await http.GetAsync(new Uri(path, UriKind.Relative), cancellationToken);
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<T>(cancellationToken)
+                : null;
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A timeout, a refused connection, or an answer this till cannot read. The caller's own
+    /// cancellation is not one: it propagates, because nobody is waiting for the answer any more.
+    /// </summary>
+    private static bool IsOutage(Exception exception, CancellationToken cancellationToken) => exception switch
+    {
+        TaskCanceledException => !cancellationToken.IsCancellationRequested,
+        HttpRequestException or JsonException or NotSupportedException => true,
+        _ => false,
+    };
+
     /// <summary>
     /// Whether the answer is one of the three the contract defines, with what
     /// that outcome carries. A till showing half an answer (found, with no
@@ -140,6 +222,21 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
 /// Where the till asks about a barcode: <see cref="StoreServerClient"/> in the
 /// till, a scripted source in the tests of what the till does with the answer.
 /// </summary>
+/// <summary>
+/// What the till's shell asks StoreServer besides products and sales (A4): who and where it is,
+/// the Almanac board, a decision, and whether the server is there at all.
+/// </summary>
+public interface ITillServer
+{
+    Task<TillContext?> ContextAsync(string terminalId, string? staffId, CancellationToken cancellationToken = default);
+
+    Task<BoardAnswer?> BoardAsync(string staffId, CancellationToken cancellationToken = default);
+
+    Task<DecisionAnswer?> DecideAsync(DecisionRequest request, CancellationToken cancellationToken = default);
+
+    Task<bool> HealthAsync(CancellationToken cancellationToken = default);
+}
+
 public interface IProductSource
 {
     Task<LookupAnswer> LookupAsync(string barcode, CancellationToken cancellationToken = default);

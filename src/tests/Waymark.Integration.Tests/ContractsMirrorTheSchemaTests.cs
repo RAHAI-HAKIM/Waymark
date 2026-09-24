@@ -287,6 +287,9 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(SaleOutcome),           // StoreServer → till; a summary over several tables
             nameof(DecisionRequest),       // Local Admin → StoreServer; what was asked for, not what was written
             nameof(ReasonCodeList),        // the envelope around reason_codes rows; a kind and its options, stored nowhere
+            nameof(TillContext),           // StoreServer → till; names read from stores, terminals, staff and roles
+            nameof(BoardAnswer),           // the board: a person's cards and a withheld count, computed per request
+            nameof(DecisionAnswer),        // what a decision answers with; the row it records is recommendation_decisions
         ];
 
         var declared = typeof(RecommendationEnvelope).Assembly.GetExportedTypes()

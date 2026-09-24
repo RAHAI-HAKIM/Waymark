@@ -1,29 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Waymark.Application.Engine;
 using Waymark.Domain.Engine;
 using Wire = Waymark.Contracts.Recommendations;
 
 namespace Waymark.StoreServer.Engine;
-
-/// <summary>
-/// What the board answers with: who asked, what they may act on, and what was held back.
-/// Named in snake_case like everything else on this wire, so one payload does not make a
-/// TypeScript reader switch conventions halfway down (D-044).
-/// </summary>
-public sealed record BoardAnswer(
-    [property: JsonPropertyName("outcome")] string Outcome,
-    [property: JsonPropertyName("staff_name")] string? StaffName,
-    [property: JsonPropertyName("role_code")] string? RoleCode,
-    [property: JsonPropertyName("withheld")] int Withheld,
-    [property: JsonPropertyName("cards")] IReadOnlyList<Wire.RecommendationEnvelope> Cards);
-
-/// <summary>What a decision answers with. A refusal is an answer, not an error (D-066, D-070).</summary>
-public sealed record DecisionAnswer(
-    [property: JsonPropertyName("outcome")] string Outcome,
-    [property: JsonPropertyName("decision_id")] string? DecisionId,
-    [property: JsonPropertyName("reason")] string? Reason);
 
 /// <summary>
 /// The recommendation board and its decisions, on the wire (hop 7).
@@ -38,18 +19,18 @@ public sealed record DecisionAnswer(
 /// </summary>
 public static class RecommendationWire
 {
-    public const string Answered = "answered";
-    public const string UnknownStaff = "unknown_staff";
-    public const string Recorded = "recorded";
-    public const string Refused = "refused";
+    public const string Answered = Wire.BoardOutcome.Answered;
+    public const string UnknownStaff = Wire.BoardOutcome.UnknownStaff;
+    public const string Recorded = Wire.DecisionOutcome.Recorded;
+    public const string Refused = Wire.DecisionOutcome.Refused;
 
-    public static BoardAnswer ToWire(Board board)
+    public static Wire.BoardAnswer ToWire(Board board)
     {
         ArgumentNullException.ThrowIfNull(board);
 
         return board.Staff is not { } staff
-            ? new BoardAnswer(UnknownStaff, null, null, 0, [])
-            : new BoardAnswer(
+            ? new Wire.BoardAnswer(UnknownStaff, null, null, 0, [])
+            : new Wire.BoardAnswer(
                 Answered,
                 staff.StaffName,
                 staff.RoleCode,
@@ -57,14 +38,14 @@ public static class RecommendationWire
                 [.. board.Cards.Select(ToEnvelope)]);
     }
 
-    public static DecisionAnswer FromDecision(RecordedDecision decision)
+    public static Wire.DecisionAnswer FromDecision(RecordedDecision decision)
     {
         ArgumentNullException.ThrowIfNull(decision);
 
-        return new DecisionAnswer(Recorded, decision.DecisionId, null);
+        return new Wire.DecisionAnswer(Recorded, decision.DecisionId, null);
     }
 
-    public static DecisionAnswer Refusal(string reason) => new(Refused, null, reason);
+    public static Wire.DecisionAnswer Refusal(string reason) => new(Refused, null, reason);
 
     private static Wire.RecommendationEnvelope ToEnvelope(CardOnTheBoard card) => new(
         card.Card.RecommendationId,

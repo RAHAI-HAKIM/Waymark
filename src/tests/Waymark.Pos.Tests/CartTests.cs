@@ -129,6 +129,10 @@ public sealed class CartTests
     public void An_empty_cart_has_no_total_rather_than_a_zero_without_a_currency() =>
         Assert.Null(new Cart().Total);
 
+    // ------------------------------------------------ a line taken out (G1)
+
+    private static readonly DateTimeOffset At = new(2026, 9, 23, 13, 28, 0, TimeSpan.Zero);
+
     [Fact]
     public void Removing_a_line_takes_it_out_of_the_total()
     {
@@ -136,10 +140,81 @@ public sealed class CartTests
         cart.Add(Product("a", price: "120.50"), "6130000000017");
         cart.Add(Product("b", price: "35.00"), "6130000000017");
 
-        Assert.True(cart.Remove("a"));
+        Assert.True(cart.Remove("a", At));
 
         Assert.Equal(Dzd(3_500), cart.Total);
-        Assert.False(cart.Remove("a"));
+        Assert.False(cart.Remove("a", At));
+    }
+
+    [Fact]
+    public void A_removed_line_stays_on_the_ticket_struck_with_its_time()
+    {
+        // G1: "Retirée avant paiement : reste au ticket, barrée, avec l'heure." The struck line
+        // is the only trace until B8 logs a reason, so it must not simply vanish.
+        var cart = new Cart();
+        cart.Add(Product("a"), "6130000000017");
+
+        cart.Remove("a", At);
+
+        var line = Assert.Single(cart.Lines);
+        Assert.True(line.IsRemoved);
+        Assert.Equal(At, line.RemovedAt);
+    }
+
+    [Fact]
+    public void A_removed_line_is_not_among_the_lines_still_in_the_sale()
+    {
+        // ActiveLines is what Pay sends. A struck line in it would charge the customer for what
+        // the cashier took out, and every receipt would still add up.
+        var cart = new Cart();
+        cart.Add(Product("a"), "6130000000017");
+        cart.Add(Product("b"), "6130000000017");
+
+        cart.Remove("a", At);
+
+        Assert.Equal(["b"], cart.ActiveLines.Select(line => line.VariantId));
+    }
+
+    [Fact]
+    public void Scanning_a_removed_product_again_starts_a_new_line()
+    {
+        // Reviving the struck line would erase the trace of the removal.
+        var cart = new Cart();
+        cart.Add(Product("a"), "6130000000017");
+        cart.Remove("a", At);
+
+        var again = cart.Add(Product("a"), "6130000000017");
+
+        Assert.Equal(2, cart.Lines.Count);
+        Assert.False(again.IsRemoved);
+        Assert.Equal(1, again.Count);
+        Assert.True(cart.Lines[0].IsRemoved);
+    }
+
+    [Fact]
+    public void A_cart_whose_every_line_was_removed_totals_zero_in_its_currency()
+    {
+        // Not null: the lines were priced, so the currency is known, and zero is the truth.
+        var cart = new Cart();
+        cart.Add(Product("a", price: "120.50"), "6130000000017");
+
+        cart.Remove("a", At);
+
+        Assert.Equal(Dzd(0), cart.Total);
+        Assert.Empty(cart.ActiveLines);
+    }
+
+    [Fact]
+    public void The_last_article_is_the_last_line_scanned_in_and_forgets_a_removed_one()
+    {
+        var cart = new Cart();
+        cart.Add(Product("a"), "6130000000017");
+        cart.Add(Product("b"), "6130000000017");
+        Assert.Equal("b", cart.LastAdded?.VariantId);
+
+        cart.Remove("b", At);
+
+        Assert.Null(cart.LastAdded);
     }
 
     [Fact]

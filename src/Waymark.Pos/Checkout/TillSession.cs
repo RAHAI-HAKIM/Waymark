@@ -19,8 +19,9 @@ namespace Waymark.Pos.Checkout;
 /// the first could overwrite the line of the second.
 /// </para>
 /// </summary>
-public sealed class TillSession(IProductSource products, IStoreSales sales, TillIdentity till)
+public sealed class TillSession(IProductSource products, IStoreSales sales, TillIdentity till, TimeProvider? clock = null)
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private Task _tail = Task.CompletedTask;
 
     public Cart Cart { get; } = new();
@@ -30,6 +31,18 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
 
     /// <summary>The last completed sale, for the cashier to collect; null once a new cart starts.</summary>
     public SaleOutcome? LastSale { get; private set; }
+
+    /// <summary>When <see cref="LastSale"/> completed, by this till's clock.</summary>
+    public DateTimeOffset? LastSaleAt { get; private set; }
+
+    /// <summary>
+    /// The ticket just paid, lines and all, shown until the cashier starts a new sale or scans
+    /// (G1, "monnaie à rendre"). Null otherwise.
+    /// </summary>
+    public PaidTicket? Paid { get; private set; }
+
+    /// <summary>Whether StoreServer answered the last time it was asked, and since when it has not.</summary>
+    public ServerState Server { get; private set; } = ServerState.Reachable;
 
     /// <summary>Raised after every change to <see cref="Cart"/> or <see cref="Notice"/>.</summary>
     public event EventHandler? Changed;
@@ -58,10 +71,37 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         return _tail;
     }
 
-    /// <summary>Takes a line out of the sale.</summary>
+    /// <summary>
+    /// Takes a line out of the sale. It stays on the ticket, struck through with the time (G1);
+    /// the reason and its log entry arrive with B8.
+    /// </summary>
     public void Remove(string variantId)
     {
-        if (Cart.Remove(variantId))
+        if (Cart.Remove(variantId, _clock.GetUtcNow()))
+        {
+            Raise();
+        }
+    }
+
+    /// <summary>The cashier has seen the change and starts the next sale ("Nouvelle vente").</summary>
+    public void StartNewSale()
+    {
+        if (Paid is not null)
+        {
+            Paid = null;
+            Raise();
+        }
+    }
+
+    /// <summary>
+    /// What a health check found. Kept apart from the answers to scans and sales, so a till
+    /// sitting idle still learns that the server has gone, and that it is back.
+    /// </summary>
+    public void ReportHealth(bool reachable)
+    {
+        var before = Server;
+        Observe(reachable);
+        if (Server != before)
         {
             Raise();
         }
@@ -89,9 +129,11 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
 
         Notice = await Handle(code);
+        Paid = null;
         if (Notice is null)
         {
             LastSale = null;
+            LastSaleAt = null;
         }
 
         Raise();
@@ -107,7 +149,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         {
         }
 
-        if (Cart.Lines.Count == 0)
+        if (Cart.ActiveLines.Count == 0)
         {
             return;
         }
@@ -122,17 +164,24 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         var request = new SaleRequest(
             till.TerminalId,
             till.StaffId,
-            [.. Cart.Lines.Select(line => new SaleRequestLine(line.Barcode, line.Count))]);
+            // Only what is still in the sale. A line taken out stays on screen, struck, and must
+            // never be charged: sending it would put back what the cashier removed.
+            [.. Cart.ActiveLines.Select(line => new SaleRequestLine(line.Barcode, line.Count))]);
 
         switch (await sales.CompleteSaleAsync(request))
         {
             case SaleAnswer.Completed completed:
+                Observe(reachable: true);
+                var at = _clock.GetUtcNow();
+                Paid = new PaidTicket(completed.Outcome, [.. Cart.Lines], at);
                 Cart.Clear();
                 LastSale = completed.Outcome;
+                LastSaleAt = at;
                 Notice = null;
                 break;
 
             case SaleAnswer.Refused refused:
+                Observe(reachable: true);
                 Notice = new TillNotice(TillNoticeKind.SaleRefused, "-", refused.Reason);
                 break;
 
@@ -149,7 +198,10 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
 
     private async Task<TillNotice?> Handle(string code)
     {
-        switch (await products.LookupAsync(code))
+        var answer = await products.LookupAsync(code);
+        Observe(reachable: answer is not LookupAnswer.ServerUnavailable);
+
+        switch (answer)
         {
             case LookupAnswer.ServerUnavailable unavailable:
                 return new TillNotice(TillNoticeKind.ServerUnavailable, code, unavailable.Why);
@@ -158,7 +210,8 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
                 return new TillNotice(TillNoticeKind.UnknownCode, code, "No product carries this code.");
 
             case LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.NotSellable } refused }:
-                return new TillNotice(TillNoticeKind.NotSellable, code, Explain(refused.Reason));
+                // The reason's code, not words: the screen says it in the till's language.
+                return new TillNotice(TillNoticeKind.NotSellable, code, refused.Reason ?? string.Empty);
 
             case LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.Found, Product: { } product } }:
                 try
@@ -176,15 +229,14 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
     }
 
-    /// <summary>The refusal in the cashier's words. The skeleton's UI is English; Arabic and French are Phase 1.</summary>
-    private static string Explain(string? reason) => reason switch
-    {
-        NotSellableReason.NoCurrentPrice => "No price is in force for this product today.",
-        NotSellableReason.PriceNotTaxInclusive => "Its price is recorded without tax (HT); the till sells TTC prices only.",
-        NotSellableReason.Archived => "This product is archived.",
-        NotSellableReason.Weighted => "It is sold by weight, which the till does not handle yet.",
-        _ => $"Not sellable ({reason}).",
-    };
+    /// <summary>
+    /// Keeps the moment the server was first found unreachable, not the latest: "injoignable
+    /// depuis 14:31" means since 14:31, however many scans have failed since.
+    /// </summary>
+    private void Observe(bool reachable) =>
+        Server = reachable
+            ? ServerState.Reachable
+            : Server.UnreachableSince is null ? new ServerState(_clock.GetUtcNow()) : Server;
 
     private void Raise() => Changed?.Invoke(this, EventArgs.Empty);
 }
@@ -206,5 +258,23 @@ public enum TillNoticeKind
 /// <summary>Who is selling at which till. No login until Phase 1: the till is configured with both.</summary>
 public sealed record TillIdentity(string? TerminalId, string? StaffId);
 
-/// <summary>What the cashier is told: the kind, the code, and why, in words.</summary>
+/// <summary>
+/// What the cashier is told: the kind, the code, and the detail the screen turns into words.
+/// For <see cref="TillNoticeKind.NotSellable"/> the detail is the reason's code (D-066), which
+/// <c>TillText</c> says in the till's language; for the others it is what the server or this
+/// client reported.
+/// </summary>
 public sealed record TillNotice(TillNoticeKind Kind, string Code, string Detail);
+
+/// <summary>A sale just completed: its outcome, the lines as they stood, and when.</summary>
+/// <param name="Lines">Every line, the removed ones struck, as the cashier saw them when paying.</param>
+public sealed record PaidTicket(SaleOutcome Outcome, IReadOnlyList<CartLine> Lines, DateTimeOffset At);
+
+/// <summary>Whether StoreServer can be reached, and since when it could not.</summary>
+/// <param name="UnreachableSince">Null while it answers.</param>
+public sealed record ServerState(DateTimeOffset? UnreachableSince)
+{
+    public static ServerState Reachable { get; } = new((DateTimeOffset?)null);
+
+    public bool IsReachable => UnreachableSince is null;
+}

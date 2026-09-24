@@ -2,8 +2,8 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**23/09/2026**: **A1, A2 and A3 are done**; A4 is next and needs design gate **G1** first.
-Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+**23/09/2026**: **A1–A4 are done**; G1 is closed and the till has its shell (§12). A5,
+sign-in, is next. Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -13,7 +13,7 @@ Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1076 passing**: Integration 468 · Generator 237 · Domain 191 · Pos 75 · Hardware 64 · Application 41 |
+| Tests | **1197 passing** in Debug and Release: Integration 479 · Generator 237 · Domain 191 · Pos 185 · Hardware 64 · Application 41 |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -43,6 +43,8 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
+| F-19 | Low | **The Lucide licence notice in `Ui/LucideIcons.cs` was written from the published ISC text, not copied from a download.** The icons themselves come from Hakim's G1 file | `src/Waymark.Pos/Ui/LucideIcons.cs` | **Fix**: compare against `github.com/lucide-icons/lucide` `LICENSE` and correct the header if it differs |
+| F-20 | Low | **`Avalonia.Fonts.Inter` is referenced and no longer used.** The till sets its own faces (D-080); `Program.cs` still calls `.WithInterFont()` | `Waymark.Pos.csproj`, `Program.cs` | **Fix**: remove both, then check the placeholder and scroll bars still draw in the till's faces |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
 | F-17 | Low | The number *29* is hardcoded into every count check, This seems to be edited at every schema change | `Waymark.Integration.Tests.TriggerApplicationTests.cs` | Saved for claude to answer outside phase01 sessions |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
@@ -59,6 +61,8 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
 | O-25 | A product created at the till, tentative until the owner confirms it in Admin | Schema change. Replaces D-081's Divers when decided; after E1 |
 | O-26 | A weighed line priced by whoever weighed it: which figure is exact once the weight is inferred and rounded? | Money arithmetic. **Blocks B3** |
+| O-27 | Can a sale be sent twice safely? An unconfirmed sale offers no retry until it can | A key the server recognises. **Blocks "Réessayer" and I2** |
+| O-28 | Does a recommendation have an Adjust answer (design system) or not (D-074)? | Ajuster is shown unavailable until decided |
 
 ---
 
@@ -107,7 +111,7 @@ starting point is always code already reviewed. §7 below is the map.
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
-| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **A1–A3 done.** A4 next, after G1. **A5 is sign-in**, added 23/09 |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **A1–A4 done.** **A5, sign-in, next** |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
@@ -491,50 +495,50 @@ A2's rank check, and B4/B5 wire the two together.
 
 ---
 
-## 11. G1 — the till design, in review
+## 11. G1 — closed 23/09
 
-Hakim's light-theme mock and `waymark-design-system.html` (40 tokens, two themes) are under
-review. **A4 starts when G1 closes.**
+Hakim's boards (`src/Waymark.Pos/Assets/G1-pos_design.html`: light, dark, Arabic, empty, change
+due, notices, states, manager PIN, sign-in, and the kit) are the design. Where the kit and a rule
+disagreed the rule won, and D-082 says where; the light page is `#F7F5F9` (Hakim, 23/09). Still
+yours to confirm: the dark focus ring (`#C6B6EE`, D-082), O-27 and O-28, and the Arabic strings
+marked `// ar: à relire` in `Screen/TillText.cs`.
 
-**Agreed 23/09:** French by default. No ticket number until the sale completes (D-070).
-Encaisser shows the cash amount rounded to 5 DA (D-034). The ink-indigo bars stay. The
-right-hand column keeps its space; parts are added as their sessions land. Quick keys list
-active variants that have no barcode or are sold by weight. "Nouvel article" sells Divers
-(D-081) until O-25. A weighed line is priced by whoever weighed it (O-26, B3).
-**Recommendations are shown on the till.**
+**Asked for at review and scheduled for B2**, which the plan already calls "quantity edit, line
+removal, park and resume": the − / + stepper under a selected line, and parked tickets as tabs in
+the top bar that a touch reopens. Both change what a sale sends, so they carry B2's tests.
 
-**To change in the design:**
+---
 
-1. "TICKET 0142" → "Ticket en cours · 14 lignes". The number appears on the receipt.
-2. Encaisser shows "Espèces 3 320,00 DA"; the total stays 3 320,80.
-3. The Almanac panel shows the **existing board for whoever is signed in** (`PendingCards`,
-   `CardAudience`), computed overnight and **never recomputed from the ticket** (§5): drop
-   "après ce ticket". The card follows the design system's weights: a forecast card carries a
-   primary action **and Adjust**, not "Voir" + "Ignorer". Add two states: the count a cashier sees
-   when every card is for a manager (a quiet card, no action; D-074), and Phase 1's only real
-   card, near-expiry.
-4. Locks come from `StaffPermissions` for whoever is signed in, not drawn once: "Annuler ticket"
-   needs one (rank 2), and "Retour" and "Petite caisse" need capabilities that don't exist yet
-   (B9, B10). A locked control stays pressable and asks for a manager PIN (B5). An unavailable
-   one uses the design system's disabled recipe, never lowered opacity.
-5. Encaisser's label is `on-action` (ink-black, 4.61:1), not white (4.05:1).
-6. Labels on the bars use dark `text-secondary` `#B5AEC4` (7.02:1). Light `text-muted` is
-   2.66:1 there, dark `text-muted` 4.24:1.
-7. "Annuler ticket" moves away from "Attente" and asks for confirmation.
-8. Leave room for logging a line removed before payment (B2/B8 decide whether it is logged).
-9. "À VÉRIFIER" says what to check: "AU-DELÀ DU STOCK ENREGISTRÉ".
-10. Text overflow at 1366 wide: the staff chip, "Pommes de te…", "Client · tél. ou carte",
-    "2 en attente".
-11. A Carnet / Crédit tender (B7).
-12. Controls on a touched screen are `control-lg`, 48 px.
-13. An icon set: the design system ships none and asks for one outline set, 1.5 px stroke on a
-    24 px grid. The mock needs search, person, pause, lock and chevron. A download, so Hakim's word.
+## 12. Session A4, read in the order a frame is drawn
 
-**Still owed for G1:** the dark mock; an Arabic right-to-left version of the main screen;
-notices (unknown code, not sellable, HORS LIGNE, sale not confirmed); the empty cart; the
-after-sale screen (change due); sign-in (A5, with no Almanac on it, per the design system); the
-manager PIN prompt (B5).
+1. **What the till knows:** `Pos/Checkout/TillSession.cs` gains the paid ticket, the server's
+   reachability (since the *first* failure) and a clock. `Cart.cs` keeps a removed line, struck,
+   with the time kept for B8 and not shown; `ActiveLines` is what is charged and sent.
+2. **What it shows, decided:** `Pos/Screen/TillScreen.cs`. `Build(ScreenState)` is the whole
+   screen as records: the tab, the notice slot, the rows, the rail, the bottom bar. Every rule in
+   this session is here, and `TillScreenTests` argues each one.
+3. **Its words and figures:** `Screen/TillText.cs` (French and Arabic, with Arabic's four plural
+   forms) and `Screen/DisplayFigures.cs` (`3 320,80`, U+202F between thousands, a true minus).
+4. **Its colours:** `Ui/TillPalette.cs`, the only file that names one; `TillPaletteTests`
+   computes every contrast pair.
+5. **How it is drawn:** `Ui/TillTheme.cs` (brushes, the bundled faces by file, the type styles,
+   `Prose` for figures inside sentences), `Ui/TillKey.cs`, `Ui/TillViews.cs` (one function per
+   region), `Ui/LucideIcons.cs`. `TillWindow.cs` holds the scanner, the search field and the
+   timers, and redraws from `TillScreen` on every change.
+6. **Where the top bar's names come from:** `Domain/Organisation/ITillDirectory.cs`,
+   `Persistence/Organisation/TillDirectory.cs`, `GET /api/till/context`. The board's answer moved
+   to `Contracts/Recommendations/BoardAnswer.cs` so the till reads it typed; Admin's JSON is
+   unchanged.
 
-**Open against the design system:** its RecommendationCard ships three actions (Review, Adjust,
-Dismiss) and says two turn a suggestion into an instruction. D-074, confirmed 21/09, is accept
-and dismiss only. Which one wins decides whether A4's card has an Adjust button.
+**Broken on purpose** (D-012), seven mutations, each caught by its own tests: a struck line
+sent, a struck line totalled, Encaisser asking for unrounded cash, a plain space between
+thousands, an unknown code without its warning tone, the kit's dark ring put back, and the till
+directory reading past the store filter.
+
+**To look at it:** a Debug build takes `--snapshot=out.png [--scan=code,...] [--select] [--pay]`
+with `--theme=light|dark` and `--lang=ar`, renders the window to a PNG and exits. `--pay`
+completes a real sale on whichever store the server has open.
+
+**Not in A4, and where it goes:** the rail's operation keys, quick keys and the Carte, Mobile and
+Carnet tenders are B-block; sign-in, the staff menu and the clock-in time are A5 and B10;
+"Espèces reçues" and the change due are B6.

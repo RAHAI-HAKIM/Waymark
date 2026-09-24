@@ -4,142 +4,322 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
+using Waymark.Contracts.Pos;
+using Waymark.Contracts.Recommendations;
 using Waymark.Hardware;
 using Waymark.Pos.Checkout;
+using Waymark.Pos.Screen;
+using Waymark.Pos.Server;
+using Waymark.Pos.Ui;
 
 namespace Waymark.Pos;
 
 /// <summary>
-/// The till, hop 1 (D-068): a code box, the cart, the total. Deliberately plain.
-/// It draws <see cref="TillSession"/> and feeds it codes; every rule lives in the
-/// session and the cart, where it is tested.
+/// The till (session A4, G1): the shell every later session adds to. It feeds codes to
+/// <see cref="TillSession"/>, gathers what the till knows into a <see cref="ScreenState"/>, and
+/// draws <see cref="TillScreen.Build"/>'s answer. <b>It decides nothing</b>: every label, tone
+/// and availability arrives in the model, where it is tested without a window.
 ///
 /// <para>
-/// <b>The scanner sits in front of every keystroke</b> (D-063). Text input is
-/// caught on its way down (tunnel) and fed to the scanner, which holds it until
-/// it knows whether a person typed it; typing comes back through
-/// <see cref="KeyboardWedgeScanner.Typed"/> and is inserted where the caret is.
-/// A scanner's suffix arrives as a key (Enter, Tab), not as text, so those keys
-/// go to the scanner first as well.
-/// </para>
-/// <para>
-/// Colours: violet for actions only; notices are neutral and say what they are
-/// in words. The semantic colours are Almanac's until a POS decision says
-/// otherwise (Hakim, 18/09). Styling is not final.
+/// <b>The scanner sits in front of every keystroke</b> (D-063). Text input is caught on its way
+/// down (tunnel) and fed to the scanner, which holds it until it knows whether a person typed it;
+/// typing comes back through <see cref="KeyboardWedgeScanner.Typed"/> and is inserted where the
+/// caret is. A scanner's suffix arrives as a key (Enter, Tab), not as text, so those keys go to
+/// the scanner first as well. The search field keeps the scanner's focus (G1 kit §9).
 /// </para>
 /// </summary>
 public sealed class TillWindow : Window, IDisposable
 {
-    private static readonly IBrush Violet = new SolidColorBrush(Color.Parse("#5A3AA8"));
-    private static readonly IBrush Paper = new SolidColorBrush(Color.Parse("#FBFAFC"));
-    private static readonly IBrush Line = new SolidColorBrush(Color.Parse("#E4E1E9"));
-    private static readonly IBrush Slate = new SolidColorBrush(Color.Parse("#6B6478"));
-    private static readonly IBrush Ink = new SolidColorBrush(Color.Parse("#14101F"));
-    private static readonly FontFamily Mono = new("IBM Plex Mono, Consolas, Courier New");
+    private static readonly TimeSpan HealthEvery = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan BoardEvery = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan ClockEvery = TimeSpan.FromSeconds(15);
 
     private readonly TillSession _session;
+    private readonly ITillServer _server;
+    private readonly TillIdentity _till;
+    private readonly TillText _text;
+    private readonly TillTheme _theme;
+    private readonly TimeProvider _clock;
     private readonly KeyboardWedgeScanner _scanner;
     private readonly TextBox _input;
-    private readonly Border _notice;
-    private readonly TextBlock _noticeLabel;
-    private readonly TextBlock _noticeText;
-    private readonly StackPanel _lines;
-    private readonly TextBlock _total;
-    private readonly Button _pay;
+    private readonly Border _topHost = new();
+    private readonly Border _noticeHost = new();
+    private readonly Border _cartHost = new();
+    private readonly Border _railHost = new();
+    private readonly Border _bottomHost = new();
+    private readonly List<DispatcherTimer> _timers = [];
+    private readonly TillActions _actions;
 
-    public TillWindow(TillSession session, TimeProvider clock)
+    private TillContext? _context;
+    private BoardAnswer? _board;
+    private string? _selected;
+    private int _cardIndex;
+    private TillScreen? _screen;
+#if DEBUG
+    private Control? _debug;
+#endif
+
+    public TillWindow(TillSession session, ITillServer server, TillIdentity till, TillLanguage language, TillThemeKind themeKind, TimeProvider clock)
     {
         _session = session;
+        _server = server;
+        _till = till;
+        _clock = clock;
+        _text = TillText.For(language);
+        _theme = new TillTheme(TillPalette.For(themeKind), language);
 
         // Built here, on the UI thread, so its silence timer posts back to it (D-063).
         _scanner = new KeyboardWedgeScanner(clock);
         _scanner.Scanned += (_, scan) => Submit(scan.Code);
         _scanner.Typed += (_, text) => InsertTyped(text);
 
-        Title = "Waymark POS";
-        Width = 1024;
+        Title = "Waymark";
+        Width = 1366;
         Height = 768;
-        Background = Paper;
+        MinWidth = 1024;
+        MinHeight = 768;
+        Background = _theme.Page;
+        FontFamily = _theme.Sans(FontWeight.Normal);
+        FlowDirection = _text.RightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
 
-        _input = new TextBox
-        {
-            PlaceholderText = "Scan, or type a code and press Enter",
-            FontFamily = Mono,
-            FontSize = 20,
-        };
-
-        _noticeLabel = new TextBlock { FontFamily = Mono, FontWeight = FontWeight.SemiBold, Foreground = Ink };
-        _noticeText = new TextBlock { Foreground = Ink, TextWrapping = TextWrapping.Wrap };
-        var dismiss = ActionButton("OK");
-        dismiss.Click += (_, _) => _session.Dismiss();
-        _notice = new Border
-        {
-            IsVisible = false,
-            Background = Brushes.White,
-            BorderBrush = Ink,
-            BorderThickness = new Thickness(0, 3, 0, 0),
-            Padding = new Thickness(12),
-            Child = new DockPanel
+        _actions = new TillActions(
+            SelectLine: id =>
             {
-                Children =
-                {
-                    Docked(dismiss, Dock.Right),
-                    new StackPanel { Spacing = 4, Children = { _noticeLabel, _noticeText } },
-                },
+                _selected = _selected == id ? null : id;
+                Render();
             },
-        };
-
-        _lines = new StackPanel { Spacing = 2 };
-        _total = new TextBlock { FontFamily = Mono, FontSize = 24, Foreground = Ink, HorizontalAlignment = HorizontalAlignment.Right };
-
-        _pay = ActionButton("Pay cash");
-        _pay.Click += (_, _) => Pay();
-
-        var footer = new DockPanel { Children = { Docked(_pay, Dock.Right), _total } };
-
-        Content = new DockPanel
-        {
-            Margin = new Thickness(16),
-            Children =
+            RemoveSelected: RemoveSelected,
+            Collect: Pay,
+            NewSale: () => _session.StartNewSale(),
+            Accept: (card, option) => Decide(card, "accept", option),
+            Dismiss: card => Decide(card, "dismiss", null),
+            NextCard: () =>
             {
-                Docked(new StackPanel { Spacing = 8, Margin = new Thickness(0, 0, 0, 12), Children = { _input, _notice } }, Dock.Top),
-                Docked(footer, Dock.Bottom),
-                new Border
-                {
-                    BorderBrush = Line,
-                    BorderThickness = new Thickness(1),
-                    Background = Brushes.White,
-                    Margin = new Thickness(0, 0, 0, 12),
-                    Child = new ScrollViewer { Content = _lines },
-                },
-            },
-        };
+                _cardIndex++;
+                Render();
+            });
 
-#if DEBUG
-        // No scanner at hand: this feeds a code through the real scanner, as a scanner would.
-        var simulated = new TextBox { PlaceholderText = "debug: code to scan", FontFamily = Mono, Width = 240 };
-        var simulate = ActionButton("Simulate scan");
-        simulate.Click += (_, _) =>
-        {
-            if (!string.IsNullOrWhiteSpace(simulated.Text))
-            {
-                _scanner.Scan(simulated.Text.Trim());
-                simulated.Text = string.Empty;
-            }
-        };
-        footer.Children.Insert(0, Docked(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { simulated, simulate } }, Dock.Left));
-#endif
+        _input = SearchField();
+        Content = Layout();
 
         AddHandler(TextInputEvent, OnTextInput, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
         AddHandler(GotFocusEvent, (_, _) => _scanner.Reset(), RoutingStrategies.Bubble);
 
         _session.Changed += (_, _) => Render();
-        Opened += (_, _) => _input.Focus();
+        Opened += (_, _) =>
+        {
+            _input.Focus();
+            Start(ClockEvery, Render);
+            Start(HealthEvery, () => _ = CheckHealthAsync());
+            Start(BoardEvery, () => _ = RefreshBoardAsync());
+            _ = LoadAsync();
+        };
         Closed += (_, _) => Dispose();
 
         Render();
     }
+
+    // =================================================================== layout
+
+    private DockPanel Layout()
+    {
+        // The search strip: the field, then the notice slot under it (G1, "Avis").
+        var searchIcon = TillTheme.Icon(LucideIcons.Search, _theme.TextMuted, 20);
+        searchIcon.Margin = new Thickness(12, 0, 8, 0);
+        var field = new Border
+        {
+            Background = _theme.Card,
+            BorderBrush = _theme.FocusRing,
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(TillSizes.FieldRadius + 2),
+            Height = TillSizes.Key,
+            Child = new DockPanel { Children = { Docked(searchIcon, Dock.Left), _input } },
+        };
+        _input.GotFocus += (_, _) => field.BorderBrush = _theme.FocusRing;
+        _input.LostFocus += (_, _) => field.BorderBrush = _theme.Border;
+
+        var strip = new Border
+        {
+            Background = _theme.Tile,
+            CornerRadius = new CornerRadius(TillSizes.CardRadius, TillSizes.CardRadius, 0, 0),
+            Padding = new Thickness(TillSizes.Margin, 12, TillSizes.Margin, 8),
+            Child = new StackPanel { Children = { field, _noticeHost } },
+        };
+
+        var cartCard = new Border
+        {
+            Background = _theme.Card,
+            BorderBrush = _theme.Border,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.CardRadius),
+            ClipToBounds = true,
+            Child = new DockPanel { Children = { Docked(strip, Dock.Top), _cartHost } },
+        };
+
+        var middle = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions($"*,{TillSizes.Gap},{TillSizes.Rail}"),
+            Margin = new Thickness(TillSizes.Margin),
+        };
+        middle.Children.Add(cartCard);
+        middle.Children.Add(RailWithDebug());
+
+        return new DockPanel
+        {
+            Children =
+            {
+                Docked(_topHost, Dock.Top),
+                Docked(_bottomHost, Dock.Bottom),
+                middle,
+            },
+        };
+    }
+
+    private DockPanel RailWithDebug()
+    {
+        var host = new DockPanel();
+        Grid.SetColumn(host, 2);
+
+#if DEBUG
+        // No scanner at hand: this feeds a code through the real scanner, as a scanner would. It
+        // sits in the rail's reserved space, which the B-block parts will take.
+        var simulated = new TextBox { PlaceholderText = "debug: code", Width = 220, FontFamily = TillTheme.Mono(FontWeight.Normal) };
+        var simulate = new TillKey(_theme, KeyLook.Secondary, _theme.BodySmall("Simulate scan", _theme.Text), () =>
+        {
+            if (!string.IsNullOrWhiteSpace(simulated.Text))
+            {
+                _scanner.Scan(simulated.Text.Trim());
+                simulated.Text = string.Empty;
+            }
+        });
+        // Docked above the rail, so the rail's own content (the paid ticket, the Almanac card) starts
+        // below it instead of being drawn underneath it.
+        var debug = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Margin = new Thickness(0, 0, 0, 12),
+            Children = { _theme.Label("DEBUG"), simulated, simulate },
+        };
+        DockPanel.SetDock(debug, Dock.Top);
+        _debug = debug;
+        host.Children.Add(debug);
+#endif
+
+        host.Children.Add(_railHost);
+        return host;
+    }
+
+    private TextBox SearchField()
+    {
+        var input = new TextBox
+        {
+            PlaceholderText = _text.SearchPlaceholder,
+            FontFamily = _theme.Sans(FontWeight.Normal),
+            FontSize = 16,
+            Foreground = _theme.Text,
+            CaretBrush = _theme.Text,
+            Background = Brushes.Transparent,
+            BorderThickness = default,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(0),
+        };
+
+        // The field is drawn by its own border above; Fluent's focus and hover grounds would put
+        // a colour outside the palette inside it.
+        foreach (var key in new[]
+        {
+            "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused",
+            "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused",
+        })
+        {
+            input.Resources[key] = Brushes.Transparent;
+        }
+
+        input.Resources["TextControlPlaceholderForeground"] = _theme.TextMuted;
+        input.Resources["TextControlPlaceholderForegroundPointerOver"] = _theme.TextMuted;
+        input.Resources["TextControlPlaceholderForegroundFocused"] = _theme.TextMuted;
+        return input;
+    }
+
+    // =================================================================== render
+
+    private void Render()
+    {
+        if (_selected is not null && !_session.Cart.ActiveLines.Any(line => line.VariantId == _selected))
+        {
+            _selected = null;
+        }
+
+        var screen = TillScreen.Build(new ScreenState(
+            _text,
+            TimeZoneInfo.Local,
+            _clock.GetUtcNow(),
+            _session.Cart,
+            _session.Notice,
+            _session.Paid,
+            _session.LastSale,
+            _session.LastSaleAt,
+            _session.Server,
+            _context,
+            _selected,
+            _board,
+            _cardIndex));
+        _screen = screen;
+
+        _topHost.Child = TillViews.TopBar(screen.Top, _theme);
+        _noticeHost.Child = TillViews.Notice(screen.Notice, _theme);
+        _cartHost.Child = TillViews.CartTable(screen.Cart, _theme, _actions);
+        _railHost.Child = TillViews.Rail(screen.Rail, _theme, _actions);
+        _bottomHost.Child = TillViews.BottomBar(screen.Bottom, _theme, _actions, _session.Paid is not null);
+    }
+
+    // =================================================================== server
+
+    private async Task LoadAsync()
+    {
+        // Asked at once, not after the first health tick: a till that has never reached its
+        // server must not open saying "EN LIGNE" for ten seconds.
+        await CheckHealthAsync();
+
+        if (!string.IsNullOrWhiteSpace(_till.TerminalId))
+        {
+            _context = await _server.ContextAsync(_till.TerminalId, _till.StaffId);
+        }
+
+        await RefreshBoardAsync();
+    }
+
+    private async Task RefreshBoardAsync()
+    {
+        _board = string.IsNullOrWhiteSpace(_till.StaffId) ? null : await _server.BoardAsync(_till.StaffId);
+        Render();
+    }
+
+    private async Task CheckHealthAsync() => _session.ReportHealth(await _server.HealthAsync());
+
+    private async void Decide(string recommendationId, string decision, string? optionId)
+    {
+        // async void, as an event handler must be: so nothing may escape it.
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_till.StaffId))
+            {
+                // The rank check is the server's (CardAudience, D-074): this sends and re-reads.
+                await _server.DecideAsync(new DecisionRequest(recommendationId, _till.StaffId, decision, optionId));
+            }
+
+            await RefreshBoardAsync();
+        }
+        catch (Exception)
+        {
+            await RefreshBoardAsync();
+        }
+    }
+
+    // ================================================================= keyboard
 
     private void OnTextInput(object? sender, TextInputEventArgs e)
     {
@@ -169,16 +349,42 @@ public sealed class TillWindow : Window, IDisposable
                 }
                 else if (e.Key == Key.Enter && ReferenceEquals(Focused(), _input))
                 {
-                    // A code typed by hand (D-063's open point, hop 1).
-                    Submit(_input.Text ?? string.Empty);
-                    _input.Text = string.Empty;
+                    var typed = _input.Text ?? string.Empty;
+                    if (typed.Trim().Length == 0 && _session.Paid is not null)
+                    {
+                        // Entrée on an empty field after a sale: "Nouvelle vente" (G1).
+                        _session.StartNewSale();
+                    }
+                    else
+                    {
+                        // A code typed by hand (D-063's open point, hop 1).
+                        Submit(typed);
+                        _input.Text = string.Empty;
+                    }
+
                     e.Handled = true;
                 }
 
                 break;
 
+            case Key.F12:
+                if (_screen?.Bottom.Primary is { Enabled: true } && _session.Paid is null)
+                {
+                    Pay();
+                }
+
+                e.Handled = true;
+                break;
+
+            case Key.F8:
+                RemoveSelected();
+                e.Handled = true;
+                break;
+
             case Key.Escape:
+                _selected = null;
                 _session.Dismiss();
+                Render();
                 e.Handled = true;
                 break;
 
@@ -203,6 +409,17 @@ public sealed class TillWindow : Window, IDisposable
         box.SelectionStart = box.SelectionEnd = box.CaretIndex = start + text.Length;
     }
 
+    // ================================================================== actions
+
+    private void RemoveSelected()
+    {
+        if (_selected is { } id && _session.Paid is null)
+        {
+            _selected = null;
+            _session.Remove(id);
+        }
+    }
+
     private async void Submit(string code)
     {
         // async void, as an event handler must be: so nothing may escape it.
@@ -210,46 +427,12 @@ public sealed class TillWindow : Window, IDisposable
         {
             await _session.SubmitAsync(code);
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            ShowNotice("ERROR", $"{code}: {exception.Message}");
+            _session.ReportHealth(reachable: false);
         }
 
         _input.Focus();
-    }
-
-    private void Render()
-    {
-        if (_session.Notice is { } notice)
-        {
-            var label = notice.Kind switch
-            {
-                TillNoticeKind.UnknownCode => "UNKNOWN CODE",
-                TillNoticeKind.NotSellable => "NOT SELLABLE",
-                TillNoticeKind.SaleRefused => "SALE REFUSED",
-                TillNoticeKind.SaleOutcomeUnknown => "SALE OUTCOME UNKNOWN",
-                _ => "STORESERVER UNAVAILABLE",
-            };
-            ShowNotice(notice.Code == "-" ? label : $"{label} · {notice.Code}", notice.Detail);
-        }
-        else
-        {
-            _notice.IsVisible = false;
-        }
-
-        _lines.Children.Clear();
-        foreach (var line in _session.Cart.Lines)
-        {
-            _lines.Children.Add(LineRow(line));
-        }
-
-        _pay.IsEnabled = _session.Cart.Lines.Count > 0;
-        _total.Text = (_session.Cart.Total, _session.LastSale) switch
-        {
-            ({ } total, _) => $"Total (preview)  {total}",
-            (null, { } sale) => $"{sale.InvoiceNumber} · collect {sale.CashToCollect} {sale.Currency} (total {sale.TotalTtc})",
-            _ => "Total  —",
-        };
     }
 
     private async void Pay()
@@ -258,85 +441,25 @@ public sealed class TillWindow : Window, IDisposable
         try
         {
             await _session.PayAsync();
+            await RefreshBoardAsync();
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            ShowNotice("ERROR", exception.Message);
+            _session.ReportHealth(reachable: false);
         }
 
         _input.Focus();
     }
 
-    private void ShowNotice(string label, string detail)
+    private void Start(TimeSpan every, Action tick)
     {
-        _noticeLabel.Text = label;
-        _noticeText.Text = detail;
-        _notice.IsVisible = true;
+        var timer = new DispatcherTimer { Interval = every };
+        timer.Tick += (_, _) => tick();
+        timer.Start();
+        _timers.Add(timer);
     }
 
-    private Border LineRow(CartLine line)
-    {
-        var remove = ActionButton("Remove");
-        remove.Click += (_, _) => _session.Remove(line.VariantId);
-
-        var name = new StackPanel
-        {
-            Children =
-            {
-                new TextBlock { Text = $"{line.ProductName} — {line.VariantName}", Foreground = Ink },
-                new TextBlock
-                {
-                    // Said in words, never by colour alone (Hakim, 18/09).
-                    Text = $"MORE THAN RECORDED STOCK · {line.StockOnHand} on hand",
-                    FontFamily = Mono,
-                    FontSize = 11,
-                    Foreground = Slate,
-                    IsVisible = line.ExceedsStockOnHand,
-                },
-                new TextBlock
-                {
-                    // A promotional price is in force for this line (D-076). Labelled, not
-                    // coloured, and in the same neutral slate as the stock notice: POS colours
-                    // are not decided yet (D-068), and this is not a semantic state anyway --
-                    // a promotion is neither critical nor a warning, and there is no positive
-                    // state (CLAUDE.md 6).
-                    Text = "PROMOTIONAL PRICE",
-                    FontFamily = Mono,
-                    FontSize = 11,
-                    Foreground = Slate,
-                    IsVisible = line.IsPromotionalPrice,
-                },
-            },
-        };
-
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto"),
-            Margin = new Thickness(12, 8),
-            ColumnSpacing = 24,
-        };
-        grid.Children.Add(Cell(name, 0));
-        grid.Children.Add(Cell(Figure($"× {line.Count}"), 1));
-        grid.Children.Add(Cell(Figure(line.UnitPrice.ToString()), 2));
-        grid.Children.Add(Cell(Figure(line.LineTotal.ToString()), 3));
-        grid.Children.Add(Cell(remove, 4));
-
-        return new Border { BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1), Child = grid };
-    }
-
-    private static TextBlock Figure(string text) => new()
-    {
-        Text = text,
-        FontFamily = Mono,
-        Foreground = Ink,
-        VerticalAlignment = VerticalAlignment.Center,
-    };
-
-    private static Control Cell(Control control, int column)
-    {
-        Grid.SetColumn(control, column);
-        return control;
-    }
+    private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 
     private static Control Docked(Control control, Dock dock)
     {
@@ -344,16 +467,53 @@ public sealed class TillWindow : Window, IDisposable
         return control;
     }
 
-    private static Button ActionButton(string text) => new()
+#if DEBUG
+    /// <summary>
+    /// Renders the window to a PNG after feeding it <paramref name="codes"/> through the real
+    /// scanner path, for reviewing the shell against the G1 boards. Debug builds only.
+    /// </summary>
+    public async Task SnapshotAsync(string path, IReadOnlyList<string> codes, bool pay, bool select)
     {
-        Content = text,
-        Background = Violet,
-        Foreground = Brushes.White,
-        VerticalAlignment = VerticalAlignment.Center,
-    };
+        if (_debug is not null)
+        {
+            _debug.IsVisible = false;
+        }
 
-    private IInputElement? Focused() => FocusManager?.GetFocusedElement();
+        await LoadAsync();
+        foreach (var code in codes)
+        {
+            await _session.SubmitAsync(code);
+        }
 
-    /// <summary>Stops the scanner's silence timer. Called when the window closes.</summary>
-    public void Dispose() => _scanner.Dispose();
+        if (pay)
+        {
+            await _session.PayAsync();
+        }
+
+        if (select)
+        {
+            var active = _session.Cart.ActiveLines;
+            _selected = active.Count > 0 ? active[^1].VariantId : null;
+        }
+
+        Render();
+        await Task.Delay(300);
+        var size = new PixelSize((int)Bounds.Width, (int)Bounds.Height);
+        using var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
+        bitmap.Render(this);
+        await using var file = File.Create(path);
+        bitmap.Save(file, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+    }
+#endif
+
+    /// <summary>Stops the scanner's silence timer and the shell's timers. Called when the window closes.</summary>
+    public void Dispose()
+    {
+        foreach (var timer in _timers)
+        {
+            timer.Stop();
+        }
+
+        _scanner.Dispose();
+    }
 }

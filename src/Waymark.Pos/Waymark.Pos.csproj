@@ -14,6 +14,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The bundled faces (D-080), read through avares:// by TillTheme. The licences travel
+         beside them in the repository. -->
+    <AvaloniaResource Include="Assets\Fonts\*.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Waymark.Contracts\Waymark.Contracts.csproj" />
     <ProjectReference Include="..\Waymark.Hardware\Waymark.Hardware.csproj" />
   </ItemGroup>

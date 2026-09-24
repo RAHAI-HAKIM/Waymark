@@ -17,6 +17,7 @@ using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
 using Waymark.Domain;
 using Waymark.Domain.Catalogue;
+using Waymark.Domain.Organisation;
 using Waymark.Domain.Reference;
 using Waymark.Domain.Engine;
 using Waymark.Domain.Enums;
@@ -34,6 +35,7 @@ using Waymark.Persistence.Sales;
 using Waymark.Persistence.Sync;
 using Waymark.Pseudonymisation;
 using Waymark.StoreServer.Catalogue;
+using Waymark.StoreServer.Organisation;
 using Waymark.StoreServer.Reference;
 using Waymark.StoreServer.Engine;
 using Waymark.StoreServer.Sales;
@@ -96,6 +98,9 @@ builder.Services.AddScoped<IProductLookup, Waymark.Persistence.Catalogue.Product
 // The reasons the shop accepts for a discount, a void, a cash movement (A3). A read, like
 // the lookup, and scoped for the same reason.
 builder.Services.AddScoped<IReasonCodes, Waymark.Persistence.Reference.ReasonCodes>();
+
+// Who and where the till is, for its top bar (A4). A read, scoped like the others.
+builder.Services.AddScoped<ITillDirectory, Waymark.Persistence.Organisation.TillDirectory>();
 
 // Commands (D-050): one unit of work per request, which stages every row and the executor
 // commits once. The same instance is the staging side and the committing side.
@@ -252,6 +257,15 @@ app.MapGet("/api/products/lookup", async (
     string.IsNullOrWhiteSpace(barcode)
         ? Results.BadRequest("A barcode is required: /api/products/lookup?barcode=...")
         : Results.Ok(ProductLookupWire.ToWire(barcode, await lookup.FindForSaleAsync(barcode, cancellationToken))));
+
+// Session A4: the store, the till and the person selling, for the till's top bar. A terminal this
+// store does not have is an answer ("unknown_terminal"), never another store's name: the global
+// filter narrows the read to this store.
+app.MapGet("/api/till/context", async (
+    string? terminal, string? staff, ITillDirectory directory, CancellationToken cancellationToken) =>
+    string.IsNullOrWhiteSpace(terminal)
+        ? Results.BadRequest("A terminal is required: /api/till/context?terminal=...&staff=...")
+        : Results.Ok(TillContextWire.ToWire(await directory.DescribeAsync(terminal, staff, cancellationToken))));
 
 // Session A3: the reasons this shop accepts for one kind of action. Every column that records
 // *why* something happened is a foreign key into reason_codes, so this list is not decoration

@@ -61,6 +61,78 @@ public sealed class TillPaymentTests
         Assert.Equal([new SaleRequestLine("111", 2), new SaleRequestLine("222", 1)], request.Lines);
     }
 
+    // ------------------------------------------------ a line taken out (G1)
+
+    [Fact]
+    public async Task A_removed_line_is_never_sent()
+    {
+        // The struck line stays on screen and must never be charged. Sent, it would put back
+        // what the cashier took out: the total on the receipt would be right for a sale that
+        // was not the one on the screen.
+        var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), null, "111", "222");
+        session.Remove("v-111");
+
+        await session.PayAsync();
+
+        Assert.Equal([new SaleRequestLine("222", 1)], Assert.Single(sales.Sent).Lines);
+    }
+
+    [Fact]
+    public async Task A_cart_whose_every_line_was_removed_sends_nothing()
+    {
+        var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
+        session.Remove("v-111");
+
+        await session.PayAsync();
+
+        Assert.Empty(sales.Sent);
+    }
+
+    // ------------------------------------------------- the paid ticket (G1)
+
+    [Fact]
+    public async Task A_paid_ticket_keeps_its_lines_for_the_screen_until_a_new_sale()
+    {
+        // "Monnaie à rendre": the ticket just paid stays on screen, struck lines and all, while
+        // the cashier gives change. The cart itself is empty, ready for the next customer.
+        var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111", "222");
+        session.Remove("v-222");
+
+        await session.PayAsync();
+
+        Assert.Empty(session.Cart.Lines);
+        var paid = Assert.IsType<PaidTicket>(session.Paid);
+        Assert.Equal(Done, paid.Outcome);
+        Assert.Equal(["v-111", "v-222"], paid.Lines.Select(line => line.VariantId));
+        Assert.True(paid.Lines[1].IsRemoved);
+
+        session.StartNewSale();
+
+        Assert.Null(session.Paid);
+        Assert.Equal(Done, session.LastSale);
+    }
+
+    [Fact]
+    public async Task The_next_scan_closes_the_paid_ticket()
+    {
+        var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
+        await session.PayAsync();
+
+        await session.SubmitAsync("222");
+
+        Assert.Null(session.Paid);
+    }
+
+    [Fact]
+    public async Task A_refused_sale_leaves_no_paid_ticket()
+    {
+        var (session, _) = await CartOf(new SaleAnswer.Refused("no"), null, "111");
+
+        await session.PayAsync();
+
+        Assert.Null(session.Paid);
+    }
+
     [Fact]
     public async Task A_completed_sale_empties_the_cart_and_says_what_to_collect()
     {

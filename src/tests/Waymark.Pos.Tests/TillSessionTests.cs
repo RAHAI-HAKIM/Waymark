@@ -93,8 +93,10 @@ public sealed class TillSessionTests
     }
 
     [Fact]
-    public async Task A_refused_code_says_why_in_words()
+    public async Task A_refused_code_carries_its_reason_for_the_screen_to_say()
     {
+        // The session keeps the reason's code; TillText says it in the till's language
+        // (TillTextTests.Every_refusal_reason_has_words_in_both_languages).
         var (session, source) = Build();
         source.Answer("222", Refused("222", NotSellableReason.NoCurrentPrice));
 
@@ -102,7 +104,7 @@ public sealed class TillSessionTests
 
         Assert.Empty(session.Cart.Lines);
         Assert.Equal(TillNoticeKind.NotSellable, session.Notice!.Kind);
-        Assert.Contains("No price", session.Notice.Detail, StringComparison.Ordinal);
+        Assert.Equal(NotSellableReason.NoCurrentPrice, session.Notice.Detail);
     }
 
     [Fact]
@@ -239,22 +241,95 @@ public sealed class TillSessionTests
         Assert.Equal(2, changes);
     }
 
-    [Fact]
-    public async Task Every_refusal_reason_has_words_for_the_cashier()
+    // --------------------------------------------- the server's reachability
+
+    /// <summary>A clock the test moves by hand.</summary>
+    private sealed class Clock(DateTimeOffset start) : TimeProvider
     {
-        // A reason added to the contract without words would show its raw code.
-        var reasons = typeof(NotSellableReason).GetFields()
-            .Select(field => (string)field.GetValue(null)!)
-            .ToList();
+        public DateTimeOffset Now { get; set; } = start;
 
-        foreach (var reason in reasons)
-        {
-            var (session, source) = Build();
-            source.Answer("x", Refused("x", reason));
-            await session.SubmitAsync("x");
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
 
-            // The fallback for a reason with no words is "Not sellable (<code>)".
-            Assert.DoesNotContain("Not sellable (", session.Notice!.Detail, StringComparison.Ordinal);
-        }
+    private static readonly DateTimeOffset Morning = new(2026, 9, 23, 13, 31, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task An_unanswered_scan_marks_the_server_unreachable_from_that_moment()
+    {
+        var source = new ScriptedSource();
+        var clock = new Clock(Morning);
+        var session = new TillSession(source, new NoSales(), Till, clock);
+        source.Answer("111", new LookupAnswer.ServerUnavailable("timeout"));
+
+        await session.SubmitAsync("111");
+
+        Assert.False(session.Server.IsReachable);
+        Assert.Equal(Morning, session.Server.UnreachableSince);
+    }
+
+    [Fact]
+    public async Task Unreachable_since_is_the_first_failure_not_the_latest()
+    {
+        // "Injoignable depuis 14:31" must keep saying 14:31 while scans keep failing; moving it
+        // to each new failure would make a long outage look like it had just begun.
+        var source = new ScriptedSource();
+        var clock = new Clock(Morning);
+        var session = new TillSession(source, new NoSales(), Till, clock);
+        source.Answer("111", new LookupAnswer.ServerUnavailable("timeout"));
+        source.Answer("222", new LookupAnswer.ServerUnavailable("timeout"));
+
+        await session.SubmitAsync("111");
+        clock.Now = Morning.AddMinutes(5);
+        await session.SubmitAsync("222");
+
+        Assert.Equal(Morning, session.Server.UnreachableSince);
+    }
+
+    [Fact]
+    public async Task Any_answer_means_the_server_is_back()
+    {
+        // An unknown barcode is still an answer: the server is up, the code is wrong.
+        var source = new ScriptedSource();
+        var session = new TillSession(source, new NoSales(), Till, new Clock(Morning));
+        source.Answer("111", new LookupAnswer.ServerUnavailable("timeout"));
+        source.Answer("222", Unknown("222"));
+
+        await session.SubmitAsync("111");
+        await session.SubmitAsync("222");
+
+        Assert.True(session.Server.IsReachable);
+    }
+
+    [Fact]
+    public void A_health_check_changes_the_state_and_says_so_only_when_it_changes()
+    {
+        var session = new TillSession(new ScriptedSource(), new NoSales(), Till, new Clock(Morning));
+        var changes = 0;
+        session.Changed += (_, _) => changes++;
+
+        session.ReportHealth(reachable: true);
+        session.ReportHealth(reachable: false);
+        session.ReportHealth(reachable: false);
+        session.ReportHealth(reachable: true);
+
+        Assert.Equal(2, changes);
+        Assert.True(session.Server.IsReachable);
+    }
+
+    // ------------------------------------------------------ a line taken out
+
+    [Fact]
+    public async Task Removing_a_line_stamps_it_with_the_tills_clock()
+    {
+        var source = new ScriptedSource();
+        var clock = new Clock(Morning);
+        var session = new TillSession(source, new NoSales(), Till, clock);
+        source.Answer("111", Found("111", "milk"));
+        await session.SubmitAsync("111");
+        clock.Now = Morning.AddMinutes(3);
+
+        session.Remove("milk");
+
+        Assert.Equal(Morning.AddMinutes(3), Assert.Single(session.Cart.Lines).RemovedAt);
     }
 }

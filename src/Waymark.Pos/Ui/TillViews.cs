@@ -1,0 +1,612 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Waymark.Pos.Screen;
+
+namespace Waymark.Pos.Ui;
+
+/// <summary>What the cashier can do from the screen. The window wires these to the session.</summary>
+public sealed record TillActions(
+    Action<string> SelectLine,
+    Action RemoveSelected,
+    Action Collect,
+    Action NewSale,
+    Action<string, string> Accept,
+    Action<string> Dismiss,
+    Action NextCard);
+
+/// <summary>
+/// The G1 regions, each drawn from its part of <see cref="TillScreen"/> and nothing else (kit §5).
+/// Nothing here decides: a label, a tone, whether a key is available — all of it arrives in the
+/// model, where it is tested.
+/// </summary>
+public static class TillViews
+{
+    // ================================================================ top bar
+
+    public static Control TopBar(TopBar top, TillTheme theme)
+    {
+        var start = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        start.Children.Add(Words("Waymark", 16, FontWeight.SemiBold, theme.BarText, theme));
+        if (top.Place is { } place)
+        {
+            start.Children.Add(Words("·", 14, FontWeight.Normal, theme.BarLabel, theme));
+            start.Children.Add(Words(place, 14, FontWeight.Normal, theme.BarLabel, theme));
+        }
+
+        // The open ticket is a tab joined to the page below it (kit §9, "onglets dans la barre haute").
+        var tab = new Border
+        {
+            Background = theme.Page,
+            CornerRadius = new CornerRadius(TillSizes.KeyRadius, TillSizes.KeyRadius, 0, 0),
+            Padding = new Thickness(16, 0),
+            Margin = new Thickness(24, 12, 0, 0),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    Words(top.Tab.Title, 14, FontWeight.SemiBold, theme.Text, theme),
+                    theme.Prose(top.Tab.Detail, 12, theme.TextMuted),
+                },
+            },
+        };
+
+        var end = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        end.Children.Add(ConnectionChip(top.Connection, theme));
+        if (top.Staff is { } staff)
+        {
+            end.Children.Add(Words("·", 14, FontWeight.Normal, theme.BarLabel, theme));
+            end.Children.Add(new Border
+            {
+                BorderBrush = theme.BarKeyBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(TillSizes.KeyRadius),
+                Padding = new Thickness(12, 4),
+                Child = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 16,
+                    Children =
+                    {
+                        new StackPanel
+                        {
+                            Children =
+                            {
+                                Words(staff.Name, 14, FontWeight.SemiBold, theme.BarText, theme),
+                                theme.Label(staff.Role, theme.BarLabel),
+                            },
+                        },
+                        TillTheme.Icon(LucideIcons.ChevronDown, theme.BarLabel, 16),
+                    },
+                },
+            });
+        }
+
+        end.Children.Add(Words("·", 14, FontWeight.Normal, theme.BarLabel, theme));
+        end.Children.Add(TillTheme.Figure(top.Clock, 14, theme.BarText, FontWeight.Medium));
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto"), Margin = new Thickness(TillSizes.Margin, 0) };
+        grid.Children.Add(Cell(start, 0));
+        grid.Children.Add(Cell(tab, 1));
+        grid.Children.Add(Cell(end, 3));
+
+        return new Border { Background = theme.Bar, Height = TillSizes.TopBar, Child = grid };
+    }
+
+    private static Control ConnectionChip(Connection connection, TillTheme theme)
+    {
+        var (mark, text) = theme.ToneOnBar(connection.Tone);
+        if (mark is null)
+        {
+            // Online is the absence of a problem: a label, no colour, no chip (CLAUDE.md §6).
+            return theme.Label(connection.Label, text);
+        }
+
+        return new Border
+        {
+            BorderBrush = mark,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.FieldRadius),
+            Padding = new Thickness(8, 4),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children = { TillTheme.Icon(LucideIcons.WifiOff, text, 14), theme.Label(connection.Label, text) },
+            },
+        };
+    }
+
+    // ============================================================ notice slot
+
+    /// <summary>
+    /// The notice slot under the search field: fixed height, never above the cart, so a notice
+    /// moves no line (G1, "Avis"). Neutral sits on the strip; a warning or critical gets its fill
+    /// and its 3 px edge, and always its word first.
+    /// </summary>
+    public static Control Notice(NoticeLine notice, TillTheme theme)
+    {
+        var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        var (mark, text, fill) = theme.ToneOnSurface(notice.Tone);
+
+        line.Children.Add(theme.Label(notice.Label, notice.Tone == Tone.Neutral ? theme.TextSecondary : text));
+        if (notice.Text.Length > 0)
+        {
+            line.Children.Add(theme.Prose(notice.Text, 14, notice.Tone == Tone.Neutral ? theme.TextSecondary : theme.Text));
+        }
+
+        return new Border
+        {
+            Height = 36,
+            Margin = new Thickness(0, 8, 0, 0),
+            Background = fill ?? (mark is null ? null : theme.Card),
+            BorderBrush = mark,
+            BorderThickness = mark is null ? default : new Thickness(0, TillSizes.SignalRule, 0, 0),
+            CornerRadius = new CornerRadius(TillSizes.FieldRadius),
+            Padding = new Thickness(mark is null ? 4 : 12, 0),
+            Child = line,
+        };
+    }
+
+    // ================================================================= cart
+
+    public static Control CartTable(CartView cart, TillTheme theme, TillActions actions)
+    {
+        var header = RowGrid();
+        header.Height = 32;
+        header.Children.Add(Cell(theme.Label(cart.Columns[0]), 0));
+        header.Children.Add(Cell(theme.Label(cart.Columns[1]), 1));
+        header.Children.Add(Cell(End(theme.Label(cart.Columns[2])), 2));
+        header.Children.Add(Cell(End(theme.Label(cart.Columns[3])), 3));
+
+        var body = new StackPanel();
+        foreach (var line in cart.Lines)
+        {
+            body.Children.Add(LineRow(line, theme, actions));
+            if (line.Selected && cart.Actions is { } lineActions)
+            {
+                body.Children.Add(LineActionBar(lineActions, theme, actions));
+            }
+        }
+
+        Control content = cart.Empty is { } empty
+            ? new StackPanel
+            {
+                Spacing = 8,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    new Border { HorizontalAlignment = HorizontalAlignment.Center, Child = TillTheme.Icon(LucideIcons.ScanBarcode, theme.TextMuted, 40) },
+                    Centred(theme.Body(empty.Title, theme.Text, FontWeight.SemiBold)),
+                    Centred(theme.BodySmall(empty.Hint)),
+                },
+            }
+            : new ScrollViewer { Content = body, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
+
+        return new DockPanel
+        {
+            Children =
+            {
+                Docked(new Border
+                {
+                    BorderBrush = theme.Border,
+                    BorderThickness = new Thickness(0, 0, 0, 1),
+                    Padding = new Thickness(16, 0),
+                    Child = header,
+                }, Dock.Top),
+                content,
+            },
+        };
+    }
+
+    private static Border LineRow(LineRow line, TillTheme theme, TillActions actions)
+    {
+        var ink = line.Struck ? theme.TextMuted : theme.Text;
+        var strike = line.Struck ? TextDecorations.Strikethrough : null;
+
+        // The name trims before it can reach the price column; the chips keep their width beside
+        // it, word first (kit §5).
+        var article = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        // Medium at rest, SemiBold when selected: the name is what the cashier reads (Hakim, 23/09).
+        var name = theme.Body(line.Article, ink, line.Selected ? FontWeight.SemiBold : FontWeight.Medium);
+        name.TextDecorations = strike;
+        article.Children.Add(name);
+        var chips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(8, 0, 0, 0) };
+        foreach (var chip in line.Chips)
+        {
+            chips.Children.Add(Chip(chip, theme));
+        }
+
+        article.Children.Add(Cell(chips, 1));
+
+        var grid = RowGrid();
+        grid.Children.Add(Cell(Start(Struck(TillTheme.Figure(line.Quantity, 16, ink), strike)), 0));
+        grid.Children.Add(Cell(article, 1));
+        grid.Children.Add(Cell(End(Struck(TillTheme.Figure(line.UnitPrice, 16, ink), strike)), 2));
+        grid.Children.Add(Cell(End(Struck(TillTheme.Figure(line.Total, 16, ink, FontWeight.Medium), strike)), 3));
+
+        var row = new Border
+        {
+            MinHeight = TillSizes.CartRow,
+            // Transparent rather than none: a border with no ground only takes a touch where it
+            // has text, so a tap between the name and the price did nothing.
+            Background = line.Selected ? theme.Tile : Brushes.Transparent,
+            BorderBrush = theme.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(16, 0),
+            Child = grid,
+        };
+
+        if (!line.Struck)
+        {
+            row.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+            row.Tapped += (_, _) => actions.SelectLine(line.VariantId);
+        }
+
+        return row;
+    }
+
+    /// <summary>The selected line's actions, opened beneath it; the other lines stay put (kit §6).</summary>
+    private static Border LineActionBar(LineActions lineActions, TillTheme theme, TillActions actions)
+    {
+        var remove = new TillKey(
+            theme,
+            KeyLook.Secondary,
+            TillKey.Labelled(
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { TillTheme.Icon(LucideIcons.Trash2, theme.TextMuted, 18), theme.Body(lineActions.Remove, theme.Text, FontWeight.SemiBold) },
+                },
+                lineActions.RemoveKey,
+                theme.TextMuted),
+            actions.RemoveSelected)
+        { HorizontalAlignment = HorizontalAlignment.Right };
+
+        return new Border
+        {
+            Background = theme.Tile,
+            Padding = new Thickness(12, 4, 12, 8),
+            BorderBrush = theme.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Child = remove,
+        };
+    }
+
+    private static Border Chip(Chip chip, TillTheme theme)
+    {
+        var (mark, text, fill) = theme.ToneOnSurface(chip.Tone);
+        return new Border
+        {
+            Background = fill,
+            BorderBrush = mark ?? theme.Border,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.FieldRadius),
+            Padding = new Thickness(6, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = theme.Label(chip.Label, chip.Tone == Tone.Neutral ? theme.TextSecondary : text),
+        };
+    }
+
+    // ================================================================= rail
+
+    public static Control Rail(Rail rail, TillTheme theme, TillActions actions) => rail switch
+    {
+        Screen.Rail.Paid paid => PaidPanel(paid, theme),
+        Screen.Rail.Unconfirmed unconfirmed => UnconfirmedCard(unconfirmed, theme),
+        Screen.Rail.Rest rest => RestRail(rest, theme, actions),
+        _ => new Border(),
+    };
+
+    /// <summary>
+    /// At rest the rail keeps its space for the parts B1–B10 will add (G1, 23/09) and holds the
+    /// Almanac slot at its foot, the only cyan on the screen (kit §7).
+    /// </summary>
+    private static DockPanel RestRail(Rail.Rest rest, TillTheme theme, TillActions actions)
+    {
+        var dock = new DockPanel { LastChildFill = true };
+        if (rest.Almanac is { } slot)
+        {
+            dock.Children.Add(Docked(Almanac(slot, theme, actions), Dock.Bottom));
+        }
+
+        dock.Children.Add(new Border());
+        return dock;
+    }
+
+    private static Border PaidPanel(Rail.Paid paid, TillTheme theme)
+    {
+        var figures = new StackPanel();
+        foreach (var figure in paid.Figures)
+        {
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Height = 36 };
+            row.Children.Add(Cell(theme.BodySmall(figure.Label, theme.Text), 0));
+            row.Children.Add(Cell(TillTheme.Figure(figure.Value, 16, theme.Text), 1));
+            figures.Children.Add(new Border { BorderBrush = theme.BorderSubtle, BorderThickness = new Thickness(0, 0, 0, 1), Child = row });
+        }
+
+        return Card(theme, null, new DockPanel
+        {
+            Children =
+            {
+                Docked(new StackPanel
+                {
+                    Spacing = 4,
+                    Children =
+                    {
+                        theme.Label(paid.Label),
+                        Words(paid.Title, 24, FontWeight.SemiBold, theme.Text, theme),
+                        theme.Prose(paid.Subtitle, 14, theme.TextSecondary),
+                        new Border { Margin = new Thickness(0, 12, 0, 0), Child = figures },
+                    },
+                }, Dock.Top),
+                Docked(theme.BodySmall(paid.Footer), Dock.Bottom),
+                new Border(),
+            },
+        });
+    }
+
+    /// <summary>
+    /// A sale with no answer: critical, with room to say what to do. No "Réessayer" — nothing yet
+    /// makes a second request harmless, and the first may have been recorded (D-070).
+    /// </summary>
+    private static Border UnconfirmedCard(Rail.Unconfirmed unconfirmed, TillTheme theme)
+    {
+        var (mark, text, fill) = theme.ToneOnSurface(Tone.Critical);
+        return new Border
+        {
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = fill ?? theme.Card,
+            BorderBrush = mark,
+            BorderThickness = new Thickness(0, TillSizes.SignalRule, 0, 0),
+            CornerRadius = new CornerRadius(TillSizes.CardRadius),
+            Padding = new Thickness(20),
+            Child = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    theme.Label(unconfirmed.Label, text),
+                    Wrapped(theme.Body(unconfirmed.Title, theme.Text, FontWeight.SemiBold)),
+                    Wrapped(theme.BodySmall(unconfirmed.Body, theme.Text)),
+                    Wrapped(theme.Prose(unconfirmed.Detail, 14, theme.TextSecondary)),
+                },
+            },
+        };
+    }
+
+    /// <summary>
+    /// The Almanac slot (kit §7, design system InsightCard): white card, 3 px cyan rule, the
+    /// label first. A card on top, the quiet weight on the left, as the design system sets them.
+    /// </summary>
+    private static Border Almanac(AlmanacSlot slot, TillTheme theme, TillActions actions)
+    {
+        switch (slot)
+        {
+            case AlmanacSlot.Quiet quiet:
+                var quietBody = new StackPanel { Spacing = 6 };
+                quietBody.Children.Add(AlmanacLabel("ALMANAC", theme));
+                quietBody.Children.Add(Wrapped(theme.BodySmall(quiet.Text, theme.Text)));
+                if (quiet.Awaiting is { } waiting)
+                {
+                    quietBody.Children.Add(Awaiting(waiting, theme));
+                }
+
+                return new Border
+                {
+                    Background = theme.Card,
+                    BorderBrush = theme.AlmanacMark,
+                    BorderThickness = new Thickness(TillSizes.SignalRule, 0, 0, 0),
+                    CornerRadius = new CornerRadius(TillSizes.CardRadius),
+                    Padding = new Thickness(16),
+                    Child = quietBody,
+                };
+
+            case AlmanacSlot.Card card:
+                var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+                head.Children.Add(Cell(AlmanacLabel($"ALMANAC · {card.Kind}", theme), 0));
+                var position = TillTheme.Figure(card.Position, 12, theme.TextMuted);
+                position.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+                position.Tapped += (_, _) => actions.NextCard();
+                head.Children.Add(Cell(position, 1));
+
+                var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
+                if (card.Primary is { OptionId: { } option } primary)
+                {
+                    buttons.Children.Add(new TillKey(theme, KeyLook.Primary, theme.Body(primary.Label, theme.ActionLabel, FontWeight.SemiBold), () => actions.Accept(card.RecommendationId, option)));
+                }
+
+                // Adjust is on the card and unavailable: D-074 records no adjusted payload yet.
+                buttons.Children.Add(new TillKey(theme, KeyLook.Secondary, theme.Body(card.Adjust.Label, theme.DisabledLabel), null, available: false));
+                buttons.Children.Add(new TillKey(theme, KeyLook.Ghost, theme.Body(card.Dismiss.Label, theme.TextSecondary), () => actions.Dismiss(card.RecommendationId)));
+
+                var body = new StackPanel { Spacing = 6 };
+                body.Children.Add(head);
+                body.Children.Add(Wrapped(theme.Prose(card.Claim, 16, theme.Text, FontWeight.SemiBold)));
+                if (card.Detail is { } detail)
+                {
+                    body.Children.Add(Wrapped(theme.Prose(detail, 14, theme.TextSecondary)));
+                }
+
+                body.Children.Add(buttons);
+                if (card.Awaiting is { } awaiting)
+                {
+                    body.Children.Add(Awaiting(awaiting, theme));
+                }
+
+                return new Border
+                {
+                    Background = theme.Card,
+                    BorderBrush = theme.AlmanacMark,
+                    BorderThickness = new Thickness(0, TillSizes.SignalRule, 0, 0),
+                    CornerRadius = new CornerRadius(TillSizes.CardRadius),
+                    Padding = new Thickness(16),
+                    Child = body,
+                };
+
+            default:
+                return new Border();
+        }
+    }
+
+    /// <summary>The diamond marker and the attribution label, both Almanac's, never the operator's.</summary>
+    private static StackPanel AlmanacLabel(string text, TillTheme theme) => new StackPanel
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 8,
+        Children =
+        {
+            new Rectangle
+            {
+                Width = 8,
+                Height = 8,
+                Fill = theme.AlmanacMark,
+                RenderTransform = new RotateTransform(45),
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+            theme.Label(text, theme.AlmanacText),
+        },
+    };
+
+    private static StackPanel Awaiting(string text, TillTheme theme) => new StackPanel
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 6,
+        Margin = new Thickness(0, 4, 0, 0),
+        Children = { TillTheme.Icon(LucideIcons.Users, theme.TextMuted, 16), theme.Prose(text, 14, theme.TextSecondary) },
+    };
+
+    // =========================================================== bottom bar
+
+    public static Control BottomBar(BottomBar bottom, TillTheme theme, TillActions actions, bool paid)
+    {
+        var summary = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto"), ColumnSpacing = 48, VerticalAlignment = VerticalAlignment.Center };
+        for (var i = 0; i < bottom.Summary.Count; i++)
+        {
+            summary.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            var label = theme.BodySmall(bottom.Summary[i].Label, theme.BarLabel);
+            var figure = TillTheme.Figure(bottom.Summary[i].Value, 16, theme.BarText);
+            figure.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetRow(label, i);
+            Grid.SetRow(figure, i);
+            Grid.SetColumn(figure, 1);
+            summary.Children.Add(label);
+            summary.Children.Add(figure);
+        }
+
+        var big = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 0, 24, 0),
+            Children =
+            {
+                End(theme.Label(bottom.BigLabel, theme.BarLabel)),
+                theme.Prose(bottom.BigFigure, 44, theme.BarText),
+            },
+        };
+
+        var primary = bottom.Primary;
+        var labelBrush = primary.Enabled ? theme.CollectLabel : theme.BarDisabledLabel;
+        var face = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
+        face.Children.Add(Words(primary.Title, 20, FontWeight.SemiBold, labelBrush, theme));
+        if (primary.Detail is { } detail)
+        {
+            face.Children.Add(theme.Prose(detail, 13, labelBrush));
+        }
+
+        var key = new TillKey(
+            theme,
+            KeyLook.Collect,
+            TillKey.Labelled(face, primary.Key, labelBrush),
+            paid ? actions.NewSale : actions.Collect,
+            primary.Enabled,
+            TillSizes.BarKey)
+        { Width = 236, VerticalAlignment = VerticalAlignment.Center };
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(TillSizes.Margin, 0) };
+        grid.Children.Add(Cell(summary, 0));
+        grid.Children.Add(Cell(big, 1));
+        grid.Children.Add(Cell(key, 2));
+
+        return new Border { Background = theme.Bar, Height = TillSizes.BottomBar, Child = grid };
+    }
+
+    // ============================================================== helpers
+
+    private static Grid RowGrid() => new()
+    {
+        // Quantity, article, unit price, total: the article takes what is left.
+        ColumnDefinitions = new ColumnDefinitions("96,*,140,120"),
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static Border Card(TillTheme theme, IBrush? edge, Control child) => new()
+    {
+        Background = theme.Card,
+        BorderBrush = edge ?? theme.Border,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(TillSizes.CardRadius),
+        Padding = new Thickness(20),
+        Child = child,
+    };
+
+    private static TextBlock Words(string text, double size, FontWeight weight, IBrush brush, TillTheme theme)
+    {
+        var block = size >= 16 ? theme.Body(text, brush, weight) : theme.BodySmall(text, brush, weight);
+        block.FontSize = size;
+        block.LineHeight = double.NaN;
+        return block;
+    }
+
+    private static TextBlock Struck(TextBlock block, TextDecorationCollection? strike)
+    {
+        block.TextDecorations = strike;
+        return block;
+    }
+
+    private static TextBlock Wrapped(TextBlock block)
+    {
+        block.TextWrapping = TextWrapping.Wrap;
+        block.TextTrimming = TextTrimming.None;
+        return block;
+    }
+
+    private static Control End(Control control)
+    {
+        control.HorizontalAlignment = HorizontalAlignment.Right;
+        return control;
+    }
+
+    /// <summary>At the start of its cell: the left in French, the right in Arabic.</summary>
+    private static Control Start(Control control)
+    {
+        control.HorizontalAlignment = HorizontalAlignment.Left;
+        return control;
+    }
+
+    private static Control Centred(Control control)
+    {
+        control.HorizontalAlignment = HorizontalAlignment.Center;
+        return control;
+    }
+
+    private static Control Cell(Control control, int column)
+    {
+        Grid.SetColumn(control, column);
+        return control;
+    }
+
+    private static Control Docked(Control control, Dock dock)
+    {
+        DockPanel.SetDock(control, dock);
+        return control;
+    }
+}

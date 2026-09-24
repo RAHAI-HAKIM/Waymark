@@ -628,6 +628,27 @@ engine can learn from. The variants are catalogue data, not schema. Built with B
 a free-text name and price, which has no `variant_id`, no TVA category and no stock, and is the
 option cashiers would over-use (Hakim, 23/09).
 
+### D-082 — The till's shell decides nothing: a tested screen model and one palette file (session A4, G1)
+`TillScreen.Build` turns what the till knows into everything it shows, and the window only draws
+it, so a wrong label, tone or availability fails a test that opens no window. **Colours live only
+in `TillPalette`** (a test fails on a colour anywhere else in `Waymark.Pos`), taken from the G1
+kit, and a test holds every text on the ground the views put it on to 4.5:1 and every edge and
+ring to 3:1, in both themes. It found two pairs the kit gets wrong, both fixed from existing
+tokens: "HORS LIGNE" on the bar takes the dark critical colours in both themes, because the bars
+are dark in both; and **the dark focus ring is `#C6B6EE`, not the kit's `#9B5CF0`**, which is
+2.30:1 on the lifted dark tile (for Hakim to confirm). **The light page is `#F7F5F9`, not the
+kit's `#FBFAFC`** (Hakim, 23/09): on the paler page a white card, the Almanac card first, was barely
+visible. **A figure inside a sentence is its own
+Plex Mono run** (`data-inline`): sharing a run with Arabic letters, digits were shaped as Arabic
+and lost their U+202F. A line removed before payment stays on the ticket, struck and labelled "RETIRÉE",
+and is never charged or sent; the cart keeps the time for B8's log and the screen does not show it. The ticket has no number until the sale is recorded (D-070), and
+Encaisser asks for `ToCashTender()`'s amount, the server's own function (D-034). An unconfirmed
+sale offers no "Réessayer" (O-27). The Almanac slot is the signed-in person's board (D-074);
+Ajuster shows, unavailable, until O-28. Keys are the till's own control, because Fluent buttons
+repaint on hover with a grey outside the palette. `GET /api/till/context` names the store, till
+and person for the top bar, through the store filter. **Rejected:** rules in the window; colours
+in each view; the kit's dark ring as drawn; a retry that could record a sale twice.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
@@ -635,6 +656,8 @@ option cashiers would over-use (Hakim, 23/09).
 | O-23 | **How is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is: a separate key, derived or its own, has to be chosen, with its custody (D-057) and its place in the backup set | The real tier-2 writer, Phase 2 (0.5 stubs it, D-065). Until then the DPIA states the gap (§5.4) |
 | O-25 | **A product created at the till, tentative until the owner confirms it in Admin.** Replaces D-081's Divers | A schema change: a pending status on the product and variant, who created it, an Admin review queue, what happens to sales already made if the owner edits or rejects it, and Almanac excluding it until confirmed | Nothing in Phase 1. Replaces D-081 when decided; after E1, since it needs catalogue CRUD |
 | O-26 | **A weighed line priced by the person who weighed it (B3): which figure is exact?** The weight is inferred from the declared price | The customer pays the declared price, but the inferred weight has to round to the unit's decimals, so weight × unit price stops equalling it: 100,00 DA of tomatoes at 180,00/kg → 0,556 kg → 100,08. The row must still recompute from itself (D-053), and money arithmetic is settled (D-031…D-037) | **B3** |
+| O-27 | **Can a sale be sent twice safely?** A sale with no answer may have been recorded | The till keeps the cart and offers no retry (D-082), because a retry of a recorded sale records it twice. Retrying safely needs a key the server recognises, such as a sale id the till generates, which is a contract and a schema decision | A "Réessayer" button on an unconfirmed sale; **I2**, whose offline queue replays sales |
+| O-28 | **Does a recommendation have an Adjust answer?** The design system says a suggestion has three (Review, Adjust, Dismiss); D-074, confirmed 21/09, records accept and dismiss | The brand promise against a confirmed rule. Adjust needs a rule for what an adjusted payload is and how it is recorded | Ajuster on the till's Almanac card and in Admin, shown unavailable until decided |
 
 ### Resolved
 | Open | Resolved by |
