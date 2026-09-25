@@ -74,6 +74,52 @@ public sealed record TillScreen(
             BottomOf(state));
     }
 
+    /// <summary>
+    /// Which regions of <paramref name="next"/> differ from the frame the window drew last; all of
+    /// them when it has drawn none. The window redraws only those, so a key is not replaced under
+    /// the cashier's finger, nor a focus lost, by a redraw that changed something else — the clock
+    /// changes the top bar once a minute, and nothing more.
+    ///
+    /// <para>
+    /// Records compare by value but their lists by reference, so each list is compared by its
+    /// items here, and the rest of its record by the record. A list a later session adds, and does
+    /// not add here, compares by reference: its region redraws on every frame, which costs a redraw
+    /// and never leaves a stale one.
+    /// </para>
+    /// </summary>
+    public static FrameChanges Compare(TillScreen? drawn, TillScreen next)
+    {
+        ArgumentNullException.ThrowIfNull(next);
+
+        if (drawn is null || drawn.RightToLeft != next.RightToLeft)
+        {
+            return FrameChanges.All;
+        }
+
+        return new FrameChanges(
+            Top: drawn.Top != next.Top,
+            Notice: drawn.Notice != next.Notice,
+            Cart: !Same(drawn.Cart, next.Cart),
+            Rail: !Same(drawn.Rail, next.Rail),
+            Bottom: !Same(drawn.Bottom, next.Bottom));
+    }
+
+    private static bool Same(CartView drawn, CartView next) =>
+        drawn.Columns.SequenceEqual(next.Columns)
+        && drawn.Lines.Count == next.Lines.Count
+        && drawn.Lines.Zip(next.Lines).All(pair =>
+            pair.First.Chips.SequenceEqual(pair.Second.Chips) && pair.First with { Chips = pair.Second.Chips } == pair.Second)
+        && drawn with { Columns = next.Columns, Lines = next.Lines } == next;
+
+    private static bool Same(Rail drawn, Rail next) => (drawn, next) switch
+    {
+        (Rail.Paid a, Rail.Paid b) => a.Figures.SequenceEqual(b.Figures) && a with { Figures = b.Figures } == b,
+        _ => drawn == next,
+    };
+
+    private static bool Same(BottomBar drawn, BottomBar next) =>
+        drawn.Summary.SequenceEqual(next.Summary) && drawn with { Summary = next.Summary } == next;
+
     // ============================================================= top bar
 
     private static TopBar TopBarOf(ScreenState state)
@@ -428,6 +474,12 @@ public sealed record TillScreen(
         var head = DisplayFigures.Count((long)whole);
         return fraction.Length == 0 ? head : head + DisplayFigures.DecimalSeparator + fraction;
     }
+}
+
+/// <summary>Which regions a frame changed (<see cref="TillScreen.Compare"/>): the ones the window redraws.</summary>
+public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, bool Bottom)
+{
+    public static FrameChanges All { get; } = new(true, true, true, true, true);
 }
 
 /// <param name="Tab">The open ticket; null on the sign-in screen, where there is none.</param>

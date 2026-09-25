@@ -180,6 +180,17 @@ public sealed class SignInScreenTests
         Assert.Equal("أمين الصندوق", screen.People[1].Role);
     }
 
+    [Fact]
+    public void The_same_screen_is_not_drawn_again_and_a_digit_typed_is()
+    {
+        // Drawn on every clock tick, the pad was replaced under the finger typing on it. The list
+        // is a new list each time, with the same people in it.
+        Assert.True(SignInScreen.Same(Build(selected: "nabil", digits: 2), Build(selected: "nabil", digits: 2)));
+        Assert.False(SignInScreen.Same(Build(selected: "nabil", digits: 2), Build(selected: "nabil", digits: 3)));
+        Assert.False(SignInScreen.Same(Build(), Build(staff: [Nabil])));
+        Assert.False(SignInScreen.Same(null, Build()));
+    }
+
     [Theory]
     [InlineData("Nabil B.", "NB")]
     [InlineData("samia", "S")]

@@ -42,7 +42,8 @@ public sealed class SetStaffPinHandler(
 
         if (!await credentials.StagePinHashAsync(command.StaffId, hash, clock.GetUtcNow(), cancellationToken))
         {
-            throw new PinRefusedException($"{command.StaffId} is not an active staff member of this store.");
+            throw new PinRefusedException(
+                $"{command.StaffId} cannot sign in at this store: not active staff here, or their role is retired.");
         }
 
         return NoResult.Value;

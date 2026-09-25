@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
@@ -22,7 +23,20 @@ public sealed class App : Application
     /// <summary>The environment variable naming it, when the switch is absent.</summary>
     public const string ServerVariable = "WAYMARK_SERVER";
 
-    public override void Initialize() => Styles.Add(new FluentTheme());
+    /// <summary>
+    /// Fluent draws the few parts the shell does not (a selection, a caret, the scroll bars), and
+    /// takes its accent from Windows: on a till whose Windows accent was red, selected text was
+    /// red. The accent is the palette's action colour instead, in both themes (D-084), so no
+    /// colour reaches the till from the machine it runs on and <c>TillPalette</c> stays the only
+    /// place one is named (D-082).
+    /// </summary>
+    public override void Initialize()
+    {
+        var fluent = new FluentTheme();
+        fluent.Palettes[ThemeVariant.Light] = new ColorPaletteResources { Accent = Color.Parse(TillPalette.Light.Action) };
+        fluent.Palettes[ThemeVariant.Dark] = new ColorPaletteResources { Accent = Color.Parse(TillPalette.Dark.Action) };
+        Styles.Add(fluent);
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {

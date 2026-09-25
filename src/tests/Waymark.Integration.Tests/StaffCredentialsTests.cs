@@ -239,4 +239,18 @@ public sealed class StaffCredentialsTests(MigratedDatabaseFixture database) : IC
         Assert.Equal(("test$1111", Moment), Row(shop.Elsewhere));
         Assert.Equal(("test$2468", Moment), Row(shop.Suspended));
     }
+
+    [Fact]
+    public async Task A_retired_role_gets_no_pin_because_it_could_never_sign_in_with_one()
+    {
+        // The switch said "It works at the next sign-in", and the list and the hash both leave a
+        // retired role out: the person was told a PIN worked that no till would ever accept.
+        var shop = new Shop(database);
+
+        var (exit, output) = await SetPin(shop, shop.RoleRetired, "4821", "4821");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("role is retired", output, StringComparison.Ordinal);
+        Assert.Equal(("test$9753", Moment), Row(shop.RoleRetired));
+    }
 }

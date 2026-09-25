@@ -53,8 +53,15 @@ public sealed class StaffCredentials(WaymarkDbContext context) : IStaffCredentia
         ArgumentException.ThrowIfNullOrWhiteSpace(staffId);
         ArgumentException.ThrowIfNullOrWhiteSpace(pinHash);
 
-        var member = await context.Staff
-            .FirstOrDefaultAsync(row => row.StaffId == staffId && row.Status == StaffStatus.Active, cancellationToken);
+        // The same people PinHashAsync reads a hash for: active staff with an active role. With
+        // the role left out, a person whose role was retired was given a PIN and told it worked
+        // at the next sign-in, which it never could.
+        var member = await (
+                from row in context.Staff
+                join role in context.Roles on row.Role equals role.RoleCode
+                where row.StaffId == staffId && row.Status == StaffStatus.Active && role.IsActive
+                select row)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (member is null)
         {

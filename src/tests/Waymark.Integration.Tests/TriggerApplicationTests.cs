@@ -63,6 +63,14 @@ public sealed class TriggerApplicationTests : IDisposable
             Commits++;
     }
 
+    /// <summary>
+    /// How many triggers the script declares. The literal lives in one test,
+    /// <see cref="The_script_declares_exactly_the_triggers_the_schema_defines"/>, which pins what
+    /// the database promises; the tests of the mechanism compare with the script, so a new trigger
+    /// changes one number, on purpose, rather than every count here (F-17).
+    /// </summary>
+    private static readonly int Declared = TriggerScript.DeclaredNames().Count;
+
     private static int CountTriggers(WaymarkDbContext context) =>
         context.Database
             .SqlQueryRaw<int>("SELECT count(*) AS Value FROM sqlite_schema WHERE type = 'trigger'")
@@ -96,7 +104,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.Database.Migrate();
 
         Assert.Equal(0, CountTriggers(context));
-        Assert.Equal(29, context.FindMissingTriggers().Count);
+        Assert.Equal(Declared, context.FindMissingTriggers().Count);
     }
 
     [Fact]
@@ -105,7 +113,7 @@ public sealed class TriggerApplicationTests : IDisposable
         using var context = NewContext("full.db");
         context.MigrateAndApplyTriggers();
 
-        Assert.Equal(29, CountTriggers(context));
+        Assert.Equal(Declared, CountTriggers(context));
         Assert.Empty(context.FindMissingTriggers());
     }
 
@@ -119,7 +127,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.ApplyTriggers();
         context.ApplyTriggers();
 
-        Assert.Equal(29, CountTriggers(context));
+        Assert.Equal(Declared, CountTriggers(context));
         Assert.Empty(context.FindMissingTriggers());
     }
 
@@ -141,7 +149,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.ApplyTriggers();
 
         Assert.Empty(context.FindMissingTriggers());
-        Assert.Equal(29, CountTriggers(context));
+        Assert.Equal(Declared, CountTriggers(context));
     }
 
     // ------------------------------------------- one transaction (F-16)
@@ -149,7 +157,7 @@ public sealed class TriggerApplicationTests : IDisposable
     [Fact]
     public void The_whole_set_is_applied_in_one_transaction()
     {
-        // 29 triggers applied one statement at a time are 29 durable commits.
+        // Triggers applied one statement at a time are one durable commit each.
         // That is invisible on an SSD and cost a CI run 90 seconds of startup on
         // a slow disk, on a path that runs at every StoreServer start. The guard
         // is that ApplyTriggers opens exactly one transaction and commits once.
@@ -161,7 +169,7 @@ public sealed class TriggerApplicationTests : IDisposable
         context.ApplyTriggers();
 
         Assert.Equal(afterMigrate + 1, counter.Commits);
-        Assert.Equal(29, CountTriggers(context));
+        Assert.Equal(Declared, CountTriggers(context));
     }
 
     [Fact]
@@ -180,7 +188,7 @@ public sealed class TriggerApplicationTests : IDisposable
         Assert.NotNull(context.Database.CurrentTransaction);
         transaction.Commit();
 
-        Assert.Equal(29, CountTriggers(context));
+        Assert.Equal(Declared, CountTriggers(context));
         Assert.Empty(context.FindMissingTriggers());
     }
 

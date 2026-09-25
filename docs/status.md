@@ -2,8 +2,10 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**24/09/2026**: **A1–A4 are done**, and **A5, sign-in, waits on Hakim's three pieces** (§13);
-it closes block A. B2 is next. Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+**24/09/2026**: **block A is done (A1–A5) and reviewed** (§14): five defects of the till's window
+fixed (D-084) and one of `--set-pin`, F-17, F-19 and F-20 closed, and **five questions for Hakim
+before block B** (O-27, O-30–O-33). B2 is next.
+Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -13,7 +15,7 @@ it closes block A. B2 is next. Phase 0.5's recap is `recaps/phase-0.5.md`. The p
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1349** once A5's three pieces are in (Integration 532 · Pos 257 · Generator 237 · Domain 218 · Hardware 64 · Application 41). Until then **67 are red on purpose**, each on a "✍ Hakim's piece" exception (§13) |
+| Tests | **1365**, all green (Integration 533 · Pos 272 · Generator 237 · Domain 218 · Hardware 64 · Application 41). **Off Windows** — a Linux container, a cloud session — 5 `StoreCalendarTests` fail by design (Windows zone ids, D-067) and the StoreServer, keys-directory and DPAPI tests return without running. The till's window has no tests; `tools/till-harness` checks it by hand (O-30) |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -43,10 +45,11 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
-| F-19 | Low | **The Lucide licence notice in `Ui/LucideIcons.cs` was written from the published ISC text, not copied from a download.** The icons themselves come from Hakim's G1 file | `src/Waymark.Pos/Ui/LucideIcons.cs` | **Fix**: compare against `github.com/lucide-icons/lucide` `LICENSE` and correct the header if it differs |
-| F-20 | Low | **`Avalonia.Fonts.Inter` is referenced and no longer used.** The till sets its own faces (D-080); `Program.cs` still calls `.WithInterFont()` | `Waymark.Pos.csproj`, `Program.cs` | **Fix**: remove both, then check the placeholder and scroll bars still draw in the till's faces |
+| F-23 | Low | **`Argon2PinHasher.Verify` takes any positive cost from the stored row.** A `pin_hash` edited to `m=4000000` makes one Argon2 run take gigabytes and minutes, and sign-ins are one at a time (D-083), so every till waits: rule 4 says a broken row refuses that person "and nobody else". Needs write access to the encrypted store | `StoreServer/Security/Argon2PinHasher.cs` (✍ Hakim's) | **Decide**: refuse a row whose `m`, `t` or `p` is above a ceiling (say 1 GiB, 10, 4) as malformed |
+| F-24 | Low | **Arabic counts of 100 and more take the wrong form.** `ArabicCount` goes by the whole number, but Arabic agrees with its last two digits: 103 lines is "103 أسطر", not "103 سطرًا"; round hundreds take the singular | `Pos/Screen/TillText.cs` | **Decide** with the `// ar: à relire` strings |
+| F-25 | Low | **The Almanac card's "1 / 3" takes a touch only on its 12 px figures**, the defect D-084 fixed for keys. It is a label that acts, not a key | `Pos/Ui/TillViews.cs`, `Almanac` | **Decide** at the next rail design: a key, or a larger target |
+| F-26 | Low | **The search field's context menu is Fluent's, in English** (Cut, Copy, Paste), on a right click or a long press | `Pos/TillWindow.cs`, `SearchField` | **Decide**: remove it (the till has no use for a clipboard) or word it |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
-| F-17 | Low | The number *29* is hardcoded into every count check, This seems to be edited at every schema change | `Waymark.Integration.Tests.TriggerApplicationTests.cs` | Saved for claude to answer outside phase01 sessions |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
 
 Phase 0.5's own findings were all closed inside the phase; `recaps/phase-0.5.md` §5 lists
@@ -61,9 +64,13 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
 | O-25 | A product created at the till, tentative until the owner confirms it in Admin | Schema change. Replaces D-081's Divers when decided; after E1 |
 | O-26 | A weighed line priced by whoever weighed it: which figure is exact once the weight is inferred and rounded? | Money arithmetic. **Blocks B3** |
-| O-27 | Can a sale be sent twice safely? An unconfirmed sale offers no retry until it can | A key the server recognises. **Blocks "Réessayer" and I2** |
+| O-27 | Can a sale be sent twice safely? An unconfirmed sale offers no retry until it can. **Encaisser is that retry today** (24/09) | A key the server recognises. **Blocks "Réessayer" and I2**; the interim for Encaisser is to decide **before B6** |
 | O-28 | Does a recommendation have an Adjust answer (design system) or not (D-074)? | Ajuster is shown unavailable until decided |
 | O-29 | Should a sign-in end when the till is idle, and a lockout survive a restart? Both are memory today (D-083) | Nothing in Phase 1's flow. **Before a pilot** |
+| O-30 | Is the till's window tested in CI, with `Avalonia.Headless`? | A test dependency. Nothing blocked; **before B2** recommended |
+| O-31 | May a terminal that is not `active` sign in and sell? Today a retired till can | An access rule. **H2**, before a pilot |
+| O-32 | Does an archived product stop its variants selling? Today only the variant's status is read | A D-066 rule. **E1** |
+| O-33 | Is the person deciding a card at the till the session's person? Today the till sends `staff_id` and the server believes it | CLAUDE.md §3.10 against D-083's gap. The till's half is an hour's work |
 
 ---
 
@@ -112,7 +119,7 @@ starting point is always code already reviewed. §7 below is the map.
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
-| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **A1–A4 done.** **A5, sign-in, next** |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, and reviewed** (§14) |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
@@ -340,6 +347,14 @@ In a Debug build the till has a **Simulate scan** box that feeds a code through 
 scanner. `2000000000015` is a milk at 143.00 DZD with stock; `2000000000039` is one with
 none.
 
+To check the till's window without a server or a screen — a long ticket, the focus, the colours,
+a start before StoreServer — run the headless harness; it prints a line per check and saves a
+screenshot of each step (`tools/till-harness/README.md`):
+
+```bash
+dotnet run --project tools/till-harness -- artifacts/till-harness
+```
+
 To run the expiry evaluator against the running server (PowerShell):
 
 ```powershell
@@ -556,12 +571,12 @@ Carnet tenders are B-block; sign-in, the staff menu and the clock-in time are A5
 
 ## 13. Session A5, sign-in, read in the order a PIN travels
 
-**✍ Hakim's three pieces**, each with its red tests and its rules in the doc comment:
+**✍ Hakim's three pieces, written 24/09**, each with its tests and its rules in the doc comment:
 `Domain/Organisation/StaffPin.IsWellFormed` (StaffPinTests), `Domain/Organisation/SignInLockout.cs`
-(SignInLockoutTests) and `StoreServer/Security/Argon2PinHasher.cs` (Argon2PinHasherTests). The rest
-of the 67 red tests turn green with them: `TillSessionsTests`, `StaffCredentialsTests` and the
-end-to-end `StoreServerStartupTests`, which imports a store, sets a PIN through `--set-pin`,
-restarts, and signs in and sells over HTTP.
+(SignInLockoutTests) and `StoreServer/Security/Argon2PinHasher.cs` (Argon2PinHasherTests). The 67
+tests that were red on purpose went green with them: `TillSessionsTests`, `StaffCredentialsTests`
+and the end-to-end `StoreServerStartupTests`, which imports a store, sets a PIN through
+`--set-pin`, restarts, and signs in and sells over HTTP.
 
 1. **Who is listed:** `Domain/Organisation/IStaffCredentials.cs`, then
    `Persistence/Organisation/StaffCredentials.cs`: active staff, active role, through the store
@@ -589,3 +604,74 @@ screen at that point (Debug only; the PIN on a command line is for a demo store)
 **Not in A5:** clock-in and "Pointer sans ouvrir la caisse" (B10), parking a ticket to switch
 mid-sale (B2), Admin sign-in (I1), an idle timeout and a lockout that survives a restart (O-29).
 
+
+---
+
+## 14. Block A review, 24/09 — read in the order a defect shows
+
+The first cloud session with the whole repository: a build and the full suite on Linux (§1 says
+what does not run there), a read of A1–A5 against CLAUDE.md and D-075…D-083, and the till's
+window driven headlessly by `tools/till-harness`, which is where every defect of the till was.
+Each fix was broken on purpose (D-012), and each harness check fails when its fix is taken out.
+
+### Fixed
+
+1. **A long ticket jumped back to its first line** (Hakim's report). `TillWindow.Render` built a
+   new scroll viewer for every frame, the 15-second clock included, and Avalonia resets the offset
+   of one whose content is swapped. The window keeps `_cartScroll` and `_cartRows` and refills the
+   rows (`DrawCart`); `TillScreen.Compare` says which regions changed, and only those are redrawn
+   (`TillScreenTests`, "the redraw"); `Screen/CartFollow.cs` brings the line just scanned, or the
+   touched line's actions, into view, and nothing else moves the ticket (`CartFollowTests`).
+   `TillViews.CartTable` became `CartHeader`, `CartRows` (each row tagged with its `LineRow`) and
+   `CartEmpty`.
+2. **The search field lost the scanner's focus.** The window was focusable, so a touch on a line
+   focused it, and Entrée after a code typed by hand sent nothing. Signed in, the window is not
+   focusable; `OnGettingFocus` refuses the focus to a key that is touched (Tab still reaches it);
+   `KeepScannerFocus` gives it back to the field when a redraw removes the focused key.
+3. **Keys with no ground took a touch only on their letters** — the staff chip, "Ignorer".
+   `TillKey`'s ground is transparent, as a cart line's already was.
+4. **The red on selected text** was Windows' accent colour, which Fluent paints a selection and a
+   focused box with. `App.Initialize` pins Fluent's accent to `TillPalette.*.Action`
+   (`FluentTheme.Palettes`), and the search field's selection is `Action` with `ActionLabel` on
+   it. Worth confirming on the till: Windows' Settings → Personalisation → Colours shows the accent
+   the till was taking.
+5. **A till started before StoreServer stayed empty**: the list of who may sign in was asked for
+   once, at start, and never again. `CheckHealthAsync` asks again, once the server answers, for the
+   store's names and the list (`SignInFlow.NeedsList`, `SignInFlowTests`).
+6. **`--set-pin` gave a PIN to a person whose role is retired** and said it would work at the next
+   sign-in, but the list and the hash both leave that role out. `StaffCredentials.StagePinHashAsync`
+   now takes the same people as `PinHashAsync` (`StaffCredentialsTests`).
+7. **The register**: F-17 (the mechanism tests compare with `TriggerScript.DeclaredNames()`, and
+   the literal 29 stays in the one test that pins what the database promises), F-19 (Lucide's
+   current LICENSE, with Feather's MIT notice for the ten icons derived from Feather), F-20
+   (`Avalonia.Fonts.Inter` and `.WithInterFont()` removed; the placeholder still draws in Archivo).
+
+### Rounding: now, or in block B?
+
+Nothing moves earlier. What block A sells rounds in two places, both decided and both built: each
+line's TVA is extracted by subtraction under `stores.rounding_policy`, stamped on the transaction
+(D-033, D-053), and the cash tender goes to the nearest 5 DA, ties away from zero, with the
+payment at the exact total and the difference in `rounding_variance` (D-034). A line itself cannot
+round yet: a price times a whole count is exact. The till shows it as G1 draws it — "TOTAL À PAYER"
+is the exact TTC, and Encaisser says what the drawer takes, from the server's own `ToCashTender`.
+What remains is block B's and Hakim's: **B3**, a weight inferred from a price (O-26); **B4**, a
+ticket discount spread over its lines with `Allocate` and a percentage with `Percent` under the
+store's policy; **B6**, where only the cash portion rounds, a card pays exact, and the change is
+what was tendered minus the rounded cash; and **C2**, counted cash against float + cash + tender
+variance. One thing to know: on a cash-tender row, `rounding_variance.policy` is the store's policy
+in force, not the rule that made the row, which is always D-034's.
+
+### For Hakim, before block B
+
+The questions are O-27 (Encaisser is a retry), O-30 (the window's tests in CI), O-31 (terminal
+status), O-32 (an archived product), O-33 (the person deciding a card at the till), and the
+register's F-23 to F-26. On the three pieces: all three hold their rules. `SignInLockout.AfterWrong`
+reaches the right state through a modulo that is right only because a count never passes five
+while unlocked; `var count = (LockedUntil is null ? WrongInARow : 0) + 1;` would say rule 4 in the
+code itself. Optional.
+
+### Not run here
+
+A Linux container has no DPAPI, no Windows zone ids and no Win32 window. The end-to-end
+`StoreServerStartupTests`, the keys-directory ACL tests and the store's time zone are checked on
+Windows only, by CI; the harness draws the window headlessly, not on the till's screen.

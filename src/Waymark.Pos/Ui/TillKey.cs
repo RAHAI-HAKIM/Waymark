@@ -71,6 +71,10 @@ public sealed class TillKey : Border
         BorderThickness = new Thickness(2);
         BorderBrush = Brushes.Transparent;
 
+        // Transparent rather than none, as on a cart line: a key with no ground of its own (the bar
+        // keys, the staff chip, "Ignorer") only took a touch on its letters and its 1 px edge.
+        Background = Brushes.Transparent;
+
         Child = new Border
         {
             Background = ground,

@@ -160,8 +160,14 @@ public static partial class TillViews
     }
 
     // ================================================================= cart
+    //
+    // The cart is drawn in three parts because the window keeps its scroll viewer, and the panel of
+    // rows inside it, from one frame to the next: replacing either puts a long ticket back at its
+    // first line (Avalonia resets the offset when a scroll viewer's content is swapped). Only the
+    // rows are drawn again; the window decides nothing about where the ticket stands (CartFollow).
 
-    public static Control CartTable(CartView cart, TillTheme theme, TillActions actions)
+    /// <summary>The column heads over the ticket.</summary>
+    public static Control CartHeader(CartView cart, TillTheme theme)
     {
         var header = RowGrid();
         header.Height = 32;
@@ -170,46 +176,47 @@ public static partial class TillViews
         header.Children.Add(Cell(End(theme.Label(cart.Columns[2])), 2));
         header.Children.Add(Cell(End(theme.Label(cart.Columns[3])), 3));
 
-        var body = new StackPanel();
-        foreach (var line in cart.Lines)
+        return new Border
         {
-            body.Children.Add(LineRow(line, theme, actions));
-            if (line.Selected && cart.Actions is { } lineActions)
-            {
-                body.Children.Add(LineActionBar(lineActions, theme, actions));
-            }
-        }
-
-        Control content = cart.Empty is { } empty
-            ? new StackPanel
-            {
-                Spacing = 8,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Children =
-                {
-                    new Border { HorizontalAlignment = HorizontalAlignment.Center, Child = TillTheme.Icon(LucideIcons.ScanBarcode, theme.TextMuted, 40) },
-                    Centred(theme.Body(empty.Title, theme.Text, FontWeight.SemiBold)),
-                    Centred(theme.BodySmall(empty.Hint)),
-                },
-            }
-            : new ScrollViewer { Content = body, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
-
-        return new DockPanel
-        {
-            Children =
-            {
-                Docked(new Border
-                {
-                    BorderBrush = theme.Border,
-                    BorderThickness = new Thickness(0, 0, 0, 1),
-                    Padding = new Thickness(16, 0),
-                    Child = header,
-                }, Dock.Top),
-                content,
-            },
+            BorderBrush = theme.Border,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(16, 0),
+            Child = header,
         };
     }
+
+    /// <summary>
+    /// The ticket's lines, in scan order, with the selected line's actions beneath it (kit §6). Each
+    /// row carries its <see cref="Screen.LineRow"/> as its <c>Tag</c> and the action bar its
+    /// <see cref="LineActions"/>, which is how the window finds the line it brings into view.
+    /// </summary>
+    public static IEnumerable<Control> CartRows(CartView cart, TillTheme theme, TillActions actions)
+    {
+        ArgumentNullException.ThrowIfNull(cart);
+
+        foreach (var line in cart.Lines)
+        {
+            yield return LineRow(line, theme, actions);
+            if (line.Selected && cart.Actions is { } lineActions)
+            {
+                yield return LineActionBar(lineActions, theme, actions);
+            }
+        }
+    }
+
+    /// <summary>An empty ticket: what to do, in the middle of the space the lines will take.</summary>
+    public static Control CartEmpty(EmptyState empty, TillTheme theme) => new StackPanel
+    {
+        Spacing = 8,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+        Children =
+        {
+            new Border { HorizontalAlignment = HorizontalAlignment.Center, Child = TillTheme.Icon(LucideIcons.ScanBarcode, theme.TextMuted, 40) },
+            Centred(theme.Body(empty.Title, theme.Text, FontWeight.SemiBold)),
+            Centred(theme.BodySmall(empty.Hint)),
+        },
+    };
 
     private static Border LineRow(LineRow line, TillTheme theme, TillActions actions)
     {
@@ -247,6 +254,7 @@ public static partial class TillViews
             BorderThickness = new Thickness(0, 0, 0, 1),
             Padding = new Thickness(16, 0),
             Child = grid,
+            Tag = line,
         };
 
         if (!line.Struck)
@@ -283,6 +291,7 @@ public static partial class TillViews
             BorderBrush = theme.BorderSubtle,
             BorderThickness = new Thickness(0, 0, 0, 1),
             Child = remove,
+            Tag = lineActions,
         };
     }
 

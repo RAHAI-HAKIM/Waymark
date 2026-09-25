@@ -83,6 +83,17 @@ public sealed record SignInScreen(
     }
 
     /// <summary>
+    /// Whether <paramref name="next"/> is the screen the window drew last, so it need not be drawn
+    /// again (<see cref="TillScreen.Compare"/> says why that matters). The list is compared by its
+    /// people, the rest by the record.
+    /// </summary>
+    public static bool Same(SignInScreen? drawn, SignInScreen next)
+    {
+        ArgumentNullException.ThrowIfNull(next);
+        return drawn is not null && drawn.People.SequenceEqual(next.People) && drawn with { People = next.People } == next;
+    }
+
+    /// <summary>
     /// "NB" for "Nabil B.", "GS" for "Gérant (synthétique)": the first letter of the first two words
     /// that have one, upper-cased. Arabic has no capitals, and ToUpperInvariant leaves its letters
     /// as they are.
