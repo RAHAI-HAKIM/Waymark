@@ -4,11 +4,17 @@
     The till's logic, tested without a window: the StoreServer client against a
     fake handler, and the cart. Its own project because none of this touches a
     database (Integration.Tests pays a migrated SQLite fixture) or the hardware.
+    And the window itself, drawn headlessly (TillWindowTests, D-086).
   -->
 
   <ItemGroup>
     <ProjectReference Include="..\..\Waymark.Pos\Waymark.Pos.csproj" />
     <ProjectReference Include="..\..\Waymark.Contracts\Waymark.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
   </ItemGroup>
 
 </Project>

@@ -40,6 +40,16 @@ public sealed class Argon2PinHasher : IPinHasher
     public const int SaltBytes = 16;
     public const int HashBytes = 32;
 
+    /// <summary>
+    /// The most a stored row may ask for (F-23): 1 GiB, 10 passes, 4 lanes. The parameters are read
+    /// from the row, so a row edited to <c>m=4000000</c> would otherwise make one check take
+    /// gigabytes and minutes, and sign-ins are one at a time (D-083): every till would wait. Far
+    /// above what <see cref="Hash"/> writes, so raising the constants later still verifies.
+    /// </summary>
+    public const int MaximumMemoryKib = 1_048_576;
+    public const int MaximumIterations = 10;
+    public const int MaximumParallelism = 4;
+
     /// <summary>The PHC prefix this scheme writes, and the only one <see cref="Verify"/> accepts.</summary>
     private const string Algorithm = "argon2id";
     private const string Version = "v=19";
@@ -132,7 +142,9 @@ public sealed class Argon2PinHasher : IPinHasher
         }
 
         // A salt shorter than 8 bytes or a hash shorter than 16 is not one this scheme makes.
+        // Above a ceiling is malformed like anything else: it refuses this person, never every till.
         return memoryKib > 0 && iterations > 0 && parallelism > 0
+            && memoryKib <= MaximumMemoryKib && iterations <= MaximumIterations && parallelism <= MaximumParallelism
             && TryUnpadded(parts[4], out salt) && salt.Length >= 8
             && TryUnpadded(parts[5], out hash) && hash.Length >= 16;
     }

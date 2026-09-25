@@ -74,6 +74,20 @@ public sealed class TillTextTests
         Assert.Equal(expected, TillText.French.Lines(count));
 
     [Theory]
+    // F-24: above a hundred the noun agrees with the last two digits, not the whole number.
+    [InlineData(100, "100 سطر")]
+    [InlineData(101, "101 سطر")]
+    [InlineData(102, "102 سطر")]
+    [InlineData(103, "103 أسطر")]
+    [InlineData(110, "110 أسطر")]
+    [InlineData(111, "111 سطرًا")]
+    [InlineData(199, "199 سطرًا")]
+    [InlineData(1000, "1\u202F000 سطر")]
+    [InlineData(1005, "1\u202F005 أسطر")]
+    public void Arabic_counts_above_a_hundred_by_their_last_two_digits(int count, string expected) =>
+        Assert.Equal(expected, TillText.Arabic.Lines(count));
+
+    [Theory]
     // The four forms, three of them exactly as Hakim's Arabic board writes them.
     [InlineData(1, "سطر واحد")]
     [InlineData(2, "سطران")]

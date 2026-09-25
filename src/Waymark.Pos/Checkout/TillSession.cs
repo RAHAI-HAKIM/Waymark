@@ -45,6 +45,14 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     public ServerState Server { get; private set; } = ServerState.Reachable;
 
     /// <summary>
+    /// A sale sent with no usable answer: it may or may not have been recorded (D-085). While this is
+    /// set, <see cref="PayAsync"/> sends nothing, whatever the screen offers; only
+    /// <see cref="AcknowledgeUnconfirmed"/> clears it. Not a <see cref="Notice"/>: a scan replaces
+    /// the notice and Échap clears it, and neither may re-open Encaisser.
+    /// </summary>
+    public UnconfirmedSale? Unconfirmed { get; private set; }
+
+    /// <summary>
     /// Who is signed in, and the token their sales carry (A5, D-083). Null until somebody types
     /// their PIN, and again after a sign-out or when the server no longer holds the session.
     /// </summary>
@@ -156,7 +164,20 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
     }
 
-    /// <summary>The cashier has read the notice.</summary>
+    /// <summary>
+    /// The cashier has checked whether the unconfirmed sale was recorded (D-085): Encaisser is
+    /// available again. The ticket stays as it is; what to do with it is the cashier's call.
+    /// </summary>
+    public void AcknowledgeUnconfirmed()
+    {
+        if (Unconfirmed is not null)
+        {
+            Unconfirmed = null;
+            Raise();
+        }
+    }
+
+    /// <summary>The cashier has read the notice. An unconfirmed sale is not a notice and stays.</summary>
     public void Dismiss()
     {
         if (Notice is not null)
@@ -198,7 +219,9 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         {
         }
 
-        if (Cart.ActiveLines.Count == 0)
+        // D-085: a sale that may already be recorded is not sent again until the cashier has
+        // checked. The screen shows Encaisser unavailable; this refuses whatever pressed it.
+        if (Cart.ActiveLines.Count == 0 || Unconfirmed is not null)
         {
             return;
         }
@@ -250,10 +273,10 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
                 break;
 
             case SaleAnswer.Unknown unknown:
-                Notice = new TillNotice(
-                    TillNoticeKind.SaleOutcomeUnknown,
-                    "-",
-                    $"{unknown.Why} The sale may have been recorded: check before selling this cart again.");
+                Unconfirmed = new UnconfirmedSale(
+                    $"{unknown.Why} The sale may have been recorded: check before selling this cart again.",
+                    _clock.GetUtcNow());
+                Notice = null;
                 break;
         }
 
@@ -315,9 +338,6 @@ public enum TillNoticeKind
     /// <summary>StoreServer refused the sale; nothing was written.</summary>
     SaleRefused,
 
-    /// <summary>No answer to a sale: it may or may not have been written.</summary>
-    SaleOutcomeUnknown,
-
     /// <summary>Nobody is signed in, or the server no longer holds the session: nothing was sent, or nothing written.</summary>
     NotSignedIn,
 
@@ -327,6 +347,9 @@ public enum TillNoticeKind
 
 /// <summary>Which till this is: its terminal id, from <c>--terminal=</c>. Who sells at it is the sign-in's (A5).</summary>
 public sealed record TillIdentity(string? TerminalId);
+
+/// <summary>A sale with no usable answer (D-085): why, as the client reported it, and when.</summary>
+public sealed record UnconfirmedSale(string Why, DateTimeOffset At);
 
 /// <summary>The person signed in at this till, and the token StoreServer gave them (D-083).</summary>
 public sealed record SignedInStaff(string StaffId, string Token);

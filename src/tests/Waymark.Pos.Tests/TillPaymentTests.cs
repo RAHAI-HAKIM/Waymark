@@ -259,8 +259,61 @@ public sealed class TillPaymentTests
         await session.PayAsync();
 
         Assert.Single(session.Cart.Lines);
-        Assert.Equal(TillNoticeKind.SaleOutcomeUnknown, session.Notice!.Kind);
-        Assert.Contains("may have been recorded", session.Notice.Detail, StringComparison.Ordinal);
+        Assert.Contains("may have been recorded", session.Unconfirmed!.Why, StringComparison.Ordinal);
+    }
+
+    // ------------------------------------------ an unconfirmed sale is not sent twice (D-085)
+
+    [Fact]
+    public async Task While_a_sale_is_unconfirmed_paying_again_sends_nothing()
+    {
+        // O-27: Encaisser pressed again would send a sale the server may already have recorded.
+        var (session, sales) = await CartOf(new SaleAnswer.Unknown("timeout"), null, "111");
+        await session.PayAsync();
+
+        await session.PayAsync();
+
+        Assert.Single(sales.Sent);
+        Assert.NotNull(session.Unconfirmed);
+    }
+
+    [Fact]
+    public async Task A_scan_or_a_dismissal_does_not_clear_an_unconfirmed_sale()
+    {
+        // The notice slot is replaced by every scan and cleared by Échap. Neither is the cashier
+        // saying they checked, so neither may re-open Encaisser.
+        var (session, sales) = await CartOf(new SaleAnswer.Unknown("timeout"), null, "111");
+        await session.PayAsync();
+
+        await session.SubmitAsync("222");
+        session.Dismiss();
+        await session.PayAsync();
+
+        Assert.NotNull(session.Unconfirmed);
+        Assert.Single(sales.Sent);
+    }
+
+    [Fact]
+    public async Task Once_the_cashier_has_checked_the_ticket_can_be_paid_again()
+    {
+        var (session, sales) = await CartOf(new SaleAnswer.Unknown("timeout"), null, "111");
+        await session.PayAsync();
+
+        session.AcknowledgeUnconfirmed();
+        await session.PayAsync();
+
+        Assert.Equal(2, sales.Sent.Count);
+        Assert.Single(session.Cart.ActiveLines);
+    }
+
+    [Fact]
+    public async Task Changing_cashier_is_refused_while_a_sale_is_unconfirmed()
+    {
+        // The unconfirmed ticket is still on the till; the next person must not inherit it silently.
+        var (session, _) = await CartOf(new SaleAnswer.Unknown("timeout"), null, "111");
+        await session.PayAsync();
+
+        Assert.Null(session.SignOut());
     }
 
     [Fact]

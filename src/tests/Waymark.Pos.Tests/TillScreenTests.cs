@@ -35,7 +35,8 @@ public sealed class TillScreenTests
         string? selected = null,
         BoardAnswer? board = null,
         int cardIndex = 0,
-        TillLanguage language = TillLanguage.French) =>
+        TillLanguage language = TillLanguage.French,
+        UnconfirmedSale? unconfirmed = null) =>
         new(
             TillText.For(language),
             Algiers,
@@ -49,7 +50,8 @@ public sealed class TillScreenTests
             context ?? Context,
             selected,
             board,
-            cardIndex);
+            cardIndex,
+            unconfirmed);
 
     private static Cart CartWith(params (string Id, string Price, int Count)[] lines)
     {
@@ -344,12 +346,36 @@ public sealed class TillScreenTests
         // would record it twice (D-070). The card says what to do instead.
         var screen = TillScreen.Build(State(
             CartWith(("a", "65.00", 1)),
-            notice: new TillNotice(TillNoticeKind.SaleOutcomeUnknown, "-", "timeout")));
+            unconfirmed: new UnconfirmedSale("timeout", Now)));
 
         var rail = Assert.IsType<Rail.Unconfirmed>(screen.Rail);
         Assert.Equal("VENTE NON CONFIRMÉE", rail.Label);
         Assert.Contains("Ne rendez pas la monnaie", rail.Body, StringComparison.Ordinal);
+        Assert.Equal("J'ai vérifié", rail.Acknowledge);
         Assert.Single(screen.Cart.Lines);
+    }
+
+    [Theory]
+    [InlineData(TillLanguage.French)]
+    [InlineData(TillLanguage.Arabic)]
+    public void While_a_sale_is_unconfirmed_encaisser_is_unavailable(TillLanguage language)
+    {
+        // D-085: Encaisser on the kept ticket would send the same sale again (O-27).
+        var cart = CartWith(("a", "65.00", 1));
+
+        Assert.True(TillScreen.Build(State(cart, language: language)).Bottom.Primary.Enabled);
+        Assert.False(TillScreen.Build(State(cart, language: language, unconfirmed: new UnconfirmedSale("timeout", Now))).Bottom.Primary.Enabled);
+    }
+
+    [Fact]
+    public void The_card_says_the_sale_is_not_confirmed_not_that_it_was_not_recorded()
+    {
+        // Whether it was recorded is the one thing the till does not know.
+        var rail = Assert.IsType<Rail.Unconfirmed>(TillScreen.Build(State(
+            CartWith(("a", "65.00", 1)), unconfirmed: new UnconfirmedSale("timeout", Now))).Rail);
+
+        Assert.Contains("confirmé", rail.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain("enregistré", rail.Title, StringComparison.Ordinal);
     }
 
     // ================================================================ Almanac

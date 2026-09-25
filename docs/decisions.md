@@ -670,12 +670,15 @@ refused while the ticket has lines, until B2 parks one. A restart ends every ses
 twice without echo, after the startup checks, and never passed as an argument. Not yet covered:
 `POST /api/recommendations/decide` still trusts its `staff_id` until Admin signs in (I1), and the
 language stays the till's, because following the person needs a staff column.
+**The cost a stored row may ask for has a ceiling** (F-23, 25/09): above 1 GiB, 10 passes or 4
+lanes the row is malformed, so a hand-edited `m=4000000` refuses one person instead of stalling
+every till behind the one-at-a-time gate.
 **Rejected:** PBKDF2 from the BCL (no package, a weaker KDF for a short secret); a
 `till_sessions` table; a lockout per till, which a guesser beats by walking to the next one.
 
 ### D-084 — The till redraws only what changed, keeps the cashier's place and the scanner's focus, and takes no colour from Windows (block A review)
 Five defects of the window, none visible to `TillScreenTests`, found by driving it headlessly
-(`tools/till-harness`, which checks each one). **The ticket jumped back to its first line on every
+(then `tools/till-harness`; now `TillWindowTests`, D-086). **The ticket jumped back to its first line on every
 redraw**, the 15-second clock included: each frame built a new scroll viewer, and Avalonia resets
 the offset whenever a scroll viewer's content is swapped. The window now keeps one scroll viewer
 and one panel of rows for its life and refills the panel; `TillScreen.Compare` says which regions
@@ -696,6 +699,29 @@ the offset after a full redraw, which shows the jump for a frame and still repla
 finger; following the foot of the ticket on every change, which moves the line the cashier is
 reading.
 
+### D-085 — An unconfirmed sale closes Encaisser until the cashier says they have checked (O-27, interim)
+A sale sent with no usable answer may have been recorded, and Encaisser on the kept ticket was a
+retry that would record it twice (O-27). **Until I2 gives a sale a key the server recognises**, the
+till holds `TillSession.Unconfirmed` apart from the notice slot, because a scan replaces a notice and
+Échap clears one, and neither is the cashier saying they checked. While it is set, Encaisser is
+unavailable and `PayAsync` sends nothing whatever pressed it; the rail's card has one key, "J'ai
+vérifié", which clears it and leaves the ticket as it is. "Changer de caissier" stays refused, since
+the ticket still has lines. The card now says the server has not *confirmed* the ticket, not that it
+did not record it, which is the one thing the till does not know. **Rejected (Hakim, 25/09):** the
+key now, a contract and schema change; accepting the risk until I2.
+
+### D-086 — The till's window is tested in CI, headlessly (O-30)
+`Waymark.Pos.Tests/TillWindowTests.cs` drives the real `TillWindow` on Avalonia's headless platform,
+drawn with Skia, against a fake StoreServer: the scrolling, focus, colour and start-up checks that
+found D-084's defects, F-26's clipboard menu, and D-085 through the real keys. `Avalonia.Headless`
+and `Avalonia.Skia` (MIT, the till's 12.1.2) are test-only packages. xunit 2 has no Avalonia runner,
+so the tests share one `HeadlessUnitTestSession` for the assembly and run one at a time in their own
+collection. **In an existing test project**, so no project reference changes; `tools/till-harness`,
+which ran the same checks by hand, is removed. A defect found in the window gets its test here
+(Hakim, 25/09). **Not covered:** a real Win32 window: Windows' own accent colour, touch gestures and
+DPI are looked at on the till. **Rejected:** a new test project; keeping the harness beside the tests,
+two copies of the same checks.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
@@ -703,10 +729,8 @@ reading.
 | O-23 | **How is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is: a separate key, derived or its own, has to be chosen, with its custody (D-057) and its place in the backup set | The real tier-2 writer, Phase 2 (0.5 stubs it, D-065). Until then the DPIA states the gap (§5.4) |
 | O-25 | **A product created at the till, tentative until the owner confirms it in Admin.** Replaces D-081's Divers | A schema change: a pending status on the product and variant, who created it, an Admin review queue, what happens to sales already made if the owner edits or rejects it, and Almanac excluding it until confirmed | Nothing in Phase 1. Replaces D-081 when decided; after E1, since it needs catalogue CRUD |
 | O-26 | **A weighed line priced by the person who weighed it (B3): which figure is exact?** The weight is inferred from the declared price | The customer pays the declared price, but the inferred weight has to round to the unit's decimals, so weight × unit price stops equalling it: 100,00 DA of tomatoes at 180,00/kg → 0,556 kg → 100,08. The row must still recompute from itself (D-053), and money arithmetic is settled (D-031…D-037) | **B3** |
-| O-27 | **Can a sale be sent twice safely?** A sale with no answer may have been recorded | The till keeps the cart and offers no retry (D-082), because a retry of a recorded sale records it twice. Retrying safely needs a key the server recognises, such as a sale id the till generates, which is a contract and a schema decision. **Found 24/09: Encaisser is that retry today.** It stays available on the kept cart, and it is the only way on, so a cashier who waits and presses it again sends the same sale twice. The card's title, from G1, says "Le serveur du magasin n'a pas enregistré le ticket", which is the one thing the till does not know. Options: the key now; Encaisser unavailable while a sale is unconfirmed, until the cashier acknowledges it; or accept the risk until I2. And the title could say *confirmé* | A "Réessayer" button on an unconfirmed sale; **I2**, whose offline queue replays sales |
 | O-29 | **Should a sign-in end when the till sits idle, and should a lockout survive a restart?** | Both live in StoreServer's memory (D-083), so rebooting the till clears every lockout: five guesses per reboot. An idle timeout is a rule about the shop floor; a lockout that survives needs a table | Nothing in Phase 1's flow. Before a pilot, since the DPIA's access-control line rests on the lockout |
 | O-28 | **Does a recommendation have an Adjust answer?** The design system says a suggestion has three (Review, Adjust, Dismiss); D-074, confirmed 21/09, records accept and dismiss | The brand promise against a confirmed rule. Adjust needs a rule for what an adjusted payload is and how it is recorded | Ajuster on the till's Almanac card and in Admin, shown unavailable until decided |
-| O-30 | **Is the till's window tested in CI?** `tools/till-harness` drives the real `TillWindow` headlessly and caught every defect of D-084, but it runs by hand | A test dependency: `Avalonia.Headless` and `Avalonia.Skia` (MIT, the till's own 12.1.2) in `Directory.Packages.props`, and one headless session shared by the window tests, since xunit 2 has no Avalonia runner (`HeadlessUnitTestSession` works under it). Claude's recommendation: yes, before B2 changes the cart | Nothing. Every B session that touches the window is safer with it |
 | O-31 | **May a terminal that is not `active` sign in and sell?** Neither sign-in (`TillDirectory`) nor `CompleteSale` reads `terminals.status`, so a retired till still signs in and sells | Who and what may sell is an access rule (D-077, D-083). Claude's recommendation: refuse at sign-in as `unknown_terminal`, and at the sale | **H2** (terminals). Before a pilot |
 | O-32 | **Does an archived product stop its variants selling?** The lookup reads only `variants.status` (D-066), so a product archived with an active variant sells | A sellability rule of D-066. Claude's recommendation: the lookup refuses on either, as `archived`, so E1 need not cascade the status | **E1** (archiving a product) |
 | O-33 | **Is the person who decides a card at the till the session's person?** The till sends `staff_id` to `/api/recommendations` and `/decide`, and the server believes it (D-083's stated gap), against CLAUDE.md §3.10 | The till already holds a token. Closing the till's half is about an hour: with the header, the session's person decides and a different `staff_id` is refused; without it (Admin) nothing changes until I1 | Nothing in Phase 1's flow; anyone on the LAN can decide as the owner meanwhile |
@@ -736,3 +760,5 @@ reading.
 | O-20 | D-056 |
 | O-21 | D-045 (`trg_processing_log_no_update`) |
 | O-22 | D-053 |
+| O-27 | D-085, interim: Encaisser closed until the cashier has checked. A key the server recognises is still I2's |
+| O-30 | D-086 |

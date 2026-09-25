@@ -26,6 +26,7 @@ public enum Tone
 /// <param name="SelectedVariantId">The line the cashier touched, if any.</param>
 /// <param name="Board">The signed-in person's Almanac board; null until fetched, or when there is none to show.</param>
 /// <param name="CardIndex">Which of the board's cards is on screen.</param>
+/// <param name="Unconfirmed">A sale with no usable answer, until the cashier acknowledges it (D-085).</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -39,7 +40,8 @@ public sealed record ScreenState(
     TillContext? Context,
     string? SelectedVariantId,
     BoardAnswer? Board,
-    int CardIndex);
+    int CardIndex,
+    UnconfirmedSale? Unconfirmed = null);
 
 /// <summary>
 /// Everything the till shows, decided (session A4, G1). The window draws this and decides
@@ -284,11 +286,12 @@ public sealed record TillScreen(
     {
         var text = state.Text;
 
-        if (state.Notice is { Kind: TillNoticeKind.SaleOutcomeUnknown } unknown)
+        if (state.Unconfirmed is { } unknown)
         {
             // No "Réessayer": nothing makes a second request harmless yet, and a sale the server
-            // did record would be recorded twice (D-070). The cashier checks first.
-            return new Rail.Unconfirmed(text.SaleNotConfirmed, text.SaleNotConfirmedTitle, text.SaleNotConfirmedBody, unknown.Detail);
+            // did record would be recorded twice (O-27). The cashier checks, then says so (D-085).
+            return new Rail.Unconfirmed(
+                text.SaleNotConfirmed, text.SaleNotConfirmedTitle, text.SaleNotConfirmedBody, unknown.Why, text.AcknowledgeUnconfirmed);
         }
 
         if (state.Paid is { } paid)
@@ -408,7 +411,8 @@ public sealed record TillScreen(
 
         var currency = CurrencyOf(state);
         var totalDue = state.Cart.Total ?? (currency is { } known ? Domain.Values.Money.Zero(known) : (Money?)null);
-        var canCollect = state.Cart.ActiveLines.Count > 0;
+        // Not while a sale is unconfirmed: Encaisser would send it again (D-085).
+        var canCollect = state.Cart.ActiveLines.Count > 0 && state.Unconfirmed is null;
 
         // What the drawer takes: the total rounded to the cash step, by the same function the
         // server uses (Money.ToCashTender, D-034), so the button and the receipt agree.
@@ -541,7 +545,8 @@ public abstract record Rail
     public sealed record Paid(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer) : Rail;
 
     /// <summary>No answer to a sale. Critical, and in the rail because it needs room to say what to do.</summary>
-    public sealed record Unconfirmed(string Label, string Title, string Body, string Detail) : Rail;
+    /// <param name="Acknowledge">The one way on: the cashier has checked (D-085).</param>
+    public sealed record Unconfirmed(string Label, string Title, string Body, string Detail, string Acknowledge) : Rail;
 }
 
 public abstract record AlmanacSlot

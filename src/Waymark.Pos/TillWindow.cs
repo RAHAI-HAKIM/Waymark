@@ -143,7 +143,8 @@ public sealed class TillWindow : Window, IDisposable
             {
                 _cardIndex++;
                 Render();
-            });
+            },
+            AcknowledgeUnconfirmed: _session.AcknowledgeUnconfirmed);
 
         _signInActions = new SignInActions(
             Select: _signIn.Select,
@@ -303,6 +304,11 @@ public sealed class TillWindow : Window, IDisposable
             BorderThickness = default,
             VerticalContentAlignment = VerticalAlignment.Center,
             Padding = new Thickness(0),
+
+            // No clipboard menu (F-26): Fluent's is in English, and the till has no use for Cut,
+            // Copy or Paste. A local null outranks the theme's setter.
+            ContextFlyout = null,
+            ContextMenu = null,
         };
 
         // The field is drawn by its own border above; Fluent's focus and hover grounds would put
@@ -362,7 +368,8 @@ public sealed class TillWindow : Window, IDisposable
             _context,
             _selected,
             _board,
-            _cardIndex));
+            _cardIndex,
+            _session.Unconfirmed));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 

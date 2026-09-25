@@ -15,7 +15,8 @@ public sealed record TillActions(
     Action NewSale,
     Action<string, string> Accept,
     Action<string> Dismiss,
-    Action NextCard);
+    Action NextCard,
+    Action AcknowledgeUnconfirmed);
 
 /// <summary>
 /// The G1 regions, each drawn from its part of <see cref="TillScreen"/> and nothing else (kit §5).
@@ -315,7 +316,7 @@ public static partial class TillViews
     public static Control Rail(Rail rail, TillTheme theme, TillActions actions) => rail switch
     {
         Screen.Rail.Paid paid => PaidPanel(paid, theme),
-        Screen.Rail.Unconfirmed unconfirmed => UnconfirmedCard(unconfirmed, theme),
+        Screen.Rail.Unconfirmed unconfirmed => UnconfirmedCard(unconfirmed, theme, actions),
         Screen.Rail.Rest rest => RestRail(rest, theme, actions),
         _ => new Border(),
     };
@@ -370,9 +371,10 @@ public static partial class TillViews
 
     /// <summary>
     /// A sale with no answer: critical, with room to say what to do. No "Réessayer" — nothing yet
-    /// makes a second request harmless, and the first may have been recorded (D-070).
+    /// makes a second request harmless, and the first may have been recorded (O-27). One key, the
+    /// cashier's word that they have checked, which re-opens Encaisser (D-085).
     /// </summary>
-    private static Border UnconfirmedCard(Rail.Unconfirmed unconfirmed, TillTheme theme)
+    private static Border UnconfirmedCard(Rail.Unconfirmed unconfirmed, TillTheme theme, TillActions actions)
     {
         var (mark, text, fill) = theme.ToneOnSurface(Tone.Critical);
         return new Border
@@ -392,6 +394,11 @@ public static partial class TillViews
                     Wrapped(theme.Body(unconfirmed.Title, theme.Text, FontWeight.SemiBold)),
                     Wrapped(theme.BodySmall(unconfirmed.Body, theme.Text)),
                     Wrapped(theme.Prose(unconfirmed.Detail, 14, theme.TextSecondary)),
+                    new TillKey(theme, KeyLook.Secondary, theme.Body(unconfirmed.Acknowledge, theme.Text, FontWeight.SemiBold), actions.AcknowledgeUnconfirmed)
+                    {
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        Margin = new Thickness(-2, 8, 0, 0),
+                    },
                 },
             },
         };

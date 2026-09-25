@@ -155,6 +155,9 @@ public abstract class TillText
 
     public abstract string SaleNotConfirmedBody { get; }
 
+    /// <summary>The key that says the cashier has checked, and re-opens Encaisser (D-085).</summary>
+    public abstract string AcknowledgeUnconfirmed { get; }
+
     // ------------------------------------------------------------------ rail: Almanac
 
     /// <summary>The label qualifier after "ALMANAC ·", from the card's type.</summary>
@@ -294,10 +297,12 @@ public abstract class TillText
         public override string NextScanOpensTicket => "Le prochain scan ouvre un nouveau ticket.";
 
         public override string SaleNotConfirmed => "VENTE NON CONFIRMÉE";
-        public override string SaleNotConfirmedTitle => "Le serveur du magasin n'a pas enregistré le ticket.";
+        // "Confirmé", not "enregistré": whether it was recorded is exactly what the till does not know.
+        public override string SaleNotConfirmedTitle => "Le serveur du magasin n'a pas confirmé le ticket.";
         public override string SaleNotConfirmedBody =>
             "Ne rendez pas la monnaie et gardez la marchandise tant que la vente n'est pas confirmée. "
-            + "Le ticket reste ouvert, rien n'est perdu.";
+            + "Vérifiez si elle a été enregistrée : Encaisser reste indisponible jusque-là. Le ticket reste ouvert.";
+        public override string AcknowledgeUnconfirmed => "J'ai vérifié";
 
         public override string AlmanacKind(string recommendationType) => recommendationType switch
         {
@@ -372,7 +377,7 @@ public abstract class TillText
         public override string TicketNumber(string invoiceNumber) => $"التذكرة رقم {invoiceNumber}"; // ar: à relire
 
         // Arabic counts its nouns in four forms: one, two (the dual), three to ten, eleven and up.
-        public override string Lines(int count) => ArabicCount(count, "سطر واحد", "سطران", "أسطر", "سطرًا");
+        public override string Lines(int count) => ArabicCount(count, "سطر واحد", "سطران", "أسطر", "سطرًا", "سطر");
 
         public override string SearchPlaceholder => "امسح الرمز الشريطي أو أدخله"; // ar: à relire
         public override string LastArticle => "آخر منتج";
@@ -424,9 +429,10 @@ public abstract class TillText
         public override string NextScanOpensTicket => "المسح التالي يفتح تذكرة جديدة."; // ar: à relire
 
         public override string SaleNotConfirmed => "البيع غير مؤكَّد"; // ar: à relire
-        public override string SaleNotConfirmedTitle => "لم يسجّل خادم المتجر التذكرة."; // ar: à relire
+        public override string SaleNotConfirmedTitle => "لم يؤكّد خادم المتجر التذكرة."; // ar: à relire
         public override string SaleNotConfirmedBody => // ar: à relire
-            "لا تُرجع الباقي واحتفظ بالبضاعة ما دام البيع غير مؤكَّد. التذكرة تبقى مفتوحة، ولم يضِع شيء.";
+            "لا تُرجع الباقي واحتفظ بالبضاعة ما دام البيع غير مؤكَّد. تحقّق مما إذا سُجّل: يبقى الدفع غير متاح إلى ذلك الحين. التذكرة تبقى مفتوحة.";
+        public override string AcknowledgeUnconfirmed => "قمت بالتحقق"; // ar: à relire
 
         public override string AlmanacKind(string recommendationType) => recommendationType switch
         {
@@ -435,9 +441,9 @@ public abstract class TillText
         };
         public override string NearExpiryClaim(string productName, int daysToExpiry) => daysToExpiry switch // ar: à relire
         {
-            < 0 => $"{productName}: انتهت صلاحيته منذ {ArabicCount(-daysToExpiry, "يوم واحد", "يومين", "أيام", "يومًا")}",
+            < 0 => $"{productName}: انتهت صلاحيته منذ {ArabicCount(-daysToExpiry, "يوم واحد", "يومين", "أيام", "يومًا", "يوم")}",
             0 => $"{productName}: تنتهي صلاحيته اليوم",
-            _ => $"{productName}: تنتهي صلاحيته خلال {ArabicCount(daysToExpiry, "يوم واحد", "يومين", "أيام", "يومًا")}",
+            _ => $"{productName}: تنتهي صلاحيته خلال {ArabicCount(daysToExpiry, "يوم واحد", "يومين", "أيام", "يومًا", "يوم")}",
         };
         public override string NearExpiryDetail(string? unitsOnHand, string valueAtCost, string expiresOn) => // ar: à relire
             unitsOnHand is null
@@ -453,7 +459,7 @@ public abstract class TillText
         public override string Dismiss => "تجاهل";
         public override string NoCardsForYou => "لا توجد بطاقات لك حاليًا."; // ar: à relire
         public override string CardsAwaitingManager(int count) =>
-            ArabicCount(count, "بطاقة واحدة", "بطاقتان", "بطاقات", "بطاقة") + " بانتظار المسؤول";
+            ArabicCount(count, "بطاقة واحدة", "بطاقتان", "بطاقات", "بطاقة", "بطاقة") + " بانتظار المسؤول";
 
         // Sign-in (A5). No Arabic board shows this screen: every string here is to be read.
         public override string WhoOpensTheTill => "من يفتح الصندوق؟"; // ar: à relire
@@ -467,7 +473,7 @@ public abstract class TillText
         public override string NobodyMaySignInHint => "لا يوجد موظف نشط مسجّل لهذا المتجر."; // ar: à relire
         public override string WrongPin => "رمز خاطئ"; // ar: à relire
         public override string AttemptsLeft(int count) => // ar: à relire
-            "يتبقى " + ArabicCount(count, "محاولة واحدة", "محاولتان", "محاولات", "محاولة") + " قبل القفل";
+            "يتبقى " + ArabicCount(count, "محاولة واحدة", "محاولتان", "محاولات", "محاولة", "محاولة") + " قبل القفل";
         public override string Locked => "مقفل"; // ar: à relire
         public override string LockedUntil(string clock) => $"محاولات كثيرة. أعد المحاولة على {clock}."; // ar: à relire
         public override string UnknownStaff => "شخص غير معروف"; // ar: à relire
@@ -480,12 +486,26 @@ public abstract class TillText
         public override string TicketInProgress => "تذكرة جارية"; // ar: à relire
         public override string FinishBeforeSwitching => "ادفع أو أزل الأسطر قبل تغيير البائع."; // ar: à relire
 
-        private static string ArabicCount(int count, string one, string two, string few, string many) => count switch
+        /// <summary>
+        /// A counted noun in Arabic (F-24). One and two are words; above that the noun agrees with
+        /// the number's <b>last two digits</b>, not the whole: 3 to 10 take the plural ("103 أسطر"),
+        /// 11 to 99 the singular with tanwin ("111 سطرًا"), and a round hundred, or a hundred and one
+        /// or two, the bare singular ("100 سطر", "102 سطر").
+        /// </summary>
+        private static string ArabicCount(int count, string one, string two, string few, string many, string single)
         {
-            1 => one,
-            2 => two,
-            >= 3 and <= 10 => $"{DisplayFigures.Count(count)} {few}",
-            _ => $"{DisplayFigures.Count(count)} {many}",
-        };
+            if (count is 1 or 2)
+            {
+                return count == 1 ? one : two;
+            }
+
+            var figure = DisplayFigures.Count(count);
+            return (count % 100) switch
+            {
+                >= 3 and <= 10 => $"{figure} {few}",
+                <= 2 when count >= 100 => $"{figure} {single}",
+                _ => $"{figure} {many}",
+            };
+        }
     }
 }

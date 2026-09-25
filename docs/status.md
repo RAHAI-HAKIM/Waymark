@@ -2,9 +2,9 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**24/09/2026**: **block A is done (A1–A5) and reviewed** (§14): five defects of the till's window
-fixed (D-084) and one of `--set-pin`, F-17, F-19 and F-20 closed, and **five questions for Hakim
-before block B** (O-27, O-30–O-33). B2 is next.
+**25/09/2026**: **block A is done and reviewed** (§9). The review's decisions are in: an unconfirmed
+sale closes Encaisser (D-085), the till's window is tested in CI (D-086), and F-23, F-24, F-26 are
+fixed. **Block B starts with B2.**
 Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
@@ -15,7 +15,7 @@ Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1365**, all green (Integration 533 · Pos 272 · Generator 237 · Domain 218 · Hardware 64 · Application 41). **Off Windows** — a Linux container, a cloud session — 5 `StoreCalendarTests` fail by design (Windows zone ids, D-067) and the StoreServer, keys-directory and DPAPI tests return without running. The till's window has no tests; `tools/till-harness` checks it by hand (O-30) |
+| Tests | **1396**, all green in Debug and Release (Integration 537 · Pos 299 · Generator 237 · Domain 218 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows** — a Linux container, a cloud session — 5 `StoreCalendarTests` fail by design (Windows zone ids, D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -45,10 +45,7 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
-| F-23 | Low | **`Argon2PinHasher.Verify` takes any positive cost from the stored row.** A `pin_hash` edited to `m=4000000` makes one Argon2 run take gigabytes and minutes, and sign-ins are one at a time (D-083), so every till waits: rule 4 says a broken row refuses that person "and nobody else". Needs write access to the encrypted store | `StoreServer/Security/Argon2PinHasher.cs` (✍ Hakim's) | **Decide**: refuse a row whose `m`, `t` or `p` is above a ceiling (say 1 GiB, 10, 4) as malformed |
-| F-24 | Low | **Arabic counts of 100 and more take the wrong form.** `ArabicCount` goes by the whole number, but Arabic agrees with its last two digits: 103 lines is "103 أسطر", not "103 سطرًا"; round hundreds take the singular | `Pos/Screen/TillText.cs` | **Decide** with the `// ar: à relire` strings |
 | F-25 | Low | **The Almanac card's "1 / 3" takes a touch only on its 12 px figures**, the defect D-084 fixed for keys. It is a label that acts, not a key | `Pos/Ui/TillViews.cs`, `Almanac` | **Decide** at the next rail design: a key, or a larger target |
-| F-26 | Low | **The search field's context menu is Fluent's, in English** (Cut, Copy, Paste), on a right click or a long press | `Pos/TillWindow.cs`, `SearchField` | **Decide**: remove it (the till has no use for a clipboard) or word it |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
 
@@ -64,10 +61,8 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
 | O-25 | A product created at the till, tentative until the owner confirms it in Admin | Schema change. Replaces D-081's Divers when decided; after E1 |
 | O-26 | A weighed line priced by whoever weighed it: which figure is exact once the weight is inferred and rounded? | Money arithmetic. **Blocks B3** |
-| O-27 | Can a sale be sent twice safely? An unconfirmed sale offers no retry until it can. **Encaisser is that retry today** (24/09) | A key the server recognises. **Blocks "Réessayer" and I2**; the interim for Encaisser is to decide **before B6** |
 | O-28 | Does a recommendation have an Adjust answer (design system) or not (D-074)? | Ajuster is shown unavailable until decided |
 | O-29 | Should a sign-in end when the till is idle, and a lockout survive a restart? Both are memory today (D-083) | Nothing in Phase 1's flow. **Before a pilot** |
-| O-30 | Is the till's window tested in CI, with `Avalonia.Headless`? | A test dependency. Nothing blocked; **before B2** recommended |
 | O-31 | May a terminal that is not `active` sign in and sell? Today a retired till can | An access rule. **H2**, before a pilot |
 | O-32 | Does an archived product stop its variants selling? Today only the variant's status is read | A D-066 rule. **E1** |
 | O-33 | Is the person deciding a card at the till the session's person? Today the till sends `staff_id` and the server believes it | CLAUDE.md §3.10 against D-083's gap. The till's half is an hour's work |
@@ -119,7 +114,7 @@ starting point is always code already reviewed. §7 below is the map.
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
-| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, and reviewed** (§14) |
+| **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
@@ -129,13 +124,6 @@ starting point is always code already reviewed. §7 below is the map.
 | **H** | Staff and store | 2 | |
 | **I** | Platform: Admin over the LAN, offline and the Level-2 cache, backup and restore, the recovery code, the evaluator nightly | 6 | |
 | **J** | The done-when: the simulated day, the consent-to-erasure walkthrough, the restore drill | 3 | |
-
-**A5, sign-in, comes straight after A4 and before block B.** B5's manager PIN and every gated
-action need a real signed-in person whose rank reaches `StaffPermissions.May`; `--staff=` on the
-command line cannot carry that. It follows A4 because the PIN screen lives in A4's shell. It
-opens with D-077's two open questions, the KDF and where a login session lives. A 4–6 digit PIN
-falls to offline guessing whatever the KDF, so the real defences are SQLCipher (D-056) and a
-lockout after failed attempts. G1 has to include the sign-in screen.
 
 **Two gates before code:** design **G1** before block B (the till) and **G2**/**G3** before
 blocks E and G. Hakim brings the design; Claude reviews it against CLAUDE.md §6 first.
@@ -347,13 +335,8 @@ In a Debug build the till has a **Simulate scan** box that feeds a code through 
 scanner. `2000000000015` is a milk at 143.00 DZD with stock; `2000000000039` is one with
 none.
 
-To check the till's window without a server or a screen — a long ticket, the focus, the colours,
-a start before StoreServer — run the headless harness; it prints a line per check and saves a
-screenshot of each step (`tools/till-harness/README.md`):
-
-```bash
-dotnet run --project tools/till-harness -- artifacts/till-harness
-```
+The till's window has its own tests, headless, with the rest of the suite (`TillWindowTests`,
+D-086): no server and no display needed.
 
 To run the expiry evaluator against the running server (PowerShell):
 
@@ -400,278 +383,33 @@ table; this is the short form.
 
 ---
 
-## 9. Session A1, read in the order a barcode is priced
+## 9. Block A — done 24/09, reviewed 25/09
 
-**In flight, 22/09/2026.** O-24 answered by D-075; the promotional price rule is D-076. It
-expands `Persistence/Catalogue/ProductLookup.cs` (D-066) — steps 3 and 4 of the five.
+Each session's reasoning is its decision; the files are where to start reading. ✍ marks Hakim's
+pieces, each with its rules in its doc comment and its tests beside it.
 
-### ✍ Hakim's piece
+| Session | What it did | Decision | Start at |
+| :---- | :---- | :---- | :---- |
+| A1 | The TVA rate from the product's categories, 19% marked `StandardFallback` when they are silent or disagree; a promotional price beats a retail one | D-075, D-076 | ✍ `Domain/Catalogue/TvaRate.cs`, `Persistence/Catalogue/ProductLookup.cs` |
+| A2 | Who may do what, from `roles.rank`; a synthetic PIN never signs in | D-077 | ✍ `Domain/Organisation/StaffPermissions.cs`, ✍ `StaffPin.IsUsable` |
+| A3 | Reason codes read as data: active, ordered, what the foreign key accepts | D-079 | `Persistence/Reference/ReasonCodes.cs`, `GET /api/reason-codes` |
+| A4 | The till's shell to G1: a tested screen model, one palette file, French and Arabic | D-080–D-082 | `Pos/Screen/TillScreen.cs`, `Pos/Ui/TillPalette.cs`, `Pos/TillWindow.cs` |
+| A5 | Sign-in: Argon2id in StoreServer, a session token that names the seller, five wrong PINs lock five minutes, `--set-pin` | D-083 | ✍ `StaffPin.IsWellFormed`, ✍ `SignInLockout.cs`, ✍ `StoreServer/Security/Argon2PinHasher.cs`, `TillSessions.cs`, `Pos/Checkout/SignInFlow.cs` |
+| Review | The window keeps the cashier's place and the scanner's focus; an unconfirmed sale closes Encaisser; the window is tested in CI | D-084–D-086 | `Pos/Screen/CartFollow.cs`, `TillSession.Unconfirmed`, `Pos.Tests/TillWindowTests.cs` |
 
-**`Domain/Catalogue/TvaRate.cs`** — one function, `Resolve`, pure, no database and no clock,
-on the `NearExpiry` model (D-073). The class comment states D-075's four cases and the trap;
-`TvaRateTests.cs` argues each one separately. In short:
+Every session was broken on purpose (D-012), each mutation caught by its own tests.
 
-1. one distinct rate and no category silent → that rate, `FromCategory`;
-2. no categories → 19%, `StandardFallback`;
-3. **any null among the rates** → 19%, `StandardFallback`, *even beside a stated rate*;
-4. two or more distinct rates → 19%, `StandardFallback`.
+**Carried out of block A, and where each goes:**
 
-**The trap is case 1.** Before D-075 a product whose categories disagreed was refused at the
-till and somebody fixed the catalogue; now it sells. Written one step too wide, the fallback
-fires on products whose categories agreed, and every 9% line in the shop — bread, milk,
-pharmacy — is taxed at 19%. Every receipt still recomputes from its own row and every total
-still adds up. The second trap is the source: deriving it from the rate makes
-`The_standard_rate_stated_by_a_category_is_not_the_fallback` pass by accident and hides every
-miscategorised standard-rated product from block E.
+- `StaffPermissions.May` has no caller yet, and there is no reason picker on the till: **B4, B5, B8**.
+- The − / + stepper under a line and parked tickets as tabs (asked at the G1 review): **B2**.
+- Clock-in and "Pointer sans ouvrir la caisse": **B10**. Admin sign-in: **I1**.
+- Rounding moves no earlier: a weight inferred from a price is **B3** (O-26), a ticket discount
+  spread with `Allocate` is **B4**, only the cash portion rounds in **B6**, counted cash is **C2**.
+- seed-42 has no promotion (**E2**); listing products sold on the TVA fallback is **E**.
+- Still Hakim's to confirm: the dark focus ring `#C6B6EE` (D-082), and the Arabic strings marked
+  `// ar: à relire` in `Pos/Screen/TillText.cs`.
 
-**Broken on purpose** (D-012): pointing the promotional row at this store instead of the
-other one flips `Another_stores_promotion_is_invisible` from 120.00 to 90.00, so the store
-filter on the row that now decides the price is genuinely under test. The two rule mutations
-worth repeating if `TvaRate` is ever touched: fire the fallback on a single agreed rate
-(`One_category_with_a_rate_is_that_rate` and `The_rate_comes_from_the_products_category`
-must fail), and return `FromCategory` whenever the rate is 19%
-(`A_silent_category_beside_a_standard_one_is_still_the_fallback` must fail).
-
-### The rest, in the order it runs
-
-1. **The rates leave the database:** `Persistence/Catalogue/ProductLookup.cs`, step 3. The
-   join keeps nulls — the skeleton dropped them, which answers 9% for [9%, null]. `Distinct`
-   stays because SQL keeps one null and one of each value, so both signals survive it.
-2. **The rule:** `Domain/Catalogue/TvaRate.cs`. Above.
-3. **The price:** same file, step 4 (D-076). Both `retail` and `promotional` rows in force
-   come back; `Latest` picks the later `valid_from` within a type, and promotional beats
-   retail. `is_tax_inclusive` is checked on **whichever row won**, with no falling back to
-   retail — that would charge full price for a product on promotion and say nothing.
-4. **What crosses:** `Domain/Catalogue/IProductLookup.cs` — `ProductForSale` gains
-   `TvaRateSource` and `IsPromotionalPrice`, and `NotSellableReason` **loses** `NoTaxRate` and
-   `ConflictingTaxRates`. `Contracts/Pos/ProductLookup.cs` mirrors both, and
-   `StoreServer/Catalogue/ProductLookupWire.cs` maps them.
-5. **The cashier:** `Pos/Checkout/Cart.cs` (`CartLine.IsPromotionalPrice`, re-read on every
-   scan) and `Pos/TillWindow.cs` (`LineRow`, the words `PROMOTIONAL PRICE` in neutral slate).
-   The TVA source is deliberately **not** shown: a cashier cannot fix a catalogue, and block E
-   lists it instead.
-6. **The proof:** `Domain.Tests/TvaRateTests.cs`, then `ProductLookupTests.cs` — its TVA
-   section checks the query hands the rule the right facts, and its promotional section is
-   D-076 rule by rule.
-
-Nothing was needed from `CompleteSale`: it re-prices every line through `IProductLookup`
-itself (`CompleteSale.cs:249`), so the preview and the receipt changed together and cannot
-drift.
-
-### Carried out of A1
-
-- The generator seeds no promotional rows, so **seed-42 cannot demo a promotion**. Picked up
-  at **E2**; teaching the generator would change every canonical dump.
-- **D-075's other three rows** (composite, mixed, indivisible supply) are not implementable
-  against this schema and are Admin catalogue guidance at **block E**. The reasoning is in
-  D-075.
-- Nothing lists products selling on `standard_fallback` yet. That screen is **block E**.
-
----
-
-## 10. Sessions A2 and A3
-
-### A2 — written by Hakim (D-077)
-
-1. **`Domain/Organisation/StaffPermissions.cs`** — `Capability`, a private ladder, and
-   `May(long? rank, capability)`: this rank and above, and **no rank is never permission**.
-   The ladder is private because `readonly` guards a field's reference, not its contents
-   (`Nothing_outside_the_class_can_change_the_ladder`).
-2. **`Domain/Organisation/StaffPin.cs`** — `IsUsable(storedHash)`, asked before any PIN check:
-   the generator's sentinel and anything blank can never authenticate.
-3. **The proof:** `StaffPermissionsTests`, `StaffPinTests`, and `SyntheticPinTests` in
-   Generator.Tests, which holds the two copies of the sentinel together.
-
-**Broken on purpose:** inverting the comparison failed four tests; allowing a null rank failed
-`No_rank_at_all_is_never_permission`.
-
-**Not yet wired.** Nothing calls `May` — B4, B5 and B8 are the first callers. Card decisions
-still go through `CardAudience` with each card's own rank, so the ladder's
-`DecideRecommendation` value is not enforced anywhere (D-077).
-
-### A3 — what was built, in the order a reason travels
-
-1. **The port:** `Domain/Reference/IReasonCodes.cs`. `ForAsync(appliesTo)` → the active
-   reasons, ordered. `ReasonCodeChoice` carries `requires_note` and `requires_manager` and
-   decides nothing with either.
-2. **The reader:** `Persistence/Reference/ReasonCodes.cs`. Active only, `display_order` then
-   **code** — ties are otherwise returned in whatever order SQLite likes, and a dialog that
-   reshuffles is one a cashier stops reading. No store filter, because the vocabulary is the
-   tenant's, and the comment says so out loud.
-3. **The wire:** `Contracts/Reference/ReasonCodes.cs`, mapped by
-   `StoreServer/Reference/ReasonCodeWire.cs`. `ReasonCodeOption` mirrors `reason_codes` in
-   `ContractsMirrorTheSchemaTests`, with a reason for each of the four columns that stay behind.
-4. **The door:** `GET /api/reason-codes?applies_to=discount`. An unknown kind is a **400**,
-   not an empty list.
-5. **The proof:** `Integration.Tests/ReasonCodeTests.cs` (nine, against a real database),
-   `ReasonCodeWireTests.cs` (the mapping and every kind), and `AssertReasonCodes` inside
-   `StoreServerStartupTests` — the only thing that proves the DI and the route exist, run
-   against a real generated store on the real process.
-
-**Broken on purpose** (D-012), three mutations, each failing only what it should: dropping
-`IsActive` failed `A_retired_reason_is_not_offered`; dropping the code tie-break failed
-`Reasons_that_share_a_display_order_are_still_in_a_fixed_order`; dropping the kind filter
-failed three, including `A_reason_for_another_kind_never_appears`.
-
-**Deliberately not done:** no UI. The till's picker waits for gate **G1** and the A4 shell
-(§6), and B4, B5 and B8 are the consumers. Nothing enforces `requires_manager` yet — that is
-A2's rank check, and B4/B5 wire the two together.
-
----
-
-## 11. G1 — closed 23/09
-
-Hakim's boards (`src/Waymark.Pos/Assets/G1-pos_design.html`: light, dark, Arabic, empty, change
-due, notices, states, manager PIN, sign-in, and the kit) are the design. Where the kit and a rule
-disagreed the rule won, and D-082 says where; the light page is `#F7F5F9` (Hakim, 23/09). Still
-yours to confirm: the dark focus ring (`#C6B6EE`, D-082), O-27 and O-28, and the Arabic strings
-marked `// ar: à relire` in `Screen/TillText.cs`.
-
-**Asked for at review and scheduled for B2**, which the plan already calls "quantity edit, line
-removal, park and resume": the − / + stepper under a selected line, and parked tickets as tabs in
-the top bar that a touch reopens. Both change what a sale sends, so they carry B2's tests.
-
----
-
-## 12. Session A4, read in the order a frame is drawn
-
-1. **What the till knows:** `Pos/Checkout/TillSession.cs` gains the paid ticket, the server's
-   reachability (since the *first* failure) and a clock. `Cart.cs` keeps a removed line, struck,
-   with the time kept for B8 and not shown; `ActiveLines` is what is charged and sent.
-2. **What it shows, decided:** `Pos/Screen/TillScreen.cs`. `Build(ScreenState)` is the whole
-   screen as records: the tab, the notice slot, the rows, the rail, the bottom bar. Every rule in
-   this session is here, and `TillScreenTests` argues each one.
-3. **Its words and figures:** `Screen/TillText.cs` (French and Arabic, with Arabic's four plural
-   forms) and `Screen/DisplayFigures.cs` (`3 320,80`, U+202F between thousands, a true minus).
-4. **Its colours:** `Ui/TillPalette.cs`, the only file that names one; `TillPaletteTests`
-   computes every contrast pair.
-5. **How it is drawn:** `Ui/TillTheme.cs` (brushes, the bundled faces by file, the type styles,
-   `Prose` for figures inside sentences), `Ui/TillKey.cs`, `Ui/TillViews.cs` (one function per
-   region), `Ui/LucideIcons.cs`. `TillWindow.cs` holds the scanner, the search field and the
-   timers, and redraws from `TillScreen` on every change.
-6. **Where the top bar's names come from:** `Domain/Organisation/ITillDirectory.cs`,
-   `Persistence/Organisation/TillDirectory.cs`, `GET /api/till/context`. The board's answer moved
-   to `Contracts/Recommendations/BoardAnswer.cs` so the till reads it typed; Admin's JSON is
-   unchanged.
-
-**Broken on purpose** (D-012), seven mutations, each caught by its own tests: a struck line
-sent, a struck line totalled, Encaisser asking for unrounded cash, a plain space between
-thousands, an unknown code without its warning tone, the kit's dark ring put back, and the till
-directory reading past the store filter.
-
-**To look at it:** a Debug build takes `--snapshot=out.png [--scan=code,...] [--select] [--pay]`
-with `--theme=light|dark` and `--lang=ar`, renders the window to a PNG and exits. `--pay`
-completes a real sale on whichever store the server has open.
-
-**Not in A4, and where it goes:** the rail's operation keys, quick keys and the Carte, Mobile and
-Carnet tenders are B-block; sign-in, the staff menu and the clock-in time are A5 and B10;
-"Espèces reçues" and the change due are B6.
-
----
-
-## 13. Session A5, sign-in, read in the order a PIN travels
-
-**✍ Hakim's three pieces, written 24/09**, each with its tests and its rules in the doc comment:
-`Domain/Organisation/StaffPin.IsWellFormed` (StaffPinTests), `Domain/Organisation/SignInLockout.cs`
-(SignInLockoutTests) and `StoreServer/Security/Argon2PinHasher.cs` (Argon2PinHasherTests). The 67
-tests that were red on purpose went green with them: `TillSessionsTests`, `StaffCredentialsTests`
-and the end-to-end `StoreServerStartupTests`, which imports a store, sets a PIN through
-`--set-pin`, restarts, and signs in and sells over HTTP.
-
-1. **Who is listed:** `Domain/Organisation/IStaffCredentials.cs`, then
-   `Persistence/Organisation/StaffCredentials.cs`: active staff, active role, through the store
-   filter, with a "has a PIN" flag and never the hash. `GET /api/till/staff`.
-2. **The PIN typed:** `Pos/Checkout/SignInFlow.cs` (pad state, ASCII digits only, forgotten once
-   sent), `Pos/Screen/SignInScreen.cs` (the model: four dots until a fifth digit), `Ui/SignInViews.cs`.
-3. **The PIN checked:** `POST /api/till/sign-in` → `StoreServer/Security/TillSessions.cs`, where
-   the terminal is checked first, then the person, a missing PIN, the lock, and only then the hash.
-   It hands out the token.
-4. **A sale:** the till sends the token in `X-Waymark-Session`; `SaleWire.Seller` takes the seller
-   from the session, only at its own till. `SaleRequest` no longer carries `staff_id`.
-5. **Switching:** the staff chip in the top bar. `TillSession.SignOut` refuses while the ticket has
-   lines; otherwise `POST /api/till/sign-out` and back to the list.
-6. **Setting a PIN:** `StoreServer --set-pin=<id>` → `Security/SetPinSwitch.cs` →
-   `Application/Organisation/SetStaffPin.cs`, staged and committed by the executor (D-050).
-
-**Broken on purpose** (D-012), ten mutations, each caught by its own tests: no sign-in gate, the
-previous session kept at a till, a locked PIN checked anyway, the seller's till ignored, a retired
-role signing in, the pad taking Arabic-Indic digits, digits kept when another person is chosen,
-switching cashier mid-ticket, the PIN field sized to the PIN, and `not_signed_in` read as unknown.
-
-**To look at it:** `--snapshot=out.png --staff=<id> [--pin=digits [--open]]` shows the sign-in
-screen at that point (Debug only; the PIN on a command line is for a demo store).
-
-**Not in A5:** clock-in and "Pointer sans ouvrir la caisse" (B10), parking a ticket to switch
-mid-sale (B2), Admin sign-in (I1), an idle timeout and a lockout that survives a restart (O-29).
-
-
----
-
-## 14. Block A review, 24/09 — read in the order a defect shows
-
-The first cloud session with the whole repository: a build and the full suite on Linux (§1 says
-what does not run there), a read of A1–A5 against CLAUDE.md and D-075…D-083, and the till's
-window driven headlessly by `tools/till-harness`, which is where every defect of the till was.
-Each fix was broken on purpose (D-012), and each harness check fails when its fix is taken out.
-
-### Fixed
-
-1. **A long ticket jumped back to its first line** (Hakim's report). `TillWindow.Render` built a
-   new scroll viewer for every frame, the 15-second clock included, and Avalonia resets the offset
-   of one whose content is swapped. The window keeps `_cartScroll` and `_cartRows` and refills the
-   rows (`DrawCart`); `TillScreen.Compare` says which regions changed, and only those are redrawn
-   (`TillScreenTests`, "the redraw"); `Screen/CartFollow.cs` brings the line just scanned, or the
-   touched line's actions, into view, and nothing else moves the ticket (`CartFollowTests`).
-   `TillViews.CartTable` became `CartHeader`, `CartRows` (each row tagged with its `LineRow`) and
-   `CartEmpty`.
-2. **The search field lost the scanner's focus.** The window was focusable, so a touch on a line
-   focused it, and Entrée after a code typed by hand sent nothing. Signed in, the window is not
-   focusable; `OnGettingFocus` refuses the focus to a key that is touched (Tab still reaches it);
-   `KeepScannerFocus` gives it back to the field when a redraw removes the focused key.
-3. **Keys with no ground took a touch only on their letters** — the staff chip, "Ignorer".
-   `TillKey`'s ground is transparent, as a cart line's already was.
-4. **The red on selected text** was Windows' accent colour, which Fluent paints a selection and a
-   focused box with. `App.Initialize` pins Fluent's accent to `TillPalette.*.Action`
-   (`FluentTheme.Palettes`), and the search field's selection is `Action` with `ActionLabel` on
-   it. Worth confirming on the till: Windows' Settings → Personalisation → Colours shows the accent
-   the till was taking.
-5. **A till started before StoreServer stayed empty**: the list of who may sign in was asked for
-   once, at start, and never again. `CheckHealthAsync` asks again, once the server answers, for the
-   store's names and the list (`SignInFlow.NeedsList`, `SignInFlowTests`).
-6. **`--set-pin` gave a PIN to a person whose role is retired** and said it would work at the next
-   sign-in, but the list and the hash both leave that role out. `StaffCredentials.StagePinHashAsync`
-   now takes the same people as `PinHashAsync` (`StaffCredentialsTests`).
-7. **The register**: F-17 (the mechanism tests compare with `TriggerScript.DeclaredNames()`, and
-   the literal 29 stays in the one test that pins what the database promises), F-19 (Lucide's
-   current LICENSE, with Feather's MIT notice for the ten icons derived from Feather), F-20
-   (`Avalonia.Fonts.Inter` and `.WithInterFont()` removed; the placeholder still draws in Archivo).
-
-### Rounding: now, or in block B?
-
-Nothing moves earlier. What block A sells rounds in two places, both decided and both built: each
-line's TVA is extracted by subtraction under `stores.rounding_policy`, stamped on the transaction
-(D-033, D-053), and the cash tender goes to the nearest 5 DA, ties away from zero, with the
-payment at the exact total and the difference in `rounding_variance` (D-034). A line itself cannot
-round yet: a price times a whole count is exact. The till shows it as G1 draws it — "TOTAL À PAYER"
-is the exact TTC, and Encaisser says what the drawer takes, from the server's own `ToCashTender`.
-What remains is block B's and Hakim's: **B3**, a weight inferred from a price (O-26); **B4**, a
-ticket discount spread over its lines with `Allocate` and a percentage with `Percent` under the
-store's policy; **B6**, where only the cash portion rounds, a card pays exact, and the change is
-what was tendered minus the rounded cash; and **C2**, counted cash against float + cash + tender
-variance. One thing to know: on a cash-tender row, `rounding_variance.policy` is the store's policy
-in force, not the rule that made the row, which is always D-034's.
-
-### For Hakim, before block B
-
-The questions are O-27 (Encaisser is a retry), O-30 (the window's tests in CI), O-31 (terminal
-status), O-32 (an archived product), O-33 (the person deciding a card at the till), and the
-register's F-23 to F-26. On the three pieces: all three hold their rules. `SignInLockout.AfterWrong`
-reaches the right state through a modulo that is right only because a count never passes five
-while unlocked; `var count = (LockedUntil is null ? WrongInARow : 0) + 1;` would say rule 4 in the
-code itself. Optional.
-
-### Not run here
-
-A Linux container has no DPAPI, no Windows zone ids and no Win32 window. The end-to-end
-`StoreServerStartupTests`, the keys-directory ACL tests and the store's time zone are checked on
-Windows only, by CI; the harness draws the window headlessly, not on the till's screen.
+**To look at the till:** a Debug build takes `--snapshot=out.png`, with `--scan=code,...`,
+`--select`, `--pay`, `--staff=<id> [--pin=digits [--open]]`, `--theme=light|dark` and `--lang=ar`;
+it renders the window to a PNG and exits. `--pay` sells for real on whichever store is open.

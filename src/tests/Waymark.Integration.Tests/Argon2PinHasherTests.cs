@@ -82,6 +82,32 @@ public sealed class Argon2PinHasherTests
         Assert.False(Hasher.Verify("1234", stored));
     }
 
+    [Theory]
+    [InlineData("m=4000000,t=2,p=1")]
+    [InlineData("m=19456,t=500,p=1")]
+    [InlineData("m=19456,t=2,p=64")]
+    public void A_stored_cost_above_the_ceiling_is_refused_without_running_it(string parameters)
+    {
+        // F-23: the row sets the cost. Run as written, one of these takes gigabytes or minutes, and
+        // every till waits behind it. A real salt and hash, so only the cost is wrong.
+        var parts = Hasher.Hash("4821").Split('$');
+        var stored = $"$argon2id$v=19${parameters}${parts[4]}${parts[5]}";
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(Hasher.Verify("4821", stored));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"Verify ran for {clock.Elapsed}: the cost was not refused first.");
+    }
+
+    [Fact]
+    public void The_ceilings_are_well_above_what_is_written()
+    {
+        // F-23's numbers, pinned so a change is a decision. Far above the constants, so raising
+        // them later still verifies every PIN already set.
+        Assert.Equal((1_048_576, 10, 4),
+            (Argon2PinHasher.MaximumMemoryKib, Argon2PinHasher.MaximumIterations, Argon2PinHasher.MaximumParallelism));
+        Assert.True(Argon2PinHasher.MemoryKib * 8 <= Argon2PinHasher.MaximumMemoryKib);
+    }
+
     [Fact]
     public void A_pin_that_is_not_well_formed_never_verifies()
     {
