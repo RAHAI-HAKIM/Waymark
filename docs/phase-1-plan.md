@@ -125,14 +125,14 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 
 | # | Work | Expands (0.5) | Who | Size |
 | :-- | :---- | :---- | :--: | :--: |
-| B1 | Search by name, PLU, stock lookup | `TillSession.Handle`, `ProductLookup` | C | M |
+| B1 | Search by name, PLU, stock lookup; **open an old paid ticket** in the ticket view, read-only (D-087); the "QTÉ × n" multiplier on the search field | `TillSession.Handle`, `ProductLookup` | C | M–L |
 | B2 | Quantity edit, line removal, park and resume | `Pos/Checkout/Cart.cs` | C | M |
 | B3 | Weighted items, embedded weight/price barcodes, scale | `KeyboardWedgeScanner` (D-063), `Quantity` (D-036) | **H** | M |
 | B4 | Line and transaction discounts with a reason | **`SaleArithmetic.Line`'s `discount` parameter — already there, never used** | **H** | M |
 | B5 | Price override behind a manager PIN | A2 | **H** | S |
 | B6 | Split tender: cash with change, card, wallet | `CompleteSale`'s single cash payment, `CashTender` (D-034) | **H** | M |
 | B7 | Customer by phone; on-account and the credit limit | `receivable_movements` (D-055) — **schema exists, never exercised** | **H** | M |
-| B8 | Line and transaction voids; no-sale, audited | `CompleteSale` atomicity (D-070) | **H** | M |
+| B8 | Line and transaction voids; no-sale, audited. **What a cancelled ticket leaves behind** (D-087: B2 keeps it in the drafts with no record) and the board's manager PIN for "Annuler ticket" | `CompleteSale` atomicity (D-070) | **H** | M |
 | B9 | Refunds linked to the original; store credit | `SaleArithmetic`, `BatchAllocation` (D-070) | **H** | L |
 | B10 | Paid-in and paid-out; clock in and out | `CashSession` auto-open (D-070, provisional) | C | S |
 

@@ -116,17 +116,18 @@ public sealed class TillPaymentTests
     }
 
     [Fact]
-    public async Task Changing_cashier_is_refused_while_the_ticket_has_lines()
+    public async Task Changing_cashier_mid_ticket_puts_the_ticket_on_hold_for_the_next_person()
     {
-        // Until B2 parks a ticket, handing the till over mid-ticket would sell one person's
-        // ticket under the next person's name.
+        // D-087: a ticket belongs to the till. The next person finds it as a tab and takes it up;
+        // it is never sold under their name without somebody touching it.
         var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
 
-        Assert.Null(session.SignOut());
+        Assert.Equal("token-1", session.SignOut());
 
-        Assert.Equal(Cashier, session.SignedIn);
-        Assert.Equal(TillNoticeKind.SwitchRefused, session.Notice!.Kind);
-        Assert.Single(session.Cart.ActiveLines);
+        Assert.Null(session.SignedIn);
+        Assert.Empty(session.Cart.Lines);
+        var held = Assert.Single(session.Parked);
+        Assert.Equal(("staff-1", 1), (held.ByStaffId, held.Cart.ActiveLines.Count));
     }
 
     [Fact]
@@ -146,7 +147,7 @@ public sealed class TillPaymentTests
     public async Task A_ticket_whose_every_line_was_removed_does_not_block_the_change()
     {
         var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
-        session.Remove("v-111");
+        session.Remove(session.Cart.LineOf("v-111"));
 
         Assert.Equal("token-1", session.SignOut());
         Assert.Empty(session.Cart.Lines);
@@ -161,7 +162,7 @@ public sealed class TillPaymentTests
         // what the cashier took out: the total on the receipt would be right for a sale that
         // was not the one on the screen.
         var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), null, "111", "222");
-        session.Remove("v-111");
+        session.Remove(session.Cart.LineOf("v-111"));
 
         await session.PayAsync();
 
@@ -172,7 +173,7 @@ public sealed class TillPaymentTests
     public async Task A_cart_whose_every_line_was_removed_sends_nothing()
     {
         var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
-        session.Remove("v-111");
+        session.Remove(session.Cart.LineOf("v-111"));
 
         await session.PayAsync();
 
@@ -187,7 +188,7 @@ public sealed class TillPaymentTests
         // "Monnaie à rendre": the ticket just paid stays on screen, struck lines and all, while
         // the cashier gives change. The cart itself is empty, ready for the next customer.
         var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111", "222");
-        session.Remove("v-222");
+        session.Remove(session.Cart.LineOf("v-222"));
 
         await session.PayAsync();
 

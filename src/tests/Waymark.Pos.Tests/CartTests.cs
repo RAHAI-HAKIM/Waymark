@@ -140,10 +140,11 @@ public sealed class CartTests
         cart.Add(Product("a", price: "120.50"), "6130000000017");
         cart.Add(Product("b", price: "35.00"), "6130000000017");
 
-        Assert.True(cart.Remove("a", At));
+        var a = cart.LineOf("a");
+        Assert.True(cart.Remove(a, At));
 
         Assert.Equal(Dzd(3_500), cart.Total);
-        Assert.False(cart.Remove("a", At));
+        Assert.False(cart.Remove(a, At));
     }
 
     [Fact]
@@ -154,7 +155,7 @@ public sealed class CartTests
         var cart = new Cart();
         cart.Add(Product("a"), "6130000000017");
 
-        cart.Remove("a", At);
+        cart.Remove(cart.LineOf("a"), At);
 
         var line = Assert.Single(cart.Lines);
         Assert.True(line.IsRemoved);
@@ -170,7 +171,7 @@ public sealed class CartTests
         cart.Add(Product("a"), "6130000000017");
         cart.Add(Product("b"), "6130000000017");
 
-        cart.Remove("a", At);
+        cart.Remove(cart.LineOf("a"), At);
 
         Assert.Equal(["b"], cart.ActiveLines.Select(line => line.VariantId));
     }
@@ -181,7 +182,7 @@ public sealed class CartTests
         // Reviving the struck line would erase the trace of the removal.
         var cart = new Cart();
         cart.Add(Product("a"), "6130000000017");
-        cart.Remove("a", At);
+        cart.Remove(cart.LineOf("a"), At);
 
         var again = cart.Add(Product("a"), "6130000000017");
 
@@ -198,7 +199,7 @@ public sealed class CartTests
         var cart = new Cart();
         cart.Add(Product("a", price: "120.50"), "6130000000017");
 
-        cart.Remove("a", At);
+        cart.Remove(cart.LineOf("a"), At);
 
         Assert.Equal(Dzd(0), cart.Total);
         Assert.Empty(cart.ActiveLines);
@@ -212,7 +213,7 @@ public sealed class CartTests
         cart.Add(Product("b"), "6130000000017");
         Assert.Equal("b", cart.LastAdded?.VariantId);
 
-        cart.Remove("b", At);
+        cart.Remove(cart.LineOf("b"), At);
 
         Assert.Null(cart.LastAdded);
     }
@@ -285,4 +286,65 @@ public sealed class CartTests
 
         Assert.Equal(exceeds, line.ExceedsStockOnHand);
     }
+
+    // ================================================================ lines of their own (B2, D-087)
+
+    [Fact]
+    public void Two_lines_of_one_product_are_two_lines()
+    {
+        // Struck, then scanned again: the new line is not the struck one, and a touch, a removal or
+        // a count must name one of them, never "the product".
+        var cart = new Cart();
+        cart.Add(Product("a"), "613a");
+        var first = cart.LineOf("a");
+        cart.Remove(first, At);
+        cart.Add(Product("a"), "613a");
+
+        Assert.NotEqual(first, cart.LineOf("a"));
+        Assert.Equal(2, cart.Lines.Count);
+        Assert.False(Cart.TakesAnotherScan(cart.Lines[0]));
+        Assert.True(Cart.TakesAnotherScan(cart.Lines[1]));
+    }
+
+    [Fact]
+    public void A_count_is_set_on_a_line_in_the_sale_and_never_below_one()
+    {
+        var cart = new Cart();
+        cart.Add(Product("a", price: "20.00"), "613a");
+        var line = cart.LineOf("a");
+
+        Assert.True(cart.SetCount(line, 5));
+        Assert.False(cart.SetCount(line, 0));
+        Assert.False(cart.SetCount(line, -2));
+        Assert.False(cart.SetCount("no-such-line", 2));
+        Assert.False(cart.SetCount(line, Cart.MaxCount + 1));
+
+        Assert.Equal(5, cart.Lines[0].Count);
+        Assert.Equal(Dzd(10_000), cart.Total);
+    }
+
+    [Fact]
+    public void A_struck_line_takes_no_count()
+    {
+        var cart = new Cart();
+        cart.Add(Product("a"), "613a");
+        var line = cart.LineOf("a");
+        cart.Remove(line, At);
+
+        Assert.False(cart.SetCount(line, 3));
+        Assert.Equal(1, cart.Lines[0].Count);
+    }
+
+    [Fact]
+    public void A_scan_after_a_count_was_set_adds_one_to_it()
+    {
+        var cart = new Cart();
+        cart.Add(Product("a"), "613a");
+        cart.SetCount(cart.LineOf("a"), 4);
+
+        cart.Add(Product("a"), "613a");
+
+        Assert.Equal(5, Assert.Single(cart.Lines).Count);
+    }
 }
+

@@ -24,7 +24,7 @@ public sealed class CartFollowTests
         var before = cart.LastAdded;
         cart.Add(Product("b"), "613b");
 
-        Assert.Equal(new CartTarget("b", WithActions: false), CartFollow.After(before, cart.LastAdded, null, null));
+        Assert.Equal(new CartTarget(cart.LineOf("b"), WithActions: false), CartFollow.After(before, cart.LastAdded, null, null));
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public sealed class CartFollowTests
         var before = cart.LastAdded;
         cart.Add(Product("a"), "613a");
 
-        Assert.Equal(new CartTarget("a", WithActions: false), CartFollow.After(before, cart.LastAdded, null, null));
+        Assert.Equal(new CartTarget(cart.LineOf("a"), WithActions: false), CartFollow.After(before, cart.LastAdded, null, null));
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public sealed class CartFollowTests
 
         Assert.Null(CartFollow.After(before, before, "a", null));
 
-        cart.Remove("a", Now);
+        cart.Remove(cart.LineOf("a"), Now);
         Assert.Null(CartFollow.After(before, cart.LastAdded, "a", null));
     }
 
@@ -86,7 +86,8 @@ public sealed class CartFollowTests
         var before = cart.LastAdded;
         cart.Add(Product("a"), "613a");
 
-        Assert.Equal(new CartTarget("a", WithActions: true), CartFollow.After(before, cart.LastAdded, "a", "a"));
+        var line = cart.LineOf("a");
+        Assert.Equal(new CartTarget(line, WithActions: true), CartFollow.After(before, cart.LastAdded, line, line));
     }
 
     [Fact]

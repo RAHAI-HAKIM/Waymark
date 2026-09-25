@@ -142,10 +142,12 @@ public sealed class TillWindowTests
     [Fact]
     public Task A_key_takes_a_touch_across_its_face_and_leaves_the_focus_in_the_search_field() => Headless.Run(() =>
     {
-        // The staff chip has no ground of its own. Touched with lines on the ticket, the session
-        // refuses the switch; the touch must land, and Entrée must still reach the search field.
+        // The staff chip has no ground of its own. Touched while a sale is unconfirmed, the session
+        // refuses the switch (D-085); the touch must land, and Entrée must still reach the field.
         using var till = Till.SignedIn();
+        till.Server.SaleAnswer = new SaleAnswer.Unknown("timeout");
         till.ScanMany(2);
+        till.Key(Key.F12, PhysicalKey.F12);
         var chip = till.Window.GetVisualDescendants().OfType<TillKey>()
             .First(key => key.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "Nabil B."));
 
@@ -211,6 +213,99 @@ public sealed class TillWindowTests
         Assert.Equal(2, till.Server.Sales);
     });
 
+    // ================================================================ more than one ticket (B2, D-087)
+
+    [Fact]
+    public Task F3_puts_the_ticket_on_hold_as_a_tab_and_a_touch_brings_it_back() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(3);
+
+        till.Key(Key.F3, PhysicalKey.F3);
+        Assert.Empty(till.Rows());
+        var tab = Assert.Single(till.Window.GetVisualDescendants().OfType<TillKey>(), key => key.Tag is ParkedTab);
+
+        till.Tap(tab, new Point(20, 20));
+        Assert.Equal(3, till.Rows().Count);
+        Assert.Empty(till.Session.Parked);
+        Assert.Same(till.SearchField, till.Focused);
+    });
+
+    [Fact]
+    public Task The_stepper_adds_a_unit_and_leaves_the_search_field_focused() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Tap(till.Rows()[0], new Point(200, 20));
+
+        // The bar under the line: −, +, then "Retirer la ligne" (G1 board).
+        var bar = ((StackPanel)till.Scroll.Content!).Children.Single(child => child.Tag is LineActions);
+        var plus = bar.GetVisualDescendants().OfType<TillKey>().ElementAt(1);
+        till.Tap(plus, new Point(20, 20));
+
+        Assert.Equal(2, till.Session.Cart.Lines[0].Count);
+        Assert.Same(till.SearchField, till.Focused);
+    });
+
+    [Fact]
+    public Task A_count_typed_in_the_field_between_minus_and_plus_is_confirmed_by_entree() => Headless.Run(() =>
+    {
+        // Hakim, 25/09: a big number without pressing + a hundred times. Entrée confirms and gives
+        // the search field back, so the next code typed goes there.
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Tap(till.Rows()[0], new Point(200, 20));
+        var field = QuantityField(till);
+
+        till.Tap(field, new Point(20, 15));
+        Assert.Same(field, till.Focused);
+        till.TypeAndEnter("240");
+
+        Assert.Equal(240, till.Session.Cart.Lines[0].Count);
+        Assert.Same(till.SearchField, till.Focused);
+
+        till.TypeAndEnter("4242");
+        Assert.Equal("4242", till.Server.Lookups[^1]);
+    });
+
+    [Fact]
+    public Task A_count_the_field_cannot_read_changes_nothing() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Tap(till.Rows()[0], new Point(200, 20));
+        till.Tap(QuantityField(till), new Point(20, 15));
+
+        till.TypeAndEnter("0");
+
+        Assert.Equal(1, till.Session.Cart.Lines[0].Count);
+        Assert.Same(till.SearchField, till.Focused);
+    });
+
+    private static TextBox QuantityField(Till till) =>
+        till.Window.GetVisualDescendants().OfType<TextBox>().Single(box => box.Tag is LineActions);
+
+    [Fact]
+    public Task A_cancelled_ticket_is_found_in_brouillons_and_taken_back() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(2);
+
+        till.Tap(Operation(till, Screen.Operation.CancelTicket), new Point(20, 20));
+        Assert.Empty(till.Rows());
+
+        till.Tap(Operation(till, Screen.Operation.Drafts), new Point(20, 20));
+        var resume = till.Window.GetVisualDescendants().OfType<TillKey>()
+            .First(key => key.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == TillText.French.ResumeTicket));
+        till.Tap(resume, new Point(20, 20));
+
+        Assert.Equal(2, till.Rows().Count);
+        Assert.Empty(till.Session.Drafts);
+    });
+
+    private static TillKey Operation(Till till, Screen.Operation operation) =>
+        till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => key.Tag is OperationKey found && found.Operation == operation);
+
     // ================================================================ a till started before its server
 
     [Fact]
@@ -267,8 +362,9 @@ public sealed class TillWindowTests
 
         public TillWindow Window { get; }
 
+        // By its tag: the tab strip and the drafts list are scroll viewers holding a panel too.
         public ScrollViewer Scroll => Window.GetVisualDescendants().OfType<ScrollViewer>()
-            .First(scroll => scroll.TemplatedParent is not TextBox && scroll.Content is StackPanel);
+            .Single(scroll => Equals(scroll.Tag, TillWindow.CartScrollTag));
 
         public TextBox SearchField => Window.GetVisualDescendants().OfType<TextBox>()
             .First(box => box.PlaceholderText == TillText.French.SearchPlaceholder);

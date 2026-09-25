@@ -1,3 +1,4 @@
+using System.Globalization;
 using Waymark.Domain.Values;
 using WireProduct = Waymark.Contracts.Pos.ProductForSale;
 
@@ -17,7 +18,14 @@ namespace Waymark.Pos.Checkout;
 /// </summary>
 public sealed class Cart
 {
+    /// <summary>
+    /// The most units one line may hold (B2): a count typed with one digit too many is refused, not
+    /// sold. B3's weighed lines are counted in their unit and have their own rule.
+    /// </summary>
+    public const int MaxCount = 9_999;
+
     private readonly List<CartLine> _lines = [];
+    private int _lastLineId;
 
     /// <summary>
     /// Every line, in scan order, <b>including the ones taken out</b> (G1): a line removed before
@@ -42,8 +50,9 @@ public sealed class Cart
     public CartLine? LastAdded { get; private set; }
 
     /// <summary>
-    /// One more unit of the scanned product. A second scan of the same variant
-    /// adds to its line, and takes the fresher stock level from this answer.
+    /// One more unit of the scanned product. A second scan of the same variant adds to its latest
+    /// line when that line <see cref="TakesAnotherScan">takes another scan</see>, and takes the
+    /// fresher price and stock level from this answer; otherwise it starts a new line (D-087).
     /// </summary>
     /// <exception cref="FormatException">A figure on the wire cannot be read exactly.</exception>
     /// <exception cref="InvalidOperationException">The product is priced in another currency than the cart.</exception>
@@ -61,12 +70,18 @@ public sealed class Cart
                 $"{product.ProductName} is priced in {price.Currency.Code}, the cart in {_lines[0].UnitPrice.Currency.Code}.");
         }
 
-        // A removed line is finished with: scanning the product again starts a new line rather
-        // than bringing the struck one back, so the ticket still shows what was taken out.
-        var index = _lines.FindIndex(line => line.VariantId == product.VariantId && !line.IsRemoved);
+        // The latest line of this product, and only if it takes another scan. A removed line never
+        // does: scanning the product again starts a new line rather than bringing the struck one
+        // back, so the ticket still shows what was taken out.
+        var index = _lines.FindLastIndex(line => line.VariantId == product.VariantId);
+        if (index >= 0 && !TakesAnotherScan(_lines[index]))
+        {
+            index = -1;
+        }
+
         var line = index < 0
             ? new CartLine(
-                product.VariantId, barcode, product.ProductName, product.VariantName,
+                NextLineId(), product.VariantId, barcode, product.ProductName, product.VariantName,
                 product.SellingUnitCode, price, 1, stock, product.IsPromotionalPrice)
             : _lines[index] with
             {
@@ -94,26 +109,65 @@ public sealed class Cart
     }
 
     /// <summary>
-    /// Takes a line out of the sale, and leaves it on the ticket struck through with the time
-    /// (G1). False if the sale holds no such line. The reason and the log entry arrive with
-    /// B8's dialog; until then the struck line is the trace.
+    /// Whether a second scan of the same product adds to this line rather than starting a new one
+    /// (D-087): only a plain line does. A line taken out is finished with. <b>B3, B4 and B5 add to
+    /// this rule</b>: a weighed line, a line with a discount and a line whose price was overridden
+    /// are not plain, and a scan merged into one would take its weight, discount or price without
+    /// anybody deciding it.
     /// </summary>
-    public bool Remove(string variantId, DateTimeOffset at)
+    public static bool TakesAnotherScan(CartLine line)
     {
-        var index = _lines.FindIndex(line => line.VariantId == variantId && !line.IsRemoved);
+        ArgumentNullException.ThrowIfNull(line);
+        return !line.IsRemoved;
+    }
+
+    /// <summary>
+    /// Takes a line out of the sale, and leaves it on the ticket struck through with the time
+    /// (G1). False if the sale holds no such line still in it. The reason and the log entry
+    /// arrive with B8's dialog; until then the struck line is the trace.
+    /// </summary>
+    public bool Remove(string lineId, DateTimeOffset at)
+    {
+        var index = ActiveIndex(lineId);
         if (index < 0)
         {
             return false;
         }
 
         _lines[index] = _lines[index] with { RemovedAt = at };
-        if (LastAdded?.VariantId == variantId)
+        if (LastAdded?.LineId == lineId)
         {
             LastAdded = null;
         }
 
         return true;
     }
+
+    /// <summary>
+    /// Sets how many units a line holds (the − / + under a selected line, B2). At least one: taking
+    /// the last unit out is "Retirer la ligne", which leaves the line struck on the ticket, never a
+    /// line that quietly vanished at zero.
+    /// </summary>
+    /// <returns>False, changing nothing, for a line not in the sale or a count outside 1 to <see cref="MaxCount"/>.</returns>
+    public bool SetCount(string lineId, int count)
+    {
+        var index = ActiveIndex(lineId);
+        if (index < 0 || count is < 1 or > MaxCount)
+        {
+            return false;
+        }
+
+        _lines[index] = _lines[index] with { Count = count };
+        return true;
+    }
+
+    private int ActiveIndex(string lineId) => _lines.FindIndex(line => line.LineId == lineId && !line.IsRemoved);
+
+    /// <summary>
+    /// This cart's next line id. Local to the cart and never stored: the server reads codes and
+    /// counts (D-070), so a line id only has to tell two lines of one ticket apart.
+    /// </summary>
+    private string NextLineId() => (++_lastLineId).ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Empties the cart once its sale is completed.</summary>
     public void Clear()
@@ -123,7 +177,12 @@ public sealed class Cart
     }
 }
 
-/// <summary>One product in the cart, however many times it was scanned.</summary>
+/// <summary>A line of the ticket: one product, and as many units as were scanned into it.</summary>
+/// <param name="LineId">
+/// The line itself (D-087). Two lines can hold the same product — one struck and one not, and from
+/// B3 a weighed or discounted line beside a plain one — so a touch, a removal or a count names the
+/// line, never the product.
+/// </param>
 /// <param name="Barcode">The code scanned for it: what the sale sends, never the price (D-070).</param>
 /// <param name="RemovedAt">When the line was taken out of the sale, or null while it is in it.</param>
 /// <param name="IsPromotionalPrice">
@@ -132,6 +191,7 @@ public sealed class Cart
 /// the price and not a discount taken off one.
 /// </param>
 public sealed record CartLine(
+    string LineId,
     string VariantId,
     string Barcode,
     string ProductName,

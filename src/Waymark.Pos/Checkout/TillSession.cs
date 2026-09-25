@@ -18,13 +18,43 @@ namespace Waymark.Pos.Checkout;
 /// lines would not be in the order the cashier scanned them, and a notice about
 /// the first could overwrite the line of the second.
 /// </para>
+/// <para>
+/// <b>The till holds more than one ticket</b> (B2, D-087): the one on screen, the ones put on hold
+/// (<see cref="Parked"/>), and the ones cancelled today (<see cref="Drafts"/>). All three live in
+/// this process's memory and belong to the till, not to whoever is signed in: closing the till
+/// loses them, and any cashier may take one up.
+/// </para>
 /// </summary>
-public sealed class TillSession(IProductSource products, IStoreSales sales, TillIdentity till, TimeProvider? clock = null)
+/// <param name="zone">The till's time zone, which says when "today" ends for a draft. The machine's when not given.</param>
+public sealed class TillSession(IProductSource products, IStoreSales sales, TillIdentity till, TimeProvider? clock = null, TimeZoneInfo? zone = null)
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+    private readonly TimeZoneInfo _zone = zone ?? TimeZoneInfo.Local;
+    private readonly List<HeldTicket> _parked = [];
+    private readonly List<HeldTicket> _drafts = [];
+    private int _lastHeldId;
     private Task _tail = Task.CompletedTask;
 
-    public Cart Cart { get; } = new();
+    /// <summary>The ticket on screen. Parking or resuming puts another cart here.</summary>
+    public Cart Cart { get; private set; } = new();
+
+    /// <summary>Tickets on hold, oldest first: the tabs in the top bar (G1, "Attente 14:05").</summary>
+    public IReadOnlyList<HeldTicket> Parked => _parked;
+
+    /// <summary>
+    /// Tickets cancelled today, newest first ("Brouillons"). One cancelled on an earlier day is gone:
+    /// a draft lasts until the till's date changes, or the till closes (D-087). What a cancellation
+    /// leaves behind beyond that is B8's.
+    /// </summary>
+    public IReadOnlyList<HeldTicket> Drafts
+    {
+        get
+        {
+            var today = Day(_clock.GetUtcNow());
+            _drafts.RemoveAll(draft => Day(draft.At) != today);
+            return _drafts;
+        }
+    }
 
     /// <summary>What the cashier must be told about the last code, or null after one that went in.</summary>
     public TillNotice? Notice { get; private set; }
@@ -59,10 +89,18 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     public SignedInStaff? SignedIn { get; private set; }
 
     /// <summary>
-    /// Whether the cashier may change now: not while the ticket has lines still in the sale. Until
-    /// B2 parks a ticket, changing hands would sell one person's ticket under another's name.
+    /// Whether the cashier may change now. A ticket with lines no longer stops it: it is put on hold
+    /// for whoever comes next (D-087). An unconfirmed sale does, because the next person must not
+    /// inherit a ticket that may already be paid (D-085).
     /// </summary>
-    public bool MaySwitchCashier => Cart.ActiveLines.Count == 0;
+    public bool MaySwitchCashier => Unconfirmed is null;
+
+    /// <summary>
+    /// Whether the ticket on screen can be put on hold or cancelled: it has lines in the sale, it is
+    /// not the ticket just paid, and it is not waiting on an unconfirmed sale (D-085), which the
+    /// cashier checks first.
+    /// </summary>
+    public bool MayPutAside => Cart.ActiveLines.Count > 0 && Paid is null && Unconfirmed is null;
 
     /// <summary>Raised after every change to <see cref="Cart"/> or <see cref="Notice"/>.</summary>
     public event EventHandler? Changed;
@@ -95,12 +133,67 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// Takes a line out of the sale. It stays on the ticket, struck through with the time (G1);
     /// the reason and its log entry arrive with B8.
     /// </summary>
-    public void Remove(string variantId)
+    public void Remove(string lineId)
     {
-        if (Cart.Remove(variantId, _clock.GetUtcNow()))
+        if (Cart.Remove(lineId, _clock.GetUtcNow()))
         {
             Raise();
         }
+    }
+
+    /// <summary>The − / + under a selected line (B2). Never below one; see <see cref="Checkout.Cart.SetCount"/>.</summary>
+    public void SetCount(string lineId, int count)
+    {
+        if (Paid is null && Cart.SetCount(lineId, count))
+        {
+            Raise();
+        }
+    }
+
+    /// <summary>
+    /// "Attente" (F3): the ticket on screen goes on hold as a tab, and an empty one takes its place.
+    /// </summary>
+    /// <returns>False, changing nothing, when there is nothing to put aside (<see cref="MayPutAside"/>).</returns>
+    public bool Park()
+    {
+        if (!MayPutAside)
+        {
+            return false;
+        }
+
+        _parked.Add(Hold(Cart));
+        Cart = new Cart();
+        Notice = null;
+        Raise();
+        return true;
+    }
+
+    /// <summary>
+    /// "Annuler ticket": the ticket on screen goes to <see cref="Drafts"/>, with who cancelled it
+    /// and when, and an empty one takes its place. Nothing reaches the server (D-087).
+    /// </summary>
+    public bool CancelTicket()
+    {
+        if (!MayPutAside)
+        {
+            return false;
+        }
+
+        _drafts.Insert(0, Hold(Cart));
+        Cart = new Cart();
+        Notice = null;
+        Raise();
+        return true;
+    }
+
+    /// <summary>Takes a ticket on hold back onto the screen. See <see cref="Resume"/>.</summary>
+    public bool ResumeParked(string heldId) => Resume(_parked, heldId);
+
+    /// <summary>Takes a cancelled ticket back onto the screen ("Reprendre"). See <see cref="Resume"/>.</summary>
+    public bool ResumeDraft(string heldId)
+    {
+        _ = Drafts; // forget yesterday's first: a stale draft is not resumed
+        return Resume(_drafts, heldId);
     }
 
     /// <summary>Somebody's PIN was right: their sales are theirs from now on.</summary>
@@ -131,9 +224,15 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             return null;
         }
 
-        // Only struck lines can be left: an abandoned ticket, not a sale. The next person starts clean.
+        // A ticket with lines is put on hold, for whoever takes the till next (D-087); one with only
+        // struck lines is an abandoned ticket, not a sale, and the next person starts clean.
+        if (MayPutAside)
+        {
+            _parked.Add(Hold(Cart));
+        }
+
         SignedIn = null;
-        Cart.Clear();
+        Cart = new Cart();
         Paid = null;
         Notice = null;
         Raise();
@@ -186,6 +285,38 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             Raise();
         }
     }
+
+    /// <summary>
+    /// Moves a held ticket onto the screen. The ticket there, if it has lines in the sale, goes on
+    /// hold in its place, so nothing is lost by resuming; the ticket just paid is closed, as a new
+    /// sale would close it. Refused while a sale is unconfirmed (D-085).
+    /// </summary>
+    private bool Resume(List<HeldTicket> from, string heldId)
+    {
+        var index = from.FindIndex(held => held.Id == heldId);
+        if (index < 0 || Unconfirmed is not null)
+        {
+            return false;
+        }
+
+        var held = from[index];
+        from.RemoveAt(index);
+        if (Paid is null && Cart.ActiveLines.Count > 0)
+        {
+            _parked.Add(Hold(Cart));
+        }
+
+        Cart = held.Cart;
+        Paid = null;
+        Notice = null;
+        Raise();
+        return true;
+    }
+
+    private HeldTicket Hold(Cart cart) =>
+        new($"H{++_lastHeldId}", cart, _clock.GetUtcNow(), SignedIn?.StaffId, SignedIn?.Name);
+
+    private DateOnly Day(DateTimeOffset moment) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(moment, _zone).DateTime);
 
     private async Task HandleAfter(Task previous, string code)
     {
@@ -352,7 +483,15 @@ public sealed record TillIdentity(string? TerminalId);
 public sealed record UnconfirmedSale(string Why, DateTimeOffset At);
 
 /// <summary>The person signed in at this till, and the token StoreServer gave them (D-083).</summary>
-public sealed record SignedInStaff(string StaffId, string Token);
+/// <param name="Name">Their name as the sign-in list showed it, for what the till records them doing.</param>
+public sealed record SignedInStaff(string StaffId, string Token, string? Name = null);
+
+/// <summary>A ticket off the screen: on hold, or cancelled (D-087).</summary>
+/// <param name="Id">The till's own id for it, for the tab or the row that brings it back.</param>
+/// <param name="At">When it was put aside.</param>
+/// <param name="ByStaffId">Who put it aside, when somebody was signed in.</param>
+/// <param name="ByName">Their name, for the drafts list.</param>
+public sealed record HeldTicket(string Id, Cart Cart, DateTimeOffset At, string? ByStaffId, string? ByName);
 
 /// <summary>
 /// What the cashier is told: the kind, the code, and the detail the screen turns into words.

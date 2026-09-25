@@ -18,6 +18,9 @@ public static class TillSizes
     /// <summary>Every key and button: <c>control-lg</c>, because the till is touched (design system).</summary>
     public const double Key = 48;
 
+    /// <summary>The keys under a selected line: a step smaller than <see cref="Key"/>, so the bar opened beneath a line takes less of the ticket (Hakim, 25/09).</summary>
+    public const double LineKey = 40;
+
     /// <summary>The bottom bar's keys.</summary>
     public const double BarKey = 72;
 

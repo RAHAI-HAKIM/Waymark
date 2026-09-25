@@ -59,7 +59,10 @@ public sealed class TillWindow : Window, IDisposable
     private readonly Border _noticeHost = new();
     private readonly Border _cartHeaderHost = new();
     private readonly StackPanel _cartRows = new();
-    private readonly ScrollViewer _cartScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    /// <summary>The ticket's scroll viewer, kept for the window's life (D-084). Tagged so its tests find it among the others.</summary>
+    public const string CartScrollTag = "cart";
+
+    private readonly ScrollViewer _cartScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Tag = CartScrollTag };
     private readonly Border _cartEmptyHost = new();
     private readonly Border _railHost = new();
     private readonly Border _bottomHost = new();
@@ -72,6 +75,7 @@ public sealed class TillWindow : Window, IDisposable
     private TillContext? _context;
     private BoardAnswer? _board;
     private string? _selected;
+    private bool _draftsOpen;
     private int _cardIndex;
     private TillScreen? _screen;
     private SignInScreen? _signInScreen;
@@ -144,7 +148,25 @@ public sealed class TillWindow : Window, IDisposable
                 _cardIndex++;
                 Render();
             },
-            AcknowledgeUnconfirmed: _session.AcknowledgeUnconfirmed);
+            AcknowledgeUnconfirmed: _session.AcknowledgeUnconfirmed,
+            SetCount: _session.SetCount,
+            Operate: Operate,
+            ResumeParked: id =>
+            {
+                _selected = null;
+                _session.ResumeParked(id);
+            },
+            ResumeDraft: id =>
+            {
+                _selected = null;
+                _draftsOpen = false;
+                _session.ResumeDraft(id);
+            },
+            CloseDrafts: () =>
+            {
+                _draftsOpen = false;
+                Render();
+            });
 
         _signInActions = new SignInActions(
             Select: _signIn.Select,
@@ -350,7 +372,7 @@ public sealed class TillWindow : Window, IDisposable
             _input.Focus();
         }
 
-        if (_selected is not null && !_session.Cart.ActiveLines.Any(line => line.VariantId == _selected))
+        if (_selected is not null && !_session.Cart.ActiveLines.Any(line => line.LineId == _selected))
         {
             _selected = null;
         }
@@ -369,13 +391,16 @@ public sealed class TillWindow : Window, IDisposable
             _selected,
             _board,
             _cardIndex,
-            _session.Unconfirmed));
+            _session.Unconfirmed,
+            _session.Parked,
+            _session.Drafts,
+            _draftsOpen));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
         if (changes.Top)
         {
-            _topHost.Child = TillViews.TopBar(screen.Top, _theme, SwitchCashier);
+            _topHost.Child = TillViews.TopBar(screen.Top, _theme, SwitchCashier, _actions.ResumeParked);
         }
 
         if (changes.Notice)
@@ -435,7 +460,7 @@ public sealed class TillWindow : Window, IDisposable
         {
             if (row is null)
             {
-                row = child.Tag is LineRow { Struck: false } line && line.VariantId == target.VariantId ? child : null;
+                row = child.Tag is LineRow { Struck: false } line && line.LineId == target.LineId ? child : null;
             }
             else
             {
@@ -609,6 +634,12 @@ public sealed class TillWindow : Window, IDisposable
                 {
                     e.Handled = true;
                 }
+                else if (e.Key == Key.Enter && Focused() is TextBox { Tag: LineActions line } quantity)
+                {
+                    // A count typed between − and + (B2).
+                    CommitQuantity(quantity, line);
+                    e.Handled = true;
+                }
                 else if (e.Key == Key.Enter && ReferenceEquals(Focused(), _input))
                 {
                     var typed = _input.Text ?? string.Empty;
@@ -640,6 +671,11 @@ public sealed class TillWindow : Window, IDisposable
 
             case Key.F8:
                 RemoveSelected();
+                e.Handled = true;
+                break;
+
+            case Key.F3:
+                Operate(Operation.Park);
                 e.Handled = true;
                 break;
 
@@ -719,6 +755,51 @@ public sealed class TillWindow : Window, IDisposable
     }
 
     // ================================================================== actions
+
+    /// <summary>
+    /// The rail's operation keys (B2). Whether one is available is the screen model's to say; the
+    /// session refuses on its own too, so a key pressed twice, or F3 pressed at the wrong moment,
+    /// changes nothing.
+    /// </summary>
+    private void Operate(Operation operation)
+    {
+        switch (operation)
+        {
+            case Operation.Park:
+                _selected = null;
+                _session.Park();
+                break;
+
+            case Operation.CancelTicket:
+                _selected = null;
+                _session.CancelTicket();
+                break;
+
+            case Operation.Drafts:
+                _draftsOpen = _session.Drafts.Count > 0;
+                Render();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Entrée in the count between − and +: a count <see cref="QuantityEntry"/> accepts becomes the
+    /// line's; anything else is put back as it was. Either way the search field takes the scanner's
+    /// focus again, so the next scan lands where it should.
+    /// </summary>
+    private void CommitQuantity(TextBox field, LineActions line)
+    {
+        if (QuantityEntry.TryParse(field.Text, out var count))
+        {
+            _session.SetCount(line.LineId, count);
+        }
+        else
+        {
+            field.Text = line.Quantity;
+        }
+
+        _input.Focus();
+    }
 
     private void RemoveSelected()
     {
@@ -836,9 +917,12 @@ public sealed class TillWindow : Window, IDisposable
     /// Renders the window to a PNG after feeding it <paramref name="codes"/> through the real
     /// scanner path, for reviewing the shell against the G1 boards. Debug builds only.
     /// </summary>
+    /// <param name="codes">The codes to scan, in order; a "|" among them puts the ticket so far on hold (B2).</param>
     /// <param name="staffId">Touched on the sign-in screen; with <paramref name="pin"/> typed, and <paramref name="open"/> sent.</param>
+    /// <param name="cancel">Cancels the ticket once scanned, into the drafts.</param>
+    /// <param name="drafts">Opens the drafts list.</param>
     public async Task SnapshotAsync(
-        string path, IReadOnlyList<string> codes, bool pay, bool select, string? staffId, string? pin, bool open)
+        string path, IReadOnlyList<string> codes, bool pay, bool select, string? staffId, string? pin, bool open, bool cancel, bool drafts)
     {
         if (_debug is not null)
         {
@@ -864,8 +948,22 @@ public sealed class TillWindow : Window, IDisposable
 
         foreach (var code in codes)
         {
-            await _session.SubmitAsync(code);
+            if (code == "|")
+            {
+                _session.Park();
+            }
+            else
+            {
+                await _session.SubmitAsync(code);
+            }
         }
+
+        if (cancel)
+        {
+            _session.CancelTicket();
+        }
+
+        _draftsOpen = drafts && _session.Drafts.Count > 0;
 
         if (pay)
         {
@@ -875,7 +973,7 @@ public sealed class TillWindow : Window, IDisposable
         if (select)
         {
             var active = _session.Cart.ActiveLines;
-            _selected = active.Count > 0 ? active[^1].VariantId : null;
+            _selected = active.Count > 0 ? active[^1].LineId : null;
         }
 
         Render();

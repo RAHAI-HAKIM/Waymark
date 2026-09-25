@@ -1,6 +1,7 @@
 // Icon outlines from Lucide (https://lucide.dev), taken from the G1 kit, which draws them at a
 // 1.5 px stroke on a 24 px grid. Circles, rectangles and lines are rewritten as path commands so
-// Avalonia can parse them; no outline is redrawn.
+// Avalonia can parse them; no outline is redrawn. One is not from the kit: archive, for the rail's
+// "Brouillons" key (B2), taken from lucide.dev under the same licence.
 //
 // The notices below are Lucide's LICENSE as published at
 // https://github.com/lucide-icons/lucide/blob/main/LICENSE, copied on 24/09/2026 (F-19). Of the
@@ -109,6 +110,9 @@ public static class LucideIcons
 
     /// <summary>Lucide <c>smartphone</c>.</summary>
     public const string Smartphone = "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-16a2 2 0 0 1 2 -2Z M12 18h.01";
+
+    /// <summary>Lucide <c>archive</c> (B2's "Brouillons"; not in the G1 kit).</summary>
+    public const string Archive = "M3 3h18a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-18a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1Z M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8 M10 12h4";
 
     /// <summary>Lucide <c>notebook</c>.</summary>
     public const string Notebook = "M2 6h4 M2 10h4 M2 14h4 M2 18h4 M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-16a2 2 0 0 1 2 -2Z M16 2v20";

@@ -2,10 +2,9 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**25/09/2026**: **block A is done and reviewed** (§9). The review's decisions are in: an unconfirmed
-sale closes Encaisser (D-085), the till's window is tested in CI (D-086), and F-23, F-24, F-26 are
-fixed. **Block B starts with B2.**
-Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+**25/09/2026**: **block A is done and reviewed** (§9), and **B2 is built** (§10): a line has its own
+id, the − / + stepper, tickets on hold as tabs, cancelled tickets in "Brouillons" (D-087). **B1 is
+next.** Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -15,7 +14,7 @@ Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1396**, all green in Debug and Release (Integration 537 · Pos 299 · Generator 237 · Domain 218 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows** — a Linux container, a cloud session — 5 `StoreCalendarTests` fail by design (Windows zone ids, D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Tests | **1447**, all green in Debug and Release (Integration 537 · Pos 350 · Generator 237 · Domain 218 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows** — a Linux container, a cloud session — 5 `StoreCalendarTests` fail by design (Windows zone ids, D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -115,7 +114,7 @@ starting point is always code already reviewed. §7 below is the map.
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
-| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2 done 25/09** (§10) |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
@@ -402,7 +401,7 @@ Every session was broken on purpose (D-012), each mutation caught by its own tes
 **Carried out of block A, and where each goes:**
 
 - `StaffPermissions.May` has no caller yet, and there is no reason picker on the till: **B4, B5, B8**.
-- The − / + stepper under a line and parked tickets as tabs (asked at the G1 review): **B2**.
+- The − / + stepper under a line and parked tickets as tabs (asked at the G1 review): **done in B2**.
 - Clock-in and "Pointer sans ouvrir la caisse": **B10**. Admin sign-in: **I1**.
 - Rounding moves no earlier: a weight inferred from a price is **B3** (O-26), a ticket discount
   spread with `Allocate` is **B4**, only the cash portion rounds in **B6**, counted cash is **C2**.
@@ -413,3 +412,29 @@ Every session was broken on purpose (D-012), each mutation caught by its own tes
 **To look at the till:** a Debug build takes `--snapshot=out.png`, with `--scan=code,...`,
 `--select`, `--pay`, `--staff=<id> [--pin=digits [--open]]`, `--theme=light|dark` and `--lang=ar`;
 it renders the window to a PNG and exits. `--pay` sells for real on whichever store is open.
+
+---
+
+## 10. Session B2 — more than one ticket (D-087)
+
+| Where | What |
+| :---- | :---- |
+| `Pos/Checkout/Cart.cs` | `CartLine.LineId`; `TakesAnotherScan`, the merge rule B3–B5 extend; `SetCount`, never below one |
+| `Pos/Checkout/TillSession.cs` | `Parked` and `Drafts` (in memory, the till's); `Park`, `CancelTicket`, `ResumeParked`, `ResumeDraft`, `SetCount`; a change of cashier parks the ticket |
+| `Pos/Screen/TillScreen.cs` | The tabs (`TopBar.Parked`), the stepper (`LineActions`), the rail's `OperationKey`s and `Rail.Drafts` |
+| `Pos/Screen/QuantityEntry.cs` | A count typed between − and +: 1 to 9 999, digits 0 to 9, Entrée confirms |
+| `Pos/Ui/TillViews.cs` | The tab strip (scrolls when full), the stepper, the operation tiles, the drafts panel, built from the G1 kit |
+
+**The tests:** `TillHoldTests` (on hold, drafts, the date boundary in the till's zone, a change of
+cashier), `CartTests` and `TillScreenTests` (the B2 sections), and three `TillWindowTests` through
+the real keys: F3 and a tab, the stepper, Annuler → Brouillons → Reprendre. **Broken on purpose**,
+eleven mutations, each caught by its own tests.
+
+**For Hakim's review:** the drafts panel has no board; it is built from the kit and is yours to
+correct. The Arabic words are `// ar: à relire`. **To look at it:** `--scan=code,code,|,code`
+parks at each `|`, `--cancel` cancels the ticket, `--drafts` opens the list.
+
+**Carried out:** the "QTÉ × n" multiplier and opening an old ticket are **B1**; what a cancellation
+leaves behind, and the manager PIN on "Annuler ticket", are **B8**; the rail's other keys arrive
+with their sessions.
+

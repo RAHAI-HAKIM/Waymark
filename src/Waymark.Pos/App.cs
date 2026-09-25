@@ -63,7 +63,8 @@ public sealed class App : Application
 
 #if DEBUG
             // Renders the shell to a PNG and exits, for reviewing it against the G1 boards:
-            // --snapshot=out.png [--staff=id [--pin=digits [--open]]] [--scan=code,code] [--pay] [--select]
+            // --snapshot=out.png [--staff=id [--pin=digits [--open]]] [--scan=code,code,|,code] [--pay] [--select]
+            // [--cancel] [--drafts]: a "|" among the codes puts the ticket so far on hold (B2).
             // Without --open it shows the sign-in screen: a PIN on a command line is for a demo store only.
             if (Setting(args, "--snapshot=", "WAYMARK_SNAPSHOT") is { } snapshot)
             {
@@ -74,11 +75,13 @@ public sealed class App : Application
                 var staff = Setting(args, "--staff=", "WAYMARK_SNAPSHOT_STAFF");
                 var pin = Setting(args, "--pin=", "WAYMARK_SNAPSHOT_PIN");
                 var open = args.Contains("--open");
+                var cancel = args.Contains("--cancel");
+                var drafts = args.Contains("--drafts");
                 window.Opened += async (_, _) =>
                 {
                     try
                     {
-                        await window.SnapshotAsync(snapshot, codes, pay, select, staff, pin, open);
+                        await window.SnapshotAsync(snapshot, codes, pay, select, staff, pin, open, cancel, drafts);
                     }
                     finally
                     {

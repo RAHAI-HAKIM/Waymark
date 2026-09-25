@@ -31,7 +31,7 @@ public static class CartFollow
     {
         if (scannedNow is not null && !ReferenceEquals(scannedNow, scannedBefore))
         {
-            return new CartTarget(scannedNow.VariantId, WithActions: scannedNow.VariantId == selectedNow);
+            return new CartTarget(scannedNow.LineId, WithActions: scannedNow.LineId == selectedNow);
         }
 
         return selectedNow is not null && selectedNow != selectedBefore
@@ -41,6 +41,6 @@ public static class CartFollow
 }
 
 /// <summary>A line of the sale to bring into view.</summary>
-/// <param name="VariantId">The line, which is the one still in the sale: a struck line is never followed.</param>
+/// <param name="LineId">The line, which is one still in the sale: a struck line is never followed.</param>
 /// <param name="WithActions">Its action bar too, because the line is the selected one.</param>
-public sealed record CartTarget(string VariantId, bool WithActions);
+public sealed record CartTarget(string LineId, bool WithActions);

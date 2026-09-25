@@ -176,7 +176,8 @@ public sealed class SignInFlowTests
 
         var person = await flow.SubmitAsync();
 
-        Assert.Equal(new SignedInStaff("nabil", "tok"), person);
+        // With the name the list showed: it is what a parked or cancelled ticket records (D-087).
+        Assert.Equal(new SignedInStaff("nabil", "tok", "Nabil B."), person);
         Assert.Equal(new SignInRequest("till-1", "nabil", "4821"), Assert.Single(server.Sent));
         Assert.Null(flow.SelectedId);
         Assert.Equal(0, flow.DigitCount);

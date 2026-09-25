@@ -36,7 +36,10 @@ public sealed class TillScreenTests
         BoardAnswer? board = null,
         int cardIndex = 0,
         TillLanguage language = TillLanguage.French,
-        UnconfirmedSale? unconfirmed = null) =>
+        UnconfirmedSale? unconfirmed = null,
+        IReadOnlyList<HeldTicket>? parked = null,
+        IReadOnlyList<HeldTicket>? drafts = null,
+        bool draftsOpen = false) =>
         new(
             TillText.For(language),
             Algiers,
@@ -51,7 +54,10 @@ public sealed class TillScreenTests
             selected,
             board,
             cardIndex,
-            unconfirmed);
+            unconfirmed,
+            parked,
+            drafts,
+            draftsOpen);
 
     private static Cart CartWith(params (string Id, string Price, int Count)[] lines)
     {
@@ -86,7 +92,7 @@ public sealed class TillScreenTests
         // D-070: the invoice number is given when the sale is recorded, gapless. A number shown
         // now would be a promise the server may not keep. And a struck line is not a line.
         var cart = CartWith(("a", "65.00", 1), ("b", "120.00", 1), ("c", "10.00", 1));
-        cart.Remove("c", Now);
+        cart.Remove(cart.LineOf("c"), Now);
 
         var tab = TillScreen.Build(State(cart)).Top.Tab!;
 
@@ -213,7 +219,7 @@ public sealed class TillScreenTests
     {
         var cart = new Cart();
         cart.Add(Product("a", stock: "0"), "613a");
-        cart.Remove("a", Now.AddMinutes(-4));
+        cart.Remove(cart.LineOf("a"), Now.AddMinutes(-4));
 
         var row = Assert.Single(TillScreen.Build(State(cart)).Cart.Lines);
 
@@ -236,13 +242,14 @@ public sealed class TillScreenTests
     public void Only_a_live_line_can_be_selected_and_only_then_are_its_actions_shown()
     {
         var cart = CartWith(("a", "65.00", 4), ("b", "120.00", 1));
-        cart.Remove("b", Now);
+        var struck = cart.LineOf("b");
+        cart.Remove(struck, Now);
 
-        var onLive = TillScreen.Build(State(cart, selected: "a")).Cart;
-        var onStruck = TillScreen.Build(State(cart, selected: "b")).Cart;
+        var onLive = TillScreen.Build(State(cart, selected: cart.LineOf("a"))).Cart;
+        var onStruck = TillScreen.Build(State(cart, selected: struck)).Cart;
 
         Assert.True(onLive.Lines[0].Selected);
-        Assert.Equal(new LineActions("Retirer la ligne", "F8"), onLive.Actions);
+        Assert.Equal(new LineActions(cart.LineOf("a"), 4, "4", true, "Retirer la ligne", "F8"), onLive.Actions);
         Assert.False(onStruck.Lines[1].Selected);
         Assert.Null(onStruck.Actions);
     }
@@ -292,7 +299,7 @@ public sealed class TillScreenTests
     public void Encaisser_is_unavailable_until_the_ticket_holds_a_live_line()
     {
         var removed = CartWith(("a", "65.00", 1));
-        removed.Remove("a", Now);
+        removed.Remove(removed.LineOf("a"), Now);
 
         Assert.False(TillScreen.Build(State()).Bottom.Primary.Enabled);
         Assert.False(TillScreen.Build(State(removed)).Bottom.Primary.Enabled);
@@ -303,7 +310,7 @@ public sealed class TillScreenTests
     public void A_struck_line_is_not_in_the_total()
     {
         var cart = CartWith(("a", "65.00", 1), ("b", "150.00", 1));
-        cart.Remove("b", Now);
+        cart.Remove(cart.LineOf("b"), Now);
 
         var bottom = TillScreen.Build(State(cart)).Bottom;
 
@@ -499,7 +506,7 @@ public sealed class TillScreenTests
         var cart = CartWith(("a", "65.00", 2), ("b", "120.00", 11));
         var board = Board(1, NearExpiry("r1"));
 
-        var ringing = State(cart, selected: "a", board: board);
+        var ringing = State(cart, selected: cart.LineOf("a"), board: board);
         Assert.Equal(new FrameChanges(false, false, false, false, false), TillScreen.Compare(TillScreen.Build(ringing), TillScreen.Build(ringing)));
 
         var settled = State(paid: new PaidTicket(Sale, [.. cart.Lines], Now), lastSale: Sale, lastSaleAt: Now);
@@ -556,4 +563,119 @@ public sealed class TillScreenTests
         Assert.Equal("أمين صندوق", screen.Top.Staff!.Role);
         Assert.Equal("260,00\u00A0د.ج", screen.Bottom.BigFigure);
     }
+
+    // ================================================================ more than one ticket (B2, D-087)
+
+    private static HeldTicket Held(string id, DateTimeOffset at, string? by, params (string Id, string Price, int Count)[] lines) =>
+        new(id, CartWith(lines), at, by is null ? null : "staff-" + by, by);
+
+    [Fact]
+    public void A_ticket_on_hold_is_a_tab_with_its_time_on_the_tills_clock_and_its_lines()
+    {
+        var parked = Held("H1", Now.AddMinutes(-27), "Nabil B.", ("a", "65.00", 1), ("b", "120.00", 2), ("c", "10.00", 1));
+
+        var top = TillScreen.Build(State(parked: [parked])).Top;
+
+        Assert.Equal(new ParkedTab("H1", $"Attente {Clock(Now.AddMinutes(-27))}", "3 lignes"), Assert.Single(top.Parked));
+    }
+
+    [Fact]
+    public void Two_frames_with_the_same_tickets_on_hold_redraw_nothing()
+    {
+        // The tabs are a list; compared by reference, the top bar would redraw on every frame and
+        // replace a tab under the cashier's finger (D-084).
+        var parked = Held("H1", Now, null, ("a", "65.00", 1));
+        var drafts = new[] { Held("H2", Now, null, ("b", "65.00", 1)) };
+        var cart = CartWith(("c", "10.00", 1));
+
+        var one = TillScreen.Build(State(cart, parked: [parked], drafts: drafts));
+        var two = TillScreen.Build(State(cart, parked: [parked], drafts: drafts));
+
+        Assert.Equal(new FrameChanges(false, false, false, false, false), TillScreen.Compare(one, two));
+    }
+
+    [Fact]
+    public void The_stepper_shows_the_count_and_stops_at_one()
+    {
+        var cart = CartWith(("a", "65.00", 1), ("b", "120.00", 3));
+
+        var one = TillScreen.Build(State(cart, selected: cart.LineOf("a"))).Cart.Actions!;
+        var three = TillScreen.Build(State(cart, selected: cart.LineOf("b"))).Cart.Actions!;
+
+        Assert.Equal((1, "1", false), (one.Count, one.Quantity, one.MayDecrease));
+        Assert.Equal((3, "3", true), (three.Count, three.Quantity, three.MayDecrease));
+    }
+
+    [Fact]
+    public void Attente_and_annuler_ticket_need_a_line_in_the_sale()
+    {
+        Assert.All(Operations(State()).Where(IsPutAside), key => Assert.False(key.Enabled));
+        Assert.All(Operations(State(CartWith(("a", "65.00", 1)))).Where(IsPutAside), key => Assert.True(key.Enabled));
+    }
+
+    [Fact]
+    public void Nothing_is_put_aside_while_a_sale_is_unconfirmed()
+    {
+        // D-085: the rail is the unconfirmed card then, and the keys are not offered at all.
+        var screen = TillScreen.Build(State(CartWith(("a", "65.00", 1)), unconfirmed: new UnconfirmedSale("timeout", Now)));
+
+        Assert.IsType<Rail.Unconfirmed>(screen.Rail);
+    }
+
+    [Fact]
+    public void Attente_is_f3_and_the_keys_are_in_the_boards_order()
+    {
+        var keys = Operations(State(CartWith(("a", "65.00", 1))));
+
+        Assert.Equal([Operation.Park, Operation.CancelTicket, Operation.Drafts], keys.Select(key => key.Operation));
+        Assert.Equal(("Attente", "F3"), (keys[0].Label, keys[0].Key));
+        Assert.Equal("Annuler ticket", keys[1].Label);
+    }
+
+    [Fact]
+    public void Brouillons_says_how_many_and_opens_only_when_there_are_some()
+    {
+        var none = Operations(State()).Single(key => key.Operation == Operation.Drafts);
+        var two = Operations(State(drafts: [Held("H1", Now, null, ("a", "65.00", 1)), Held("H2", Now, null, ("b", "65.00", 1))]))
+            .Single(key => key.Operation == Operation.Drafts);
+
+        Assert.Equal(("Brouillons", false), (none.Label, none.Enabled));
+        Assert.Equal(("Brouillons (2)", true), (two.Label, two.Enabled));
+    }
+
+    [Fact]
+    public void The_drafts_list_says_who_cancelled_each_ticket_when_and_what_it_held()
+    {
+        var drafts = new[]
+        {
+            Held("H2", Now, "Samia K.", ("a", "65.00", 1), ("b", "120.00", 1)),
+            Held("H1", Now.AddMinutes(-40), null, ("c", "10.00", 1)),
+        };
+
+        var rail = Assert.IsType<Rail.Drafts>(TillScreen.Build(State(drafts: drafts, draftsOpen: true)).Rail);
+
+        Assert.Equal(["H2", "H1"], rail.Rows.Select(row => row.Id));
+        Assert.Equal($"Annulé à {Clock(Now)} · Samia K.", rail.Rows[0].Title);
+        Assert.Equal("2 lignes · 185,00\u00A0DA", rail.Rows[0].Detail);
+        Assert.Equal($"Annulé à {Clock(Now.AddMinutes(-40))}", rail.Rows[1].Title);
+        Assert.Equal(("BROUILLONS", "Reprendre", "Fermer"), (rail.Label, rail.Rows[0].Resume, rail.Close));
+        Assert.Null(rail.Empty);
+    }
+
+    [Fact]
+    public void An_open_drafts_list_with_nothing_in_it_says_so()
+    {
+        var rail = Assert.IsType<Rail.Drafts>(TillScreen.Build(State(draftsOpen: true)).Rail);
+
+        Assert.Empty(rail.Rows);
+        Assert.Equal("Aucun ticket annulé aujourd'hui.", rail.Empty);
+    }
+
+    private static List<OperationKey> Operations(ScreenState state) =>
+        [.. Assert.IsType<Rail.Rest>(TillScreen.Build(state).Rail).Operations];
+
+    private static bool IsPutAside(OperationKey key) => key.Operation is Operation.Park or Operation.CancelTicket;
+
+    private static string Clock(DateTimeOffset moment) => DisplayFigures.Clock(TimeZoneInfo.ConvertTime(moment, Algiers));
 }
+

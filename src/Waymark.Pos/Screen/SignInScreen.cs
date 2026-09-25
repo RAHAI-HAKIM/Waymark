@@ -72,7 +72,10 @@ public sealed record SignInScreen(
                 Tab: null,
                 state.Server.IsReachable ? new Connection(text.Online, Tone.Neutral) : new Connection(text.Offline, Tone.Critical),
                 Staff: null,
-                DisplayFigures.Clock(Local(state, state.Now))),
+                DisplayFigures.Clock(Local(state, state.Now)),
+                // No ticket, so nothing on hold. The same empty array every frame: Same compares
+                // the top bar as a record, and a new list each frame would redraw the pad under a finger.
+                Array.Empty<ParkedTab>()),
             text.WhoOpensTheTill,
             context?.TerminalName,
             people,

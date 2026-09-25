@@ -236,7 +236,7 @@ public sealed class TillSessionTests
         source.Answer("111", Found("111", "milk"));
 
         await session.SubmitAsync("111");
-        session.Remove("milk");
+        session.Remove(session.Cart.LineOf("milk"));
 
         Assert.Equal(2, changes);
     }
@@ -328,7 +328,7 @@ public sealed class TillSessionTests
         await session.SubmitAsync("111");
         clock.Now = Morning.AddMinutes(3);
 
-        session.Remove("milk");
+        session.Remove(session.Cart.LineOf("milk"));
 
         Assert.Equal(Morning.AddMinutes(3), Assert.Single(session.Cart.Lines).RemovedAt);
     }

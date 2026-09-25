@@ -181,6 +181,31 @@ public abstract class TillText
     /// <summary>"2 cartes attendent le responsable": cards above this person's rank, counted, never shown.</summary>
     public abstract string CardsAwaitingManager(int count);
 
+    // ------------------------------------------------------------------ tickets on hold and drafts (B2)
+
+    /// <summary>A parked tab's title: "Attente 14:05".</summary>
+    public abstract string ParkedAt(string clock);
+
+    public abstract string Park { get; }
+
+    public abstract string CancelTicket { get; }
+
+    /// <summary>"Brouillons", or "Brouillons (2)" when some were cancelled today.</summary>
+    public abstract string DraftsKey(int count);
+
+    public abstract string DraftsTitle { get; }
+
+    public abstract string DraftsHint { get; }
+
+    /// <summary>"Annulé à 14:32 · Nabil B.": when, and by whom when somebody was signed in.</summary>
+    public abstract string CancelledAt(string clock, string? by);
+
+    public abstract string ResumeTicket { get; }
+
+    public abstract string Close { get; }
+
+    public abstract string NoDrafts { get; }
+
     // ------------------------------------------------------------------ sign-in (A5)
 
     public abstract string WhoOpensTheTill { get; }
@@ -334,6 +359,17 @@ public abstract class TillText
             ? "1 carte attend le responsable"
             : $"{DisplayFigures.Count(count)} cartes attendent le responsable";
 
+        public override string ParkedAt(string clock) => $"Attente {clock}";
+        public override string Park => "Attente";
+        public override string CancelTicket => "Annuler ticket";
+        public override string DraftsKey(int count) => count == 0 ? "Brouillons" : $"Brouillons ({DisplayFigures.Count(count)})";
+        public override string DraftsTitle => "BROUILLONS";
+        public override string DraftsHint => "Les tickets annulés aujourd'hui. Ils disparaissent à la fin de la journée.";
+        public override string CancelledAt(string clock, string? by) => by is null ? $"Annulé à {clock}" : $"Annulé à {clock} · {by}";
+        public override string ResumeTicket => "Reprendre";
+        public override string Close => "Fermer";
+        public override string NoDrafts => "Aucun ticket annulé aujourd'hui.";
+
         public override string WhoOpensTheTill => "Qui ouvre la caisse ?";
         public override string ChooseYourName => "Choisissez votre nom";
         public override string PinOf(string name) => $"Code PIN de {name}";
@@ -460,6 +496,18 @@ public abstract class TillText
         public override string NoCardsForYou => "لا توجد بطاقات لك حاليًا."; // ar: à relire
         public override string CardsAwaitingManager(int count) =>
             ArabicCount(count, "بطاقة واحدة", "بطاقتان", "بطاقات", "بطاقة", "بطاقة") + " بانتظار المسؤول";
+
+        // Tickets on hold and drafts (B2). The board has none of these in Arabic.
+        public override string ParkedAt(string clock) => $"انتظار {clock}"; // ar: à relire
+        public override string Park => "انتظار"; // ar: à relire
+        public override string CancelTicket => "إلغاء التذكرة"; // ar: à relire
+        public override string DraftsKey(int count) => count == 0 ? "المسودات" : $"المسودات ({DisplayFigures.Count(count)})"; // ar: à relire
+        public override string DraftsTitle => "المسودات"; // ar: à relire
+        public override string DraftsHint => "التذاكر الملغاة اليوم. تختفي في نهاية اليوم."; // ar: à relire
+        public override string CancelledAt(string clock, string? by) => by is null ? $"أُلغيت على {clock}" : $"أُلغيت على {clock} · {by}"; // ar: à relire
+        public override string ResumeTicket => "استئناف"; // ar: à relire
+        public override string Close => "إغلاق"; // ar: à relire
+        public override string NoDrafts => "لا توجد تذاكر ملغاة اليوم."; // ar: à relire
 
         // Sign-in (A5). No Arabic board shows this screen: every string here is to be read.
         public override string WhoOpensTheTill => "من يفتح الصندوق؟"; // ar: à relire

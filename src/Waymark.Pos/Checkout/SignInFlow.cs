@@ -185,7 +185,7 @@ public sealed class SignInFlow(ITillServer server, TillIdentity till)
                 break;
 
             case { Outcome: SignInOutcomes.SignedIn, SessionToken: { } token }:
-                signedIn = new SignedInStaff(staffId, token);
+                signedIn = new SignedInStaff(staffId, token, Staff?.FirstOrDefault(member => member.StaffId == staffId)?.StaffName);
                 SelectedId = null;
                 Message = null;
                 break;

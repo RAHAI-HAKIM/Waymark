@@ -23,10 +23,13 @@ public enum Tone
 /// <param name="Zone">The till's time zone, for every clock on screen.</param>
 /// <param name="Now">This moment.</param>
 /// <param name="Context">The store, the till and the person selling; null until StoreServer has said.</param>
-/// <param name="SelectedVariantId">The line the cashier touched, if any.</param>
+/// <param name="SelectedLineId">The line the cashier touched, if any.</param>
 /// <param name="Board">The signed-in person's Almanac board; null until fetched, or when there is none to show.</param>
 /// <param name="CardIndex">Which of the board's cards is on screen.</param>
 /// <param name="Unconfirmed">A sale with no usable answer, until the cashier acknowledges it (D-085).</param>
+/// <param name="Parked">Tickets on hold, oldest first (D-087).</param>
+/// <param name="Drafts">Tickets cancelled today, newest first (D-087).</param>
+/// <param name="DraftsOpen">Whether the rail shows the drafts list.</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -38,10 +41,13 @@ public sealed record ScreenState(
     DateTimeOffset? LastSaleAt,
     ServerState Server,
     TillContext? Context,
-    string? SelectedVariantId,
+    string? SelectedLineId,
     BoardAnswer? Board,
     int CardIndex,
-    UnconfirmedSale? Unconfirmed = null);
+    UnconfirmedSale? Unconfirmed = null,
+    IReadOnlyList<HeldTicket>? Parked = null,
+    IReadOnlyList<HeldTicket>? Drafts = null,
+    bool DraftsOpen = false);
 
 /// <summary>
 /// Everything the till shows, decided (session A4, G1). The window draws this and decides
@@ -61,6 +67,9 @@ public sealed record TillScreen(
 
     /// <summary>The key for "Retirer la ligne".</summary>
     public const string RemoveLineKey = "F8";
+
+    /// <summary>The key for "Attente" (G1 board).</summary>
+    public const string ParkKey = "F3";
 
     public static TillScreen Build(ScreenState state)
     {
@@ -99,7 +108,7 @@ public sealed record TillScreen(
         }
 
         return new FrameChanges(
-            Top: drawn.Top != next.Top,
+            Top: !Same(drawn.Top, next.Top),
             Notice: drawn.Notice != next.Notice,
             Cart: !Same(drawn.Cart, next.Cart),
             Rail: !Same(drawn.Rail, next.Rail),
@@ -113,9 +122,14 @@ public sealed record TillScreen(
             pair.First.Chips.SequenceEqual(pair.Second.Chips) && pair.First with { Chips = pair.Second.Chips } == pair.Second)
         && drawn with { Columns = next.Columns, Lines = next.Lines } == next;
 
+    private static bool Same(TopBar drawn, TopBar next) =>
+        drawn.Parked.SequenceEqual(next.Parked) && drawn with { Parked = next.Parked } == next;
+
     private static bool Same(Rail drawn, Rail next) => (drawn, next) switch
     {
         (Rail.Paid a, Rail.Paid b) => a.Figures.SequenceEqual(b.Figures) && a with { Figures = b.Figures } == b,
+        (Rail.Rest a, Rail.Rest b) => a.Operations.SequenceEqual(b.Operations) && a with { Operations = b.Operations } == b,
+        (Rail.Drafts a, Rail.Drafts b) => a.Rows.SequenceEqual(b.Rows) && a with { Rows = b.Rows } == b,
         _ => drawn == next,
     };
 
@@ -143,12 +157,19 @@ public sealed record TillScreen(
             ? new StaffChip(name, RoleLabel(context, text))
             : null;
 
+        // The tickets on hold, as tabs after the one on screen (G1, "Attente 14:05 · 3 lignes").
+        var parked = (state.Parked ?? []).Select(held => new ParkedTab(
+            held.Id,
+            text.ParkedAt(DisplayFigures.Clock(Local(state, held.At))),
+            text.Lines(held.Cart.ActiveLines.Count))).ToList();
+
         return new TopBar(
             context is null ? null : $"{context.StoreName} · {context.TerminalName}",
             tab,
             connection,
             staff,
-            DisplayFigures.Clock(Local(state, state.Now)));
+            DisplayFigures.Clock(Local(state, state.Now)),
+            parked);
     }
 
     private static string RoleLabel(TillContext context, TillText text) => text.Language == TillLanguage.Arabic
@@ -232,9 +253,9 @@ public sealed record TillScreen(
 
         var rows = lines.Select(line =>
         {
-            var selected = !paid && !line.IsRemoved && line.VariantId == state.SelectedVariantId;
+            var selected = !paid && !line.IsRemoved && line.LineId == state.SelectedLineId;
             return new LineRow(
-                line.VariantId,
+                line.LineId,
                 DisplayFigures.Count(line.Count),
                 Article(line),
                 ChipsOf(line, text, state),
@@ -250,7 +271,21 @@ public sealed record TillScreen(
             [text.ColumnQuantity, text.ColumnArticle, text.ColumnUnitPrice, text.ColumnTotal],
             rows,
             empty,
-            rows.Any(row => row.Selected) ? new LineActions(text.RemoveLine, RemoveLineKey) : null);
+            ActionsOf(state, paid));
+    }
+
+    /// <summary>
+    /// What the selected line offers: the − / + stepper and "Retirer la ligne" (G1 board). The −
+    /// stops at one; the last unit goes with "Retirer la ligne", which leaves the line struck.
+    /// </summary>
+    private static LineActions? ActionsOf(ScreenState state, bool paid)
+    {
+        if (paid || state.Cart.ActiveLines.FirstOrDefault(line => line.LineId == state.SelectedLineId) is not { } line)
+        {
+            return null;
+        }
+
+        return new LineActions(line.LineId, line.Count, DisplayFigures.Count(line.Count), line.Count > 1, state.Text.RemoveLine, RemoveLineKey);
     }
 
     /// <summary>
@@ -314,7 +349,52 @@ public sealed record TillScreen(
                 text.NextScanOpensTicket);
         }
 
-        return new Rail.Rest(AlmanacOf(state));
+        if (state.DraftsOpen)
+        {
+            return DraftsOf(state);
+        }
+
+        return new Rail.Rest(OperationsOf(state), AlmanacOf(state));
+    }
+
+    /// <summary>
+    /// The rail's operation keys (G1 board). B2 has three: "Attente" and "Annuler ticket" for a
+    /// ticket with lines, and "Brouillons", available once something was cancelled today. The
+    /// board's other keys arrive with their sessions.
+    /// </summary>
+    private static List<OperationKey> OperationsOf(ScreenState state)
+    {
+        var text = state.Text;
+        var mayPutAside = state.Cart.ActiveLines.Count > 0 && state.Paid is null && state.Unconfirmed is null;
+        var drafts = state.Drafts?.Count ?? 0;
+
+        return
+        [
+            new OperationKey(Operation.Park, text.Park, ParkKey, mayPutAside),
+            new OperationKey(Operation.CancelTicket, text.CancelTicket, null, mayPutAside),
+            new OperationKey(Operation.Drafts, text.DraftsKey(drafts), null, drafts > 0),
+        ];
+    }
+
+    /// <summary>
+    /// The tickets cancelled today, newest first, each with who cancelled it, when, and what it
+    /// held, and "Reprendre" (D-087). Drawn in the rail, like every other panel of the sale screen.
+    /// </summary>
+    private static Rail.Drafts DraftsOf(ScreenState state)
+    {
+        var text = state.Text;
+        var rows = (state.Drafts ?? []).Select(draft =>
+        {
+            var when = DisplayFigures.Clock(Local(state, draft.At));
+            var total = draft.Cart.Total is { } sum ? DisplayFigures.AmountWithCurrency(sum, text) : "—";
+            return new DraftRow(
+                draft.Id,
+                text.CancelledAt(when, draft.ByName),
+                $"{text.Lines(draft.Cart.ActiveLines.Count)} · {total}",
+                text.ResumeTicket);
+        }).ToList();
+
+        return new Rail.Drafts(text.DraftsTitle, text.DraftsHint, rows, rows.Count == 0 ? text.NoDrafts : null, text.Close);
     }
 
     /// <summary>
@@ -487,7 +567,11 @@ public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, b
 }
 
 /// <param name="Tab">The open ticket; null on the sign-in screen, where there is none.</param>
-public sealed record TopBar(string? Place, TicketTab? Tab, Connection Connection, StaffChip? Staff, string Clock);
+/// <param name="Parked">The tickets on hold, oldest first, each a tab that a touch brings back (D-087).</param>
+public sealed record TopBar(string? Place, TicketTab? Tab, Connection Connection, StaffChip? Staff, string Clock, IReadOnlyList<ParkedTab> Parked);
+
+/// <summary>A ticket on hold: "Attente 14:05 · 3 lignes".</summary>
+public sealed record ParkedTab(string Id, string Title, string Detail);
 
 /// <summary>"Ticket en cours · 14 lignes". No number until the sale is recorded (D-070).</summary>
 public sealed record TicketTab(string Title, string Detail);
@@ -508,7 +592,7 @@ public sealed record CartView(
 /// <param name="Struck">Taken out before payment: drawn struck through, never counted.</param>
 /// <param name="Selected">Touched by the cashier; its actions open beneath it.</param>
 public sealed record LineRow(
-    string VariantId,
+    string LineId,
     string Quantity,
     string Article,
     IReadOnlyList<Chip> Chips,
@@ -521,8 +605,11 @@ public sealed record Chip(Tone Tone, string Label);
 
 public sealed record EmptyState(string Title, string Hint);
 
-/// <summary>What the selected line offers. A4 has "Retirer la ligne"; B2, B4, B5 add theirs.</summary>
-public sealed record LineActions(string Remove, string RemoveKey);
+/// <summary>What the selected line offers. B2 has the stepper and "Retirer la ligne"; B4 and B5 add theirs.</summary>
+/// <param name="Count">The line's count, which − and + change by one.</param>
+/// <param name="Quantity">The same count, as the stepper shows it.</param>
+/// <param name="MayDecrease">False at one: the last unit goes with "Retirer la ligne".</param>
+public sealed record LineActions(string LineId, int Count, string Quantity, bool MayDecrease, string Remove, string RemoveKey);
 
 public sealed record Figure(string Label, string Value);
 
@@ -538,8 +625,12 @@ public abstract record Rail
     {
     }
 
-    /// <summary>At rest: the space the B-block parts will fill, and the Almanac slot at its foot.</summary>
-    public sealed record Rest(AlmanacSlot? Almanac) : Rail;
+    /// <summary>At rest: the operation keys, room for the B-block parts, and the Almanac slot at its foot.</summary>
+    public sealed record Rest(IReadOnlyList<OperationKey> Operations, AlmanacSlot? Almanac) : Rail;
+
+    /// <summary>The tickets cancelled today (D-087).</summary>
+    /// <param name="Empty">What to say when there are none; null when there are.</param>
+    public sealed record Drafts(string Label, string Hint, IReadOnlyList<DraftRow> Rows, string? Empty, string Close) : Rail;
 
     /// <summary>A sale just recorded: what it came to and what the drawer takes.</summary>
     public sealed record Paid(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer) : Rail;
@@ -548,6 +639,20 @@ public abstract record Rail
     /// <param name="Acknowledge">The one way on: the cashier has checked (D-085).</param>
     public sealed record Unconfirmed(string Label, string Title, string Body, string Detail, string Acknowledge) : Rail;
 }
+
+/// <summary>The rail's operations. B2 has these three; later sessions add theirs.</summary>
+public enum Operation
+{
+    Park,
+    CancelTicket,
+    Drafts,
+}
+
+/// <summary>An operation key in the rail: its label, its F key when it has one, and whether it is available now.</summary>
+public sealed record OperationKey(Operation Operation, string Label, string? Key, bool Enabled);
+
+/// <summary>A cancelled ticket in the drafts list: "Annulé à 14:32 · Nabil B.", "3 lignes · 1 240,00 DA", Reprendre.</summary>
+public sealed record DraftRow(string Id, string Title, string Detail, string Resume);
 
 public abstract record AlmanacSlot
 {

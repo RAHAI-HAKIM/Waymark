@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -16,7 +17,12 @@ public sealed record TillActions(
     Action<string, string> Accept,
     Action<string> Dismiss,
     Action NextCard,
-    Action AcknowledgeUnconfirmed);
+    Action AcknowledgeUnconfirmed,
+    Action<string, int> SetCount,
+    Action<Operation> Operate,
+    Action<string> ResumeParked,
+    Action<string> ResumeDraft,
+    Action CloseDrafts);
 
 /// <summary>
 /// The G1 regions, each drawn from its part of <see cref="TillScreen"/> and nothing else (kit §5).
@@ -28,7 +34,8 @@ public static partial class TillViews
     // ================================================================ top bar
 
     /// <param name="switchCashier">What touching the staff chip does ("Changer de caissier", A5); null draws it inert.</param>
-    public static Control TopBar(TopBar top, TillTheme theme, Action? switchCashier = null)
+    /// <param name="resumeParked">What touching a ticket on hold does (B2); null draws the tabs inert.</param>
+    public static Control TopBar(TopBar top, TillTheme theme, Action? switchCashier = null, Action<string>? resumeParked = null)
     {
         var start = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
         start.Children.Add(Words("Waymark", 16, FontWeight.SemiBold, theme.BarText, theme));
@@ -93,14 +100,52 @@ public static partial class TillViews
         end.Children.Add(Words("·", 14, FontWeight.Normal, theme.BarLabel, theme));
         end.Children.Add(TillTheme.Figure(top.Clock, 14, theme.BarText, FontWeight.Medium));
 
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto"), Margin = new Thickness(TillSizes.Margin, 0) };
-        grid.Children.Add(Cell(start, 0));
+        // The ticket on screen, then the tickets on hold, on the bar itself (G1 board): a touch brings
+        // one back, and the ticket on screen, if it has lines, goes on hold in its place.
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         if (tab is not null)
         {
-            grid.Children.Add(Cell(tab, 1));
+            tabs.Children.Add(tab);
         }
 
-        grid.Children.Add(Cell(end, 3));
+        foreach (var parked in top.Parked)
+        {
+            var face = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    Words(parked.Title, 14, FontWeight.SemiBold, theme.BarText, theme),
+                    theme.Prose(parked.Detail, 12, theme.BarLabel),
+                },
+            };
+            var id = parked.Id;
+            tabs.Children.Add(new TillKey(theme, KeyLook.Ghost, face, resumeParked is null ? null : () => resumeParked(id), available: true, height: 44)
+            {
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(8, 0, 0, 2),
+                Tag = parked,
+            });
+        }
+
+        // The tabs take what the bar has left between the store's name and the clock, and scroll
+        // sideways when there are more than fit: a ticket on hold is never cut off the bar, and
+        // the clock and the staff chip are never pushed off it. No scroll bar: Fluent draws it in
+        // its own grey; the tab cut at the edge says there is more, and a swipe or the wheel shows it.
+        var tabStrip = new ScrollViewer
+        {
+            Content = tabs,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Margin = new Thickness(0, 0, 12, 0),
+        };
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(TillSizes.Margin, 0) };
+        grid.Children.Add(Cell(start, 0));
+        grid.Children.Add(Cell(tabStrip, 1));
+        grid.Children.Add(Cell(end, 2));
 
         return new Border { Background = theme.Bar, Height = TillSizes.TopBar, Child = grid };
     }
@@ -261,15 +306,38 @@ public static partial class TillViews
         if (!line.Struck)
         {
             row.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
-            row.Tapped += (_, _) => actions.SelectLine(line.VariantId);
+            row.Tapped += (_, _) => actions.SelectLine(line.LineId);
         }
 
         return row;
     }
 
-    /// <summary>The selected line's actions, opened beneath it; the other lines stay put (kit §6).</summary>
+    /// <summary>
+    /// The selected line's actions, opened beneath it; the other lines stay put (kit §6). The
+    /// stepper first, as the board draws it: − stops at one, and the last unit goes with
+    /// "Retirer la ligne".
+    /// </summary>
     private static Border LineActionBar(LineActions lineActions, TillTheme theme, TillActions actions)
     {
+        var id = lineActions.LineId;
+        var count = lineActions.Count;
+        var minusInk = lineActions.MayDecrease ? theme.Text : theme.DisabledLabel;
+        var stepper = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            // − then +, left to right in Arabic too: a count goes up to the right on every till.
+            FlowDirection = FlowDirection.LeftToRight,
+            Children =
+            {
+                new TillKey(theme, KeyLook.Secondary, Centred(TillTheme.Icon(LucideIcons.Minus, minusInk, 18)), () => actions.SetCount(id, count - 1), lineActions.MayDecrease, TillSizes.LineKey)
+                { Width = 48 },
+                QuantityField(lineActions, theme),
+                new TillKey(theme, KeyLook.Secondary, Centred(TillTheme.Icon(LucideIcons.Plus, theme.Text, 18)), () => actions.SetCount(id, count + 1), height: TillSizes.LineKey)
+                { Width = 48 },
+            },
+        };
+
         var remove = new TillKey(
             theme,
             KeyLook.Secondary,
@@ -282,18 +350,72 @@ public static partial class TillViews
                 },
                 lineActions.RemoveKey,
                 theme.TextMuted),
-            actions.RemoveSelected)
+            actions.RemoveSelected,
+            height: TillSizes.LineKey)
         { HorizontalAlignment = HorizontalAlignment.Right };
+
+        var bar = new DockPanel();
+        bar.Children.Add(Docked(stepper, Dock.Left));
+        bar.Children.Add(remove);
 
         return new Border
         {
             Background = theme.Tile,
-            Padding = new Thickness(12, 4, 12, 8),
+            Padding = new Thickness(12, 2, 12, 4),
             BorderBrush = theme.BorderSubtle,
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Child = remove,
+            Child = bar,
             Tag = lineActions,
         };
+    }
+
+    /// <summary>
+    /// The count between − and +, which takes a number typed on the keyboard (Hakim, 25/09): touched,
+    /// it selects its text so the typing replaces it, and Entrée confirms (the window reads it through
+    /// <see cref="QuantityEntry"/>). Its <c>Tag</c> is the line's <see cref="LineActions"/>, which is
+    /// how the window knows which line Entrée is for. No clipboard menu, as the search field (F-26).
+    /// </summary>
+    private static TextBox QuantityField(LineActions lineActions, TillTheme theme)
+    {
+        var field = new TextBox
+        {
+            Text = lineActions.Quantity,
+            Width = 72,
+            Height = TillSizes.LineKey,
+            Margin = new Thickness(0, 2),
+            MinHeight = 0,
+            Padding = new Thickness(4, 0),
+            FontFamily = TillTheme.Mono(FontWeight.Medium),
+            FontSize = 17,
+            Foreground = theme.Text,
+            CaretBrush = theme.Text,
+            SelectionBrush = theme.Action,
+            SelectionForegroundBrush = theme.ActionLabel,
+            Background = theme.Card,
+            BorderBrush = theme.Border,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.KeyRadius),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            ContextFlyout = null,
+            ContextMenu = null,
+            Tag = lineActions,
+        };
+
+        // Fluent repaints a field's ground and edge on hover and focus with its own colours: these
+        // keep the palette's, and the focused edge is the focus ring, as on every key.
+        foreach (var key in new[] { "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused" })
+        {
+            field.Resources[key] = theme.Card;
+        }
+
+        field.Resources["TextControlBorderBrush"] = theme.Border;
+        field.Resources["TextControlBorderBrushPointerOver"] = theme.Border;
+        field.Resources["TextControlBorderBrushFocused"] = theme.FocusRing;
+        // After the press that focused it: the press itself puts the caret where the finger landed,
+        // which undid a selection made on focus, and "240" typed onto "1" gave 2401.
+        field.GotFocus += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(field.SelectAll);
+        return field;
     }
 
     private static Border Chip(Chip chip, TillTheme theme)
@@ -318,16 +440,26 @@ public static partial class TillViews
         Screen.Rail.Paid paid => PaidPanel(paid, theme),
         Screen.Rail.Unconfirmed unconfirmed => UnconfirmedCard(unconfirmed, theme, actions),
         Screen.Rail.Rest rest => RestRail(rest, theme, actions),
+        Screen.Rail.Drafts drafts => DraftsPanel(drafts, theme, actions),
         _ => new Border(),
     };
 
     /// <summary>
-    /// At rest the rail keeps its space for the parts B1–B10 will add (G1, 23/09) and holds the
-    /// Almanac slot at its foot, the only cyan on the screen (kit §7).
+    /// At rest the rail has its operation keys at the top, three to a row as the G1 board sets them,
+    /// keeps its space for the parts B1–B10 will add, and holds the Almanac slot at its foot, the
+    /// only cyan on the screen (kit §7).
     /// </summary>
     private static DockPanel RestRail(Rail.Rest rest, TillTheme theme, TillActions actions)
     {
         var dock = new DockPanel { LastChildFill = true };
+
+        var keys = new UniformGrid { Columns = 3, Margin = new Thickness(-2, -2, -2, 12) };
+        foreach (var operation in rest.Operations)
+        {
+            keys.Children.Add(OperationTile(operation, theme, actions));
+        }
+
+        dock.Children.Add(Docked(keys, Dock.Top));
         if (rest.Almanac is { } slot)
         {
             dock.Children.Add(Docked(Almanac(slot, theme, actions), Dock.Bottom));
@@ -335,6 +467,92 @@ public static partial class TillViews
 
         dock.Children.Add(new Border());
         return dock;
+    }
+
+    /// <summary>An operation key: its icon, its word, its F key in the corner (G1 board). Unavailable is its own look.</summary>
+    private static TillKey OperationTile(OperationKey operation, TillTheme theme, TillActions actions)
+    {
+        var ink = operation.Enabled ? theme.Text : theme.DisabledLabel;
+        var icon = operation.Operation switch
+        {
+            Operation.Park => LucideIcons.Pause,
+            Operation.CancelTicket => LucideIcons.Ban,
+            _ => LucideIcons.Archive,
+        };
+
+        var face = new StackPanel
+        {
+            Spacing = 2,
+            Margin = new Thickness(0, 8),
+            Children =
+            {
+                Start(TillTheme.Icon(icon, ink, 18)),
+                Words(operation.Label, 14, FontWeight.SemiBold, ink, theme),
+            },
+        };
+
+        var kind = operation.Operation;
+        return new TillKey(theme, KeyLook.Pad, TillKey.Labelled(face, operation.Key, theme.TextMuted), () => actions.Operate(kind), operation.Enabled, height: 64)
+        {
+            Tag = operation,
+        };
+    }
+
+    /// <summary>
+    /// The tickets cancelled today (D-087): a card in the rail, like the paid ticket's, each ticket
+    /// with who cancelled it and when, what it held, and "Reprendre". "Fermer" gives the rail back.
+    /// </summary>
+    private static Border DraftsPanel(Rail.Drafts drafts, TillTheme theme, TillActions actions)
+    {
+        var list = new StackPanel();
+        foreach (var draft in drafts.Rows)
+        {
+            var id = draft.Id;
+            var words = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    Words(draft.Title, 15, FontWeight.SemiBold, theme.Text, theme),
+                    theme.Prose(draft.Detail, 13, theme.TextSecondary),
+                },
+            };
+            var row = new DockPanel { Margin = new Thickness(0, 8) };
+            row.Children.Add(Docked(
+                new TillKey(theme, KeyLook.Secondary, theme.Body(draft.Resume, theme.Text, FontWeight.SemiBold), () => actions.ResumeDraft(id))
+                { VerticalAlignment = VerticalAlignment.Center },
+                Dock.Right));
+            row.Children.Add(words);
+            list.Children.Add(new Border
+            {
+                BorderBrush = theme.BorderSubtle,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = row,
+                Tag = draft,
+            });
+        }
+
+        if (drafts.Empty is { } empty)
+        {
+            list.Children.Add(Wrapped(theme.BodySmall(empty, theme.TextSecondary)));
+        }
+
+        var head = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+        head.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(drafts.Close, theme.TextSecondary), actions.CloseDrafts), Dock.Right));
+        head.Children.Add(new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Spacing = 4,
+            Children = { theme.Label(drafts.Label, theme.TextSecondary), Wrapped(theme.BodySmall(drafts.Hint, theme.TextSecondary)) },
+        });
+
+        var body = new DockPanel();
+        body.Children.Add(Docked(head, Dock.Top));
+        body.Children.Add(new ScrollViewer { Content = list });
+
+        var card = Card(theme, null, body);
+        card.VerticalAlignment = VerticalAlignment.Stretch;
+        return card;
     }
 
     private static Border PaidPanel(Rail.Paid paid, TillTheme theme)

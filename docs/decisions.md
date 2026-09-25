@@ -722,6 +722,30 @@ which ran the same checks by hand, is removed. A defect found in the window gets
 DPI are looked at on the till. **Rejected:** a new test project; keeping the harness beside the tests,
 two copies of the same checks.
 
+### D-087 — A line is named by its own id; tickets on hold and cancelled tickets live in the till's memory (session B2)
+**A cart line has an id of its own**, local to its ticket and never sent: the server reads codes and
+counts (D-070). Two lines can hold one product (one struck and one not; from B3, a weighed or
+discounted one beside a plain one), so a touch, a removal or a count names the line, never the
+product. **A repeat scan adds to the product's latest line only if that line is plain**
+(`Cart.TakesAnotherScan`): today, not struck; B3, B4 and B5 add "not weighed, no discount, no
+override", so a scan never inherits a weight, a discount or a price nobody decided (Hakim, 25/09).
+**The − / + under a selected line stops at one**: the last unit goes with "Retirer la ligne", which
+leaves the line struck. **The count between them takes a number typed on the keyboard** (Hakim,
+25/09): Entrée confirms, anything but 1 to 9 999 in the digits 0 to 9 is refused and the count
+stays (`QuantityEntry`), and the search field takes the scanner's focus back. **"Attente" (F3) puts the ticket on hold** as a tab in the top bar;
+**"Annuler ticket" puts it in "Brouillons"**, the drafts, with who and when, and sends nothing. Both
+**belong to the till, in memory** (Hakim, 25/09): closing the till loses them, any cashier may take
+one up, and a draft is gone when the till's date changes, in the till's time zone. Resuming a ticket
+puts the one on screen, if it has lines, on hold in its place, so nothing is lost by resuming.
+**"Changer de caissier" no longer refuses a ticket with lines: it puts it on hold.** Nothing is put
+aside or resumed while a sale is unconfirmed (D-085). **Cancelling leaves no record yet**: a
+cancelled ticket with nothing written is the classic hole for till fraud, and what it leaves behind
+is **B8**'s (Hakim, 25/09); the G1 board's manager PIN for "Annuler ticket" comes with it. **Opening an
+old paid ticket** in the ticket view is **B1**, with the search field (Hakim, 25/09: not tied to
+refunds). **Rejected:** parked tickets on the server, a table for a moment at the counter; merging
+every repeat scan, which B3 to B5 would break; a stepper that goes to zero, which makes a line vanish
+without the struck trace.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
