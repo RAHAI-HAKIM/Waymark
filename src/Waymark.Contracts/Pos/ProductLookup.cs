@@ -130,4 +130,7 @@ public static class NotSellableReason
 
     /// <summary>Sold by weight: scales and weight-embedded codes are Phase 1.</summary>
     public const string Weighted = "weighted";
+
+    /// <summary>Neither a barcode nor a PLU: a sale sends codes, so a search cannot sell it (B1).</summary>
+    public const string NoCode = "no_code";
 }

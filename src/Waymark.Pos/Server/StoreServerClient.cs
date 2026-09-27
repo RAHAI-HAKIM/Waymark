@@ -134,6 +134,31 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         }
     }
 
+    /// <summary>Products by name (B1, D-088). Null when the server could not say, never an empty list for an outage.</summary>
+    public async Task<ProductSearchAnswer?> SearchAsync(string query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var answer = await GetAsync<ProductSearchAnswer>($"api/products/search?q={Uri.EscapeDataString(query)}", cancellationToken);
+        return answer?.Results is null ? null : answer;
+    }
+
+    /// <summary>The finished sales of one store day (B1). Null when the server could not say.</summary>
+    /// <param name="allTills">Every till of the store rather than this one: rank 2 (D-088).</param>
+    public async Task<TicketList?> TicketsAsync(DateOnly day, bool allTills, string sessionToken, CancellationToken cancellationToken = default)
+    {
+        var path = $"api/tickets?day={day:yyyy-MM-dd}" + (allTills ? "&all=true" : string.Empty);
+        var list = await GetWithSessionAsync<TicketList>(path, sessionToken, cancellationToken);
+        return list?.Tickets is null ? null : list;
+    }
+
+    /// <summary>One past ticket by its id or number (B1). Null when the server could not say.</summary>
+    public async Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(idOrNumber);
+        var answer = await GetWithSessionAsync<TicketAnswer>($"api/tickets/one?ticket={Uri.EscapeDataString(idOrNumber)}", sessionToken, cancellationToken);
+        return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Ticket is null) ? null : answer;
+    }
+
     /// <summary>Who may open this till (A5). Null when the server could not say.</summary>
     public async Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default)
     {
@@ -242,6 +267,24 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         }
     }
 
+    private async Task<T?> GetWithSessionAsync<T>(string path, string sessionToken, CancellationToken cancellationToken)
+        where T : class
+    {
+        try
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Get, new Uri(path, UriKind.Relative));
+            message.Headers.Add(TillSessionHeader.Name, sessionToken);
+            using var response = await http.SendAsync(message, cancellationToken);
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<T>(cancellationToken)
+                : null;
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
+            return null;
+        }
+    }
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken cancellationToken)
         where T : class
     {
@@ -293,6 +336,12 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
 /// </summary>
 public interface ITillServer
 {
+    Task<ProductSearchAnswer?> SearchAsync(string query, CancellationToken cancellationToken = default);
+
+    Task<TicketList?> TicketsAsync(DateOnly day, bool allTills, string sessionToken, CancellationToken cancellationToken = default);
+
+    Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default);
+
     Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default);
 
     Task<SignInAnswer?> SignInAsync(SignInRequest request, CancellationToken cancellationToken = default);

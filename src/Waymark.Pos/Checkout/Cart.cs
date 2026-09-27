@@ -56,8 +56,10 @@ public sealed class Cart
     /// </summary>
     /// <exception cref="FormatException">A figure on the wire cannot be read exactly.</exception>
     /// <exception cref="InvalidOperationException">The product is priced in another currency than the cart.</exception>
-    public CartLine Add(WireProduct product, string barcode)
+    /// <param name="units">How many units this scan or touch adds: 1, or the "QTÉ × n" typed before it (B1).</param>
+    public CartLine Add(WireProduct product, string barcode, int units = 1)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(units, 1);
         ArgumentNullException.ThrowIfNull(product);
         ArgumentException.ThrowIfNullOrWhiteSpace(barcode);
 
@@ -82,11 +84,11 @@ public sealed class Cart
         var line = index < 0
             ? new CartLine(
                 NextLineId(), product.VariantId, barcode, product.ProductName, product.VariantName,
-                product.SellingUnitCode, price, 1, stock, product.IsPromotionalPrice)
+                product.SellingUnitCode, price, units, stock, product.IsPromotionalPrice)
             : _lines[index] with
             {
                 UnitPrice = price,
-                Count = _lines[index].Count + 1,
+                Count = _lines[index].Count + units,
                 StockOnHand = stock,
 
                 // Taken from this answer like the price and the level: a

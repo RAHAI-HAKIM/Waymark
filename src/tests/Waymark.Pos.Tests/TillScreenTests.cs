@@ -627,7 +627,7 @@ public sealed class TillScreenTests
     {
         var keys = Operations(State(CartWith(("a", "65.00", 1))));
 
-        Assert.Equal([Operation.Park, Operation.CancelTicket, Operation.Drafts], keys.Select(key => key.Operation));
+        Assert.Equal([Operation.Park, Operation.CancelTicket, Operation.Drafts, Operation.Tickets], keys.Select(key => key.Operation));
         Assert.Equal(("Attente", "F3"), (keys[0].Label, keys[0].Key));
         Assert.Equal("Annuler ticket", keys[1].Label);
     }

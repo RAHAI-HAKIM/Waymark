@@ -140,6 +140,7 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.True(before > 0);
 
         var barcode = SellableBarcodeIn(source);
+        var word = FirstWordOfNameIn(source, barcode);
         var (terminal, staff) = TillOf(source);
         var first = Run(
             address =>
@@ -167,6 +168,7 @@ public sealed class StoreServerStartupTests : IDisposable
             address =>
             {
                 AssertHealthy(address);
+                AssertSearch(address, word, barcode);
                 AssertSignInAndSale(address, barcode, terminal, staff);
             },
             store);
@@ -361,7 +363,8 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.Equal("signed_in", right.GetProperty("outcome").GetString());
         var token = right.GetProperty("session_token").GetString()!;
 
-        AssertSale(client, barcode, terminal, token);
+        var invoice = AssertSale(client, barcode, terminal, token);
+        AssertTickets(client, token, invoice);
 
         // The token is this till's: at another till's id it sells nothing.
         Assert.Equal("not_signed_in", Sell(client, "no-such-till", barcode, token).GetProperty("outcome").GetString());
@@ -412,14 +415,74 @@ public sealed class StoreServerStartupTests : IDisposable
     /// only proven by a sale that goes through it and comes back completed, then an unknown code
     /// that comes back refused rather than as an error. Sold by the session's person (A5).
     /// </summary>
-    private static void AssertSale(HttpClient client, string barcode, string terminal, string token)
+    private static string AssertSale(HttpClient client, string barcode, string terminal, string token)
     {
         var sold = Sell(client, terminal, barcode, token, count: 2);
         Assert.Equal("completed", sold.GetProperty("outcome").GetString());
         // The generated store's invoices are all from an earlier year: this year starts at 1.
-        Assert.EndsWith("-000001", sold.GetProperty("invoice_number").GetString(), StringComparison.Ordinal);
+        var invoice = sold.GetProperty("invoice_number").GetString()!;
+        Assert.EndsWith("-000001", invoice, StringComparison.Ordinal);
 
         Assert.Equal("refused", Sell(client, terminal, "0000000000000", token).GetProperty("outcome").GetString());
+        return invoice;
+    }
+
+    /// <summary>
+    /// B1 on the real process (D-088): the product just sold, found by the first word of its name,
+    /// with its code, as a scan of it would answer. The word comes from the generated store itself,
+    /// whatever kind of shop the generator made.
+    /// </summary>
+    private static void AssertSearch(Uri address, string word, string barcode)
+    {
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(10) };
+        using var found = JsonDocument.Parse(Get(client, $"/api/products/search?q={Uri.EscapeDataString(word)}"));
+        var results = found.RootElement.GetProperty("results");
+        Assert.True(results.GetArrayLength() is > 0 and <= 20, $"A search for \"{word}\" found nothing, or more than twenty.");
+        Assert.Contains(barcode, results.EnumerateArray().Select(result => result.GetProperty("code").GetString()));
+
+        using var tooShort = JsonDocument.Parse(Get(client, "/api/products/search?q=l"));
+        Assert.Equal(0, tooShort.RootElement.GetProperty("results").GetArrayLength());
+    }
+
+    /// <summary>The first word of the product name behind a barcode, in a generated (plaintext) store.</summary>
+    private static string FirstWordOfNameIn(string path, string barcode)
+    {
+        using var context = new WaymarkDbContext(
+            new DbContextOptionsBuilder<WaymarkDbContext>().UseWaymarkSqlite(path, keyProvider: null).Options,
+            new FixedCurrentStore(null),
+            new FixedLedgerCurrency(Currency.Dzd));
+        var name = context.Variants.Where(v => v.Barcode == barcode)
+            .Join(context.Products, v => v.ProductId, p => p.ProductId, (v, p) => p.ProductName)
+            .Single();
+        return name.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+    }
+
+    /// <summary>
+    /// B1 on the real process (D-088, ✍ Hakim's reader): the sale just made is in today's list at its
+    /// till, opens by its number, and nothing is listed without a session.
+    /// </summary>
+    private static void AssertTickets(HttpClient client, string token, string invoice)
+    {
+        using var list = JsonDocument.Parse(GetWithSession(client, "/api/tickets", token));
+        Assert.Equal("answered", list.RootElement.GetProperty("outcome").GetString());
+        Assert.Contains(invoice, list.RootElement.GetProperty("tickets").EnumerateArray().Select(ticket => ticket.GetProperty("invoice_number").GetString()));
+
+        using var one = JsonDocument.Parse(GetWithSession(client, $"/api/tickets/one?ticket={invoice}", token));
+        Assert.Equal("found", one.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal(1, one.RootElement.GetProperty("ticket").GetProperty("lines").GetArrayLength());
+
+        using var anonymous = JsonDocument.Parse(Get(client, "/api/tickets"));
+        Assert.Equal("not_signed_in", anonymous.RootElement.GetProperty("outcome").GetString());
+    }
+
+    private static string GetWithSession(HttpClient client, string path, string token)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(path, UriKind.Relative));
+        request.Headers.Add("X-Waymark-Session", token);
+        using var response = client.SendAsync(request).GetAwaiter().GetResult();
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"{path} failed ({response.StatusCode}): {body}");
+        return body;
     }
 
     /// <summary>

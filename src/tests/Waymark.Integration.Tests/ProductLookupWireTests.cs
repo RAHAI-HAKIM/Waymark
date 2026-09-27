@@ -117,6 +117,7 @@ public sealed class ProductLookupWireTests
         { DomainReason.PriceNotTaxInclusive, WireReason.PriceNotTaxInclusive },
         { DomainReason.Archived, WireReason.Archived },
         { DomainReason.Weighted, WireReason.Weighted },
+        { DomainReason.NoCode, WireReason.NoCode },
     };
 
     [Theory]

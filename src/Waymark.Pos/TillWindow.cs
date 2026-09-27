@@ -76,6 +76,14 @@ public sealed class TillWindow : Window, IDisposable
     private BoardAnswer? _board;
     private string? _selected;
     private bool _draftsOpen;
+
+    // B1 (D-088): the name search under way, its timer, and the "Tickets" list when open.
+    private static readonly TimeSpan SearchAfter = TimeSpan.FromMilliseconds(250);
+    private readonly Border _fieldChipHost = new();
+    private readonly Border _resultsHost = new() { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top };
+    private ITimer? _searchTimer;
+    private SearchState? _search;
+    private TicketsState? _tickets;
     private int _cardIndex;
     private TillScreen? _screen;
     private SignInScreen? _signInScreen;
@@ -166,6 +174,29 @@ public sealed class TillWindow : Window, IDisposable
             {
                 _draftsOpen = false;
                 Render();
+            },
+            PickResult: PickResult,
+            OpenTicket: id => _ = OpenTicketAsync(id),
+            TicketsDay: delta =>
+            {
+                if (_tickets is { } open)
+                {
+                    _tickets = open with { Day = open.Day.AddDays(delta), List = null, Offline = false };
+                    _ = LoadTicketsAsync();
+                }
+            },
+            TicketsScope: () =>
+            {
+                if (_tickets is { } open)
+                {
+                    _tickets = open with { AllTills = !open.AllTills, List = null, Offline = false };
+                    _ = LoadTicketsAsync();
+                }
+            },
+            CloseTickets: () =>
+            {
+                _tickets = null;
+                Render();
             });
 
         _signInActions = new SignInActions(
@@ -214,8 +245,12 @@ public sealed class TillWindow : Window, IDisposable
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(TillSizes.FieldRadius + 2),
             Height = TillSizes.Key,
-            Child = new DockPanel { Children = { Docked(searchIcon, Dock.Left), _input } },
+            Child = new DockPanel { Children = { Docked(searchIcon, Dock.Left), Docked(_fieldChipHost, Dock.Right), _input } },
         };
+
+        // B1: the field is read as the cashier types (FieldInput), and a name is searched once the
+        // typing pauses, so the server is asked once per word, not once per letter.
+        _input.TextChanged += (_, _) => OnFieldChanged();
         _input.GotFocus += (_, _) => field.BorderBrush = _theme.FocusRing;
         _input.LostFocus += (_, _) => field.BorderBrush = _theme.Border;
 
@@ -241,8 +276,24 @@ public sealed class TillWindow : Window, IDisposable
                 Children =
                 {
                     Docked(strip, Dock.Top),
-                    Docked(_cartHeaderHost, Dock.Top),
-                    new Panel { Children = { _cartScroll, _cartEmptyHost } },
+
+                    // The search's results float over the ticket, under the field (D-088): drawn
+                    // over the lines, never among them, so the ticket underneath does not move.
+                    new Panel
+                    {
+                        Children =
+                        {
+                            new DockPanel
+                            {
+                                Children =
+                                {
+                                    Docked(_cartHeaderHost, Dock.Top),
+                                    new Panel { Children = { _cartScroll, _cartEmptyHost } },
+                                },
+                            },
+                            _resultsHost,
+                        },
+                    },
                 },
             },
         };
@@ -394,7 +445,11 @@ public sealed class TillWindow : Window, IDisposable
             _session.Unconfirmed,
             _session.Parked,
             _session.Drafts,
-            _draftsOpen));
+            _draftsOpen,
+            _search,
+            _session.NextCount,
+            _session.Viewing,
+            _tickets));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
@@ -420,7 +475,21 @@ public sealed class TillWindow : Window, IDisposable
 
         if (changes.Bottom)
         {
-            _bottomHost.Child = TillViews.BottomBar(screen.Bottom, _theme, _actions, _session.Paid is not null);
+            // The big key: Fermer on a past ticket, Nouvelle vente after a sale, Encaisser otherwise.
+            Action primary = _session.Viewing is not null ? _session.CloseView
+                : _session.Paid is not null ? _actions.NewSale
+                : _actions.Collect;
+            _bottomHost.Child = TillViews.BottomBar(screen.Bottom, _theme, primary);
+        }
+
+        if (changes.Field)
+        {
+            _fieldChipHost.Child = TillViews.FieldChip(screen.Field, _theme);
+        }
+
+        if (changes.Results)
+        {
+            _resultsHost.Child = screen.Results is { } results ? TillViews.Results(results, _theme, _actions) : null;
         }
 
         FollowCart();
@@ -642,26 +711,14 @@ public sealed class TillWindow : Window, IDisposable
                 }
                 else if (e.Key == Key.Enter && ReferenceEquals(Focused(), _input))
                 {
-                    var typed = _input.Text ?? string.Empty;
-                    if (typed.Trim().Length == 0 && _session.Paid is not null)
-                    {
-                        // Entrée on an empty field after a sale: "Nouvelle vente" (G1).
-                        _session.StartNewSale();
-                    }
-                    else
-                    {
-                        // A code typed by hand (D-063's open point, hop 1).
-                        Submit(typed);
-                        _input.Text = string.Empty;
-                    }
-
+                    EnterInField();
                     e.Handled = true;
                 }
 
                 break;
 
             case Key.F12:
-                if (_screen?.Bottom.Primary is { Enabled: true } && _session.Paid is null)
+                if (_screen?.Bottom.Primary is { Enabled: true } && _session.Paid is null && _session.Viewing is null)
                 {
                     Pay();
                 }
@@ -680,8 +737,38 @@ public sealed class TillWindow : Window, IDisposable
                 break;
 
             case Key.Escape:
-                _selected = null;
-                _session.Dismiss();
+                // The innermost thing open closes first: a past ticket, the results, the list, then
+                // the selection, the notice and the typed count.
+                _scanner.Flush();
+                if (_session.Viewing is not null)
+                {
+                    _session.CloseView();
+                }
+                else if (_search is not null)
+                {
+                    _input.Text = string.Empty;
+                }
+                else if (_tickets is not null)
+                {
+                    _tickets = null;
+                    Render();
+                }
+                else
+                {
+                    _selected = null;
+                    _session.ResetNextCount();
+                    _session.Dismiss();
+                    Render();
+                }
+
+                e.Handled = true;
+                break;
+
+            case Key.Down or Key.Up when _search?.Answer is { Results.Count: > 0 } found:
+                // The highlight Entrée takes, moved through the results, never out of them.
+                _scanner.Flush();
+                var step = e.Key == Key.Down ? 1 : -1;
+                _search = _search with { Highlighted = Math.Clamp(_search.Highlighted + step, 0, found.Results.Count - 1) };
                 Render();
                 e.Handled = true;
                 break;
@@ -756,6 +843,166 @@ public sealed class TillWindow : Window, IDisposable
 
     // ================================================================== actions
 
+    // ============================================================ B1: the field, the search, the tickets
+
+    /// <summary>
+    /// Entrée in the search field (D-088): what the text is decides what happens (FieldInput). A
+    /// code is looked up as a scan would be; a name takes the highlighted result; a ticket number
+    /// opens that ticket; "3*" sets the next count. An empty field closes a past ticket, or starts
+    /// the next sale after one.
+    /// </summary>
+    private void EnterInField()
+    {
+        var entry = FieldInput.Read(_input.Text);
+        switch (entry.Kind)
+        {
+            case FieldKind.Nothing when _session.Viewing is not null:
+                _session.CloseView();
+                break;
+
+            case FieldKind.Nothing when _session.Paid is not null:
+                _session.StartNewSale();
+                break;
+
+            case FieldKind.Multiplier:
+                _session.SetNextCount(entry.Count);
+                _input.Text = string.Empty;
+                break;
+
+            case FieldKind.Ticket:
+                _input.Text = string.Empty;
+                _ = OpenTicketAsync(entry.Text);
+                break;
+
+            case FieldKind.Name:
+                if (_search?.Answer?.Results.ElementAtOrDefault(_search.Highlighted) is { } highlighted)
+                {
+                    PickResult(highlighted.VariantId);
+                }
+
+                break;
+
+            case FieldKind.Code:
+                // A code typed by hand (D-063's open point, hop 1): a barcode, else a PLU (D-088).
+                Submit(entry.Text);
+                _input.Text = string.Empty;
+                break;
+        }
+    }
+
+    /// <summary>The field changed: a name starts the timer; anything else closes the results.</summary>
+    private void OnFieldChanged()
+    {
+        var entry = FieldInput.Read(_input.Text);
+        _searchTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        if (entry.Kind == FieldKind.Name)
+        {
+            _search = new SearchState(entry.Text, _search?.Query == entry.Text ? _search.Answer : null, false, 0);
+
+            // On the injected clock, as the scanner's silence is (D-063), and back on the UI thread.
+            _searchTimer ??= _clock.CreateTimer(_ => Dispatcher.UIThread.Post(() => _ = SearchAsync()), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _searchTimer.Change(SearchAfter, Timeout.InfiniteTimeSpan);
+        }
+        else
+        {
+            _search = null;
+        }
+
+        Render();
+    }
+
+    /// <summary>
+    /// Asks the server for the name typed. The answer is dropped if the field says something else by
+    /// the time it arrives: an answer to "lai" must not replace the one to "lait".
+    /// </summary>
+    private async Task SearchAsync()
+    {
+        if (_search is not { } asked)
+        {
+            return;
+        }
+
+        var answer = await _server.SearchAsync(asked.Query);
+        if (_search?.Query != asked.Query)
+        {
+            return;
+        }
+
+        _search = asked with { Answer = answer, Offline = answer is null, Highlighted = FirstSellable(answer) };
+        Render();
+    }
+
+    private static int FirstSellable(ProductSearchAnswer? answer)
+    {
+        var index = answer?.Results.ToList().FindIndex(result => result.Outcome == ProductLookupOutcome.Found && result.Code is not null) ?? -1;
+        return Math.Max(index, 0);
+    }
+
+    /// <summary>A result touched, or taken by Entrée: sold as a scan of its code, if it can be. The field clears.</summary>
+    private void PickResult(string variantId)
+    {
+        if (_search?.Answer?.Results.FirstOrDefault(result => result.VariantId == variantId) is not
+            { Outcome: ProductLookupOutcome.Found, Product: { } product, Code: { } code })
+        {
+            return;
+        }
+
+        _input.Text = string.Empty;
+        _ = _session.AddFoundAsync(product, code);
+        _input.Focus();
+    }
+
+    /// <summary>"Tickets": today's sales at this till, first (D-088). The rail's other panel closes.</summary>
+    private async Task LoadTicketsAsync()
+    {
+        Render();
+        if (_tickets is not { } asked || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        var list = await _server.TicketsAsync(asked.Day, asked.AllTills, person.Token);
+        if (_tickets is { } now && now.Day == asked.Day && now.AllTills == asked.AllTills)
+        {
+            _tickets = now with { List = list, Offline = list is null };
+            Render();
+        }
+    }
+
+    /// <summary>One past ticket, by id or number, opened read-only; or the notice saying why not.</summary>
+    private async Task OpenTicketAsync(string idOrNumber)
+    {
+        try
+        {
+            if (_session.SignedIn is not { } person)
+            {
+                return;
+            }
+
+            var answer = await _server.TicketAsync(idOrNumber, person.Token);
+            switch (answer)
+            {
+                case { Outcome: TicketOutcomes.Found, Ticket: { } ticket }:
+                    _selected = null;
+                    _session.View(ticket);
+                    break;
+                case { Outcome: TicketOutcomes.NotAllowed }:
+                    _session.Tell(TillNoticeKind.TicketNotAllowed, idOrNumber, string.Empty);
+                    break;
+                case { Outcome: TicketOutcomes.Unknown }:
+                    _session.Tell(TillNoticeKind.TicketUnknown, idOrNumber, string.Empty);
+                    break;
+                case null:
+                    _session.ReportHealth(reachable: false);
+                    break;
+            }
+        }
+        catch (Exception)
+        {
+            _session.ReportHealth(reachable: false);
+        }
+    }
+
     /// <summary>
     /// The rail's operation keys (B2). Whether one is available is the screen model's to say; the
     /// session refuses on its own too, so a key pressed twice, or F3 pressed at the wrong moment,
@@ -777,7 +1024,14 @@ public sealed class TillWindow : Window, IDisposable
 
             case Operation.Drafts:
                 _draftsOpen = _session.Drafts.Count > 0;
+                _tickets = null;
                 Render();
+                break;
+
+            case Operation.Tickets:
+                _draftsOpen = false;
+                _tickets = new TicketsState(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(_clock.GetUtcNow(), TimeZoneInfo.Local).DateTime), false, null, false);
+                _ = LoadTicketsAsync();
                 break;
         }
     }
@@ -995,5 +1249,6 @@ public sealed class TillWindow : Window, IDisposable
         }
 
         _scanner.Dispose();
+        _searchTimer?.Dispose();
     }
 }

@@ -55,7 +55,11 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
             MigratedDatabaseFixture database,
             VariantStatus status = VariantStatus.Active,
             bool weighted = false,
-            long?[]? categoryRates = null)
+            long?[]? categoryRates = null,
+            string productName = "Lait UHT Candia",
+            string? plu = null,
+            bool withBarcode = true,
+            string? barcode = null)
         {
             _database = database;
             categoryRates ??= [1_900];
@@ -65,7 +69,9 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
             UnitCode = $"pc-{_suffix}";
             ProductId = $"product-{_suffix}";
             VariantId = $"variant-{_suffix}";
-            Barcode = $"2{_suffix}"[..13];
+            Barcode = barcode ?? $"2{_suffix}"[..13];
+            Plu = plu;
+            ProductNameUsed = productName;
 
             using var context = database.NewContext();
             context.Stores.Add(NewStore(StoreId));
@@ -82,7 +88,7 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
             context.Products.Add(new Product
             {
                 ProductId = ProductId,
-                ProductName = "Lait UHT Candia",
+                ProductName = productName,
                 CreatedAt = Moment,
                 UpdatedAt = Moment,
             });
@@ -113,7 +119,8 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
                 VariantId = VariantId,
                 ProductId = ProductId,
                 VariantName = "Brique 1L",
-                Barcode = Barcode,
+                Barcode = withBarcode ? Barcode : null,
+                Plu = plu,
                 SellingUnitCode = UnitCode,
                 IsWeighted = weighted,
                 Status = status,
@@ -135,6 +142,17 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
         public string VariantId { get; }
 
         public string Barcode { get; }
+
+        public string? Plu { get; }
+
+        public string ProductNameUsed { get; private set; } = string.Empty;
+
+        /// <summary>A search as the store asks it, through the store filter.</summary>
+        public Task<IReadOnlyList<ProductSearchHit>> Search(string query)
+        {
+            var context = _database.NewContext(storeId: StoreId);
+            return new ProductLookup(context, new FixedCalendar(Today)).SearchAsync(query);
+        }
 
         private static Store NewStore(string storeId) => new()
         {
@@ -643,4 +661,94 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
             Quantity.FromThousandths(-3 * Quantity.Scale, shop.UnitCode),
             (await shop.Found()).StockOnHand);
     }
+
+    // ================================================================ a code typed, a name searched (B1, D-088)
+
+    /// <summary>A name no other test in this database uses: the search reads the whole catalogue.</summary>
+    private static string Unique(string what) => $"{what} Zq{Guid.NewGuid():N}"[..(what.Length + 12)];
+
+    [Fact]
+    public async Task A_code_that_is_no_barcode_is_tried_as_a_plu()
+    {
+        var plu = $"4{Guid.NewGuid():N}"[..9];
+        var shop = new Shop(database, plu: plu).Price(LastMonth, 18_000);
+
+        var found = Assert.IsType<ProductLookupResult.Found>(await shop.Lookup(plu));
+
+        Assert.Equal(shop.VariantId, found.Product.VariantId);
+    }
+
+    [Fact]
+    public async Task A_barcode_is_asked_before_a_plu_that_reads_the_same()
+    {
+        // A scan is a barcode (D-088): a PLU that happens to equal it must not take the scan.
+        var code = $"5{Guid.NewGuid():N}"[..9];
+        var byBarcode = new Shop(database, barcode: code).Price(LastMonth, 10_000);
+        var byPlu = new Shop(database, plu: code).Price(LastMonth, 20_000);
+
+        var found = Assert.IsType<ProductLookupResult.Found>(await byBarcode.Lookup(code));
+
+        Assert.Equal(byBarcode.VariantId, found.Product.VariantId);
+        Assert.NotEqual(byPlu.VariantId, found.Product.VariantId);
+    }
+
+    [Fact]
+    public async Task A_search_answers_each_product_as_a_scan_of_it_would()
+    {
+        var name = Unique("Fromage");
+        var shop = new Shop(database, productName: name).Price(LastMonth, 35_000).Stock(4);
+
+        var hit = Assert.Single(await shop.Search(name.ToUpperInvariant()));
+
+        var found = Assert.IsType<ProductLookupResult.Found>(hit.Result);
+        Assert.Equal((shop.Barcode, Dzd(35_000)), (hit.Code, found.Product.PriceTtc));
+        Assert.Equal(4 * Quantity.Scale, found.Product.StockOnHand.Thousandths);
+    }
+
+    [Fact]
+    public async Task An_unsellable_product_is_listed_with_its_reason()
+    {
+        var name = Unique("Beurre");
+        var shop = new Shop(database, productName: name);
+
+        var hit = Assert.Single(await shop.Search(name));
+
+        Assert.Equal(NotSellableReason.NoCurrentPrice, Assert.IsType<ProductLookupResult.NotSellable>(hit.Result).Reason);
+    }
+
+    [Fact]
+    public async Task Another_stores_price_does_not_sell_a_search_result_here()
+    {
+        var name = Unique("Yaourt");
+        var shop = new Shop(database, productName: name);
+        shop.Price(LastMonth, 5_000, storeId: shop.OtherStoreId);
+
+        var hit = Assert.Single(await shop.Search(name));
+
+        Assert.Equal(NotSellableReason.NoCurrentPrice, Assert.IsType<ProductLookupResult.NotSellable>(hit.Result).Reason);
+    }
+
+    [Fact]
+    public async Task A_product_with_no_barcode_sells_by_its_plu_and_one_with_neither_not_at_all()
+    {
+        var withPlu = new Shop(database, productName: Unique("Tomate"), plu: $"6{Guid.NewGuid():N}"[..9], withBarcode: false).Price(LastMonth, 18_000);
+        var withNone = new Shop(database, productName: Unique("Tomate"), withBarcode: false).Price(LastMonth, 18_000);
+
+        var sellable = Assert.Single(await withPlu.Search(withPlu.ProductNameUsed));
+        var codeless = Assert.Single(await withNone.Search(withNone.ProductNameUsed));
+
+        Assert.Equal(withPlu.Plu, sellable.Code);
+        Assert.IsType<ProductLookupResult.Found>(sellable.Result);
+        Assert.Null(codeless.Code);
+        Assert.Equal(NotSellableReason.NoCode, Assert.IsType<ProductLookupResult.NotSellable>(codeless.Result).Reason);
+    }
+
+    [Fact]
+    public async Task A_query_that_answers_nothing_finds_nothing()
+    {
+        var shop = new Shop(database, productName: Unique("Sucre"));
+
+        Assert.Empty(await shop.Search($"introuvable{Guid.NewGuid():N}"));
+    }
 }
+

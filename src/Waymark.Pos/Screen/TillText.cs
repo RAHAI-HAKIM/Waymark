@@ -206,6 +206,64 @@ public abstract class TillText
 
     public abstract string NoDrafts { get; }
 
+    // ------------------------------------------------------------------ search and past tickets (B1)
+
+    /// <summary>The field's chip: "QTÉ × 3".</summary>
+    public abstract string NextCount(string count);
+
+    /// <summary>"stock 12".</summary>
+    public abstract string Stock(string quantity);
+
+    public abstract string Searching { get; }
+
+    public abstract string SearchOffline { get; }
+
+    /// <summary>"Aucun article ne répond à « lait x »".</summary>
+    public abstract string NoResults(string query);
+
+    public abstract string TicketsKey { get; }
+
+    public abstract string TicketsTitle { get; }
+
+    /// <summary>"Aujourd'hui · 25/09".</summary>
+    public abstract string TodayLabel(string dayAndMonth);
+
+    public abstract string ThisTill { get; }
+
+    public abstract string AllTills { get; }
+
+    /// <summary>The key that switches scope: to every till, or back to this one.</summary>
+    public abstract string OtherScope(bool allTills);
+
+    public abstract string NoTickets { get; }
+
+    public abstract string TicketsNotAllowed { get; }
+
+    public abstract string TicketUnknown { get; }
+
+    /// <summary>"S-2026-000142 — aucune vente de ce magasin ne porte ce numéro".</summary>
+    public abstract string TicketUnknownDetail(string number);
+
+    public abstract string ManagerOnly { get; }
+
+    public abstract string StatusVoided { get; }
+
+    public abstract string StatusRefunded { get; }
+
+    public abstract string StatusPartlyRefunded { get; }
+
+    public abstract string PastTicket { get; }
+
+    /// <summary>"Vendu le 25/09 à 14:05 par Nabil B. · lecture seule".</summary>
+    public abstract string PastTicketLine(string dayAndMonth, string clock, string? staff);
+
+    public abstract string PastTicketFooter { get; }
+
+    public abstract string TaxIncluded { get; }
+
+    /// <summary>"Espèces", "Carte", "Mobile"; anything else as the wire says it.</summary>
+    public abstract string PaymentMethod(string method);
+
     // ------------------------------------------------------------------ sign-in (A5)
 
     public abstract string WhoOpensTheTill { get; }
@@ -291,6 +349,7 @@ public abstract class TillText
             Contracts.Pos.NotSellableReason.PriceNotTaxInclusive => "le prix est enregistré hors taxe ; la caisse vend en TTC",
             Contracts.Pos.NotSellableReason.Archived => "article archivé",
             Contracts.Pos.NotSellableReason.Weighted => "vendu au poids, pas encore pris en charge",
+            Contracts.Pos.NotSellableReason.NoCode => "ni code-barres ni PLU : l'article ne peut pas être vendu",
             _ => $"refusé ({reason})",
         };
         public override string OfflineSince(string clock) => $"Serveur du magasin injoignable depuis {clock}";
@@ -370,6 +429,38 @@ public abstract class TillText
         public override string Close => "Fermer";
         public override string NoDrafts => "Aucun ticket annulé aujourd'hui.";
 
+        public override string NextCount(string count) => $"QTÉ × {count}";
+        public override string Stock(string quantity) => $"stock {quantity}";
+        public override string Searching => "Recherche…";
+        public override string SearchOffline => "Serveur du magasin injoignable : rien à montrer pour l'instant.";
+        public override string NoResults(string query) => $"Aucun article ne répond à « {query} ».";
+        public override string TicketsKey => "Tickets";
+        public override string TicketsTitle => "TICKETS";
+        public override string TodayLabel(string dayAndMonth) => $"Aujourd'hui · {dayAndMonth}";
+        public override string ThisTill => "Cette caisse";
+        public override string AllTills => "Toutes les caisses";
+        public override string OtherScope(bool allTills) => allTills ? "Cette caisse" : "Toutes les caisses";
+        public override string NoTickets => "Aucune vente ce jour-là.";
+        public override string TicketsNotAllowed => "Un autre jour ou une autre caisse : réservé au responsable.";
+        public override string TicketUnknown => "TICKET INTROUVABLE";
+        public override string TicketUnknownDetail(string number) => $"{number} — aucune vente de ce magasin ne porte ce numéro";
+        public override string ManagerOnly => "RÉSERVÉ AU RESPONSABLE";
+        public override string StatusVoided => "ANNULÉE";
+        public override string StatusRefunded => "REMBOURSÉE";
+        public override string StatusPartlyRefunded => "REMBOURSÉE EN PARTIE";
+        public override string PastTicket => "TICKET PASSÉ";
+        public override string PastTicketLine(string dayAndMonth, string clock, string? staff) =>
+            staff is null ? $"Vendu le {dayAndMonth} à {clock} · lecture seule" : $"Vendu le {dayAndMonth} à {clock} par {staff} · lecture seule";
+        public override string PastTicketFooter => "Lecture seule. Fermer rend le ticket en cours.";
+        public override string TaxIncluded => "Dont TVA";
+        public override string PaymentMethod(string method) => method switch
+        {
+            "cash" => "Espèces",
+            "card" => "Carte",
+            "mobile_wallet" => "Mobile",
+            _ => method,
+        };
+
         public override string WhoOpensTheTill => "Qui ouvre la caisse ?";
         public override string ChooseYourName => "Choisissez votre nom";
         public override string PinOf(string name) => $"Code PIN de {name}";
@@ -432,6 +523,7 @@ public abstract class TillText
             Contracts.Pos.NotSellableReason.PriceNotTaxInclusive => "السعر مسجّل دون احتساب الرسم؛ الصندوق يبيع بالأسعار شاملة الرسوم",
             Contracts.Pos.NotSellableReason.Archived => "منتج مؤرشف",
             Contracts.Pos.NotSellableReason.Weighted => "يُباع بالوزن، غير مدعوم بعد",
+            Contracts.Pos.NotSellableReason.NoCode => "بلا رمز شريطي ولا PLU: لا يمكن بيعه",
             _ => $"مرفوض ({reason})",
         };
         public override string OfflineSince(string clock) => $"خادم المتجر غير متاح منذ {clock}"; // ar: à relire
@@ -508,6 +600,39 @@ public abstract class TillText
         public override string ResumeTicket => "استئناف"; // ar: à relire
         public override string Close => "إغلاق"; // ar: à relire
         public override string NoDrafts => "لا توجد تذاكر ملغاة اليوم."; // ar: à relire
+
+        // Search and past tickets (B1). No board shows these in Arabic.
+        public override string NextCount(string count) => $"الكمية × {count}"; // ar: à relire
+        public override string Stock(string quantity) => $"المخزون {quantity}"; // ar: à relire
+        public override string Searching => "جارٍ البحث…"; // ar: à relire
+        public override string SearchOffline => "خادم المتجر غير متاح: لا شيء للعرض حاليًا."; // ar: à relire
+        public override string NoResults(string query) => $"لا يوجد منتج يطابق «{query}»."; // ar: à relire
+        public override string TicketsKey => "التذاكر"; // ar: à relire
+        public override string TicketsTitle => "التذاكر"; // ar: à relire
+        public override string TodayLabel(string dayAndMonth) => $"اليوم · {dayAndMonth}"; // ar: à relire
+        public override string ThisTill => "هذا الصندوق"; // ar: à relire
+        public override string AllTills => "كل الصناديق"; // ar: à relire
+        public override string OtherScope(bool allTills) => allTills ? "هذا الصندوق" : "كل الصناديق"; // ar: à relire
+        public override string NoTickets => "لا مبيعات في هذا اليوم."; // ar: à relire
+        public override string TicketsNotAllowed => "يوم آخر أو صندوق آخر: مخصّص للمسؤول."; // ar: à relire
+        public override string TicketUnknown => "تذكرة غير موجودة"; // ar: à relire
+        public override string TicketUnknownDetail(string number) => $"{number} — لا توجد عملية بيع بهذا الرقم في هذا المتجر"; // ar: à relire
+        public override string ManagerOnly => "مخصّص للمسؤول"; // ar: à relire
+        public override string StatusVoided => "ملغاة"; // ar: à relire
+        public override string StatusRefunded => "مستردّة"; // ar: à relire
+        public override string StatusPartlyRefunded => "مستردّة جزئيًا"; // ar: à relire
+        public override string PastTicket => "تذكرة سابقة"; // ar: à relire
+        public override string PastTicketLine(string dayAndMonth, string clock, string? staff) => // ar: à relire
+            staff is null ? $"بيعت يوم {dayAndMonth} على {clock} · للقراءة فقط" : $"بيعت يوم {dayAndMonth} على {clock} من طرف {staff} · للقراءة فقط";
+        public override string PastTicketFooter => "للقراءة فقط. «إغلاق» يعيد التذكرة الحالية."; // ar: à relire
+        public override string TaxIncluded => "منها الرسم"; // ar: à relire
+        public override string PaymentMethod(string method) => method switch // ar: à relire
+        {
+            "cash" => "نقدًا",
+            "card" => "بطاقة",
+            "mobile_wallet" => "الهاتف",
+            _ => method,
+        };
 
         // Sign-in (A5). No Arabic board shows this screen: every string here is to be read.
         public override string WhoOpensTheTill => "من يفتح الصندوق؟"; // ar: à relire

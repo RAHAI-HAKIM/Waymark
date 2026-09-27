@@ -38,6 +38,18 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// <summary>The ticket on screen. Parking or resuming puts another cart here.</summary>
     public Cart Cart { get; private set; } = new();
 
+    /// <summary>
+    /// How many units the next scan or touch adds: 1, or the n of a "n*" typed in the field (B1,
+    /// D-088). Used once, then back to 1.
+    /// </summary>
+    public int NextCount { get; private set; } = 1;
+
+    /// <summary>
+    /// A past ticket open read-only in the ticket view (B1, D-088), or null. The ticket on screen is
+    /// untouched underneath; closing the view, or a scan, gives it back.
+    /// </summary>
+    public PastTicketDetail? Viewing { get; private set; }
+
     /// <summary>Tickets on hold, oldest first: the tabs in the top bar (G1, "Attente 14:05").</summary>
     public IReadOnlyList<HeldTicket> Parked => _parked;
 
@@ -100,7 +112,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// not the ticket just paid, and it is not waiting on an unconfirmed sale (D-085), which the
     /// cashier checks first.
     /// </summary>
-    public bool MayPutAside => Cart.ActiveLines.Count > 0 && Paid is null && Unconfirmed is null;
+    public bool MayPutAside => Cart.ActiveLines.Count > 0 && Paid is null && Unconfirmed is null && Viewing is null;
 
     /// <summary>Raised after every change to <see cref="Cart"/> or <see cref="Notice"/>.</summary>
     public event EventHandler? Changed;
@@ -276,6 +288,57 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
     }
 
+    /// <summary>"3*" typed in the field: the next scan or touch adds three (B1). Refused outside 1 to <see cref="Cart.MaxCount"/>.</summary>
+    public void SetNextCount(int count)
+    {
+        if (count is >= 1 and <= Cart.MaxCount && count != NextCount)
+        {
+            NextCount = count;
+            Raise();
+        }
+    }
+
+    /// <summary>What the window learnt and the cashier must be told: a ticket not found, not allowed, the server gone.</summary>
+    public void Tell(TillNoticeKind kind, string code, string detail)
+    {
+        Notice = new TillNotice(kind, code, detail);
+        Raise();
+    }
+
+    /// <summary>Échap: the next scan adds one again.</summary>
+    public void ResetNextCount() => SetNextCount(1);
+
+    /// <summary>
+    /// A search result touched (B1): it goes in as a scan of its code would, behind any code still
+    /// being looked up, with the same count. The server prices it again when the sale is sent (D-070).
+    /// </summary>
+    public Task AddFoundAsync(ProductForSale product, string code)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        _tail = AddAfter(_tail, product, code);
+        return _tail;
+    }
+
+    /// <summary>Opens a past ticket read-only (B1). Nothing of the ticket on screen changes.</summary>
+    public void View(PastTicketDetail ticket)
+    {
+        ArgumentNullException.ThrowIfNull(ticket);
+        Viewing = ticket;
+        Notice = null;
+        Raise();
+    }
+
+    /// <summary>Closes the past ticket and gives the ticket on screen back.</summary>
+    public void CloseView()
+    {
+        if (Viewing is not null)
+        {
+            Viewing = null;
+            Raise();
+        }
+    }
+
     /// <summary>The cashier has read the notice. An unconfirmed sale is not a notice and stays.</summary>
     public void Dismiss()
     {
@@ -308,6 +371,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
 
         Cart = held.Cart;
         Paid = null;
+        Viewing = null;
         Notice = null;
         Raise();
         return true;
@@ -331,6 +395,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
 
         Notice = await Handle(code);
         Paid = null;
+        Viewing = null;
         if (Notice is null)
         {
             LastSale = null;
@@ -338,6 +403,46 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
 
         Raise();
+    }
+
+    private async Task AddAfter(Task previous, ProductForSale product, string code)
+    {
+        try
+        {
+            await previous;
+        }
+        catch (Exception) when (previous.IsFaulted || previous.IsCanceled)
+        {
+        }
+
+        Notice = AddToCart(product, code);
+        Paid = null;
+        Viewing = null;
+        if (Notice is null)
+        {
+            LastSale = null;
+            LastSaleAt = null;
+        }
+
+        Raise();
+    }
+
+    /// <summary>
+    /// A found product into the cart, with the "QTÉ × n" typed before it, which is then spent. The
+    /// same for a scan and a touch, so the two cannot disagree about a count.
+    /// </summary>
+    private TillNotice? AddToCart(ProductForSale product, string code)
+    {
+        try
+        {
+            Cart.Add(product, code, NextCount);
+            NextCount = 1;
+            return null;
+        }
+        catch (Exception exception) when (exception is FormatException or InvalidOperationException)
+        {
+            return new TillNotice(TillNoticeKind.ServerUnavailable, code, $"The answer could not be used: {exception.Message}");
+        }
     }
 
     private async Task PayAfter(Task previous)
@@ -352,7 +457,8 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
 
         // D-085: a sale that may already be recorded is not sent again until the cashier has
         // checked. The screen shows Encaisser unavailable; this refuses whatever pressed it.
-        if (Cart.ActiveLines.Count == 0 || Unconfirmed is not null)
+        // Nor while a past ticket is open (B1): the ticket that would be sold is hidden under it.
+        if (Cart.ActiveLines.Count == 0 || Unconfirmed is not null || Viewing is not null)
         {
             return;
         }
@@ -432,15 +538,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
                 return new TillNotice(TillNoticeKind.NotSellable, code, refused.Reason ?? string.Empty);
 
             case LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.Found, Product: { } product } }:
-                try
-                {
-                    Cart.Add(product, code);
-                    return null;
-                }
-                catch (Exception exception) when (exception is FormatException or InvalidOperationException)
-                {
-                    return new TillNotice(TillNoticeKind.ServerUnavailable, code, $"The answer could not be used: {exception.Message}");
-                }
+                return AddToCart(product, code);
 
             default:
                 return new TillNotice(TillNoticeKind.ServerUnavailable, code, "StoreServer's answer could not be read.");
@@ -474,6 +572,12 @@ public enum TillNoticeKind
 
     /// <summary>"Changer de caissier" while the ticket has lines in the sale.</summary>
     SwitchRefused,
+
+    /// <summary>A ticket number this store has no finished sale for (B1).</summary>
+    TicketUnknown,
+
+    /// <summary>A past ticket of another day or till, and the person's rank does not reach 2 (B1, D-088).</summary>
+    TicketNotAllowed,
 }
 
 /// <summary>Which till this is: its terminal id, from <c>--terminal=</c>. Who sells at it is the sign-in's (A5).</summary>

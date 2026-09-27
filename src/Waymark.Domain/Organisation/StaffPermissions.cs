@@ -29,6 +29,12 @@ public enum Capability
 
     /// <summary>Accept, adjust or dismiss a recommendation (D-074).</summary>
     DecideRecommendation,
+
+    /// <summary>
+    /// Open a past ticket of another day or another till (B1, D-088). Today's tickets at one's own
+    /// till need no rank: the cashier sold them.
+    /// </summary>
+    ViewOtherTickets,
 }
 
 /// <summary>
@@ -77,6 +83,7 @@ public static class StaffPermissions
         { Capability.NoSale, 2 },
         { Capability.OverridePrice, 3 },
         { Capability.VoidTransaction, 2 },
+        { Capability.ViewOtherTickets, 2 },
     };
 
     /// <summary>

@@ -17,28 +17,63 @@ namespace Waymark.Persistence.Catalogue;
 /// filters by store itself (CLAUDE.md §3.3).
 /// </para>
 /// </summary>
-public sealed class ProductLookup(WaymarkDbContext context, IStoreCalendar calendar) : IProductLookup
+public sealed class ProductLookup(WaymarkDbContext context, IStoreCalendar calendar) : IProductLookup, IProductSearch
 {
     /// <summary>
     /// The five steps of D-066, in order. Every early return is an answer the
     /// till shows, not an error: an exception here would reach the cashier as
     /// "server failed" for what is really "this product has no price".
     /// </summary>
-    public async Task<ProductLookupResult> FindForSaleAsync(string barcode, CancellationToken cancellationToken = default)
+    public async Task<ProductLookupResult> FindForSaleAsync(string code, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(barcode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
 
         // 1. The variant. `variants` has no store_id (the catalogue is the
         //    tenant's), so no filter applies and every store sees the same one.
-        //    The barcode is unique (IX_variants_barcode), so at most one row.
-        var variant = await context.Variants
-            .FirstOrDefaultAsync(v => v.Barcode == barcode, cancellationToken);
+        //    The barcode is unique (IX_variants_barcode), and so is the PLU
+        //    (IX_variants_plu), so each finds at most one row; the barcode is
+        //    asked first, because a scan is one (D-088).
+        var variant = await context.Variants.FirstOrDefaultAsync(v => v.Barcode == code, cancellationToken)
+            ?? await context.Variants.FirstOrDefaultAsync(v => v.Plu == code, cancellationToken);
 
         if (variant is null)
         {
             return new ProductLookupResult.UnknownBarcode();
         }
 
+        return await EvaluateAsync(variant, cancellationToken);
+    }
+
+    /// <summary>
+    /// The search (B1, D-088): every variant's name, ranked by <see cref="NameSearch"/>, and each
+    /// of the best answered as a scan of it would be. The catalogue is read whole and ranked here,
+    /// not in SQL: a shop has hundreds of variants, and SQLite's LIKE neither folds accents nor
+    /// knows where a word starts.
+    /// </summary>
+    public async Task<IReadOnlyList<ProductSearchHit>> SearchAsync(string query, CancellationToken cancellationToken = default)
+    {
+        var names = await context.Variants
+            .Join(context.Products, v => v.ProductId, p => p.ProductId, (v, p) => new { v.VariantId, p.ProductName, v.VariantName })
+            .ToListAsync(cancellationToken);
+
+        var best = NameSearch.Rank(query, names, row => $"{row.ProductName} {row.VariantName}");
+        var hits = new List<ProductSearchHit>(best.Count);
+        foreach (var row in best)
+        {
+            var variant = await context.Variants.SingleAsync(v => v.VariantId == row.VariantId, cancellationToken);
+            var code = variant.Barcode ?? variant.Plu;
+            var result = code is null
+                ? new ProductLookupResult.NotSellable(NotSellableReason.NoCode)
+                : await EvaluateAsync(variant, cancellationToken);
+            hits.Add(new ProductSearchHit(row.VariantId, row.ProductName, row.VariantName, code, result));
+        }
+
+        return hits;
+    }
+
+    /// <summary>What the till may sell of one variant: D-066's steps after the variant is found.</summary>
+    private async Task<ProductLookupResult> EvaluateAsync(Variant variant, CancellationToken cancellationToken)
+    {
         if (variant.Status == VariantStatus.Archived)
         {
             return new ProductLookupResult.NotSellable(NotSellableReason.Archived);

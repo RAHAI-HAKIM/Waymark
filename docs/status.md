@@ -2,9 +2,9 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**25/09/2026**: **block A is done and reviewed** (§9), and **B2 is built** (§10): a line has its own
-id, the − / + stepper, tickets on hold as tabs, cancelled tickets in "Brouillons" (D-087). **B1 is
-next.** Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+**25/09/2026**: **block A is done and reviewed** (§9); **B2 is done** (§10); **B1 is built and waits
+on Hakim's past-tickets reader** (§11): one field that scans, types a code, searches a name or opens a
+ticket; the Tickets list; a past ticket read-only (D-088). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -14,7 +14,7 @@ next.** Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1447**, all green in Debug and Release (Integration 537 · Pos 350 · Generator 237 · Domain 218 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows** — a Linux container, a cloud session — 5 `StoreCalendarTests` fail by design (Windows zone ids, D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Tests | **1559** once B1's reader is in (Integration 573 · Pos 405 · Generator 237 · Domain 239 · Hardware 64 · Application 41). Until then **21 are red on purpose**: `PastTicketsTests` (20), and the end-to-end `StoreServerStartupTests` at its ticket step. **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -114,7 +114,7 @@ starting point is always code already reviewed. §7 below is the map.
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
-| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2 done 25/09** (§10) |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2 done 25/09** (§10); **B1 built**, Hakim's reader to write (§11) |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
@@ -438,3 +438,24 @@ parks at each `|`, `--cancel` cancels the ticket, `--drafts` opens the list.
 leaves behind, and the manager PIN on "Annuler ticket", are **B8**; the rail's other keys arrive
 with their sessions.
 
+---
+
+## 11. Session B1 — built 25/09, waiting on Hakim's reader (D-088)
+
+**✍ Hakim's piece:** `Persistence/Sales/PastTickets.cs`, the rules in its doc comment, its 20 tests
+in `PastTicketsTests` (red until written). The end-to-end `StoreServerStartupTests` lists and opens
+the sale it made through it, so it is red at that step too until then.
+
+| Where | What |
+| :---- | :---- |
+| `Domain/Catalogue/NameSearch.cs` | Every word typed starts a word of the name; accents and case folded; whole words first; 2 characters, 20 results |
+| `Persistence/Catalogue/ProductLookup.cs` | Barcode, then PLU; `SearchAsync` answers each result as a scan would; `no_code` |
+| `StoreServer/Sales/TicketsWire.cs` | Who may see (today at one's till, else rank 2), the store's day as instants, the wire |
+| `GET /api/products/search`, `/api/tickets`, `/api/tickets/one` | The search; a day's list; one ticket, the rank asked of its own day and till |
+| `Pos/Screen/FieldInput.cs` | What the field holds: a code, a name, a ticket number, or `3*` |
+| `Pos/Checkout/TillSession.cs` | `NextCount`, `AddFoundAsync`, `View` / `CloseView` (nothing sold under a past ticket) |
+| `Pos/Screen/TillScreen.cs`, `Ui/TillViews.cs` | The floating results, the field's chip, the Tickets panel, the past ticket read-only |
+
+**Broken on purpose**, twelve mutations, each caught by its own tests; the ranking one was not at
+first, and its test was rewritten until it was. **For Hakim's review:** the results and the Tickets
+panel have no board; they are built from the kit; the Arabic words are `// ar: à relire`.

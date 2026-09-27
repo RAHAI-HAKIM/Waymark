@@ -746,6 +746,29 @@ refunds). **Rejected:** parked tickets on the server, a table for a moment at th
 every repeat scan, which B3 to B5 would break; a stepper that goes to zero, which makes a line vanish
 without the struck trace.
 
+### D-088 — B1: one field that scans, types a code or searches a name; past tickets read-only (Hakim, 25/09)
+**One field**, as the G1 board draws it: a scan is an exact barcode; typed digits are an exact
+barcode, then an exact PLU; typed text with a letter is a name search. The Debug "Simulate scan" box
+stays a developer's stand-in for a scanner. **A name matches** when every word typed starts a word of
+the product and variant name, case and accents ignored; at least 2 characters, at most 20 results,
+whole words first. **The results are the stock lookup**: name, price and stock on hand; a touch sells
+it, like a scan; an unsellable product is listed with its reason and cannot be touched. **They float
+under the field**, over the ticket, as search results do, and close on a choice or Échap. **"QTÉ × n"**:
+a number then `*` typed in the empty field (`3*`) makes the next scan or touch add n units; the chip
+says so and goes back to × 1 after it. **Built 25/09:** the rule is `NameSearch` (Domain), accents folded by a table rather than Unicode normalisation, since the till runs with invariant globalisation; the lookup tries the barcode then the PLU; a product with neither is listed as not sellable (`no_code`), since a sale
+sends codes; the rank is `Capability.ViewOtherTickets`; **Rejected:** a second field for barcodes; results in the rail.
+
+### D-089 — B1: Past tickets:
+A "Tickets" key lists this till's sales of the day, newest first, with their time;
+a ticket number typed in the field opens one. A past ticket opens **read-only in the ticket view**,
+with today's catalogue names (a sale's lines keep no name)
+and **no customer**: showing one is a consultation to log (D-061), B7's. Today's tickets at this till
+are anyone's; an earlier day or another till needs rank 2, through `StaffPermissions.May`. Reprint is
+D3's, a refund B9's. The store's day runs midnight to midnight in
+its own zone; nothing is sold or put aside while a past ticket is open, since the ticket that would
+be sold is hidden under it. A code typed all at once is a scan (D-063), so a ticket number is typed,
+not pasted.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

@@ -1,11 +1,12 @@
 // Icon outlines from Lucide (https://lucide.dev), taken from the G1 kit, which draws them at a
 // 1.5 px stroke on a 24 px grid. Circles, rectangles and lines are rewritten as path commands so
-// Avalonia can parse them; no outline is redrawn. One is not from the kit: archive, for the rail's
-// "Brouillons" key (B2), taken from lucide.dev under the same licence.
+// Avalonia can parse them; no outline is redrawn. Two are not from the kit: archive, for the rail's
+// "Brouillons" key (B2), and history, for its "Tickets" key (B1), taken from lucide.dev under the
+// same licence.
 //
 // The notices below are Lucide's LICENSE as published at
 // https://github.com/lucide-icons/lucide/blob/main/LICENSE, copied on 24/09/2026 (F-19). Of the
-// icons here, check, chevron-down, chevron-up, lock, minus, percent, plus, search, smartphone
+// icons here, check, chevron-down, chevron-left, chevron-right, chevron-up, lock, minus, percent, plus, search, smartphone
 // and trash-2 are on its list of icons derived from Feather, so Feather's MIT notice travels with
 // them as well as Lucide's ISC one.
 //
@@ -114,6 +115,9 @@ public static class LucideIcons
     /// <summary>Lucide <c>archive</c> (B2's "Brouillons"; not in the G1 kit).</summary>
     public const string Archive = "M3 3h18a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-18a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1Z M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8 M10 12h4";
 
+    /// <summary>Lucide <c>history</c> (B1's "Tickets"; not in the G1 kit).</summary>
+    public const string History = "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5 M12 7v5l4 2";
+
     /// <summary>Lucide <c>notebook</c>.</summary>
     public const string Notebook = "M2 6h4 M2 10h4 M2 14h4 M2 18h4 M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-16a2 2 0 0 1 2 -2Z M16 2v20";
 
@@ -122,6 +126,12 @@ public static class LucideIcons
 
     /// <summary>Lucide <c>chevron-down</c>.</summary>
     public const string ChevronDown = "M6 9l6 6 6-6";
+
+    /// <summary>Lucide <c>chevron-left</c> (B1's day keys).</summary>
+    public const string ChevronLeft = "M15 18l-6-6 6-6";
+
+    /// <summary>Lucide <c>chevron-right</c> (B1's day keys).</summary>
+    public const string ChevronRight = "M9 18l6-6-6-6";
 
     /// <summary>Lucide <c>chevron-up</c>.</summary>
     public const string ChevronUp = "M18 15l-6-6-6 6";

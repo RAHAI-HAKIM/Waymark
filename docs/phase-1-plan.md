@@ -150,7 +150,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | :-- | :---- | :---- | :--: | :--: |
 | D1 | Receipt content, French ASCII; recomputes from its own row | `Transaction.RoundingPolicy` (D-053) | C | M |
 | D2 | Real ESC/POS printing and the drawer | the fake printer (Phase 0, D-059) | C drafts, **H verifies** against the command reference | M |
-| D3 | Reprint, audited | D1 | C | S |
+| D3 | Reprint, audited. A receipt's printed number, scanned, opens its ticket (B1 reads a scan as a product code only) | D1 | C | S |
 
 ### Block E — Catalogue, first Admin batch (4 sessions) — **G2 first**
 

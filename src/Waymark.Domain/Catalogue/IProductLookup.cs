@@ -12,8 +12,32 @@ namespace Waymark.Domain.Catalogue;
 /// </summary>
 public interface IProductLookup
 {
-    Task<ProductLookupResult> FindForSaleAsync(string barcode, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The variant whose barcode is <paramref name="code"/>, or failing that whose PLU is (D-088):
+    /// a code typed by hand is either, and a barcode is tried first because a scan is one.
+    /// </summary>
+    Task<ProductLookupResult> FindForSaleAsync(string code, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// The products whose name answers what the cashier typed, each with what a scan of it would say
+/// (session B1, D-088): the search is the stock lookup, and an unsellable product is listed with
+/// its reason rather than hidden.
+/// </summary>
+public interface IProductSearch
+{
+    /// <summary>Best first, at most <see cref="NameSearch.MaximumResults"/>, ranked by <see cref="NameSearch"/>.</summary>
+    Task<IReadOnlyList<ProductSearchHit>> SearchAsync(string query, CancellationToken cancellationToken = default);
+}
+
+/// <summary>A product the search found.</summary>
+/// <param name="Code">
+/// What the till sends to sell it: the barcode, or the PLU when it has none (D-070 sends codes,
+/// never variant ids). Null when it has neither, and <paramref name="Result"/> then says
+/// <see cref="NotSellableReason.NoCode"/>.
+/// </param>
+/// <param name="Result">What a scan of it would answer: found, or not sellable and why.</param>
+public sealed record ProductSearchHit(string VariantId, string ProductName, string VariantName, string? Code, ProductLookupResult Result);
 
 /// <summary>One of three answers, and never an exception for a product that cannot be sold.</summary>
 public abstract record ProductLookupResult
@@ -56,6 +80,12 @@ public enum NotSellableReason
 
     /// <summary>Sold by weight: scales and weight-embedded codes are Phase 1.</summary>
     Weighted,
+
+    /// <summary>
+    /// Neither a barcode nor a PLU (B1): a sale sends codes (D-070), so a product with none cannot be
+    /// sold from a search. Only a search answers this; a lookup is by a code, so it has one.
+    /// </summary>
+    NoCode,
 }
 
 /// <summary>A variant as the till may sell it, now, in this store.</summary>

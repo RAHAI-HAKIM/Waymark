@@ -255,4 +255,57 @@ public sealed class TillServerClientTests
 
         await client.SignOutAsync("tok");
     }
+
+    // ================================================================= B1: search and tickets
+
+    [Fact]
+    public async Task A_name_is_searched_escaped()
+    {
+        var (client, server) = Build(_ => Json("""{"query":"crème 1/2","results":[]}"""));
+
+        var answer = await client.SearchAsync("crème 1/2");
+
+        Assert.Empty(answer!.Results);
+        Assert.Equal("/api/products/search?q=cr%C3%A8me%201%2F2", Assert.Single(server.Asked).PathAndQuery);
+    }
+
+    [Fact]
+    public async Task No_search_answer_when_the_server_cannot_say_rather_than_no_results()
+    {
+        // "Nothing found" and "the server is gone" are different sentences on the screen.
+        var (refused, _) = Build(Refused);
+        var (garbled, _) = Build(_ => Json("{}"));
+
+        Assert.Null(await refused.SearchAsync("lait"));
+        Assert.Null(await garbled.SearchAsync("lait"));
+    }
+
+    [Fact]
+    public async Task The_tickets_are_asked_for_a_day_with_the_session_header()
+    {
+        string? token = null;
+        var (client, server) = Build(request =>
+        {
+            token = request.Headers.GetValues(TillSessionHeader.Name).Single();
+            return Json("""{"outcome":"answered","day":"2026-09-24","all_tills":true,"tickets":[]}""");
+        });
+
+        var list = await client.TicketsAsync(new DateOnly(2026, 9, 24), allTills: true, "tok");
+
+        Assert.Equal(TicketOutcomes.Answered, list!.Outcome);
+        Assert.Equal("tok", token);
+        Assert.Equal("/api/tickets?day=2026-09-24&all=true", Assert.Single(server.Asked).PathAndQuery);
+    }
+
+    [Fact]
+    public async Task A_ticket_is_asked_by_its_number_escaped_and_found_without_a_ticket_is_no_answer()
+    {
+        var (client, server) = Build(_ => Json("""{"outcome":"not_allowed"}"""));
+        var (broken, _) = Build(_ => Json("""{"outcome":"found"}"""));
+
+        Assert.Equal(TicketOutcomes.NotAllowed, (await client.TicketAsync("S-2026/1", "tok"))!.Outcome);
+        Assert.Equal("/api/tickets/one?ticket=S-2026%2F1", Assert.Single(server.Asked).PathAndQuery);
+        Assert.Null(await broken.TicketAsync("S-1", "tok"));
+    }
 }
+

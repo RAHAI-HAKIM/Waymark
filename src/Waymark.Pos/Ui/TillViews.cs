@@ -22,7 +22,12 @@ public sealed record TillActions(
     Action<Operation> Operate,
     Action<string> ResumeParked,
     Action<string> ResumeDraft,
-    Action CloseDrafts);
+    Action CloseDrafts,
+    Action<string> PickResult,
+    Action<string> OpenTicket,
+    Action<int> TicketsDay,
+    Action TicketsScope,
+    Action CloseTickets);
 
 /// <summary>
 /// The G1 regions, each drawn from its part of <see cref="TillScreen"/> and nothing else (kit §5).
@@ -441,6 +446,8 @@ public static partial class TillViews
         Screen.Rail.Unconfirmed unconfirmed => UnconfirmedCard(unconfirmed, theme, actions),
         Screen.Rail.Rest rest => RestRail(rest, theme, actions),
         Screen.Rail.Drafts drafts => DraftsPanel(drafts, theme, actions),
+        Screen.Rail.Tickets tickets => TicketsPanel(tickets, theme, actions),
+        Screen.Rail.Past past => PastPanel(past, theme),
         _ => new Border(),
     };
 
@@ -477,6 +484,7 @@ public static partial class TillViews
         {
             Operation.Park => LucideIcons.Pause,
             Operation.CancelTicket => LucideIcons.Ban,
+            Operation.Tickets => LucideIcons.History,
             _ => LucideIcons.Archive,
         };
 
@@ -554,6 +562,177 @@ public static partial class TillViews
         card.VerticalAlignment = VerticalAlignment.Stretch;
         return card;
     }
+
+    // ============================================================ B1: search, tickets, a past ticket
+
+    /// <summary>The chip in the search field (G1 board): "QTÉ × 1", in the operator's colour once a count is typed.</summary>
+    public static Control FieldChip(FieldChip chip, TillTheme theme) => new Border
+    {
+        Background = chip.Active ? theme.Action : theme.Tile,
+        CornerRadius = new CornerRadius(TillSizes.FieldRadius),
+        Padding = new Thickness(10, 4),
+        Margin = new Thickness(8, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = theme.Label(chip.Label, chip.Active ? theme.ActionLabel : theme.Text),
+        Tag = chip,
+    };
+
+    /// <summary>
+    /// The name search's results, floating over the ticket under the field (D-088): a card of rows,
+    /// the highlighted one on the tile ground, which Entrée takes. An unsellable row keeps its name
+    /// in the secondary ink and says why, and a touch does nothing.
+    /// </summary>
+    public static Control Results(ResultsView results, TillTheme theme, TillActions actions)
+    {
+        var list = new StackPanel();
+        foreach (var row in results.Rows)
+        {
+            var words = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    Words(row.Title, 15, FontWeight.SemiBold, row.Available ? theme.Text : theme.TextSecondary, theme),
+                    theme.Prose(row.Detail, 13, theme.TextSecondary),
+                },
+            };
+            var line = new DockPanel();
+            if (row.Chip is { } chip)
+            {
+                line.Children.Add(Docked(Chip(chip, theme), Dock.Right));
+            }
+
+            line.Children.Add(words);
+            var border = new Border
+            {
+                Background = row.Highlighted ? theme.Tile : Brushes.Transparent,
+                BorderBrush = theme.BorderSubtle,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(16, 8),
+                MinHeight = TillSizes.Key,
+                Child = line,
+                Tag = row,
+            };
+            if (row.Available)
+            {
+                var id = row.VariantId;
+                border.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+                border.Tapped += (_, e) =>
+                {
+                    actions.PickResult(id);
+                    e.Handled = true;
+                };
+            }
+
+            list.Children.Add(border);
+        }
+
+        if (results.Message is { } message)
+        {
+            list.Children.Add(new Border { Padding = new Thickness(16, 12), Child = Wrapped(theme.BodySmall(message, theme.TextSecondary)) });
+        }
+
+        return new Border
+        {
+            Background = theme.Card,
+            BorderBrush = theme.FocusRing,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.CardRadius),
+            Margin = new Thickness(TillSizes.Margin, 4, TillSizes.Margin, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            MaxHeight = 440,
+            ClipToBounds = true,
+            Child = new ScrollViewer { Content = list },
+            Tag = results,
+        };
+    }
+
+    /// <summary>
+    /// The "Tickets" list (D-088), a card in the rail like the drafts: the day with ‹ and ›, the
+    /// scope and the key that switches it, then the sales, newest first, or why there are none.
+    /// </summary>
+    private static Border TicketsPanel(Rail.Tickets tickets, TillTheme theme, TillActions actions)
+    {
+        var list = new StackPanel();
+        foreach (var ticket in tickets.Rows)
+        {
+            var words = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    theme.Prose(ticket.Title, 15, theme.Text, FontWeight.SemiBold),
+                    theme.Prose(ticket.Detail, 13, theme.TextSecondary),
+                },
+            };
+            var line = new DockPanel { Margin = new Thickness(0, 8) };
+            if (ticket.Chip is { } chip)
+            {
+                line.Children.Add(Docked(Chip(chip, theme), Dock.Right));
+            }
+
+            line.Children.Add(words);
+            var id = ticket.TransactionId;
+            var row = new Border
+            {
+                Background = Brushes.Transparent,
+                BorderBrush = theme.BorderSubtle,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = line,
+                Tag = ticket,
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            };
+            row.Tapped += (_, e) =>
+            {
+                actions.OpenTicket(id);
+                e.Handled = true;
+            };
+            list.Children.Add(row);
+        }
+
+        if (tickets.Message is { } message)
+        {
+            list.Children.Add(Wrapped(theme.BodySmall(message, theme.TextSecondary)));
+        }
+
+        var head = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+        head.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(tickets.Close, theme.TextSecondary), actions.CloseTickets), Dock.Right));
+        head.Children.Add(new Border { VerticalAlignment = VerticalAlignment.Center, Child = theme.Label(tickets.Label, theme.TextSecondary) });
+
+        // ‹ day ›, then the scope. In Arabic the row mirrors, the earlier day on the right, and each
+        // key keeps its own outline (Hakim, 26/09: swapping them read inverted on the till).
+        var earlier = LucideIcons.ChevronLeft;
+        var later = LucideIcons.ChevronRight;
+        var day = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            Children =
+            {
+                // Outlines, not "‹" and "›": the till's faces have no glyph for those.
+                new TillKey(theme, KeyLook.Secondary, Centred(TillTheme.Icon(earlier, theme.Text, 18)), () => actions.TicketsDay(-1), height: TillSizes.LineKey) { Width = 44 },
+                new Border { MinWidth = 150, VerticalAlignment = VerticalAlignment.Center, Child = Centred(theme.Prose(tickets.Day, 14, theme.Text, FontWeight.SemiBold)) },
+                new TillKey(theme, KeyLook.Secondary, Centred(TillTheme.Icon(later, tickets.MayGoForward ? theme.Text : theme.DisabledLabel, 18)), () => actions.TicketsDay(1), tickets.MayGoForward, TillSizes.LineKey) { Width = 44 },
+            },
+        };
+        var scope = new DockPanel { Margin = new Thickness(0, 4, 0, 8) };
+        scope.Children.Add(Docked(new TillKey(theme, KeyLook.Secondary, theme.BodySmall(tickets.OtherScope, theme.Text, FontWeight.SemiBold), actions.TicketsScope, height: TillSizes.LineKey), Dock.Right));
+        scope.Children.Add(new Border { VerticalAlignment = VerticalAlignment.Center, Child = theme.BodySmall(tickets.Scope, theme.TextSecondary) });
+
+        var body = new DockPanel();
+        body.Children.Add(Docked(head, Dock.Top));
+        body.Children.Add(Docked(day, Dock.Top));
+        body.Children.Add(Docked(scope, Dock.Top));
+        body.Children.Add(new ScrollViewer { Content = list });
+
+        var card = Card(theme, null, body);
+        card.VerticalAlignment = VerticalAlignment.Stretch;
+        return card;
+    }
+
+    /// <summary>A past ticket's figures and payments, read-only (B1): the paid ticket's panel, for a sale already made.</summary>
+    private static Border PastPanel(Rail.Past past, TillTheme theme) =>
+        PaidPanel(new Rail.Paid(past.Label, past.Title, past.Subtitle, past.Figures, past.Footer), theme);
 
     private static Border PaidPanel(Rail.Paid paid, TillTheme theme)
     {
@@ -725,7 +904,8 @@ public static partial class TillViews
 
     // =========================================================== bottom bar
 
-    public static Control BottomBar(BottomBar bottom, TillTheme theme, TillActions actions, bool paid)
+    /// <param name="press">What the big key does now: Encaisser, Nouvelle vente, or Fermer on a past ticket. The window says which.</param>
+    public static Control BottomBar(BottomBar bottom, TillTheme theme, Action press)
     {
         var summary = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto"), ColumnSpacing = 48, VerticalAlignment = VerticalAlignment.Center };
         for (var i = 0; i < bottom.Summary.Count; i++)
@@ -766,7 +946,7 @@ public static partial class TillViews
             theme,
             KeyLook.Collect,
             TillKey.Labelled(face, primary.Key, labelBrush),
-            paid ? actions.NewSale : actions.Collect,
+            press,
             primary.Enabled,
             TillSizes.BarKey)
         { Width = 236, VerticalAlignment = VerticalAlignment.Center };

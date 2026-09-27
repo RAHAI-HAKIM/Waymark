@@ -306,6 +306,87 @@ public sealed class TillWindowTests
     private static TillKey Operation(Till till, Screen.Operation operation) =>
         till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => key.Tag is OperationKey found && found.Operation == operation);
 
+    // ================================================================ B1: one field, the search, past tickets (D-088)
+
+    [Fact]
+    public Task A_name_typed_shows_its_results_over_the_ticket_and_entree_sells_the_first_that_can_be() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+
+        till.Type("lai");
+        till.WaitFor(() => till.ResultRows().Count > 0);
+        Assert.Equal(["lai"], till.Server.Searches);
+        Assert.Equal("Lait UHT Candia Brique 1L", Assert.Single(till.ResultRows()).Title);
+
+        till.Key(Key.Enter, PhysicalKey.Enter);
+
+        var line = Assert.Single(till.Session.Cart.Lines);
+        Assert.Equal(("v-milk", "6130000000017"), (line.VariantId, line.Barcode));
+        Assert.Empty(till.ResultRows());
+        Assert.Equal(string.Empty, till.SearchField.Text);
+    });
+
+    [Fact]
+    public Task An_unsellable_result_does_nothing_when_touched() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.Type("beu");
+        till.WaitFor(() => till.ResultRows().Count > 0);
+
+        var butter = till.Window.GetVisualDescendants().OfType<Border>().Single(border => border.Tag is ResultRow { Available: false });
+        till.Tap(butter, new Point(40, 10));
+
+        Assert.Empty(till.Session.Cart.Lines);
+    });
+
+    [Fact]
+    public Task A_count_and_a_star_then_a_scan_adds_that_many() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+
+        till.TypeAndEnter("3*");
+        var chip = till.Window.GetVisualDescendants().OfType<Border>().Single(border => border.Tag is FieldChip);
+        Assert.Equal(new FieldChip("QTÉ × 3", true), chip.Tag);
+        till.Scan(Till.Code(1));
+
+        Assert.Equal(3, Assert.Single(till.Session.Cart.Lines).Count);
+    });
+
+    [Fact]
+    public Task Tickets_opens_the_days_list_and_a_touch_opens_a_ticket_read_only_until_echap() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+
+        till.Tap(Operation(till, Screen.Operation.Tickets), new Point(20, 20));
+        var row = till.Window.GetVisualDescendants().OfType<Border>().Single(border => border.Tag is TicketRow);
+        till.Tap(row, new Point(40, 10));
+
+        Assert.Equal("t-142", till.Session.Viewing?.TransactionId);
+        Assert.Equal(["Lait UHT Candia Brique 1L"], till.Rows().Select(line => ((LineRow)line.Tag!).Article));
+
+        till.Key(Key.Escape, PhysicalKey.Escape);
+        Assert.Null(till.Session.Viewing);
+        Assert.Single(till.Rows());
+    });
+
+    [Fact]
+    public Task A_ticket_number_typed_opens_that_ticket_and_an_unknown_one_says_so() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+
+        // Typed as a person types: all at once, thirteen characters are a scan (D-063).
+        till.TypeSlowly("S-2026-000142");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        Assert.Equal("t-142", till.Session.Viewing?.TransactionId);
+
+        till.Key(Key.Escape, PhysicalKey.Escape);
+        till.TypeSlowly("S-2026-999999");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        Assert.Null(till.Session.Viewing);
+        Assert.Equal(TillNoticeKind.TicketUnknown, till.Session.Notice?.Kind);
+    });
+
     // ================================================================ a till started before its server
 
     [Fact]
@@ -421,6 +502,42 @@ public sealed class TillWindowTests
             Pump();
         }
 
+        /// <summary>Types without Entrée, and lets the scanner release the keys as typing.</summary>
+        public void Type(string text)
+        {
+            Window.KeyTextInput(text);
+            WaitFor(() => SearchField.Text == text);
+        }
+
+        /// <summary>One key at a time, slower than a scanner's burst, so the scanner releases it as typing.</summary>
+        public void TypeSlowly(string text)
+        {
+            foreach (var c in text)
+            {
+                Window.KeyTextInput(c.ToString());
+                Thread.Sleep(70);
+                Pump();
+            }
+
+            WaitFor(() => SearchField.Text == text);
+        }
+
+        /// <summary>Pumps the dispatcher, in real time, until the condition holds: the scanner's and the search's timers run on the clock.</summary>
+        public void WaitFor(Func<bool> condition)
+        {
+            var until = DateTime.UtcNow.AddSeconds(3);
+            while (!condition() && DateTime.UtcNow < until)
+            {
+                Thread.Sleep(20);
+                Pump();
+            }
+
+            Assert.True(condition(), "Waited three seconds for the window.");
+        }
+
+        public List<ResultRow> ResultRows() =>
+            [.. Window.GetVisualDescendants().OfType<Border>().Select(border => border.Tag).OfType<ResultRow>()];
+
         public void TypeAndEnter(string text)
         {
             Window.KeyTextInput(text);
@@ -484,6 +601,40 @@ public sealed class TillWindowTests
             Task.FromResult<DecisionAnswer?>(null);
 
         public Task<bool> HealthAsync(CancellationToken cancellationToken = default) => Task.FromResult(Up);
+
+        /// <summary>What a search answers: a milk that sells and a butter with no price (B1).</summary>
+        public List<ProductSearchResult> Catalogue { get; } =
+        [
+            new("v-milk", "Lait UHT Candia", "Brique 1L", "6130000000017", ProductLookupOutcome.Found,
+                new ProductForSale("v-milk", "p-milk", "Lait UHT Candia", "Brique 1L", "pc", 0, 900, TvaRateSource.FromCategory, "143.00", "DZD", false, "12"), null),
+            new("v-butter", "Beurre", "250g", "6130000000024", ProductLookupOutcome.NotSellable, null, NotSellableReason.NoCurrentPrice),
+        ];
+
+        public List<string> Searches { get; } = [];
+
+        public Task<ProductSearchAnswer?> SearchAsync(string query, CancellationToken cancellationToken = default)
+        {
+            Searches.Add(query);
+            var folded = query.ToUpperInvariant();
+            return Task.FromResult<ProductSearchAnswer?>(Up
+                ? new ProductSearchAnswer(query, [.. Catalogue.Where(result => $"{result.ProductName} {result.VariantName}".ToUpperInvariant().Contains(folded, StringComparison.Ordinal))])
+                : null);
+        }
+
+        /// <summary>Today's sales at this till: one ticket, S-2026-000142 (B1).</summary>
+        public static readonly PastTicketDetail Ticket = new(
+            "t-142", "S-2026-000142", new DateTimeOffset(2026, 9, 25, 9, 5, 0, TimeSpan.Zero), "till-1", "Nabil B.", "completed",
+            [new PastTicketLineWire("Lait UHT Candia", "Brique 1L", "2", "pc", "143.00", "286.00")],
+            "286.00", "45.66", "286.00", "DZD", [new PastPaymentWire("cash", "286.00")]);
+
+        public Task<TicketList?> TicketsAsync(DateOnly day, bool allTills, string sessionToken, CancellationToken cancellationToken = default) =>
+            Task.FromResult<TicketList?>(new TicketList(TicketOutcomes.Answered, $"{day:yyyy-MM-dd}", allTills,
+                [new TicketSummary(Ticket.TransactionId, Ticket.InvoiceNumber, Ticket.OccurredAt, "till-1", "completed", 1, "286.00", "DZD")]));
+
+        public Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default) =>
+            Task.FromResult<TicketAnswer?>(idOrNumber == Ticket.TransactionId || idOrNumber == Ticket.InvoiceNumber
+                ? new TicketAnswer(TicketOutcomes.Found, Ticket)
+                : new TicketAnswer(TicketOutcomes.Unknown, null));
     }
 }
 

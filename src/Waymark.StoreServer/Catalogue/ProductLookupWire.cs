@@ -27,6 +27,18 @@ public static class ProductLookupWire
         _ => throw new UnreachableException($"A lookup result this mapping does not know: {result}."),
     };
 
+    /// <summary>What a search found (B1): each product with what a scan of it would say.</summary>
+    public static ProductSearchAnswer Search(string query, IReadOnlyList<ProductSearchHit> hits) => new(
+        query,
+        [.. hits.Select(hit => hit.Result switch
+        {
+            ProductLookupResult.Found found => new ProductSearchResult(
+                hit.VariantId, hit.ProductName, hit.VariantName, hit.Code, ProductLookupOutcome.Found, Product(found.Product), Reason: null),
+            ProductLookupResult.NotSellable refused => new ProductSearchResult(
+                hit.VariantId, hit.ProductName, hit.VariantName, hit.Code, ProductLookupOutcome.NotSellable, Product: null, Reason(refused.Reason)),
+            _ => throw new UnreachableException($"A search answer this mapping does not know: {hit.Result}."),
+        })]);
+
     private static WireProduct Product(DomainProduct product) => new(
         product.VariantId,
         product.ProductId,
@@ -54,6 +66,7 @@ public static class ProductLookupWire
         DomainReason.PriceNotTaxInclusive => WireReason.PriceNotTaxInclusive,
         DomainReason.Archived => WireReason.Archived,
         DomainReason.Weighted => WireReason.Weighted,
+        DomainReason.NoCode => WireReason.NoCode,
         _ => throw new UnreachableException($"A refusal this mapping does not know: {reason}."),
     };
 }

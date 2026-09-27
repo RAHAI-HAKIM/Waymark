@@ -52,6 +52,15 @@ public sealed class SignInFlowTests
             Task.FromResult<DecisionAnswer?>(null);
 
         public Task<bool> HealthAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<ProductSearchAnswer?> SearchAsync(string query, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ProductSearchAnswer?>(null);
+
+        public Task<TicketList?> TicketsAsync(DateOnly day, bool allTills, string sessionToken, CancellationToken cancellationToken = default) =>
+            Task.FromResult<TicketList?>(null);
+
+        public Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default) =>
+            Task.FromResult<TicketAnswer?>(null);
     }
 
     private static SignInAnswer Answer(string outcome, string? token = null, DateTimeOffset? until = null, int? left = null) =>

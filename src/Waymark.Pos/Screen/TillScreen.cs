@@ -30,6 +30,10 @@ public enum Tone
 /// <param name="Parked">Tickets on hold, oldest first (D-087).</param>
 /// <param name="Drafts">Tickets cancelled today, newest first (D-087).</param>
 /// <param name="DraftsOpen">Whether the rail shows the drafts list.</param>
+/// <param name="Search">The name search under way, if any (B1, D-088).</param>
+/// <param name="NextCount">What the next scan or touch adds: the "QTÉ × n" chip (B1).</param>
+/// <param name="Viewing">A past ticket open read-only in the ticket view (B1).</param>
+/// <param name="Tickets">The "Tickets" list, when the rail shows it (B1).</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -47,20 +51,35 @@ public sealed record ScreenState(
     UnconfirmedSale? Unconfirmed = null,
     IReadOnlyList<HeldTicket>? Parked = null,
     IReadOnlyList<HeldTicket>? Drafts = null,
-    bool DraftsOpen = false);
+    bool DraftsOpen = false,
+    SearchState? Search = null,
+    int NextCount = 1,
+    PastTicketDetail? Viewing = null,
+    TicketsState? Tickets = null);
+
+/// <summary>A name search: what was typed, the server's answer (null while asked, or when it could not say), which row Entrée takes.</summary>
+/// <param name="Offline">The server could not answer.</param>
+public sealed record SearchState(string Query, ProductSearchAnswer? Answer, bool Offline, int Highlighted);
+
+/// <summary>The "Tickets" list: which day, which tills, and the server's answer (null while asked, or when it could not say).</summary>
+public sealed record TicketsState(DateOnly Day, bool AllTills, TicketList? List, bool Offline);
 
 /// <summary>
 /// Everything the till shows, decided (session A4, G1). The window draws this and decides
 /// nothing: every rule a cashier would notice being wrong lives here, where it is tested
 /// without a window.
 /// </summary>
+/// <param name="Field">The chip in the search field: "QTÉ × 1", or the n typed before a scan (B1).</param>
+/// <param name="Results">The name search's results, floating over the ticket; null when there is no search (B1).</param>
 public sealed record TillScreen(
     bool RightToLeft,
     TopBar Top,
     NoticeLine Notice,
     CartView Cart,
     Rail Rail,
-    BottomBar Bottom)
+    BottomBar Bottom,
+    FieldChip Field,
+    ResultsView? Results)
 {
     /// <summary>The key for "Encaisser". Every action has its F key (G1 kit §9).</summary>
     public const string CollectKey = "F12";
@@ -71,10 +90,18 @@ public sealed record TillScreen(
     /// <summary>The key for "Attente" (G1 board).</summary>
     public const string ParkKey = "F3";
 
+    /// <summary>What closes a past ticket, as the keyboard says it.</summary>
+    public const string CloseKey = "Échap";
+
     public static TillScreen Build(ScreenState state)
     {
         ArgumentNullException.ThrowIfNull(state);
         var text = state.Text;
+
+        if (state.Viewing is { } past)
+        {
+            return PastOf(state, past);
+        }
 
         return new TillScreen(
             text.RightToLeft,
@@ -82,7 +109,9 @@ public sealed record TillScreen(
             NoticeOf(state),
             CartOf(state),
             RailOf(state),
-            BottomOf(state));
+            BottomOf(state),
+            new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
+            ResultsOf(state));
     }
 
     /// <summary>
@@ -112,8 +141,17 @@ public sealed record TillScreen(
             Notice: drawn.Notice != next.Notice,
             Cart: !Same(drawn.Cart, next.Cart),
             Rail: !Same(drawn.Rail, next.Rail),
-            Bottom: !Same(drawn.Bottom, next.Bottom));
+            Bottom: !Same(drawn.Bottom, next.Bottom),
+            Field: drawn.Field != next.Field,
+            Results: !Same(drawn.Results, next.Results));
     }
+
+    private static bool Same(ResultsView? drawn, ResultsView? next) => (drawn, next) switch
+    {
+        (null, null) => true,
+        ({ } a, { } b) => a.Rows.SequenceEqual(b.Rows) && a with { Rows = b.Rows } == b,
+        _ => false,
+    };
 
     private static bool Same(CartView drawn, CartView next) =>
         drawn.Columns.SequenceEqual(next.Columns)
@@ -130,6 +168,8 @@ public sealed record TillScreen(
         (Rail.Paid a, Rail.Paid b) => a.Figures.SequenceEqual(b.Figures) && a with { Figures = b.Figures } == b,
         (Rail.Rest a, Rail.Rest b) => a.Operations.SequenceEqual(b.Operations) && a with { Operations = b.Operations } == b,
         (Rail.Drafts a, Rail.Drafts b) => a.Rows.SequenceEqual(b.Rows) && a with { Rows = b.Rows } == b,
+        (Rail.Tickets a, Rail.Tickets b) => a.Rows.SequenceEqual(b.Rows) && a with { Rows = b.Rows } == b,
+        (Rail.Past a, Rail.Past b) => a.Figures.SequenceEqual(b.Figures) && a with { Figures = b.Figures } == b,
         _ => drawn == next,
     };
 
@@ -207,6 +247,12 @@ public sealed record TillScreen(
 
             case { Kind: TillNoticeKind.NotSignedIn }:
                 return new NoticeLine(Tone.Warning, text.SessionEnded, text.SessionEndedDetail);
+
+            case { Kind: TillNoticeKind.TicketUnknown } unknownTicket:
+                return new NoticeLine(Tone.Warning, text.TicketUnknown, text.TicketUnknownDetail(unknownTicket.Code));
+
+            case { Kind: TillNoticeKind.TicketNotAllowed }:
+                return new NoticeLine(Tone.Warning, text.ManagerOnly, text.TicketsNotAllowed);
 
             // An unconfirmed sale takes the rail (RailOf), where its instructions fit; the slot
             // goes on saying what it would otherwise say.
@@ -354,6 +400,11 @@ public sealed record TillScreen(
             return DraftsOf(state);
         }
 
+        if (state.Tickets is { } tickets)
+        {
+            return TicketsOf(state, tickets);
+        }
+
         return new Rail.Rest(OperationsOf(state), AlmanacOf(state));
     }
 
@@ -373,7 +424,171 @@ public sealed record TillScreen(
             new OperationKey(Operation.Park, text.Park, ParkKey, mayPutAside),
             new OperationKey(Operation.CancelTicket, text.CancelTicket, null, mayPutAside),
             new OperationKey(Operation.Drafts, text.DraftsKey(drafts), null, drafts > 0),
+            new OperationKey(Operation.Tickets, text.TicketsKey, null, true),
         ];
+    }
+
+    // ============================================================ B1: search, tickets, a past ticket
+
+    /// <summary>
+    /// The name search's results, floating over the ticket (D-088): name, price and stock, which
+    /// makes them the stock lookup; an unsellable product listed with its reason, and not touchable.
+    /// Entrée takes the highlighted row, if it can be sold.
+    /// </summary>
+    private static ResultsView? ResultsOf(ScreenState state)
+    {
+        if (state.Search is not { } search)
+        {
+            return null;
+        }
+
+        var text = state.Text;
+        if (search.Offline)
+        {
+            return new ResultsView(search.Query, [], text.SearchOffline);
+        }
+
+        if (search.Answer is not { } answer)
+        {
+            return new ResultsView(search.Query, [], text.Searching);
+        }
+
+        var rows = answer.Results.Select((result, index) => ResultRowOf(result, index == search.Highlighted, text)).ToList();
+        return new ResultsView(search.Query, rows, rows.Count == 0 ? text.NoResults(search.Query) : null);
+    }
+
+    private static ResultRow ResultRowOf(ProductSearchResult result, bool highlighted, TillText text)
+    {
+        var title = $"{result.ProductName} {result.VariantName}";
+        if (result is { Outcome: ProductLookupOutcome.Found, Product: { } product, Code: not null }
+            && Money(product.PriceTtc, product.Currency) is { } price)
+        {
+            var stock = Decimal(product.StockOnHand) ?? product.StockOnHand;
+            return new ResultRow(result.VariantId, title, $"{DisplayFigures.AmountWithCurrency(price, text)} · {text.Stock(stock)}", null, true, highlighted);
+        }
+
+        return new ResultRow(result.VariantId, title, text.NotSellableReason(result.Reason), new Chip(Tone.Warning, text.NotSellable), false, highlighted);
+    }
+
+    /// <summary>
+    /// The "Tickets" list (D-088): one store day, this till or every till, newest first. Today at
+    /// this till is anyone's; the server refuses the rest below rank 2, and the list says so.
+    /// </summary>
+    private static Rail.Tickets TicketsOf(ScreenState state, TicketsState tickets)
+    {
+        var text = state.Text;
+        var today = DateOnly.FromDateTime(Local(state, state.Now).DateTime);
+        var rows = new List<TicketRow>();
+        string? message = null;
+
+        if (tickets.Offline)
+        {
+            message = text.SearchOffline;
+        }
+        else if (tickets.List is not { } list)
+        {
+            message = text.Searching;
+        }
+        else if (list.Outcome == TicketOutcomes.NotAllowed)
+        {
+            message = text.TicketsNotAllowed;
+        }
+        else if (list.Outcome == TicketOutcomes.NotSignedIn)
+        {
+            message = text.SessionEndedDetail;
+        }
+        else
+        {
+            rows.AddRange(list.Tickets.Select(ticket => new TicketRow(
+                ticket.TransactionId,
+                $"{DisplayFigures.Clock(Local(state, ticket.OccurredAt))} · {text.TicketNumber(ticket.InvoiceNumber ?? "?")}",
+                $"{text.Lines(ticket.LineCount)} · {Figure(ticket.Total, ticket.Currency)}",
+                StatusChip(ticket.Status, text))));
+            message = rows.Count == 0 ? text.NoTickets : null;
+        }
+
+        var dayLabel = tickets.Day == today
+            ? text.TodayLabel(DisplayFigures.DayAndMonth(tickets.Day))
+            : DisplayFigures.DayAndMonth(tickets.Day);
+
+        return new Rail.Tickets(
+            text.TicketsTitle,
+            dayLabel,
+            tickets.AllTills ? text.AllTills : text.ThisTill,
+            text.OtherScope(tickets.AllTills),
+            rows,
+            message,
+            MayGoForward: tickets.Day < today,
+            text.Close);
+    }
+
+    private static Chip? StatusChip(string status, TillText text) => status switch
+    {
+        "voided" => new Chip(Tone.Warning, text.StatusVoided),
+        "refunded" => new Chip(Tone.Warning, text.StatusRefunded),
+        "partially_refunded" => new Chip(Tone.Warning, text.StatusPartlyRefunded),
+        _ => null,
+    };
+
+    /// <summary>
+    /// A past ticket, read-only, in the ticket view (D-088): the same regions, drawn from the sale as
+    /// it ended; no selection, no action on a line, and one key, "Fermer", which gives the ticket on
+    /// screen back. No customer: showing one is a consultation to log, and that is B7's.
+    /// </summary>
+    private static TillScreen PastOf(ScreenState state, PastTicketDetail past)
+    {
+        var text = state.Text;
+        var when = Local(state, past.OccurredAt);
+        var clock = DisplayFigures.Clock(when);
+        var date = DisplayFigures.DayAndMonth(DateOnly.FromDateTime(when.DateTime));
+        var number = text.TicketNumber(past.InvoiceNumber ?? "?");
+        var status = StatusChip(past.Status, text);
+
+        var top = TopBarOf(state) with { Tab = new TicketTab(number, $"{date} {clock}") };
+
+        var notice = new NoticeLine(
+            status is null ? Tone.Neutral : Tone.Warning,
+            status?.Label ?? text.PastTicket,
+            text.PastTicketLine(date, clock, past.StaffName));
+
+        var rows = past.Lines.Select((line, index) => new LineRow(
+            $"past-{index}",
+            Decimal(line.Quantity) ?? line.Quantity,
+            $"{line.ProductName} {line.VariantName}",
+            [],
+            Figure(line.UnitPrice, past.Currency),
+            Figure(line.LineTotal, past.Currency),
+            Struck: false,
+            Selected: false)).ToList();
+        var cart = new CartView(
+            [text.ColumnQuantity, text.ColumnArticle, text.ColumnUnitPrice, text.ColumnTotal],
+            rows,
+            rows.Count == 0 ? new EmptyState(text.EmptyTitle, string.Empty) : null,
+            null);
+
+        var total = Money(past.Total, past.Currency);
+        var figures = new List<Figure>
+        {
+            new(text.Subtotal, Figure(past.Subtotal, past.Currency)),
+            new(text.TaxIncluded, Figure(past.TaxTotal, past.Currency)),
+            new(text.TicketTotal, Figure(past.Total, past.Currency)),
+        };
+        figures.AddRange(past.Payments.Select(payment => new Figure(text.PaymentMethod(payment.Method), Figure(payment.Amount, past.Currency))));
+
+        var rail = new Rail.Past(
+            text.PastTicket,
+            number,
+            past.StaffName is null ? $"{date} {clock}" : $"{date} {clock} · {past.StaffName}",
+            figures,
+            text.PastTicketFooter);
+
+        var bottom = new BottomBar(
+            [new Figure(text.Subtotal, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))],
+            text.TicketTotal.ToUpperInvariant(),
+            total is { } t ? DisplayFigures.AmountWithCurrency(t, text) : "?",
+            new PrimaryKey(text.Close, null, CloseKey, Enabled: true));
+
+        return new TillScreen(text.RightToLeft, top, notice, cart, rail, bottom, new FieldChip(text.NextCount("1"), false), null);
     }
 
     /// <summary>
@@ -561,10 +776,22 @@ public sealed record TillScreen(
 }
 
 /// <summary>Which regions a frame changed (<see cref="TillScreen.Compare"/>): the ones the window redraws.</summary>
-public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, bool Bottom)
+public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, bool Bottom, bool Field = false, bool Results = false)
 {
-    public static FrameChanges All { get; } = new(true, true, true, true, true);
+    public static FrameChanges All { get; } = new(true, true, true, true, true, true, true);
 }
+
+/// <summary>The chip in the search field (G1 board): "QTÉ × 1", marked when a count was typed.</summary>
+public sealed record FieldChip(string Label, bool Active);
+
+/// <summary>The name search's results (B1): the rows, or a sentence when there are none to show.</summary>
+public sealed record ResultsView(string Query, IReadOnlyList<ResultRow> Rows, string? Message);
+
+/// <summary>One product found: its name, "143,00 DA · stock 12" or why it cannot be sold, and whether a touch sells it.</summary>
+public sealed record ResultRow(string VariantId, string Title, string Detail, Chip? Chip, bool Available, bool Highlighted);
+
+/// <summary>A row of the "Tickets" list: "14:05 · Ticket n° …", "3 lignes · 1 240,00", and a label when it is not a plain sale.</summary>
+public sealed record TicketRow(string TransactionId, string Title, string Detail, Chip? Chip);
 
 /// <param name="Tab">The open ticket; null on the sign-in screen, where there is none.</param>
 /// <param name="Parked">The tickets on hold, oldest first, each a tab that a touch brings back (D-087).</param>
@@ -628,6 +855,16 @@ public abstract record Rail
     /// <summary>At rest: the operation keys, room for the B-block parts, and the Almanac slot at its foot.</summary>
     public sealed record Rest(IReadOnlyList<OperationKey> Operations, AlmanacSlot? Almanac) : Rail;
 
+    /// <summary>The "Tickets" list (B1, D-088): a day, a scope, and the sales, or a sentence.</summary>
+    /// <param name="Scope">"Cette caisse" or "Toutes les caisses".</param>
+    /// <param name="OtherScope">The key that switches to the other.</param>
+    /// <param name="MayGoForward">False on today: there is no tomorrow's list.</param>
+    public sealed record Tickets(
+        string Label, string Day, string Scope, string OtherScope, IReadOnlyList<TicketRow> Rows, string? Message, bool MayGoForward, string Close) : Rail;
+
+    /// <summary>A past ticket's figures and payments, beside it in the ticket view (B1).</summary>
+    public sealed record Past(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer) : Rail;
+
     /// <summary>The tickets cancelled today (D-087).</summary>
     /// <param name="Empty">What to say when there are none; null when there are.</param>
     public sealed record Drafts(string Label, string Hint, IReadOnlyList<DraftRow> Rows, string? Empty, string Close) : Rail;
@@ -646,6 +883,9 @@ public enum Operation
     Park,
     CancelTicket,
     Drafts,
+
+    /// <summary>The "Tickets" list: sales already made (B1).</summary>
+    Tickets,
 }
 
 /// <summary>An operation key in the rail: its label, its F key when it has one, and whether it is available now.</summary>

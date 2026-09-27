@@ -97,6 +97,11 @@ builder.Services.AddSingleton<IStoreCalendar>(services => new StoreCalendar(
 // What the till may sell for a barcode (D-066). Scoped: one context, one request.
 builder.Services.AddScoped<IProductLookup, Waymark.Persistence.Catalogue.ProductLookup>();
 
+// B1 (D-088): the name search, answered as a scan of each result would be; and the sales already
+// made, read back for the "Tickets" list.
+builder.Services.AddScoped<IProductSearch, Waymark.Persistence.Catalogue.ProductLookup>();
+builder.Services.AddScoped<IPastTickets, Waymark.Persistence.Sales.PastTickets>();
+
 // The reasons the shop accepts for a discount, a void, a cash movement (A3). A read, like
 // the lookup, and scoped for the same reason.
 builder.Services.AddScoped<IReasonCodes, Waymark.Persistence.Reference.ReasonCodes>();
@@ -280,6 +285,65 @@ app.MapGet("/api/products/lookup", async (
     string.IsNullOrWhiteSpace(barcode)
         ? Results.BadRequest("A barcode is required: /api/products/lookup?barcode=...")
         : Results.Ok(ProductLookupWire.ToWire(barcode, await lookup.FindForSaleAsync(barcode, cancellationToken))));
+
+// B1 (D-088): products by name. Fewer than two characters is an empty answer, not an error: the
+// till asks as the cashier types, and the first letter is not a mistake.
+app.MapGet("/api/products/search", async (string? q, IProductSearch search, CancellationToken cancellationToken) =>
+{
+    var query = q?.Trim() ?? string.Empty;
+    var hits = query.Length < NameSearch.MinimumLength ? [] : await search.SearchAsync(query, cancellationToken);
+    return Results.Ok(ProductLookupWire.Search(query, hits));
+});
+
+// B1 (D-088): the finished sales of one store day. The session header says who asks and at which
+// till; today at that till is anyone's, anything else needs rank 2, and a refusal is an answer.
+app.MapGet("/api/tickets", async (
+    string? day, bool? all, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
+    IPastTickets tickets, IStoreCalendar calendar, CancellationToken cancellationToken) =>
+{
+    var today = calendar.Today;
+    var asked = DateOnly.TryParseExact(day, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+        System.Globalization.DateTimeStyles.None, out var parsed) ? parsed : today;
+    var allTills = all == true;
+
+    if (sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()) is not { } session)
+    {
+        return Results.Ok(TicketsWire.List(TicketOutcomes.NotSignedIn, asked, allTills, []));
+    }
+
+    var terminal = allTills ? null : session.TerminalId;
+    var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
+    if (!TicketsWire.MaySee(session, rank, today, asked, terminal))
+    {
+        return Results.Ok(TicketsWire.List(TicketOutcomes.NotAllowed, asked, allTills, []));
+    }
+
+    var (since, until) = TicketsWire.Bounds(asked, storeZone!);
+    return Results.Ok(TicketsWire.List(TicketOutcomes.Answered, asked, allTills, await tickets.ListAsync(terminal, since, until, cancellationToken)));
+});
+
+// One past ticket, by its id or its number, read-only (D-088). The rank rule is asked of the
+// ticket's own day and till, once it is found: an id is not a permission.
+app.MapGet("/api/tickets/one", async (
+    string? ticket, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
+    IPastTickets tickets, IStoreCalendar calendar, CancellationToken cancellationToken) =>
+{
+    if (sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()) is not { } session)
+    {
+        return Results.Ok(TicketsWire.Refused(TicketOutcomes.NotSignedIn));
+    }
+
+    if (string.IsNullOrWhiteSpace(ticket) || await tickets.FindAsync(ticket.Trim(), cancellationToken) is not { } found)
+    {
+        return Results.Ok(TicketsWire.Refused(TicketOutcomes.Unknown));
+    }
+
+    var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
+    var day = TicketsWire.DayOf(found.OccurredAt, storeZone!);
+    return Results.Ok(TicketsWire.MaySee(session, rank, calendar.Today, day, found.TerminalId)
+        ? TicketsWire.Found(found)
+        : TicketsWire.Refused(TicketOutcomes.NotAllowed));
+});
 
 // Session A4: the store, the till and the person selling, for the till's top bar. A terminal this
 // store does not have is an answer ("unknown_terminal"), never another store's name: the global
