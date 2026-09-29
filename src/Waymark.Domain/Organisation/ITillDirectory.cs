@@ -28,7 +28,9 @@ public interface ITillDirectory
 /// person no rank (D-037, D-077).
 /// </param>
 /// <param name="Currency">The store's currency code, <c>stores.currency</c>: what an empty ticket totals in.</param>
-public sealed record TillDescription(string StoreName, string TerminalName, string Currency, StaffDescription? Staff);
+/// <param name="RoundingPolicy">The store's (D-053): the till previews a discount with it, as the sale will charge it (B4).</param>
+public sealed record TillDescription(
+    string StoreName, string TerminalName, string Currency, StaffDescription? Staff, Values.Rounding RoundingPolicy = Values.Rounding.HalfUp);
 
 /// <summary>The person at the till, with their role's labels in both languages.</summary>
 public sealed record StaffDescription(string StaffName, string RoleLabelFr, string RoleLabelAr);

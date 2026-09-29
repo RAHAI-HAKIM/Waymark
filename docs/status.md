@@ -3,8 +3,8 @@
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
 **27/09/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
-weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is agreed, not
-started** (D-091). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is done** (§13): a
+discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -14,7 +14,7 @@ started** (D-091). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phas
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1743**, all green in Debug and Release (Integration 618 · Pos 477 · Domain 306 · Generator 237 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Tests | **1817**, all green (Integration 640 · Pos 510 · Domain 325 · Generator 237 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, **7 migrations**: `WeighedGoods` (B3) added `transaction_items.quantity_source` and `stores.scale_label_format` |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -44,6 +44,7 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
+| F-28 | Low | **A row carries one discount reason, and some reasons ask for a note nobody can write.** A line with its own discount and a share of the ticket's keeps its own reason and authoriser (the ticket's are on every other row); `transactions` has no discount reason. And `reason_codes.requires_note` ("Autre (préciser)") has no column to hold the note, so such a reason is offered with none | `Application/Sales/CompleteSale.cs`, `transaction_items` | **Decided 29/09, D-092**: settled by B5's migration |
 | F-27 | Low | **Two B3 pieces of the G1 board are not built**: the "Poids / PLU · saisie manuelle" key (F2) beside the field, and the rail's "Articles sans code-barres" grid (Tomates 180,00 /kg, Œufs 25,00 /u… and "Nouvel article"). B3 sells them by PLU typed in the field | G1 board, `Pos/Ui/TillViews.cs` | **Hakim brings the design**: what F2 does beyond focusing the field, which products the grid shows and in what order, and what "Nouvel article" is (O-25) |
 | F-25 | Low | **The Almanac card's "1 / 3" takes a touch only on its 12 px figures**, the defect D-084 fixed for keys. It is a label that acts, not a key | `Pos/Ui/TillViews.cs`, `Almanac` | **Decide** at the next rail design: a key, or a larger target |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
@@ -114,7 +115,7 @@ starting point is always code already reviewed. §7 below is the map.
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
-| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2, B1, B3 done** (§10–§12); B4 agreed (D-091) |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2, B1, B3, B4 done** (§10–§13) |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
@@ -491,4 +492,27 @@ nothing weighed. `python tools/dev-weighed/add_weighed.py <generated>/waymark-st
 (PLU 4011, weight labels) and olives (PLU 537, price labels) before the import, and prints a label of
 each to scan. An already imported store is migrated at StoreServer's next start, but has no weighed
 product: import a fresh copy into a new data directory to try one.
+
+---
+
+## 13. Session B4 — done 29/09 (D-091)
+
+**✍ Hakim's piece, finished by Claude on his word (29/09):** `Domain/Sales/Discounts.cs`: a line's
+discount from a percent or an amount, a ticket's worked out once and split over the lines, and a
+line's spread over its batch rows. The rules are its doc comment; its 18 tests are `DiscountsTests`,
+broken on purpose five ways (an even split over rows survived at first, until a test of unequal rows).
+
+| Where | What |
+| :---- | :---- |
+| `Application/Sales/CompleteSale.cs` | Two passes: batches and gross, then the discounts; the reason checked (D-079); `discount_total`; the basket's flag |
+| `StoreServer/Security/TillSessions.cs` | `AuthoriseAsync`, `AuthorisedBy`: sign-in's PIN check and lockout, the rank through `StaffPermissions.May`, approvals per session |
+| `POST /api/till/authorise`, `Contracts/Pos/Authorisation.cs` | The seller alone, or a manager's PIN; the sale's `DiscountRequest` cites the answer |
+| `Pos/Checkout/Cart.cs` | `CounterDiscount`, `SetDiscount`, `SetTicketDiscount`; `Subtotal`, `DiscountTotal`, `Total`; the store's `Policy` |
+| `Pos/Screen/DiscountEntry.cs`, `TillScreen.cs`, `Ui/TillViews.cs` | What a value is; the "REMISE" rows; the panel and the manager step; Sous-total and Remises |
+| `Pos/TillWindow.cs` | F4 on a line, F6 on the ticket; the value typed in the field; the manager's digits to the dots, never the field |
+
+**The tests:** `DiscountsTests`, `TillDiscountTests`, and the B4 sections of `CompleteSaleTests`,
+`TillSessionsTests`, `SaleWireTests`, `TillWindowTests`. **Broken on purpose**, 16 mutations, each caught; which reason a row keeps survived at first, and a two-reason test was added until it did not. **For Hakim's review:** the panel and the
+manager step have no board of their own (built from the kit and 09-pin); the manager is picked by
+name; the Arabic words are `// ar: à relire`.
 

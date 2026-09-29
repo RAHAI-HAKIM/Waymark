@@ -432,6 +432,69 @@ public sealed class TillWindowTests
         Assert.Empty(till.Session.Cart.Lines);
     });
 
+    // ================================================================ discounts given at the counter (B4, D-091)
+
+    private static Control Keyed<T>(Till till, Func<T, bool> which) =>
+        till.Window.GetVisualDescendants().OfType<Control>().First(control => control.Tag is T tag && which(tag));
+
+    [Fact]
+    public Task F4_on_a_line_a_value_and_a_reason_then_entree_gives_the_discount() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.Server.SellerMayDiscount = true;
+        till.ScanMany(1);
+        till.Tap(till.Rows()[0], new Point(200, 10));
+
+        till.Key(Key.F4, PhysicalKey.F4);
+        till.Type("10");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ReasonRow));
+        till.Tap(Keyed<ReasonRow>(till, _ => true), new Point(20, 20));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Session.Cart.Lines[0].Discount is not null);
+
+        var discount = till.Session.Cart.Lines[0].Discount!;
+        Assert.Equal((1_000L, "geste_commercial", "auth-seller"), (discount.Hundredths, discount.ReasonCode, discount.Authorisation));
+        Assert.Equal(string.Empty, till.SearchField.Text);
+    });
+
+    [Fact]
+    public Task A_cashiers_ticket_discount_takes_a_managers_pin_typed_on_the_keyboard_never_shown() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+
+        till.Key(Key.F6, PhysicalKey.F6);
+        till.Type("50");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ReasonRow));
+        till.Tap(Keyed<ReasonRow>(till, _ => true), new Point(20, 20));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ApproverRow));
+
+        till.Tap(Keyed<ApproverRow>(till, row => row.StaffId == "samia"), new Point(20, 20));
+        till.Window.KeyTextInput("1357");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Rail.Authorise { PinLength: 4 }));
+        Assert.DoesNotContain("1357", till.SearchField.Text ?? string.Empty, StringComparison.Ordinal); // the PIN went to the dots, never the field
+
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Session.Cart.TicketDiscount is not null);
+
+        Assert.Equal((5_000L, "auth-samia"), (till.Session.Cart.TicketDiscount!.Hundredths, till.Session.Cart.TicketDiscount.Authorisation));
+    });
+
+    [Fact]
+    public Task Echap_closes_the_discount_and_nothing_is_given() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Key(Key.F6, PhysicalKey.F6);
+        till.Type("10");
+
+        till.Key(Key.Escape, PhysicalKey.Escape);
+
+        Assert.Null(till.Session.Cart.TicketDiscount);
+        Assert.DoesNotContain(till.Window.GetVisualDescendants().OfType<Control>(), control => control.Tag is Screen.Rail.Discount);
+    });
+
     // ================================================================ a till started before its server
 
     [Fact]
@@ -625,6 +688,23 @@ public sealed class TillWindowTests
             return Task.FromResult<LookupAnswer>(new LookupAnswer.Answered(new ProductLookup(ProductLookupOutcome.Found, barcode, product, null)));
         }
 
+        /// <summary>Whether the person signed in may give a discount alone (B4); a cashier may not.</summary>
+        public bool SellerMayDiscount { get; set; }
+
+        public Task<Waymark.Contracts.Reference.ReasonCodeList?> DiscountReasonsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("discount",
+                [new Waymark.Contracts.Reference.ReasonCodeOption("geste_commercial", "لفتة تجارية", "Geste commercial", false, false)]));
+
+        /// <summary>Samia is the manager, PIN 1357 (B4).</summary>
+        public Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+            Task.FromResult<AuthoriseAnswer?>(request switch
+            {
+                { StaffId: null } when SellerMayDiscount => new AuthoriseAnswer(AuthoriseOutcomes.Authorised, "auth-seller", null, null, null),
+                { StaffId: null } => new AuthoriseAnswer(AuthoriseOutcomes.PinRequired, null, null, null, null),
+                { StaffId: "samia", Pin: "1357" } => new AuthoriseAnswer(AuthoriseOutcomes.Authorised, "auth-samia", null, null, null),
+                _ => new AuthoriseAnswer(AuthoriseOutcomes.WrongPin, null, null, null, 4),
+            });
+
         /// <summary>PLU 4011: tomatoes at 180,00/kg, sold by weight (B3).</summary>
         public static readonly ProductForSale Tomatoes = new(
             "v-4011", "p-4011", "Tomates", "Vrac", "kg", 3, 900, TvaRateSource.FromCategory, "180.00", "DZD", false, "40", IsWeighted: true);
@@ -649,7 +729,11 @@ public sealed class TillWindowTests
         }
 
         public Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(Up ? new TillStaff([new TillStaffMember("nabil", "Nabil B.", "Caissier", "أمين الصندوق", true)]) : null);
+            Task.FromResult(Up
+                ? new TillStaff([
+                    new TillStaffMember("nabil", "Nabil B.", "Caissier", "أمين الصندوق", true),
+                    new TillStaffMember("samia", "Samia K.", "Responsable", "مسؤولة", true)])
+                : null);
 
         public Task<SignInAnswer?> SignInAsync(SignInRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult<SignInAnswer?>(Up ? new SignInAnswer(SignInOutcomes.SignedIn, "token", null, null) : null);

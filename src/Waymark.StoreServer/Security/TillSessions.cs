@@ -40,6 +40,10 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
     private readonly Dictionary<string, SignedInTill> _byToken = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _tokenByTerminal = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SignInLockout> _lockouts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Authorised> _authorisations = new(StringComparer.Ordinal);
+
+    /// <summary>What an authorisation stands for: who gave it, for what, and in which till's session (B4).</summary>
+    private sealed record Authorised(string StaffId, string SessionToken, Capability Capability);
 
     /// <summary>
     /// Checks a PIN and, when it is right, opens a session at the till.
@@ -56,8 +60,84 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
             return Answer(SignInOutcomes.UnknownTerminal);
         }
 
-        if (string.IsNullOrWhiteSpace(request.StaffId)
-            || await credentials.PinHashAsync(request.StaffId, cancellationToken) is not { } storedHash)
+        var check = await CheckPinAsync(request.StaffId, request.Pin, credentials, cancellationToken);
+        return check.Outcome == SignInOutcomes.SignedIn
+            ? Answer(SignInOutcomes.SignedIn, token: Open(request.StaffId, request.TerminalId, clock.GetUtcNow()))
+            : check;
+    }
+
+    /// <summary>
+    /// Whether the seller at this till may do <paramref name="capability"/>, or the manager whose
+    /// PIN is typed may (session B4, D-091). The same PIN check and the same lockout as signing in:
+    /// a manager's PIN is guessed no more easily at the counter than at the sign-in screen.
+    /// </summary>
+    /// <param name="rankOf">A person's <c>roles.rank</c>, null when they have none (D-037).</param>
+    public async Task<AuthoriseAnswer> AuthoriseAsync(
+        string? sessionToken,
+        AuthoriseRequest request,
+        Capability capability,
+        IStaffCredentials credentials,
+        Func<string, Task<long?>> rankOf,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(credentials);
+        ArgumentNullException.ThrowIfNull(rankOf);
+
+        if (Resolve(sessionToken) is not { } session)
+        {
+            return Refused(AuthoriseOutcomes.NotSignedIn);
+        }
+
+        // Asked without a PIN: the seller alone, or a PIN is needed. Never compared here (§3.10).
+        if (string.IsNullOrWhiteSpace(request.StaffId))
+        {
+            return StaffPermissions.May(await rankOf(session.StaffId), capability)
+                ? Grant(session.StaffId, sessionToken!, capability)
+                : Refused(AuthoriseOutcomes.PinRequired);
+        }
+
+        var check = await CheckPinAsync(request.StaffId, request.Pin, credentials, cancellationToken);
+        if (check.Outcome != SignInOutcomes.SignedIn)
+        {
+            return new AuthoriseAnswer(check.Outcome, null, null, check.LockedUntil, check.AttemptsLeft);
+        }
+
+        return StaffPermissions.May(await rankOf(request.StaffId), capability)
+            ? Grant(request.StaffId, sessionToken!, capability)
+            : Refused(AuthoriseOutcomes.NotAllowed);
+    }
+
+    /// <summary>
+    /// Who gave <paramref name="authorisation"/>, when it was given for <paramref name="capability"/>
+    /// in this session; null otherwise. An authorisation from another till, or from a session since
+    /// ended, authorises nothing.
+    /// </summary>
+    public string? AuthorisedBy(string? sessionToken, string? authorisation, Capability capability)
+    {
+        if (string.IsNullOrEmpty(sessionToken) || string.IsNullOrEmpty(authorisation) || Resolve(sessionToken) is null)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            return _authorisations.TryGetValue(authorisation, out var given)
+                && given.Capability == capability
+                && string.Equals(given.SessionToken, sessionToken, StringComparison.Ordinal)
+                    ? given.StaffId
+                    : null;
+        }
+    }
+
+    /// <summary>
+    /// The PIN check sign-in and authorisation share: the person, a usable PIN, the lockout asked
+    /// first, then the hash. <see cref="SignInOutcomes.SignedIn"/> means the PIN was right.
+    /// </summary>
+    private async Task<SignInAnswer> CheckPinAsync(string? staffId, string? pin, IStaffCredentials credentials, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(staffId)
+            || await credentials.PinHashAsync(staffId, cancellationToken) is not { } storedHash)
         {
             return Answer(SignInOutcomes.UnknownStaff);
         }
@@ -71,31 +151,44 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
         try
         {
             var now = clock.GetUtcNow();
-            var lockout = LockoutOf(request.StaffId);
+            var lockout = LockoutOf(staffId);
 
             if (lockout.IsLocked(now))
             {
                 return Answer(SignInOutcomes.Locked, lockedUntil: lockout.LockedUntil);
             }
 
-            if (!hasher.Verify(request.Pin ?? string.Empty, storedHash))
+            if (!hasher.Verify(pin ?? string.Empty, storedHash))
             {
                 var after = lockout.AfterWrong(now);
-                SetLockout(request.StaffId, after);
+                SetLockout(staffId, after);
 
                 return after.IsLocked(now)
                     ? Answer(SignInOutcomes.Locked, lockedUntil: after.LockedUntil)
                     : Answer(SignInOutcomes.WrongPin, attemptsLeft: SignInLockout.WrongBeforeLock - after.WrongInARow);
             }
 
-            SetLockout(request.StaffId, lockout.AfterRight());
-            return Answer(SignInOutcomes.SignedIn, token: Open(request.StaffId, request.TerminalId, now));
+            SetLockout(staffId, lockout.AfterRight());
+            return Answer(SignInOutcomes.SignedIn);
         }
         finally
         {
             _oneAtATime.Release();
         }
     }
+
+    private AuthoriseAnswer Grant(string staffId, string sessionToken, Capability capability)
+    {
+        var id = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        lock (_gate)
+        {
+            _authorisations[id] = new Authorised(staffId, sessionToken, capability);
+        }
+
+        return new AuthoriseAnswer(AuthoriseOutcomes.Authorised, id, null, null, null);
+    }
+
+    private static AuthoriseAnswer Refused(string outcome) => new(outcome, null, null, null, null);
 
     /// <summary>The session a token opened, or null when this server holds no such session.</summary>
     public SignedInTill? Resolve(string? token)
@@ -126,6 +219,12 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
                 && current == token)
             {
                 _tokenByTerminal.Remove(session.TerminalId);
+            }
+
+            // What the session was allowed ends with it.
+            foreach (var ended in _authorisations.Where(pair => pair.Value.SessionToken == token).Select(pair => pair.Key).ToList())
+            {
+                _authorisations.Remove(ended);
             }
         }
     }

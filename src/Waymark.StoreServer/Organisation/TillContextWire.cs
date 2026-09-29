@@ -15,5 +15,6 @@ public static class TillContextWire
             description.Currency,
             description.Staff?.StaffName,
             description.Staff?.RoleLabelFr,
-            description.Staff?.RoleLabelAr);
+            description.Staff?.RoleLabelAr,
+            description.RoundingPolicy == Domain.Values.Rounding.HalfEven ? RoundingPolicies.HalfEven : RoundingPolicies.HalfUp);
 }

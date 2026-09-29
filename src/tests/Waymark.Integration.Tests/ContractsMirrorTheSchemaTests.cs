@@ -300,6 +300,9 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(TillStaff),             // StoreServer → till; who may sign in, read from staff and roles, never a hash
             nameof(TillStaffMember),       // an element of that list
             nameof(SignInRequest),         // till → StoreServer; a PIN, checked and never stored
+            nameof(AuthoriseRequest),      // till -> StoreServer; a PIN checked and never stored, and a capability (B4)
+            nameof(AuthoriseAnswer),       // StoreServer -> till; an authorisation lives in the server's memory, not a table (B4)
+            nameof(DiscountRequest),       // an element of a sale request: what was given, never the money it comes to (B4)
             nameof(SignInAnswer),          // StoreServer → till; a session lives in the server's memory, not a table (D-083)
             nameof(BoardAnswer),           // the board: a person's cards and a withheld count, computed per request
             nameof(DecisionAnswer),        // what a decision answers with; the row it records is recommendation_decisions

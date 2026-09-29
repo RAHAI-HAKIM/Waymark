@@ -249,7 +249,8 @@ public sealed class TillScreenTests
         var onStruck = TillScreen.Build(State(cart, selected: struck)).Cart;
 
         Assert.True(onLive.Lines[0].Selected);
-        Assert.Equal(new LineActions(cart.LineOf("a"), 4, "4", true, "Retirer la ligne", "F8"), onLive.Actions);
+        Assert.Equal(
+            new LineActions(cart.LineOf("a"), 4, "4", true, "Retirer la ligne", "F8", Discount: "Remise", DiscountKey: "F4"), onLive.Actions);
         Assert.False(onStruck.Lines[1].Selected);
         Assert.Null(onStruck.Actions);
     }
@@ -627,9 +628,10 @@ public sealed class TillScreenTests
     {
         var keys = Operations(State(CartWith(("a", "65.00", 1))));
 
-        Assert.Equal([Operation.Park, Operation.CancelTicket, Operation.Drafts, Operation.Tickets], keys.Select(key => key.Operation));
+        Assert.Equal([Operation.Park, Operation.TicketDiscount, Operation.CancelTicket, Operation.Drafts, Operation.Tickets], keys.Select(key => key.Operation));
         Assert.Equal(("Attente", "F3"), (keys[0].Label, keys[0].Key));
-        Assert.Equal("Annuler ticket", keys[1].Label);
+        Assert.Equal(("Remise ticket", "F6"), (keys[1].Label, keys[1].Key));
+        Assert.Equal("Annuler ticket", keys[2].Label);
     }
 
     [Fact]

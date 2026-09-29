@@ -35,7 +35,7 @@ public readonly record struct DeclaredLine(Quantity Quantity, LineAmounts Amount
 ///   Never round each part on its own (CLAUDE.md §3.1).</description></item>
 ///   <item><description><b><see cref="Recomputes"/></b>: whether a stored row still agrees with
 ///   itself (D-053). For <see cref="QuantitySource.LabelPrice"/> the total is exact, so the row holds
-///   when its quantity is within <b>one step</b> of <c>line_total ÷ sell_price</c> (a split row's
+///   when its quantity is within <b>one step</b> of <c>(line_total + discount) ÷ sell_price</c> (a split row's
 ///   share is rounded again by <c>Allocate</c>, which is why it is one step and not half). For every
 ///   other source the quantity is exact, and the row holds when
 ///   <c>line_total == round(quantity × sell_price) − discount</c>, exactly.</description></item>
@@ -115,7 +115,9 @@ public static class WeighedLine
         {
             // The total is exact and the quantity derived: |quantity × price − total| ≤ one step's
             // worth, compared in thousandths × centimes so nothing is rounded to check it.
-            var gap = ((Int128)quantity.Thousandths * sellPrice.MinorUnits) - ((Int128)lineTotal.MinorUnits * Quantity.Scale);
+            // The label's price is the row's total before any discount given at the counter (B4).
+            var labelled = lineTotal + discount;
+            var gap = ((Int128)quantity.Thousandths * sellPrice.MinorUnits) - ((Int128)labelled.MinorUnits * Quantity.Scale);
             return Int128.Abs(gap) <= (Int128)unit.StepThousandths * sellPrice.MinorUnits;
         }
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
+using Waymark.Contracts.Reference;
 using Waymark.Domain.Values;
 using Waymark.Pos.Checkout;
 
@@ -35,6 +36,7 @@ public enum Tone
 /// <param name="Viewing">A past ticket open read-only in the ticket view (B1).</param>
 /// <param name="Tickets">The "Tickets" list, when the rail shows it (B1).</param>
 /// <param name="Weighing">A product sold by weight waiting for its weight (B3).</param>
+/// <param name="Discounting">A discount being given at the counter, on a line or the ticket (B4).</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -57,7 +59,44 @@ public sealed record ScreenState(
     int NextCount = 1,
     PastTicketDetail? Viewing = null,
     TicketsState? Tickets = null,
-    PendingWeight? Weighing = null);
+    PendingWeight? Weighing = null,
+    DiscountState? Discounting = null);
+
+/// <summary>
+/// A discount being given at the counter (B4, D-091): on which line, or the ticket when
+/// <paramref name="LineId"/> is null; percent or amount; the text typed in the field; the shop's
+/// reasons (null while asked); the one chosen; then the manager step, when the seller may not give it
+/// alone.
+/// </summary>
+/// <param name="Form">One of <c>DiscountForms</c>.</param>
+/// <param name="Staff">Who may be asked to authorise: the sign-in list.</param>
+/// <param name="PinLength">How many digits of the manager's PIN are typed: the dots, never the digits.</param>
+public sealed record DiscountState(
+    string? LineId,
+    string Form,
+    string Typed,
+    ReasonCodeList? Reasons,
+    bool Offline,
+    string? ReasonCode,
+    bool Authorising = false,
+    TillStaff? Staff = null,
+    string? ManagerId = null,
+    int PinLength = 0,
+    DiscountProblem? Problem = null,
+    int? AttemptsLeft = null,
+    DateTimeOffset? LockedUntil = null);
+
+/// <summary>What the discount panel has to say is wrong.</summary>
+public enum DiscountProblem
+{
+    ValueInvalid,
+    NoReason,
+    Offline,
+    WrongPin,
+    Locked,
+    NotAllowed,
+    NoPin,
+}
 
 /// <summary>A name search: what was typed, the server's answer (null while asked, or when it could not say), which row Entrée takes.</summary>
 /// <param name="Offline">The server could not answer.</param>
@@ -94,6 +133,12 @@ public sealed record TillScreen(
     /// <summary>The key for "Attente" (G1 board).</summary>
     public const string ParkKey = "F3";
 
+    /// <summary>The key for "Remise" under a line (G1 board).</summary>
+    public const string DiscountLineKey = "F4";
+
+    /// <summary>The key for "Remise ticket" in the rail (G1 board).</summary>
+    public const string TicketDiscountKey = "F6";
+
     /// <summary>What closes a past ticket, as the keyboard says it.</summary>
     public const string CloseKey = "Échap";
 
@@ -116,8 +161,10 @@ public sealed record TillScreen(
             BottomOf(state),
             state.Weighing is { } weighing
                 ? new FieldChip(text.WeightChip(weighing.UnitCode), Active: true)
-                : new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
-            state.Weighing is null ? ResultsOf(state) : null,
+                : state.Discounting is { } discounting
+                    ? new FieldChip(text.DiscountChip(discounting.Form == DiscountForms.Percent ? "%" : text.CurrencySymbol(CurrencyOf(state) ?? Currency.Dzd)), Active: true)
+                    : new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
+            state.Weighing is null && state.Discounting is null ? ResultsOf(state) : null,
             WeighOf(state));
     }
 
@@ -193,7 +240,8 @@ public sealed record TillScreen(
     };
 
     private static bool Same(CartView drawn, CartView next) =>
-        drawn.Columns.SequenceEqual(next.Columns)
+        drawn.TicketDiscount == next.TicketDiscount
+        && drawn.Columns.SequenceEqual(next.Columns)
         && drawn.Lines.Count == next.Lines.Count
         && drawn.Lines.Zip(next.Lines).All(pair =>
             pair.First.Chips.SequenceEqual(pair.Second.Chips) && pair.First with { Chips = pair.Second.Chips } == pair.Second)
@@ -353,7 +401,8 @@ public sealed record TillScreen(
                 line.IsWeighed ? $"{DisplayFigures.Amount(line.UnitPrice)} /{line.UnitCode}" : DisplayFigures.Amount(line.UnitPrice),
                 DisplayFigures.Amount(line.LineTotal),
                 line.IsRemoved,
-                selected);
+                selected,
+                DiscountOf(state, line));
         }).ToList();
 
         var empty = rows.Count == 0 ? new EmptyState(text.EmptyTitle, text.EmptyHint) : null;
@@ -362,7 +411,84 @@ public sealed record TillScreen(
             [text.ColumnQuantity, text.ColumnArticle, text.ColumnUnitPrice, text.ColumnTotal],
             rows,
             empty,
-            ActionsOf(state, paid));
+            ActionsOf(state, paid),
+            paid ? null : TicketDiscountOf(state));
+    }
+
+    /// <summary>
+    /// A line's own discount, as the board draws it under the line: "REMISE 10 % · GESTE COMMERCIAL",
+    /// then what it takes off, worked out with the store's policy as the sale will (B4).
+    /// </summary>
+    private static DiscountLine? DiscountOf(ScreenState state, CartLine line)
+    {
+        if (line.Discount is not { } discount || line.IsRemoved || state.Paid is not null)
+        {
+            return null;
+        }
+
+        return new DiscountLine(
+            $"{state.Text.DiscountLabel} {Given(state, discount)} · {Reason(state, discount)}",
+            Minus(Off(() => state.Cart.LineDiscountOf(line))));
+    }
+
+    /// <summary>The ticket's discount, as a row at the end of the ticket.</summary>
+    private static DiscountLine? TicketDiscountOf(ScreenState state)
+    {
+        if (state.Cart.TicketDiscount is not { } discount)
+        {
+            return null;
+        }
+
+        var shares = Off(() => state.Cart.TicketShares().Aggregate((sum, share) => sum + share));
+        return new DiscountLine($"{state.Text.TicketDiscountLabel} {Given(state, discount)} · {Reason(state, discount)}", Minus(shares));
+    }
+
+    /// <summary>"10 %" or "50,00 DA".</summary>
+    private static string Given(ScreenState state, CounterDiscount discount) => discount.IsPercent
+        ? $"{Hundredths(discount.Hundredths)} %"
+        : DisplayFigures.AmountWithCurrency(Domain.Values.Money.FromMinorUnits(discount.Hundredths, CurrencyOf(state) ?? Currency.Dzd), state.Text);
+
+    private static string Reason(ScreenState state, CounterDiscount discount) =>
+        (state.Text.RightToLeft ? discount.ReasonAr : discount.ReasonFr).ToUpperInvariant();
+
+    /// <summary>"10", "12,5": a percent without the zeros it does not need.</summary>
+    private static string Hundredths(long value)
+    {
+        var cents = value % 100;
+        var tail = cents % 10 == 0 ? (cents / 10).ToString(CultureInfo.InvariantCulture) : cents.ToString("00", CultureInfo.InvariantCulture);
+        return cents == 0 ? DisplayFigures.Count(value / 100) : $"{DisplayFigures.Count(value / 100)}{DisplayFigures.DecimalSeparator}{tail}";
+    }
+
+    /// <summary>A total that needs the discount rules, or none while they are not written (see <see cref="Off{T}"/>).</summary>
+    private static Money? Try(Func<Money?> work)
+    {
+        try
+        {
+            return work();
+        }
+        catch (NotImplementedException)
+        {
+            return null;
+        }
+    }
+
+    private static string Minus(Money? off) => off is { } amount ? DisplayFigures.Amount(-amount) : "—";
+
+    /// <summary>
+    /// A discount's figure, or none: the rules are Hakim's piece (<c>Discounts</c>), and a till whose
+    /// piece is not written yet shows the discount without its figure rather than falling over.
+    /// </summary>
+    private static T? Off<T>(Func<T> work)
+        where T : struct
+    {
+        try
+        {
+            return work();
+        }
+        catch (NotImplementedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -382,10 +508,13 @@ public sealed record TillScreen(
         {
             return new LineActions(
                 line.LineId, 1, $"{DisplayFigures.Weight(weight.Quantity, weight.UnitDecimals)} {line.UnitCode}", false,
-                state.Text.RemoveLine, RemoveLineKey, weight.IsTyped ? state.Text.Reweigh : null, IsWeighed: true);
+                state.Text.RemoveLine, RemoveLineKey, weight.IsTyped ? state.Text.Reweigh : null, IsWeighed: true,
+                Discount: state.Text.DiscountKey, DiscountKey: DiscountLineKey);
         }
 
-        return new LineActions(line.LineId, line.Count, DisplayFigures.Count(line.Count), line.Count > 1, state.Text.RemoveLine, RemoveLineKey);
+        return new LineActions(
+            line.LineId, line.Count, DisplayFigures.Count(line.Count), line.Count > 1, state.Text.RemoveLine, RemoveLineKey,
+            Discount: state.Text.DiscountKey, DiscountKey: DiscountLineKey);
     }
 
     /// <summary>
@@ -461,6 +590,11 @@ public sealed record TillScreen(
                 text.NextScanOpensTicket);
         }
 
+        if (state.Discounting is { } discounting)
+        {
+            return discounting.Authorising ? AuthoriseOf(state, discounting) : DiscountPanelOf(state, discounting);
+        }
+
         if (state.DraftsOpen)
         {
             return DraftsOf(state);
@@ -488,10 +622,108 @@ public sealed record TillScreen(
         return
         [
             new OperationKey(Operation.Park, text.Park, ParkKey, mayPutAside),
+            new OperationKey(Operation.TicketDiscount, text.TicketDiscountKey, TicketDiscountKey, mayPutAside && state.Weighing is null),
             new OperationKey(Operation.CancelTicket, text.CancelTicket, null, mayPutAside),
             new OperationKey(Operation.Drafts, text.DraftsKey(drafts), null, drafts > 0),
             new OperationKey(Operation.Tickets, text.TicketsKey, null, true),
         ];
+    }
+
+    // ============================================================ B4: a discount given at the counter
+
+    /// <summary>
+    /// The discount panel (B4, D-091), built from the kit where the rail's panels go: what it is on,
+    /// percent or amount, what the typed value takes off, the shop's reasons, then Continuer. The
+    /// value is typed in the one field (D-088).
+    /// </summary>
+    private static Rail.Discount DiscountPanelOf(ScreenState state, DiscountState discounting)
+    {
+        var text = state.Text;
+        var percent = discounting.Form == DiscountForms.Percent;
+        var currency = CurrencyOf(state) ?? Currency.Dzd;
+        var line = discounting.LineId is { } id ? state.Cart.ActiveLines.FirstOrDefault(l => l.LineId == id) : null;
+        var gross = line?.LineTotal ?? state.Cart.Subtotal ?? Domain.Values.Money.Zero(currency);
+        var valid = DiscountEntry.TryParse(discounting.Typed, discounting.Form, out var hundredths);
+
+        Money? preview = null;
+        if (valid)
+        {
+            var asked = new CounterDiscount(discounting.Form, hundredths, string.Empty, string.Empty, string.Empty, string.Empty);
+            preview = line is not null
+                ? Off(() => Domain.Sales.Discounts.OnLine(gross, asked.AsDomain(currency), state.Cart.Policy))
+                : Off(() => Domain.Sales.Discounts.OnTicket(
+                    [.. state.Cart.ActiveLines.Select(l => l.LineTotal - state.Cart.LineDiscountOf(l))], asked.AsDomain(currency), state.Cart.Policy)
+                    .Aggregate((sum, share) => sum + share));
+        }
+
+        var reasons = discounting.Reasons?.ReasonCodes ?? [];
+        var message = discounting.Offline ? text.DiscountOffline
+            : discounting.Reasons is not null && reasons.Count == 0 ? text.NoDiscountReasons
+            : discounting.Problem == DiscountProblem.ValueInvalid || (discounting.Typed.Trim().Length > 0 && !valid) ? text.DiscountInvalid(percent)
+            : discounting.Problem == DiscountProblem.NoReason ? text.ChooseReason
+            : discounting.Typed.Trim().Length == 0 ? text.DiscountPrompt(percent)
+            : null;
+        var existing = line is not null ? line.Discount : state.Cart.TicketDiscount;
+
+        return new Rail.Discount(
+            line is null ? text.TicketDiscountLabel : text.DiscountLabel,
+            line is null ? text.CurrentTicket : Article(line),
+            DisplayFigures.AmountWithCurrency(gross, text),
+            [
+                new DiscountFormChoice(DiscountForms.Percent, "%", percent),
+                new DiscountFormChoice(DiscountForms.Amount, text.CurrencySymbol(currency), !percent),
+            ],
+            preview is { } off ? DisplayFigures.AmountWithCurrency(-off, text) : null,
+            text.ReasonTitle,
+            [.. reasons.Select(reason => new ReasonRow(
+                reason.Code, text.RightToLeft ? reason.LabelAr : reason.LabelFr, reason.Code == discounting.ReasonCode))],
+            message,
+            message is not null && (discounting.Problem is not null || discounting.Offline || (discounting.Typed.Trim().Length > 0 && !valid)
+                || (discounting.Reasons is not null && reasons.Count == 0)),
+            valid && discounting.ReasonCode is not null && !discounting.Offline,
+            text.ContinueKey,
+            text.BackToTicket,
+            existing is null ? null : text.RemoveDiscount);
+    }
+
+    /// <summary>
+    /// The manager step (B4), as the board draws "Annuler le ticket" (09-pin): what is asked, who
+    /// authorises it, their PIN as dots, and the pad. The PIN is checked by StoreServer only (§3.10).
+    /// </summary>
+    private static Rail.Authorise AuthoriseOf(ScreenState state, DiscountState discounting)
+    {
+        var text = state.Text;
+        var percent = discounting.Form == DiscountForms.Percent;
+        var given = DiscountEntry.TryParse(discounting.Typed, discounting.Form, out var hundredths)
+            ? Given(state, new CounterDiscount(discounting.Form, hundredths, string.Empty, string.Empty, string.Empty, string.Empty))
+            : discounting.Typed;
+        var reason = discounting.Reasons?.ReasonCodes.FirstOrDefault(r => r.Code == discounting.ReasonCode);
+        var line = discounting.LineId is { } id ? state.Cart.ActiveLines.FirstOrDefault(l => l.LineId == id) : null;
+
+        var message = discounting.Problem switch
+        {
+            DiscountProblem.WrongPin => text.WrongManagerPin(discounting.AttemptsLeft ?? 0),
+            DiscountProblem.Locked => text.ManagerLocked(DisplayFigures.Clock(Local(state, discounting.LockedUntil ?? state.Now))),
+            DiscountProblem.NotAllowed => text.NotAManager,
+            DiscountProblem.NoPin => text.ManagerHasNoPin,
+            DiscountProblem.Offline => text.DiscountOffline,
+            _ => null,
+        };
+
+        return new Rail.Authorise(
+            text.ManagerApproval,
+            $"{(line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
+            $"{(line is null ? text.CurrentTicket : Article(line))} · {(reason is null ? string.Empty : text.RightToLeft ? reason.LabelAr : reason.LabelFr)}",
+            text.WhoApproves,
+            [.. (discounting.Staff?.Staff ?? []).Select(person => new ApproverRow(
+                person.StaffId, person.StaffName, text.RightToLeft ? person.RoleLabelAr : person.RoleLabelFr,
+                person.StaffId == discounting.ManagerId, person.HasPin))],
+            text.ManagerPin,
+            discounting.PinLength,
+            message,
+            discounting.ManagerId is not null && discounting.PinLength >= 4,
+            text.ApproveDiscount,
+            text.BackToTicket);
     }
 
     // ============================================================ B1: search, tickets, a past ticket
@@ -771,9 +1003,9 @@ public sealed record TillScreen(
         }
 
         var currency = CurrencyOf(state);
-        var totalDue = state.Cart.Total ?? (currency is { } known ? Domain.Values.Money.Zero(known) : (Money?)null);
+        var totalDue = Try(() => state.Cart.Total) ?? (currency is { } known ? Domain.Values.Money.Zero(known) : (Money?)null);
         // Not while a sale is unconfirmed: Encaisser would send it again (D-085).
-        var canCollect = state.Cart.ActiveLines.Count > 0 && state.Unconfirmed is null && state.Weighing is null;
+        var canCollect = state.Cart.ActiveLines.Count > 0 && state.Unconfirmed is null && state.Weighing is null && state.Discounting is null;
 
         // What the drawer takes: the total rounded to the cash step, by the same function the
         // server uses (Money.ToCashTender, D-034), so the button and the receipt agree.
@@ -783,8 +1015,11 @@ public sealed record TillScreen(
 
         return new BottomBar(
             [
-                new Figure(text.Subtotal, totalDue is { } s ? DisplayFigures.Amount(s) : "—"),
-                new Figure(text.Discounts, totalDue is { } z ? DisplayFigures.Amount(Domain.Values.Money.Zero(z.Currency)) : "—"),
+                // Before and what came off (B4): "3 362,80" then "−42,00", the board's two figures.
+                new Figure(text.Subtotal, state.Cart.Subtotal is { } s ? DisplayFigures.Amount(s) : totalDue is { } z0 ? DisplayFigures.Amount(z0) : "—"),
+                new Figure(text.Discounts, Try(() => state.Cart.DiscountTotal) is { } off
+                    ? DisplayFigures.Amount(-off)
+                    : totalDue is { } z ? DisplayFigures.Amount(Domain.Values.Money.Zero(z.Currency)) : "—"),
             ],
             text.TotalToPay,
             totalDue is { } shown ? DisplayFigures.AmountWithCurrency(shown, text) : "—",
@@ -876,14 +1111,29 @@ public sealed record StaffChip(string Name, string Role);
 /// <summary>The notice slot: a label, its tone, and a sentence. Never a tone without a label.</summary>
 public sealed record NoticeLine(Tone Tone, string Label, string Text);
 
+/// <param name="TicketDiscount">The ticket's discount, as a row at its end (B4); null with none.</param>
 public sealed record CartView(
     IReadOnlyList<string> Columns,
     IReadOnlyList<LineRow> Lines,
     EmptyState? Empty,
-    LineActions? Actions);
+    LineActions? Actions,
+    DiscountLine? TicketDiscount = null);
+
+/// <summary>A discount under a line, or at the end of the ticket: "REMISE 10 % · GESTE COMMERCIAL", "−42,00".</summary>
+public sealed record DiscountLine(string Label, string Amount);
+
+/// <summary>Percent or amount, one of the panel's two keys.</summary>
+public sealed record DiscountFormChoice(string Form, string Label, bool Selected);
+
+/// <summary>A reason in the panel's list, chosen or not.</summary>
+public sealed record ReasonRow(string Code, string Label, bool Selected);
+
+/// <summary>Somebody who may be asked to authorise; without a PIN they are listed, and cannot be chosen.</summary>
+public sealed record ApproverRow(string StaffId, string Name, string Role, bool Selected, bool Available);
 
 /// <param name="Struck">Taken out before payment: drawn struck through, never counted.</param>
 /// <param name="Selected">Touched by the cashier; its actions open beneath it.</param>
+/// <param name="Discount">Its own discount, drawn under it (B4); null with none.</param>
 public sealed record LineRow(
     string LineId,
     string Quantity,
@@ -892,7 +1142,8 @@ public sealed record LineRow(
     string UnitPrice,
     string Total,
     bool Struck,
-    bool Selected);
+    bool Selected,
+    DiscountLine? Discount = null);
 
 public sealed record Chip(Tone Tone, string Label);
 
@@ -904,8 +1155,10 @@ public sealed record EmptyState(string Title, string Hint);
 /// <param name="MayDecrease">False at one: the last unit goes with "Retirer la ligne".</param>
 /// <param name="Reweigh">"Poids", for a line whose weight was typed; null otherwise (B3).</param>
 /// <param name="IsWeighed">A weighed line: no stepper, one weighing (B3).</param>
+/// <param name="Discount">"Remise" (B4): locked, and pressable; a cashier's asks for a manager's PIN.</param>
 public sealed record LineActions(
-    string LineId, int Count, string Quantity, bool MayDecrease, string Remove, string RemoveKey, string? Reweigh = null, bool IsWeighed = false);
+    string LineId, int Count, string Quantity, bool MayDecrease, string Remove, string RemoveKey, string? Reweigh = null, bool IsWeighed = false,
+    string? Discount = null, string? DiscountKey = null);
 
 /// <summary>The weight card (B3, D-090), floating where the search results float.</summary>
 /// <param name="PerUnit">"180,00 DA / kg".</param>
@@ -948,6 +1201,20 @@ public abstract record Rail
     /// <summary>A sale just recorded: what it came to and what the drawer takes.</summary>
     public sealed record Paid(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer) : Rail;
 
+    /// <summary>The discount panel (B4): what it is on, percent or amount, what it takes off, the reasons.</summary>
+    /// <param name="Detail">What it is taken off: the line's, or the ticket's, total before it.</param>
+    /// <param name="Preview">"−42,00 DA", worked out as the sale will; null until a valid value is typed.</param>
+    /// <param name="Refused">The message says what is wrong, not what to do next.</param>
+    /// <param name="Remove">"Retirer la remise", when one is already given; null otherwise.</param>
+    public sealed record Discount(
+        string Label, string Title, string Detail, IReadOnlyList<DiscountFormChoice> Forms, string? Preview, string ReasonTitle,
+        IReadOnlyList<ReasonRow> Reasons, string? Message, bool Refused, bool MayContinue, string Continue, string Back, string? Remove) : Rail;
+
+    /// <summary>The manager step (B4): who authorises, their PIN as dots, the pad.</summary>
+    public sealed record Authorise(
+        string Label, string Title, string Summary, string WhoTitle, IReadOnlyList<ApproverRow> Approvers, string PinTitle,
+        int PinLength, string? Message, bool MayValidate, string Validate, string Back) : Rail;
+
     /// <summary>No answer to a sale. Critical, and in the rail because it needs room to say what to do.</summary>
     /// <param name="Acknowledge">The one way on: the cashier has checked (D-085).</param>
     public sealed record Unconfirmed(string Label, string Title, string Body, string Detail, string Acknowledge) : Rail;
@@ -957,6 +1224,9 @@ public abstract record Rail
 public enum Operation
 {
     Park,
+
+    /// <summary>"Remise ticket" (B4).</summary>
+    TicketDiscount,
     CancelTicket,
     Drafts,
 

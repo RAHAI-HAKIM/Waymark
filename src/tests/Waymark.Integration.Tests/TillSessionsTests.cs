@@ -310,4 +310,97 @@ public sealed class TillSessionsTests
 
         Assert.Equal("samia", sessions.Resolve(current)!.StaffId);
     }
+
+    // ------------------------------------------------------------- authorising (B4, D-091)
+
+    /// <summary>nabil is a cashier (rank 1), samia a manager (rank 2); anyone else has no rank.</summary>
+    private static Task<long?> RankOf(string staffId) =>
+        Task.FromResult<long?>(staffId switch { "nabil" => 1, "samia" => 2, _ => null });
+
+    private async Task<(TillSessions Sessions, string Token)> CashierSignedIn()
+    {
+        var (sessions, _) = Build();
+        var token = (await SignIn(sessions, "nabil", "4821")).SessionToken!;
+        return (sessions, token);
+    }
+
+    private Task<AuthoriseAnswer> Authorise(TillSessions sessions, string? token, string? staff = null, string? pin = null) =>
+        sessions.AuthoriseAsync(token, new AuthoriseRequest(Capabilities.ApplyDiscount, staff, pin), Capability.ApplyDiscount, _credentials, RankOf);
+
+    [Fact]
+    public async Task A_cashier_asking_alone_is_told_a_managers_pin_is_needed()
+    {
+        var (sessions, token) = await CashierSignedIn();
+
+        Assert.Equal(AuthoriseOutcomes.PinRequired, (await Authorise(sessions, token)).Outcome);
+    }
+
+    [Fact]
+    public async Task A_manager_signed_in_is_authorised_alone_and_is_the_one_recorded()
+    {
+        var (sessions, _) = Build();
+        var token = (await SignIn(sessions, "samia", "1357")).SessionToken!;
+
+        var answer = await Authorise(sessions, token);
+
+        Assert.Equal(AuthoriseOutcomes.Authorised, answer.Outcome);
+        Assert.Equal("samia", sessions.AuthorisedBy(token, answer.Authorisation, Capability.ApplyDiscount));
+    }
+
+    [Fact]
+    public async Task A_managers_pin_at_the_cashiers_till_authorises_and_names_the_manager()
+    {
+        var (sessions, token) = await CashierSignedIn();
+
+        var answer = await Authorise(sessions, token, "samia", "1357");
+
+        Assert.Equal(AuthoriseOutcomes.Authorised, answer.Outcome);
+        Assert.Equal("samia", sessions.AuthorisedBy(token, answer.Authorisation, Capability.ApplyDiscount));
+    }
+
+    [Fact]
+    public async Task A_right_pin_of_someone_without_the_rank_is_not_allowed()
+    {
+        var (sessions, token) = await CashierSignedIn();
+
+        // The cashier's own PIN: right, and still not a manager's.
+        Assert.Equal(AuthoriseOutcomes.NotAllowed, (await Authorise(sessions, token, "nabil", "4821")).Outcome);
+    }
+
+    [Fact]
+    public async Task A_wrong_manager_pin_counts_toward_the_same_lockout_as_signing_in()
+    {
+        var (sessions, token) = await CashierSignedIn();
+
+        AuthoriseAnswer last = null!;
+        for (var i = 0; i < SignInLockout.WrongBeforeLock; i++)
+        {
+            last = await Authorise(sessions, token, "samia", "0000");
+        }
+
+        Assert.Equal(AuthoriseOutcomes.Locked, last.Outcome);
+        Assert.Equal(SignInOutcomes.Locked, (await SignIn(sessions, "samia", "1357", terminal: "till-2")).Outcome);
+    }
+
+    [Fact]
+    public async Task Without_a_session_nothing_is_authorised()
+    {
+        var (sessions, _) = Build();
+
+        Assert.Equal(AuthoriseOutcomes.NotSignedIn, (await Authorise(sessions, "no-such-token", "samia", "1357")).Outcome);
+    }
+
+    [Fact]
+    public async Task An_authorisation_is_worth_nothing_at_another_till_or_after_its_session_ends()
+    {
+        var (sessions, token) = await CashierSignedIn();
+        var other = (await SignIn(sessions, "samia", "1357", terminal: "till-2")).SessionToken!;
+        var given = (await Authorise(sessions, token, "samia", "1357")).Authorisation;
+
+        Assert.Null(sessions.AuthorisedBy(other, given, Capability.ApplyDiscount));
+        Assert.Null(sessions.AuthorisedBy(token, given, Capability.VoidTransaction));
+
+        sessions.SignOut(token);
+        Assert.Null(sessions.AuthorisedBy(token, given, Capability.ApplyDiscount));
+    }
 }

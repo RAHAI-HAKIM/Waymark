@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
+using Waymark.Contracts.Reference;
 
 namespace Waymark.Pos.Server;
 
@@ -175,6 +176,51 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         ArgumentException.ThrowIfNullOrWhiteSpace(idOrNumber);
         var answer = await GetWithSessionAsync<TicketAnswer>($"api/tickets/one?ticket={Uri.EscapeDataString(idOrNumber)}", sessionToken, cancellationToken);
         return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Ticket is null) ? null : answer;
+    }
+
+    /// <summary>The shop's active discount reasons (B4). Null when the server could not say.</summary>
+    public async Task<ReasonCodeList?> DiscountReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=discount", cancellationToken);
+        return list?.ReasonCodes is null ? null : list;
+    }
+
+    /// <summary>
+    /// Whether a discount may be given (B4, D-091): the seller alone, or a manager's PIN. Null when
+    /// the server could not say: the till then says it is offline, never that the PIN was wrong.
+    /// </summary>
+    public async Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionToken);
+
+        try
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Post, new Uri("api/till/authorise", UriKind.Relative))
+            {
+                Content = JsonContent.Create(request),
+            };
+            message.Headers.Add(TillSessionHeader.Name, sessionToken);
+            using var response = await http.SendAsync(message, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var answer = await response.Content.ReadFromJsonAsync<AuthoriseAnswer>(cancellationToken);
+            return answer switch
+            {
+                { Outcome: AuthoriseOutcomes.Authorised, Authorisation: { Length: > 0 } } => answer,
+                { Outcome: AuthoriseOutcomes.Locked, LockedUntil: not null } => answer,
+                { Outcome: AuthoriseOutcomes.PinRequired or AuthoriseOutcomes.NotAllowed or AuthoriseOutcomes.WrongPin
+                    or AuthoriseOutcomes.NoPin or AuthoriseOutcomes.UnknownStaff or AuthoriseOutcomes.NotSignedIn } => answer,
+                _ => null,
+            };
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
+            return null;
+        }
     }
 
     /// <summary>Who may open this till (A5). Null when the server could not say.</summary>
@@ -373,6 +419,13 @@ public interface ITillServer
     Task<DecisionAnswer?> DecideAsync(DecisionRequest request, CancellationToken cancellationToken = default);
 
     Task<bool> HealthAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The shop's active reasons for a discount (B4, D-079). Null when the server could not say.</summary>
+    Task<ReasonCodeList?> DiscountReasonsAsync(CancellationToken cancellationToken = default) => Task.FromResult<ReasonCodeList?>(null);
+
+    /// <summary>May the seller give a discount, or the manager whose PIN is typed (B4)? Null when the server could not say.</summary>
+    Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<AuthoriseAnswer?>(null);
 }
 
 public interface IProductSource

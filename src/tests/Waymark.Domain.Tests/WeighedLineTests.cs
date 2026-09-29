@@ -184,6 +184,14 @@ public sealed class WeighedLineTests
         Assert.Equal(holds, WeighedLine.Recomputes(
             QuantitySource.LabelPrice, Tomatoes, Kg.Quantity(thousandths), Dzd(0), Dzd(10_000), Kg, Rounding.HalfUp));
 
+    [Fact]
+    public void A_label_price_row_with_a_discount_is_checked_on_the_labels_price()
+    {
+        // 100,00 DA of label, 10,00 off at the counter (B4): the row keeps 90,00, the weight 0,556.
+        Assert.True(WeighedLine.Recomputes(
+            QuantitySource.LabelPrice, Tomatoes, Kg.Quantity(556), Dzd(1_000), Dzd(9_000), Kg, Rounding.HalfUp));
+    }
+
     [Theory]
     [InlineData(Rounding.HalfEven, true)]
     [InlineData(Rounding.HalfUp, false)]

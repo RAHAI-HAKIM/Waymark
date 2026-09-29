@@ -36,6 +36,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     private readonly List<HeldTicket> _drafts = [];
     private int _lastHeldId;
     private Task _tail = Task.CompletedTask;
+    private Domain.Values.Rounding _policy = Domain.Values.Rounding.HalfUp;
 
     /// <summary>The ticket on screen. Parking or resuming puts another cart here.</summary>
     public Cart Cart { get; private set; } = new();
@@ -123,6 +124,45 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// </summary>
     public bool MayPutAside => Cart.ActiveLines.Count > 0 && Paid is null && Unconfirmed is null && Viewing is null && Weighing is null;
 
+    /// <summary>
+    /// Whether a discount can be given or taken off now (B4): the ticket on screen has a line in the
+    /// sale, and nothing else is under way (a sale unconfirmed, a past ticket open, a weight awaited).
+    /// </summary>
+    public bool MayDiscount => MayPutAside;
+
+    /// <summary>
+    /// The store's rounding policy (D-053), from the till's context: every cart works its discount
+    /// preview out with it, as the sale will (B4). Carts already held keep theirs.
+    /// </summary>
+    public void SetRoundingPolicy(Domain.Values.Rounding policy)
+    {
+        _policy = policy;
+        Cart.Policy = policy;
+        Raise();
+    }
+
+    /// <summary>
+    /// A discount given at the counter (B4, D-091), on a line, or on the ticket when
+    /// <paramref name="lineId"/> is null; null takes it off. The window has the authorisation already:
+    /// the server gave it. False, changing nothing, when no discount can be given now.
+    /// </summary>
+    public bool Discount(string? lineId, CounterDiscount? discount)
+    {
+        if (!MayDiscount)
+        {
+            return false;
+        }
+
+        var done = lineId is null ? Cart.SetTicketDiscount(discount) : Cart.SetDiscount(lineId, discount);
+        if (done)
+        {
+            Notice = null;
+            Raise();
+        }
+
+        return done;
+    }
+
     /// <summary>Raised after every change to <see cref="Cart"/> or <see cref="Notice"/>.</summary>
     public event EventHandler? Changed;
 
@@ -183,7 +223,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
 
         _parked.Add(Hold(Cart));
-        Cart = new Cart();
+        Cart = NewCart();
         Notice = null;
         Raise();
         return true;
@@ -201,7 +241,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
 
         _drafts.Insert(0, Hold(Cart));
-        Cart = new Cart();
+        Cart = NewCart();
         Notice = null;
         Raise();
         return true;
@@ -253,7 +293,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
 
         SignedIn = null;
-        Cart = new Cart();
+        Cart = NewCart();
         Paid = null;
         Notice = null;
         Raise();
@@ -468,6 +508,8 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         return true;
     }
 
+    private Cart NewCart() => new() { Policy = _policy };
+
     private HeldTicket Hold(Cart cart) =>
         new($"H{++_lastHeldId}", cart, _clock.GetUtcNow(), SignedIn?.StaffId, SignedIn?.Name);
 
@@ -664,7 +706,10 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             [.. Cart.ActiveLines.Select(line => new SaleRequestLine(
                 line.Barcode,
                 line.Count,
-                line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null))]);
+                line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null,
+                line.Discount?.ToWire()))],
+            // What was given, never what it comes to: the server works the money out (D-091).
+            Cart.TicketDiscount?.ToWire());
 
         switch (await sales.CompleteSaleAsync(request, seller.Token))
         {

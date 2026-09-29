@@ -811,6 +811,41 @@ A ticket discount **follows the ticket**: a percent re-applies to the new total,
 capped at it, and the server works both out at payment and spreads them with `Allocate`.
 **Rejected:** cashiers discounting alone up to a threshold (a store setting for H2); dropping a
 ticket discount when the ticket changes.
+**Built 28/09:** the arithmetic is `Discounts` (Domain, Hakim's piece): a percent rounded once by the
+store's policy, an amount capped at the line, a ticket discount worked out once on the lines' totals
+after their own and split with `Allocate`, each line's total spread over its batch rows the same way.
+The till previews with the same function and the store's policy (now in `TillContext`), so the figure
+shown is the one charged; the sale sends what was given, never money. **Authorisation:** the till
+asks `POST /api/till/authorise`; StoreServer answers from the seller's rank (`StaffPermissions.May`),
+or checks a manager's PIN with sign-in's lockout and asks their rank, and keeps the approval in
+memory for that till's session only. The sale cites it, and the row's `authorised_by` is whoever the
+server says gave it. A row with both a line and a ticket discount keeps the line's reason (F-28).
+The panel and the manager step are built from the kit; the manager is chosen by name before the PIN,
+which the board's 09-pin does not draw (**for Hakim's review**).
+
+### D-092 — B5: a price override is recorded beside the price it replaced, within a band, by rank 3 (Hakim, 29/09)
+**Rank 3** (`OverridePrice`, D-077), a reason from `price_override` (D-079), through B4's
+authorisation and manager step. **Recorded on the row:** a migration adds `list_price` (the price in
+force), `override_reason_code` and `override_authorised_by` to `transaction_items`; `sell_price` stays
+what was charged, so the row still recomputes (D-053) and the Z report can count overrides. The same
+migration settles **F-28**: a ticket-level discount reason, authoriser and note on `transactions`,
+and a note on `transaction_items`, one rebuild instead of two. **The band:** up to +20 % above the
+price in force, refused beyond it (fix the catalogue instead); down to any price above zero, with a
+warning below the batch's unit cost; zero is a 100 % discount, not an override. The limits are a Domain
+rule now and a store setting when H2 gives them a screen. Per line only; an overridden line is not
+plain (D-087); a line discount may follow it. **Not in B5:** Divers and "Nouvel article" (D-081),
+with F-27's design. **Rejected:** down only (a stale low price could not be corrected at the counter);
+no record beyond the price (the Z report could not count overrides); rank 2.
+**Built 29/09:** the band is `PriceOverride.Check` (Domain, Hakim's piece): the ceiling is the price in
+force plus 20 %, **rounded down**, so no centime passes the limit; the price in force itself is
+`Unchanged` and not recorded. The till checks it as the price is typed and the server again before
+charging; the till's below-cost warning reads the oldest batch in stock's cost, which the lookup now
+carries (never shown as a figure). A weighed line takes no override in B5: its price is the server's
+per kilo, and a correction there waits for a need. A sale sends a price only when one was typed:
+`price_override` is left out of the JSON otherwise, which keeps D-070's guard. Migration
+`OverridesAndDiscountReasons` rebuilds `transactions` and `transaction_items`. The note (F-28) is
+asked in the field after the reason when that reason says `requires_note`; an override reason's note
+has no column and is not asked.
 
 ## Open — waiting on Hakim
 

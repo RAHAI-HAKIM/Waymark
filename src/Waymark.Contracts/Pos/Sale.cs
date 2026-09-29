@@ -14,9 +14,11 @@ namespace Waymark.Contracts.Pos;
 /// <see cref="TillSessionHeader.Name"/>, and the server takes the seller from the session that
 /// token opened: a field here would be a claim the server had to decide whether to believe.
 /// </remarks>
+/// <param name="TicketDiscount">A discount given on the whole ticket at the counter (B4, D-091), or null.</param>
 public sealed record SaleRequest(
     [property: JsonPropertyName("terminal_id")] string TerminalId,
-    [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines);
+    [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines,
+    [property: JsonPropertyName("ticket_discount")] DiscountRequest? TicketDiscount = null);
 
 /// <summary>One scanned code and how many units of it.</summary>
 /// <param name="Weight">
@@ -24,10 +26,12 @@ public sealed record SaleRequest(
 /// exact decimal text, "0.556", and <paramref name="Count"/> is 1. Null for a count, and for a scale
 /// label, whose code carries its own weight or price and is read again by the server (D-090).
 /// </param>
+/// <param name="Discount">A discount given on this line at the counter (B4), or null.</param>
 public sealed record SaleRequestLine(
     [property: JsonPropertyName("barcode")] string Barcode,
     [property: JsonPropertyName("count")] int Count,
-    [property: JsonPropertyName("weight")] string? Weight = null);
+    [property: JsonPropertyName("weight")] string? Weight = null,
+    [property: JsonPropertyName("discount")] DiscountRequest? Discount = null);
 
 /// <summary>
 /// StoreServer's answer to a sale. Like the lookup (D-066), a refusal is an answer, a 200

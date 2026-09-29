@@ -211,6 +211,64 @@ public abstract class TillText
     /// <summary>The field's chip: "QTÉ × 3".</summary>
     public abstract string NextCount(string count);
 
+    // ------------------------------------------------------------------ discounts (B4)
+
+    /// <summary>"Remise": the key under a selected line.</summary>
+    public abstract string DiscountKey { get; }
+
+    /// <summary>"Remise ticket": the rail's key.</summary>
+    public abstract string TicketDiscountKey { get; }
+
+    /// <summary>The panel's label on a line: "REMISE".</summary>
+    public abstract string DiscountLabel { get; }
+
+    /// <summary>The panel's label on the ticket, and the ticket's discount row: "REMISE TICKET".</summary>
+    public abstract string TicketDiscountLabel { get; }
+
+    /// <summary>The field's chip while a discount is typed: "REMISE · %".</summary>
+    public abstract string DiscountChip(string unit);
+
+    /// <summary>"MOTIF".</summary>
+    public abstract string ReasonTitle { get; }
+
+    public abstract string ContinueKey { get; }
+
+    public abstract string BackToTicket { get; }
+
+    public abstract string RemoveDiscount { get; }
+
+    /// <summary>What to type, before anything is.</summary>
+    public abstract string DiscountPrompt(bool percent);
+
+    /// <summary>The text typed is not a discount.</summary>
+    public abstract string DiscountInvalid(bool percent);
+
+    public abstract string ChooseReason { get; }
+
+    /// <summary>The shop has no discount reason: none can be recorded, so none can be given.</summary>
+    public abstract string NoDiscountReasons { get; }
+
+    public abstract string DiscountOffline { get; }
+
+    /// <summary>"AUTORISATION RESPONSABLE".</summary>
+    public abstract string ManagerApproval { get; }
+
+    /// <summary>"Qui autorise ?".</summary>
+    public abstract string WhoApproves { get; }
+
+    /// <summary>"PIN RESPONSABLE".</summary>
+    public abstract string ManagerPin { get; }
+
+    public abstract string ApproveDiscount { get; }
+
+    public abstract string WrongManagerPin(int attemptsLeft);
+
+    public abstract string ManagerLocked(string until);
+
+    public abstract string NotAManager { get; }
+
+    public abstract string ManagerHasNoPin { get; }
+
     // ------------------------------------------------------------------ weighed goods (B3)
 
     /// <summary>The field's chip while a weight is awaited: "POIDS · kg".</summary>
@@ -470,6 +528,33 @@ public abstract class TillText
 
         public override string NextCount(string count) => $"QTÉ × {count}";
 
+        public override string DiscountKey => "Remise";
+        public override string TicketDiscountKey => "Remise ticket";
+        public override string DiscountLabel => "REMISE";
+        public override string TicketDiscountLabel => "REMISE TICKET";
+        public override string DiscountChip(string unit) => $"REMISE · {unit}";
+        public override string ReasonTitle => "MOTIF";
+        public override string ContinueKey => "Continuer";
+        public override string BackToTicket => "Revenir au ticket";
+        public override string RemoveDiscount => "Retirer la remise";
+        public override string DiscountPrompt(bool percent) => percent
+            ? "Tapez le pourcentage dans le champ, puis choisissez le motif"
+            : "Tapez le montant dans le champ, puis choisissez le motif";
+        public override string DiscountInvalid(bool percent) => percent
+            ? "Un pourcentage de 0,01 à 100, 2 décimales au plus"
+            : "Un montant au-dessus de zéro, 2 décimales au plus";
+        public override string ChooseReason => "Choisissez un motif";
+        public override string NoDiscountReasons => "Aucun motif de remise n'est défini : une remise ne peut pas être enregistrée";
+        public override string DiscountOffline => "Serveur du magasin injoignable : la remise attend";
+        public override string ManagerApproval => "AUTORISATION RESPONSABLE";
+        public override string WhoApproves => "QUI AUTORISE";
+        public override string ManagerPin => "PIN RESPONSABLE";
+        public override string ApproveDiscount => "Valider la remise";
+        public override string WrongManagerPin(int attemptsLeft) => $"PIN incorrect · {attemptsLeft} essai{(attemptsLeft > 1 ? "s" : string.Empty)} avant blocage";
+        public override string ManagerLocked(string until) => $"Trop d'essais : bloqué jusqu'à {until}";
+        public override string NotAManager => "Cette personne n'a pas le rang pour autoriser une remise";
+        public override string ManagerHasNoPin => "Aucun PIN n'est défini pour cette personne";
+
         public override string WeightChip(string unit) => $"POIDS · {unit}";
         public override string WeighTitle => "POIDS";
         public override string PerUnit(string price, string unit) => $"{price} / {unit}";
@@ -660,6 +745,33 @@ public abstract class TillText
 
         // Search and past tickets (B1). No board shows these in Arabic.
         public override string NextCount(string count) => $"الكمية × {count}"; // ar: à relire
+
+        public override string DiscountKey => "تخفيض"; // ar: à relire
+        public override string TicketDiscountKey => "تخفيض التذكرة"; // ar: à relire
+        public override string DiscountLabel => "تخفيض"; // ar: à relire
+        public override string TicketDiscountLabel => "تخفيض التذكرة"; // ar: à relire
+        public override string DiscountChip(string unit) => $"تخفيض · {unit}"; // ar: à relire
+        public override string ReasonTitle => "السبب"; // ar: à relire
+        public override string ContinueKey => "متابعة"; // ar: à relire
+        public override string BackToTicket => "العودة إلى التذكرة"; // ar: à relire
+        public override string RemoveDiscount => "إزالة التخفيض"; // ar: à relire
+        public override string DiscountPrompt(bool percent) => percent // ar: à relire
+            ? "اكتب النسبة في الحقل ثم اختر السبب"
+            : "اكتب المبلغ في الحقل ثم اختر السبب";
+        public override string DiscountInvalid(bool percent) => percent // ar: à relire
+            ? "نسبة من 0,01 إلى 100، برقمين عشريين على الأكثر"
+            : "مبلغ أكبر من الصفر، برقمين عشريين على الأكثر";
+        public override string ChooseReason => "اختر سببًا"; // ar: à relire
+        public override string NoDiscountReasons => "لا يوجد سبب تخفيض معرَّف: لا يمكن تسجيل التخفيض"; // ar: à relire
+        public override string DiscountOffline => "خادم المتجر غير متاح: التخفيض في الانتظار"; // ar: à relire
+        public override string ManagerApproval => "إذن المسؤول"; // ar: à relire
+        public override string WhoApproves => "من يأذن"; // ar: à relire
+        public override string ManagerPin => "رمز المسؤول"; // ar: à relire
+        public override string ApproveDiscount => "تأكيد التخفيض"; // ar: à relire
+        public override string WrongManagerPin(int attemptsLeft) => $"رمز خاطئ · {attemptsLeft} محاولات قبل القفل"; // ar: à relire
+        public override string ManagerLocked(string until) => $"محاولات كثيرة: مقفل حتى {until}"; // ar: à relire
+        public override string NotAManager => "ليس لهذا الشخص صلاحية الإذن بالتخفيض"; // ar: à relire
+        public override string ManagerHasNoPin => "لا يوجد رمز لهذا الشخص"; // ar: à relire
 
         public override string WeightChip(string unit) => $"الوزن · {unit}"; // ar: à relire
         public override string WeighTitle => "الوزن"; // ar: à relire

@@ -17,7 +17,7 @@ public sealed class TillContextWireTests
             "El Bahdja", "Caisse 1", "DZD", new StaffDescription("Nabil B.", "Caissier", "أمين الصندوق")));
 
         Assert.Equal(
-            new TillContext(TillContextOutcome.Found, "El Bahdja", "Caisse 1", "DZD", "Nabil B.", "Caissier", "أمين الصندوق"),
+            new TillContext(TillContextOutcome.Found, "El Bahdja", "Caisse 1", "DZD", "Nabil B.", "Caissier", "أمين الصندوق", RoundingPolicies.HalfUp),
             wire);
     }
 

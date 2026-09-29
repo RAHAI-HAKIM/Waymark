@@ -111,4 +111,41 @@ public sealed class SaleWireTests
 
         Assert.Equal(0L, SaleWire.ToCommand(request, "staff").Lines.Single().WeightThousandths);
     }
+
+    // ------------------------------------------------------------------ discounts (B4, D-091)
+
+    [Fact]
+    public void A_discount_reaches_the_command_as_given_with_whoever_the_server_says_authorised_it()
+    {
+        var request = new SaleRequest("till", [
+            new SaleRequestLine("6130000000017", 2, Discount: new DiscountRequest(DiscountForms.Percent, "12.5", "geste_commercial", "auth-1")),
+            new SaleRequestLine("6130000000024", 1),
+        ], new DiscountRequest(DiscountForms.Amount, "50.00", "geste_commercial", "auth-1"));
+
+        var command = SaleWire.ToCommand(request, "nabil", cited => cited == "auth-1" ? "samia" : null);
+
+        Assert.Equal(new GivenDiscount(DiscountForm.Percent, 1_250, "geste_commercial", "samia"), command.Lines[0].Discount);
+        Assert.Null(command.Lines[1].Discount);
+        Assert.Equal(new GivenDiscount(DiscountForm.Amount, 5_000, "geste_commercial", "samia"), command.TicketDiscount);
+    }
+
+    [Fact]
+    public void An_authorisation_the_server_does_not_hold_reaches_the_command_with_nobody_so_the_sale_is_refused()
+    {
+        var request = new SaleRequest("till", [
+            new SaleRequestLine("6130000000017", 1, Discount: new DiscountRequest(DiscountForms.Percent, "10", "geste_commercial", "forged"))]);
+
+        Assert.Equal(string.Empty, SaleWire.ToCommand(request, "nabil", _ => null).Lines[0].Discount!.AuthorisedBy);
+    }
+
+    [Theory]
+    [InlineData("percent", "10,5")]  // a comma: the till sends invariant text
+    [InlineData("percent", "10.555")]
+    [InlineData("rebate", "10")]
+    public void A_discount_that_cannot_be_read_reaches_the_command_as_nothing_off_so_the_sale_is_refused(string form, string value)
+    {
+        var request = new SaleRequest("till", [new SaleRequestLine("6130000000017", 1, Discount: new DiscountRequest(form, value, "geste_commercial", "auth-1"))]);
+
+        Assert.Equal(0, SaleWire.ToCommand(request, "nabil", _ => "samia").Lines[0].Discount!.Value);
+    }
 }

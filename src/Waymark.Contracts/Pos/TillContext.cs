@@ -23,7 +23,16 @@ public sealed record TillContext(
     [property: JsonPropertyName("currency")] string? Currency,
     [property: JsonPropertyName("staff_name")] string? StaffName,
     [property: JsonPropertyName("role_label_fr")] string? RoleLabelFr,
-    [property: JsonPropertyName("role_label_ar")] string? RoleLabelAr);
+    [property: JsonPropertyName("role_label_ar")] string? RoleLabelAr,
+    [property: JsonPropertyName("rounding_policy")] string? RoundingPolicy = null);
+
+/// <summary>The values of <see cref="TillContext.RoundingPolicy"/>, as <c>stores.rounding_policy</c> stores them.</summary>
+public static class RoundingPolicies
+{
+    public const string HalfUp = "half_up";
+
+    public const string HalfEven = "half_even";
+}
 
 /// <summary>The values of <see cref="TillContext.Outcome"/>.</summary>
 public static class TillContextOutcome

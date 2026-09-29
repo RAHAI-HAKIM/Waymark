@@ -34,11 +34,11 @@ public sealed class TillDirectory(WaymarkDbContext context) : ITillDirectory
         // the filter lets through only this store, which is the terminal's.
         var store = await context.Stores
             .Where(s => s.StoreId == terminal.StoreId)
-            .Select(s => new { s.StoreName, s.Currency })
+            .Select(s => new { s.StoreName, s.Currency, s.RoundingPolicy })
             .SingleAsync(cancellationToken);
 
         return new TillDescription(
-            store.StoreName, terminal.TerminalName, store.Currency, await StaffAsync(staffId, cancellationToken));
+            store.StoreName, terminal.TerminalName, store.Currency, await StaffAsync(staffId, cancellationToken), store.RoundingPolicy);
     }
 
     private async Task<StaffDescription?> StaffAsync(string? staffId, CancellationToken cancellationToken)

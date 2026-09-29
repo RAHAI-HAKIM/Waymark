@@ -406,6 +406,27 @@ app.MapPost("/api/till/sign-in", async (
     return Results.Ok(await sessions.SignInAsync(request, terminalKnown, credentials, cancellationToken));
 });
 
+// B4 (D-091): may the seller do this, or does the manager whose PIN is typed? The rank is asked
+// here, through StaffPermissions, never at the till; the PIN is checked with sign-in's lockout.
+app.MapPost("/api/till/authorise", async (
+    AuthoriseRequest request, HttpRequest http, TillSessions sessions, IStaffCredentials credentials,
+    IRecommendationBoard staff, CancellationToken cancellationToken) =>
+{
+    if (request.Capability != Capabilities.ApplyDiscount)
+    {
+        return Results.Ok(new AuthoriseAnswer(AuthoriseOutcomes.UnknownCapability, null, null, null, null));
+    }
+
+    var answer = await sessions.AuthoriseAsync(
+        http.Headers[TillSessionHeader.Name].ToString(),
+        request,
+        Capability.ApplyDiscount,
+        credentials,
+        async id => (await staff.StaffAsync(id, cancellationToken))?.Rank,
+        cancellationToken);
+    return Results.Ok(answer);
+});
+
 // Ends the session the header names. Always a 204: a token the server does not hold is already
 // signed out, and saying so would tell a guesser which tokens exist.
 app.MapPost("/api/till/sign-out", (HttpRequest http, TillSessions sessions) =>
@@ -448,7 +469,8 @@ app.MapPost("/api/sales", async (
     SaleRequest request, HttpRequest http, TillSessions sessions, CommandExecutor executor, CompleteSaleHandler handler,
     CancellationToken cancellationToken) =>
 {
-    if (SaleWire.Seller(sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()), request) is not { } seller)
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (SaleWire.Seller(sessions.Resolve(token), request) is not { } seller)
     {
         return Results.Ok(SaleWire.NotSignedIn());
     }
@@ -456,7 +478,9 @@ app.MapPost("/api/sales", async (
     await oneSaleAtATime.WaitAsync(cancellationToken);
     try
     {
-        var sale = await executor.ExecuteAsync(handler, SaleWire.ToCommand(request, seller), cancellationToken);
+        // A discount cites an authorisation given in this session (B4); who gave it is the server's.
+        var command = SaleWire.ToCommand(request, seller, cited => sessions.AuthorisedBy(token, cited, Capability.ApplyDiscount));
+        var sale = await executor.ExecuteAsync(handler, command, cancellationToken);
         return Results.Ok(SaleWire.Completed(sale));
     }
     catch (SaleRefusedException refusal)

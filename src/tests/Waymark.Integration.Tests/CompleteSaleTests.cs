@@ -210,11 +210,28 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
             new OutboxSequence(context),
             tier2,
             calendar,
-            clock);
+            clock,
+            new Waymark.Persistence.Reference.ReasonCodes(context));
 
         return await executor.ExecuteAsync(
             handler,
             new CompleteSale(shop.TerminalId, shop.StaffId, [.. lines.Select(line => new SaleLineRequest(line.Product.Barcode, line.Count))]));
+    }
+
+    /// <summary>A sale of these lines, and a discount on the whole ticket if any (B4).</summary>
+    private async Task<CompletedSale> Sell(Shop shop, GivenDiscount? ticket, params SaleLineRequest[] lines)
+    {
+        await using var context = database.NewContext(storeId: shop.StoreId);
+        var clock = new FixedClock();
+        var calendar = new FixedCalendar();
+        var ids = new UlidGenerator();
+        var unitOfWork = new WaymarkUnitOfWork(context);
+        var executor = new CommandExecutor(unitOfWork, ids, new ProcessingLogWriter(context, ids, new FixedCurrentStore(shop.StoreId), clock));
+        var handler = new CompleteSaleHandler(
+            new ProductLookup(context, calendar), new SalesLedger(context), unitOfWork, new OutboxSequence(context),
+            new NullTier2Writer(), calendar, clock, new Waymark.Persistence.Reference.ReasonCodes(context));
+
+        return await executor.ExecuteAsync(handler, new CompleteSale(shop.TerminalId, shop.StaffId, lines, ticket));
     }
 
     private WaymarkDbContext Read(Shop shop) => database.NewContext(storeId: shop.StoreId);
@@ -593,5 +610,190 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
         var line = Assert.Single(Assert.Single(cloud.Received).Lines);
         Assert.Equal("3", line.Quantity);
         Assert.Equal("429.00", line.LineValue);
+    }
+
+    // ------------------------------------------------------- discounts given at the counter (B4, D-091)
+
+    private const string Gesture = "geste_commercial";
+
+    /// <summary>The shop's discount reasons: the vocabulary is the tenant's, so once per database.</summary>
+    private void Reasons()
+    {
+        using var context = database.NewContext();
+        if (!context.ReasonCodes.Any(reason => reason.ReasonCodeValue == Gesture))
+        {
+            context.ReasonCodes.Add(new ReasonCode
+            {
+                ReasonCodeValue = Gesture,
+                AppliesTo = ReasonCodeAppliesTo.Discount,
+                LabelAr = "لفتة تجارية",
+                LabelFr = "Geste commercial",
+                CreatedAt = Now,
+            });
+            context.SaveChanges();
+        }
+
+        if (!context.ReasonCodes.Any(reason => reason.ReasonCodeValue == Damaged))
+        {
+            context.ReasonCodes.Add(new ReasonCode
+            {
+                ReasonCodeValue = Damaged,
+                AppliesTo = ReasonCodeAppliesTo.Discount,
+                LabelAr = "منتج تالف",
+                LabelFr = "Article abîmé",
+                CreatedAt = Now,
+            });
+            context.SaveChanges();
+        }
+    }
+
+    private const string Damaged = "article_abime";
+
+    private static GivenDiscount Percent(int basisPoints, string by, string reason = Gesture) => new(DiscountForm.Percent, basisPoints, reason, by);
+
+    private static GivenDiscount Amount(long centimes, string by, string reason = Gesture) => new(DiscountForm.Amount, centimes, reason, by);
+
+    private async Task<List<Domain.Sales.TransactionItem>> ItemsOf(Shop shop, CompletedSale sale)
+    {
+        using var read = Read(shop);
+        return await read.TransactionItems.Where(item => item.TransactionId == sale.TransactionId).ToListAsync();
+    }
+
+    [Fact]
+    public async Task A_line_percent_comes_off_that_line_and_the_row_says_why_and_who()
+    {
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+
+        // 3 x 143,00 = 429,00; 10 % is 42,90.
+        var sale = await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 3, Discount: Percent(1_000, shop.StaffId)));
+
+        var item = Assert.Single(await ItemsOf(shop, sale));
+        Assert.Equal((Dzd(4_290), Dzd(38_610)), (item.DiscountAmount, item.LineTotal));
+        Assert.Equal((Gesture, shop.StaffId), (item.DiscountReasonCode, item.AuthorisedBy));
+        Assert.Equal(Dzd(38_610).SplitTaxInclusive(new BasisPoints(900), Rounding.HalfUp).Tax, item.TaxAmount);
+        Assert.Equal(Dzd(38_610), sale.Total);
+
+        using var read = Read(shop);
+        var row = await read.Transactions.SingleAsync(t => t.TransactionId == sale.TransactionId);
+        Assert.Equal(Dzd(4_290), row.DiscountTotal);
+    }
+
+    [Fact]
+    public async Task A_line_amount_over_two_batches_is_spread_by_their_gross_and_sums_back()
+    {
+        Reasons();
+        var shop = new Shop(database);
+        var old = shop.Receive(database, shop.Milk, 1, daysAgo: 20);
+        var fresh = shop.Receive(database, shop.Milk, 5, daysAgo: 2);
+
+        // 10,00 over 143,00 and 286,00: 3,33 and 6,67.
+        var sale = await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 3, Discount: Amount(1_000, shop.StaffId)));
+
+        var items = await ItemsOf(shop, sale);
+        Assert.Equal(Dzd(333), items.Single(i => i.BatchId == old).DiscountAmount);
+        Assert.Equal(Dzd(667), items.Single(i => i.BatchId == fresh).DiscountAmount);
+        Assert.Equal(Dzd(41_900), sale.Total);
+    }
+
+    [Fact]
+    public async Task A_ticket_percent_is_worked_out_on_the_total_and_split_by_line()
+    {
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+        shop.Receive(database, shop.Bread, 5, daysAgo: 5);
+
+        // 143,00 + 120,50 = 263,50; 10 % is 26,35: 14,30 and 12,05.
+        var sale = await Sell(shop, Percent(1_000, shop.StaffId),
+            new SaleLineRequest(shop.Milk.Barcode, 1), new SaleLineRequest(shop.Bread.Barcode, 1));
+
+        var items = await ItemsOf(shop, sale);
+        Assert.Equal(Dzd(1_430), items.Single(i => i.VariantId == shop.Milk.VariantId).DiscountAmount);
+        Assert.Equal(Dzd(1_205), items.Single(i => i.VariantId == shop.Bread.VariantId).DiscountAmount);
+        Assert.All(items, item => Assert.Equal(Gesture, item.DiscountReasonCode));
+        Assert.Equal(Dzd(23_715), sale.Total);
+    }
+
+    [Fact]
+    public async Task A_ticket_discount_comes_after_the_lines_own_on_what_they_come_to()
+    {
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+        shop.Receive(database, shop.Bread, 5, daysAgo: 5);
+
+        // Milk 143,00 less 43,00 is 100,00; bread 120,50. The ticket's 10,00 splits 100,00 : 120,50,
+        // so 4,54 and 5,46.
+        var sale = await Sell(shop, Amount(1_000, shop.StaffId),
+            new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Amount(4_300, shop.StaffId)),
+            new SaleLineRequest(shop.Bread.Barcode, 1));
+
+        var items = await ItemsOf(shop, sale);
+        Assert.Equal(Dzd(4_300 + 454), items.Single(i => i.VariantId == shop.Milk.VariantId).DiscountAmount);
+        Assert.Equal(Dzd(546), items.Single(i => i.VariantId == shop.Bread.VariantId).DiscountAmount);
+        Assert.Equal(Dzd(26_350 - 5_300), sale.Total);
+    }
+
+    [Fact]
+    public async Task A_discounted_sale_is_flagged_in_its_basket_and_a_plain_one_is_not()
+    {
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+        var cloud = new StubCloud(database, shop);
+
+        await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Percent(1_000, shop.StaffId)));
+        await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1));
+        await cloud.DrainAsync();
+
+        Assert.Equal([true, false], cloud.Received.Select(basket => basket.HasDiscount));
+    }
+
+    [Theory]
+    [InlineData("not_a_reason", true)]
+    [InlineData(Gesture, false)]
+    public async Task A_discount_with_no_accepted_reason_or_nobody_allowing_it_is_refused_and_nothing_written(string reason, bool allowed)
+    {
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() =>
+            Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Percent(1_000, allowed ? shop.StaffId : string.Empty, reason))));
+
+        using var read = Read(shop);
+        Assert.False(await read.Transactions.AnyAsync());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(10_001)]
+    public async Task A_percent_outside_zero_to_a_hundred_is_a_refused_sale(int basisPoints)
+    {
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() =>
+            Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Percent(basisPoints, shop.StaffId))));
+    }
+
+    [Fact]
+    public async Task A_row_with_its_own_discount_and_a_share_of_the_tickets_keeps_its_own_reason()
+    {
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+        shop.Receive(database, shop.Bread, 5, daysAgo: 5);
+
+        var sale = await Sell(shop, Percent(1_000, shop.StaffId, Gesture),
+            new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Amount(1_000, shop.StaffId, Damaged)),
+            new SaleLineRequest(shop.Bread.Barcode, 1));
+
+        var items = await ItemsOf(shop, sale);
+        Assert.Equal(Damaged, items.Single(i => i.VariantId == shop.Milk.VariantId).DiscountReasonCode);
+        Assert.Equal(Gesture, items.Single(i => i.VariantId == shop.Bread.VariantId).DiscountReasonCode);
     }
 }

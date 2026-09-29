@@ -8,6 +8,7 @@ using Waymark.Domain.Enums;
 using Waymark.Domain.Inventory;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Pricing;
+using Waymark.Domain.Reference;
 using Waymark.Domain.Sales;
 using Waymark.Domain.Statistics;
 using Waymark.Domain.Sync;
@@ -17,15 +18,36 @@ using Waymark.Domain.Work;
 namespace Waymark.Application.Sales;
 
 /// <summary>A cash sale of the scanned lines, at this terminal, by this staff member (hop 2, D-070).</summary>
-public sealed record CompleteSale(string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines)
+/// <param name="TicketDiscount">A discount given on the whole ticket at the counter (B4, D-091), or null.</param>
+public sealed record CompleteSale(
+    string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines, GivenDiscount? TicketDiscount = null)
     : ICommand<CompletedSale>;
+
+/// <summary>Whether a discount is a percent or an amount of money.</summary>
+public enum DiscountForm
+{
+    /// <summary><see cref="GivenDiscount.Value"/> is basis points: 1000 is 10 %.</summary>
+    Percent,
+
+    /// <summary><see cref="GivenDiscount.Value"/> is minor units of the sale's currency: 5000 is 50,00.</summary>
+    Amount,
+}
+
+/// <summary>A discount given at the counter (B4, D-091): what, why, and who allowed it.</summary>
+/// <param name="ReasonCode">An active <c>discount</c> reason (D-079); anything else is refused.</param>
+/// <param name="AuthorisedBy">
+/// The person of rank 2 who allowed it: the seller, or the manager whose PIN the till asked for. The
+/// host resolves it from the session and the authorisation; the till never names anyone (D-083).
+/// </param>
+public sealed record GivenDiscount(DiscountForm Form, long Value, string ReasonCode, string AuthorisedBy);
 
 /// <summary>A scanned code and how many units of it.</summary>
 /// <param name="WeightThousandths">
 /// A weight typed at the till for a product sold by weight, in thousandths of its unit (B3);
 /// null for a count, and for a scale label, which carries its own weight or price.
 /// </param>
-public sealed record SaleLineRequest(string Barcode, int Count, long? WeightThousandths = null);
+/// <param name="Discount">A discount given on this line at the counter (B4), or null.</param>
+public sealed record SaleLineRequest(string Barcode, int Count, long? WeightThousandths = null, GivenDiscount? Discount = null);
 
 /// <summary>What the sale came to.</summary>
 /// <param name="TransactionId">The sale's row.</param>
@@ -59,6 +81,13 @@ public sealed class SaleRefusedException(string reason) : Exception(reason);
 /// (D-066). The till's cart is a preview (D-068); a price that changed, or a product archived,
 /// since the scan is caught at payment rather than sold at the old figure.
 /// </para>
+/// <para>
+/// <b>Discounts are worked out here too</b> (B4, D-091), in two passes: first what every line
+/// takes from which batch and its gross; then each line's own discount on its gross, the ticket's
+/// on the lines' totals, and each line's sum of the two spread over its batch rows
+/// (<see cref="Discounts"/>). A row keeps the reason and the authoriser of its line's own discount,
+/// else the ticket's.
+/// </para>
 /// </summary>
 public sealed class CompleteSaleHandler(
     IProductLookup products,
@@ -67,7 +96,8 @@ public sealed class CompleteSaleHandler(
     IOutboxSequence outbox,
     ITier2Writer tier2,
     IStoreCalendar calendar,
-    TimeProvider clock) : ICommandHandler<CompleteSale, CompletedSale>
+    TimeProvider clock,
+    IReasonCodes reasons) : ICommandHandler<CompleteSale, CompletedSale>
 {
     public async Task<CompletedSale> HandleAsync(
         CompleteSale command, CommandContext context, CancellationToken cancellationToken = default)
@@ -96,14 +126,18 @@ public sealed class CompleteSaleHandler(
 
         var currency = priced[0].Product.PriceTtc.Currency;
         var zero = Money.Zero(currency);
+        await CheckReasonsAsync(command, cancellationToken);
         var sessionId = await CashSession(command, store, now, context, cancellationToken);
         var transactionId = context.NewId();
-        var (net, tax, total) = (zero, zero, zero);
+        var (net, tax, total, discounted) = (zero, zero, zero, zero);
         var sold = new List<SoldLine>();
         var tier2Lines = new List<Tier2Line>();
 
-        foreach (var (product, count, weighed) in priced)
+        // Pass 1: what each line takes from which batch, and each row's gross before any discount.
+        var plans = new List<LinePlan>();
+        for (var index = 0; index < priced.Count; index++)
         {
+            var (product, count, weighed) = priced[index];
             // A weighed line takes its weight from the lookup (typed, or read from a label), a
             // counted one its count (D-090).
             var wanted = weighed?.Quantity ?? product.Unit.Whole(count);
@@ -123,13 +157,45 @@ public sealed class CompleteSaleHandler(
                 ? WeighedLine.SplitDeclared(weighed!.Amounts.LineTotal, [.. takes.Select(take => take.Taken)])
                 : null;
 
+            var rowGross = shares
+                ?? [.. takes.Select(take => SaleArithmetic.Line(product.PriceTtc, take.Taken, zero, product.TvaRate, policy).Gross)];
+            plans.Add(new LinePlan(product, source, takes, rowGross, command.Lines[index].Discount));
+
+            // Lowered now, as each line is taken, so a second line of the same product reads the
+            // levels the first left.
+            foreach (var (batch, taken) in takes)
+            {
+                ledger.AdjustLevel(product.VariantId, batch.BatchId, QuantityDelta.Decrease(taken), now);
+            }
+        }
+
+        // Pass 2: the discounts (D-091). A line's own on its gross; the ticket's on the lines'
+        // totals after theirs, once; then each line's sum of both over its batch rows.
+        var lineOff = plans.Select(plan => plan.Given is { } given
+            ? Off(() => Discounts.OnLine(Sum(plan.RowGross, zero), AsDiscount(given, currency), policy))
+            : zero).ToList();
+        IReadOnlyList<Money> ticketOff = command.TicketDiscount is { } ticket
+            ? Off(() => Discounts.OnTicket(
+                [.. plans.Select((plan, i) => Sum(plan.RowGross, zero) - lineOff[i])], AsDiscount(ticket, currency), policy))
+            : [.. plans.Select(_ => zero)];
+
+        for (var index = 0; index < plans.Count; index++)
+        {
+            var (product, source, takes, rowGross, given) = plans[index];
+            // A line with nothing off takes nothing from any row, and never asks the rules.
+            var off = lineOff[index] + ticketOff[index];
+            IReadOnlyList<Money> parts = off.IsZero ? [.. rowGross.Select(_ => zero)] : Discounts.Spread(off, rowGross);
+            var why = !lineOff[index].IsZero ? given : command.TicketDiscount;
+
             for (var i = 0; i < takes.Count; i++)
             {
                 var (batch, taken) = takes[i];
-                var amounts = shares is null
-                    ? SaleArithmetic.Line(product.PriceTtc, taken, zero, product.TvaRate, policy)
-                    : new LineAmounts(shares[i], shares[i], shares[i].SplitTaxInclusive(product.TvaRate, policy));
-                (net, tax, total) = (net + amounts.Split.Net, tax + amounts.Split.Tax, total + amounts.LineTotal);
+                var part = parts[i];
+                var amounts = source == QuantitySource.LabelPrice
+                    ? new LineAmounts(rowGross[i], rowGross[i] - part, (rowGross[i] - part).SplitTaxInclusive(product.TvaRate, policy))
+                    : SaleArithmetic.Line(product.PriceTtc, taken, part, product.TvaRate, policy);
+                (net, tax, total, discounted) =
+                    (net + amounts.Split.Net, tax + amounts.Split.Tax, total + amounts.LineTotal, discounted + part);
 
                 staging.Add(new TransactionItem
                 {
@@ -141,7 +207,9 @@ public sealed class CompleteSaleHandler(
                     UnitCode = product.Unit.Code,
                     SellPrice = product.PriceTtc,
                     UnitCostAtSale = batch.UnitCost,
-                    DiscountAmount = zero,
+                    DiscountAmount = part,
+                    DiscountReasonCode = part.IsZero ? null : why?.ReasonCode,
+                    AuthorisedBy = part.IsZero ? null : why?.AuthorisedBy,
                     TaxAmount = amounts.Split.Tax,
                     LineTotal = amounts.LineTotal,
                     CreatedAt = now,
@@ -165,7 +233,6 @@ public sealed class CompleteSaleHandler(
                     CreatedAt = now,
                 });
 
-                ledger.AdjustLevel(product.VariantId, batch.BatchId, QuantityDelta.Decrease(taken), now);
                 sold.Add(new SoldLine(product.ProductId, taken, amounts.LineTotal));
                 tier2Lines.Add(new Tier2Line(product.VariantId, taken, amounts.LineTotal));
             }
@@ -183,7 +250,7 @@ public sealed class CompleteSaleHandler(
             OccurredAt = now,
             RoundingPolicy = policy,
             Subtotal = net,
-            DiscountTotal = zero,
+            DiscountTotal = discounted,
             TaxTotal = tax,
             TotalAmount = total,
             Currency = currency.Code,
@@ -225,7 +292,7 @@ public sealed class CompleteSaleHandler(
             });
         }
 
-        await EmitBasket(sold, today, context, now, store.StoreId, cancellationToken);
+        await EmitBasket(sold, today, context, now, store.StoreId, discounted.IsPositive, cancellationToken);
         tier2.Record(new Tier2Sale(transactionId, today, calendar.HourOfDay, tier2Lines));
 
         return new CompletedSale(transactionId, invoice, total, tax, cash);
@@ -243,6 +310,7 @@ public sealed class CompleteSaleHandler(
         CommandContext context,
         DateTimeOffset now,
         string storeId,
+        bool hasDiscount,
         CancellationToken cancellationToken)
     {
         var basket = AnonymousBasket.From(
@@ -252,7 +320,7 @@ public sealed class CompleteSaleHandler(
             calendar.HourOfDay,
             sold,
             AnonymousBasket.Cash,
-            hasDiscount: false);
+            hasDiscount);
 
         staging.Add(new OutboxMessage
         {
@@ -263,6 +331,55 @@ public sealed class CompleteSaleHandler(
             PayloadJson = JsonSerializer.Serialize(basket),
             CreatedAt = now,
         });
+    }
+
+    /// <summary>One line after pass 1: its product, where its quantity came from, its batches, each row's gross, its discount.</summary>
+    private sealed record LinePlan(
+        ProductForSale Product,
+        QuantitySource Source,
+        IReadOnlyList<(BatchLevel Batch, Quantity Taken)> Takes,
+        IReadOnlyList<Money> RowGross,
+        GivenDiscount? Given);
+
+    private static Money Sum(IReadOnlyList<Money> amounts, Money zero) => amounts.Aggregate(zero, (sum, amount) => sum + amount);
+
+    private static Discount AsDiscount(GivenDiscount given, Currency currency) => given.Form switch
+    {
+        DiscountForm.Percent when given.Value is > 0 and <= BasisPoints.Scale => new Discount.Percent(new BasisPoints((int)given.Value)),
+        DiscountForm.Amount => new Discount.Amount(Money.FromMinorUnits(given.Value, currency)),
+        _ => throw new SaleRefusedException("A discount is above 0 and at most 100 %."),
+    };
+
+    /// <summary>A discount the rules refuse (nothing off, over 100 %) is a refused sale, never a server error.</summary>
+    private static T Off<T>(Func<T> work)
+    {
+        try
+        {
+            return work();
+        }
+        catch (ArgumentOutOfRangeException refused)
+        {
+            throw new SaleRefusedException($"A discount cannot be given: {refused.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Every reason given is an active <c>discount</c> reason (D-079). The column is a foreign key,
+    /// so anything else would fail at commit, mid-sale, as an error rather than an answer.
+    /// </summary>
+    private async Task CheckReasonsAsync(CompleteSale command, CancellationToken cancellationToken)
+    {
+        var given = command.Lines.Select(line => line.Discount).Append(command.TicketDiscount).OfType<GivenDiscount>().ToList();
+        if (given.Count == 0)
+        {
+            return;
+        }
+
+        var accepted = (await reasons.ForAsync(ReasonCodeAppliesTo.Discount, cancellationToken)).Select(reason => reason.Code).ToHashSet(StringComparer.Ordinal);
+        if (given.FirstOrDefault(discount => !accepted.Contains(discount.ReasonCode) || string.IsNullOrWhiteSpace(discount.AuthorisedBy)) is { } wrong)
+        {
+            throw new SaleRefusedException($"'{wrong.ReasonCode}' is not a discount reason this shop accepts, or nobody allowed it.");
+        }
     }
 
     /// <summary>The line priced by the scan's own rules, or the reason it cannot be sold.</summary>

@@ -28,7 +28,23 @@ public sealed record TillActions(
     Action<int> TicketsDay,
     Action TicketsScope,
     Action CloseTickets,
-    Action<string>? Reweigh = null);
+    Action<string>? Reweigh = null,
+    DiscountActions? Discounts = null);
+
+/// <summary>What the discount panel and the manager step do (B4). The window holds their state.</summary>
+/// <param name="Open">"Remise" under a line (its id), or "Remise ticket" (null).</param>
+public sealed record DiscountActions(
+    Action<string?> Open,
+    Action<string> Form,
+    Action<string> Reason,
+    Action Continue,
+    Action Remove,
+    Action Close,
+    Action<string> Approver,
+    Action<char> Digit,
+    Action Backspace,
+    Action Clear,
+    Action Validate);
 
 /// <summary>
 /// The G1 regions, each drawn from its part of <see cref="TillScreen"/> and nothing else (kit §5).
@@ -254,6 +270,32 @@ public static partial class TillViews
                 yield return LineActionBar(lineActions, theme, actions);
             }
         }
+
+        if (cart.TicketDiscount is { } ticket)
+        {
+            yield return DiscountRow(ticket, theme);
+        }
+    }
+
+    /// <summary>
+    /// A discount as the board draws it (B4): the label in the mono small caps of the kit's labels,
+    /// under the article column, and what it takes off in the total column. Neutral: a discount is
+    /// neither critical nor a warning, and there is no positive state (§6).
+    /// </summary>
+    private static Border DiscountRow(DiscountLine discount, TillTheme theme)
+    {
+        var grid = RowGrid();
+        grid.Children.Add(Cell(new Border { VerticalAlignment = VerticalAlignment.Center, Child = theme.Label(discount.Label, theme.TextSecondary) }, 1));
+        grid.Children.Add(Cell(End(TillTheme.Figure(discount.Amount, 14, theme.TextSecondary)), 3));
+        return new Border
+        {
+            MinHeight = 28,
+            BorderBrush = theme.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(16, 0),
+            Child = grid,
+            Tag = discount,
+        };
     }
 
     /// <summary>An empty ticket: what to do, in the middle of the space the lines will take.</summary>
@@ -296,6 +338,17 @@ public static partial class TillViews
         grid.Children.Add(Cell(End(Struck(TillTheme.Figure(line.UnitPrice, 16, ink), strike)), 2));
         grid.Children.Add(Cell(End(Struck(TillTheme.Figure(line.Total, 16, ink, FontWeight.Medium), strike)), 3));
 
+        // A line's own discount goes under it, inside its row: one touch target, one Tag (B4).
+        Control content = grid;
+        if (line.Discount is { } discount)
+        {
+            var sub = RowGrid();
+            sub.Children.Add(Cell(new Border { VerticalAlignment = VerticalAlignment.Center, Child = theme.Label(discount.Label, theme.TextSecondary) }, 1));
+            sub.Children.Add(Cell(End(TillTheme.Figure(discount.Amount, 14, theme.TextSecondary)), 3));
+            sub.Margin = new Thickness(0, 0, 0, 6);
+            content = new StackPanel { Children = { new Border { MinHeight = TillSizes.CartRow, Child = grid }, sub } };
+        }
+
         var row = new Border
         {
             MinHeight = TillSizes.CartRow,
@@ -305,7 +358,7 @@ public static partial class TillViews
             BorderBrush = theme.BorderSubtle,
             BorderThickness = new Thickness(0, 0, 0, 1),
             Padding = new Thickness(16, 0),
-            Child = grid,
+            Child = content,
             Tag = line,
         };
 
@@ -328,6 +381,18 @@ public static partial class TillViews
         var bar = new DockPanel();
         bar.Children.Add(Docked(
             lineActions.IsWeighed ? WeightActions(lineActions, theme, actions) : Stepper(lineActions, theme, actions), Dock.Left));
+        if (lineActions.Discount is { } discount && actions.Discounts is { } discounts)
+        {
+            var id = lineActions.LineId;
+            bar.Children.Add(Docked(new TillKey(
+                theme,
+                KeyLook.Secondary,
+                TillKey.Labelled(Locked(LucideIcons.Percent, discount, theme), lineActions.DiscountKey, theme.TextMuted),
+                () => discounts.Open(id),
+                height: TillSizes.LineKey)
+            { Margin = new Thickness(8, 0, 0, 0) }, Dock.Left));
+        }
+
         bar.Children.Add(RemoveKey(lineActions, theme, actions));
 
         return new Border
@@ -504,6 +569,8 @@ public static partial class TillViews
         Screen.Rail.Drafts drafts => DraftsPanel(drafts, theme, actions),
         Screen.Rail.Tickets tickets => TicketsPanel(tickets, theme, actions),
         Screen.Rail.Past past => PastPanel(past, theme),
+        Screen.Rail.Discount discount => DiscountPanel(discount, theme, actions),
+        Screen.Rail.Authorise authorise => AuthorisePanel(authorise, theme, actions),
         _ => new Border(),
     };
 
@@ -539,6 +606,7 @@ public static partial class TillViews
         var icon = operation.Operation switch
         {
             Operation.Park => LucideIcons.Pause,
+            Operation.TicketDiscount => LucideIcons.Percent,
             Operation.CancelTicket => LucideIcons.Ban,
             Operation.Tickets => LucideIcons.History,
             _ => LucideIcons.Archive,
@@ -616,6 +684,206 @@ public static partial class TillViews
 
         var card = Card(theme, null, body);
         card.VerticalAlignment = VerticalAlignment.Stretch;
+        return card;
+    }
+
+    // ============================================================ B4: a discount given at the counter
+
+    /// <summary>
+    /// A key's face with the kit's lock (G1 board, "Verrouillée : pressable, demande le PIN du
+    /// responsable"): the icon, the word, then the lock. Pressable all the same.
+    /// </summary>
+    private static StackPanel Locked(string icon, string label, TillTheme theme) => new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 8,
+        Children =
+        {
+            TillTheme.Icon(icon, theme.TextMuted, 18),
+            theme.Body(label, theme.Text, FontWeight.SemiBold),
+            TillTheme.Icon(LucideIcons.Lock, theme.TextMuted, 14),
+        },
+    };
+
+    /// <summary>
+    /// The discount panel (B4, D-091), a card in the rail as the board's "Annuler le ticket" is: what
+    /// it is taken off, % or DA, what the value typed in the field takes off, the reasons as a
+    /// choice, then Continuer. Built from the kit; the board has no discount panel of its own.
+    /// </summary>
+    private static Border DiscountPanel(Rail.Discount panel, TillTheme theme, TillActions actions)
+    {
+        var discounts = actions.Discounts;
+        var body = new StackPanel { Spacing = 8 };
+        body.Children.Add(theme.Label(panel.Label, theme.TextSecondary));
+        body.Children.Add(Wrapped(Words(panel.Title, 18, FontWeight.SemiBold, theme.Text, theme)));
+        body.Children.Add(TillTheme.Figure(panel.Detail, 14, theme.TextSecondary));
+
+        var forms = new UniformGrid { Columns = 2, Margin = new Thickness(-2, 4, -2, 0) };
+        foreach (var form in panel.Forms)
+        {
+            var chosen = form.Form;
+            forms.Children.Add(new TillKey(
+                theme,
+                form.Selected ? KeyLook.Primary : KeyLook.Secondary,
+                Centred(Words(form.Label, 16, FontWeight.SemiBold, form.Selected ? theme.ActionLabel : theme.Text, theme)),
+                () => discounts?.Form(chosen))
+            { Margin = new Thickness(2), Tag = form });
+        }
+
+        body.Children.Add(forms);
+        if (panel.Preview is { } preview)
+        {
+            body.Children.Add(TillTheme.Figure(preview, 24, theme.Text, FontWeight.SemiBold));
+        }
+
+        body.Children.Add(new Border { Margin = new Thickness(0, 8, 0, 0), Child = theme.Label(panel.ReasonTitle, theme.TextSecondary) });
+        foreach (var reason in panel.Reasons)
+        {
+            var code = reason.Code;
+            body.Children.Add(new TillKey(
+                theme,
+                KeyLook.Secondary,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 12,
+                    Children =
+                    {
+                        new Ellipse
+                        {
+                            Width = 18,
+                            Height = 18,
+                            Stroke = reason.Selected ? theme.Action : theme.TextSecondary,
+                            StrokeThickness = reason.Selected ? 6 : 2,
+                            VerticalAlignment = VerticalAlignment.Center,
+                        },
+                        theme.Body(reason.Label, theme.Text),
+                    },
+                },
+                () => discounts?.Reason(code))
+            { Tag = reason });
+        }
+
+        if (panel.Message is { } message)
+        {
+            var (_, refusedInk, _) = theme.ToneOnSurface(Tone.Critical);
+            body.Children.Add(Wrapped(theme.BodySmall(message, panel.Refused ? refusedInk : theme.TextSecondary)));
+        }
+
+        var keys = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
+        keys.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(panel.Back, theme.TextSecondary), () => discounts?.Close()), Dock.Left));
+        if (panel.Remove is { } remove)
+        {
+            keys.Children.Add(Docked(new TillKey(theme, KeyLook.Secondary, theme.Body(remove, theme.Text), () => discounts?.Remove())
+            { Margin = new Thickness(8, 0, 0, 0) }, Dock.Left));
+        }
+
+        keys.Children.Add(new TillKey(
+            theme,
+            KeyLook.Primary,
+            Centred(Words(panel.Continue, 16, FontWeight.SemiBold, panel.MayContinue ? theme.ActionLabel : theme.DisabledLabel, theme)),
+            () => discounts?.Continue(),
+            panel.MayContinue)
+        { Margin = new Thickness(8, 0, 0, 0) });
+        body.Children.Add(keys);
+
+        var card = Card(theme, null, new ScrollViewer { Content = body });
+        card.VerticalAlignment = VerticalAlignment.Stretch;
+        card.Tag = panel;
+        return card;
+    }
+
+    /// <summary>
+    /// The manager step (B4), as the board's 09-pin draws it: what is asked on the tile ground, who
+    /// authorises it, the PIN as dots, the pad, then Valider. The digits never reach the screen.
+    /// </summary>
+    private static Border AuthorisePanel(Rail.Authorise panel, TillTheme theme, TillActions actions)
+    {
+        var discounts = actions.Discounts;
+        var body = new StackPanel { Spacing = 8 };
+        body.Children.Add(theme.Label(panel.Label, theme.TextSecondary));
+        body.Children.Add(Wrapped(Words(panel.Title, 18, FontWeight.SemiBold, theme.Text, theme)));
+        body.Children.Add(new Border
+        {
+            Background = theme.Tile,
+            CornerRadius = new CornerRadius(TillSizes.KeyRadius),
+            Padding = new Thickness(12, 8),
+            Child = Wrapped(theme.BodySmall(panel.Summary, theme.TextSecondary)),
+        });
+
+        body.Children.Add(new Border { Margin = new Thickness(0, 4, 0, 0), Child = theme.Label(panel.WhoTitle, theme.TextSecondary) });
+        var who = new WrapPanel();
+        foreach (var person in panel.Approvers)
+        {
+            var id = person.StaffId;
+            who.Children.Add(new TillKey(
+                theme,
+                person.Selected ? KeyLook.Primary : KeyLook.Secondary,
+                Words(person.Name, 14, FontWeight.SemiBold, person.Selected ? theme.ActionLabel : person.Available ? theme.Text : theme.DisabledLabel, theme),
+                () => discounts?.Approver(id),
+                person.Available)
+            { Margin = new Thickness(0, 0, 6, 6), Tag = person });
+        }
+
+        body.Children.Add(who);
+        body.Children.Add(theme.Label(panel.PinTitle, theme.TextSecondary));
+
+        // The dots: one filled per digit typed, never the digit (as at sign-in).
+        var dots = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center, FlowDirection = FlowDirection.LeftToRight };
+        for (var i = 0; i < Math.Max(4, panel.PinLength); i++)
+        {
+            dots.Children.Add(new Ellipse
+            {
+                Width = 14,
+                Height = 14,
+                Fill = i < panel.PinLength ? theme.Text : null,
+                Stroke = i < panel.PinLength ? null : theme.TextSecondary,
+                StrokeThickness = 2,
+            });
+        }
+
+        body.Children.Add(new Border
+        {
+            Height = 52,
+            Background = theme.Card,
+            BorderBrush = theme.FocusRing,
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(TillSizes.FieldRadius + 2),
+            Child = new Border { VerticalAlignment = VerticalAlignment.Center, Child = dots },
+        });
+
+        // A phone pad reads 1 2 3 from the left in Arabic too: the digits are not text.
+        var pad = new UniformGrid { Columns = 3, FlowDirection = FlowDirection.LeftToRight };
+        foreach (var digit in "123456789")
+        {
+            pad.Children.Add(PadKey(TillTheme.Figure(digit.ToString(), 20, theme.Text), () => discounts?.Digit(digit), true, theme));
+        }
+
+        pad.Children.Add(PadKey(TillTheme.Icon(LucideIcons.RotateCw, theme.Text, 18), () => discounts?.Clear(), true, theme));
+        pad.Children.Add(PadKey(TillTheme.Figure("0", 20, theme.Text), () => discounts?.Digit('0'), true, theme));
+        pad.Children.Add(PadKey(TillTheme.Icon(LucideIcons.Delete, theme.Text, 22), () => discounts?.Backspace(), true, theme));
+        body.Children.Add(pad);
+
+        if (panel.Message is { } message)
+        {
+            var (_, refusedInk, _) = theme.ToneOnSurface(Tone.Critical);
+            body.Children.Add(Wrapped(theme.BodySmall(message, refusedInk)));
+        }
+
+        var keys = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+        keys.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(panel.Back, theme.TextSecondary), () => discounts?.Close()), Dock.Left));
+        keys.Children.Add(new TillKey(
+            theme,
+            KeyLook.Primary,
+            Centred(Words(panel.Validate, 16, FontWeight.SemiBold, panel.MayValidate ? theme.ActionLabel : theme.DisabledLabel, theme)),
+            () => discounts?.Validate(),
+            panel.MayValidate)
+        { Margin = new Thickness(8, 0, 0, 0) });
+        body.Children.Add(keys);
+
+        var card = Card(theme, null, new ScrollViewer { Content = body });
+        card.VerticalAlignment = VerticalAlignment.Stretch;
+        card.Tag = panel;
         return card;
     }
 

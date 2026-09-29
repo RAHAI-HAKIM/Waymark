@@ -83,6 +83,10 @@ public sealed class TillWindow : Window, IDisposable
     private readonly Border _resultsHost = new() { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top };
     private ITimer? _searchTimer;
     private ITimer? _weighTimer;
+
+    /// <summary>A discount being given (B4): the panel's state. The manager's PIN digits live only in <see cref="_pin"/>, never in the screen.</summary>
+    private DiscountState? _discount;
+    private string _pin = string.Empty;
     private SearchState? _search;
     private TicketsState? _tickets;
     private int _cardIndex;
@@ -124,6 +128,14 @@ public sealed class TillWindow : Window, IDisposable
                 foreach (var character in text)
                 {
                     _signIn.Press(character);
+                }
+            }
+            else if (_discount is { Authorising: true })
+            {
+                // The manager's PIN (B4): typed digits go to it, never to the field, where they would show.
+                foreach (var character in text.Where(c => c is >= '0' and <= '9'))
+                {
+                    PinDigit(character);
                 }
             }
             else
@@ -199,7 +211,42 @@ public sealed class TillWindow : Window, IDisposable
                 _tickets = null;
                 Render();
             },
-            Reweigh: Reweigh);
+            Reweigh: Reweigh,
+            Discounts: new DiscountActions(
+                Open: OpenDiscount,
+                Form: form =>
+                {
+                    if (_discount is { } open)
+                    {
+                        _discount = open with { Form = form, Problem = null };
+                        Render();
+                    }
+                },
+                Reason: PickReason,
+                Continue: () => _ = ContinueDiscountAsync(),
+                Remove: RemoveDiscount,
+                Close: CloseDiscount,
+                Approver: id =>
+                {
+                    if (_discount is { } open)
+                    {
+                        _discount = open with { ManagerId = id, Problem = null };
+                        _pin = string.Empty;
+                        Render();
+                    }
+                },
+                Digit: PinDigit,
+                Backspace: () =>
+                {
+                    _pin = _pin.Length > 0 ? _pin[..^1] : _pin;
+                    Render();
+                },
+                Clear: () =>
+                {
+                    _pin = string.Empty;
+                    Render();
+                },
+                Validate: () => _ = ValidatePinAsync()));
 
         _signInActions = new SignInActions(
             Select: _signIn.Select,
@@ -452,7 +499,8 @@ public sealed class TillWindow : Window, IDisposable
             _session.NextCount,
             _session.Viewing,
             _tickets,
-            _session.Weighing));
+            _session.Weighing,
+            _discount is { } discounting ? discounting with { PinLength = _pin.Length } : null));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
@@ -619,6 +667,13 @@ public sealed class TillWindow : Window, IDisposable
         if (!string.IsNullOrWhiteSpace(_till.TerminalId))
         {
             _context = await _server.ContextAsync(_till.TerminalId, _session.SignedIn?.StaffId);
+
+            // The store's rounding policy, for the discount preview (B4): the sale's own, so the
+            // figure shown is the one charged.
+            if (_context?.RoundingPolicy is { } policy)
+            {
+                _session.SetRoundingPolicy(policy == RoundingPolicies.HalfEven ? Domain.Values.Rounding.HalfEven : Domain.Values.Rounding.HalfUp);
+            }
         }
     }
 
@@ -741,11 +796,31 @@ public sealed class TillWindow : Window, IDisposable
                 e.Handled = true;
                 break;
 
+            case Key.F4:
+                // "Remise" under the selected line (B4).
+                if (_selected is not null)
+                {
+                    OpenDiscount(_selected);
+                }
+
+                e.Handled = true;
+                break;
+
+            case Key.F6:
+                Operate(Operation.TicketDiscount);
+                e.Handled = true;
+                break;
+
             case Key.Escape:
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_session.Weighing is not null)
+                if (_discount is not null)
+                {
+                    // A discount not given after all (B4): nothing changes on the ticket.
+                    CloseDiscount();
+                }
+                else if (_session.Weighing is not null)
                 {
                     // A weight not typed after all (B3): nothing is weighed.
                     _session.CancelWeighing();
@@ -864,6 +939,14 @@ public sealed class TillWindow : Window, IDisposable
     /// </summary>
     private void EnterInField()
     {
+        // A discount is being given (B4): the field holds its value, and Entrée is Continuer; at
+        // the manager step Entrée validates the PIN, as at sign-in.
+        if (_discount is { } discounting)
+        {
+            _ = discounting.Authorising ? ValidatePinAsync() : ContinueDiscountAsync();
+            return;
+        }
+
         // A product sold by weight is waiting (B3): what the field holds is its weight, whatever it
         // would otherwise be read as. A weight the unit cannot take stays in the field to be corrected.
         if (_session.Weighing is not null)
@@ -918,6 +1001,15 @@ public sealed class TillWindow : Window, IDisposable
     {
         _searchTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _weighTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        if (_discount is { Authorising: false } open)
+        {
+            // The discount's value (B4): the panel shows what it takes off as it is typed.
+            _search = null;
+            _discount = open with { Typed = _input.Text ?? string.Empty, Problem = null };
+            Render();
+            return;
+        }
+
         if (_session.Weighing is not null)
         {
             // The weight typed so far, priced by the server once the cashier pauses, as a name is
@@ -974,6 +1066,184 @@ public sealed class TillWindow : Window, IDisposable
     {
         var index = answer?.Results.ToList().FindIndex(result => result.Outcome == ProductLookupOutcome.Found && result.Code is not null) ?? -1;
         return Math.Max(index, 0);
+    }
+
+    // ============================================================ B4: a discount given at the counter
+
+    /// <summary>
+    /// "Remise" under a line, or "Remise ticket" (<paramref name="lineId"/> null): the panel opens in
+    /// the rail with the shop's reasons, and the value is typed in the field. A discount already
+    /// given opens as it is, to be changed or taken off.
+    /// </summary>
+    private void OpenDiscount(string? lineId)
+    {
+        if (!_session.MayDiscount)
+        {
+            return;
+        }
+
+        var existing = lineId is null
+            ? _session.Cart.TicketDiscount
+            : _session.Cart.ActiveLines.FirstOrDefault(line => line.LineId == lineId)?.Discount;
+        _draftsOpen = false;
+        _tickets = null;
+        _search = null;
+        _pin = string.Empty;
+        _discount = new DiscountState(lineId, existing?.Form ?? DiscountForms.Percent, string.Empty, null, false, existing?.ReasonCode);
+        _input.Text = string.Empty;
+        Render();
+        _input.Focus();
+        _ = LoadReasonsAsync();
+    }
+
+    private async Task LoadReasonsAsync()
+    {
+        var reasons = await _server.DiscountReasonsAsync();
+        if (_discount is { } open)
+        {
+            _discount = open with { Reasons = reasons, Offline = reasons is null };
+            Render();
+        }
+    }
+
+    /// <summary>A reason chosen; the field keeps the scanner's focus, as after any touch.</summary>
+    private void PickReason(string code)
+    {
+        if (_discount is { } open)
+        {
+            _discount = open with { ReasonCode = code, Problem = null };
+            Render();
+            _input.Focus();
+        }
+    }
+
+    private void CloseDiscount()
+    {
+        _discount = null;
+        _pin = string.Empty;
+        _input.Text = string.Empty;
+        Render();
+        _input.Focus();
+    }
+
+    /// <summary>"Retirer la remise": the discount is taken off; nothing needs authorising to charge more.</summary>
+    private void RemoveDiscount()
+    {
+        if (_discount is { } open)
+        {
+            _session.Discount(open.LineId, null);
+            CloseDiscount();
+        }
+    }
+
+    /// <summary>
+    /// Continuer: a value and a reason, then StoreServer is asked whether the seller may give it
+    /// alone (B4). Yes: it is given. No: the manager step.
+    /// </summary>
+    private async Task ContinueDiscountAsync()
+    {
+        if (_discount is not { Authorising: false } open || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        if (!DiscountEntry.TryParse(open.Typed, open.Form, out _))
+        {
+            _discount = open with { Problem = DiscountProblem.ValueInvalid };
+            Render();
+            return;
+        }
+
+        if (open.ReasonCode is null)
+        {
+            _discount = open with { Problem = DiscountProblem.NoReason };
+            Render();
+            return;
+        }
+
+        var answer = await _server.AuthoriseAsync(new AuthoriseRequest(Capabilities.ApplyDiscount, null, null), person.Token);
+        if (_discount is null)
+        {
+            return;
+        }
+
+        switch (answer?.Outcome)
+        {
+            case AuthoriseOutcomes.Authorised:
+                Give(answer.Authorisation!);
+                break;
+
+            case AuthoriseOutcomes.PinRequired:
+                var staff = await _server.StaffAsync();
+                _pin = string.Empty;
+                _discount = _discount with { Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null };
+                Render();
+                break;
+
+            default:
+                _discount = _discount with { Problem = DiscountProblem.Offline, Offline = true };
+                Render();
+                break;
+        }
+    }
+
+    private void PinDigit(char digit)
+    {
+        if (_discount is { Authorising: true } && _pin.Length < 12)
+        {
+            _pin += digit;
+            _discount = _discount with { Problem = null };
+            Render();
+        }
+    }
+
+    /// <summary>Valider: the manager's PIN to StoreServer, which checks it with sign-in's lockout and asks their rank (§3.10).</summary>
+    private async Task ValidatePinAsync()
+    {
+        if (_discount is not { Authorising: true, ManagerId: { } manager } || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        var pin = _pin;
+        _pin = string.Empty;
+        var answer = await _server.AuthoriseAsync(new AuthoriseRequest(Capabilities.ApplyDiscount, manager, pin), person.Token);
+        if (_discount is null)
+        {
+            return;
+        }
+
+        _discount = answer?.Outcome switch
+        {
+            AuthoriseOutcomes.Authorised => _discount,
+            AuthoriseOutcomes.WrongPin => _discount with { Problem = DiscountProblem.WrongPin, AttemptsLeft = answer.AttemptsLeft },
+            AuthoriseOutcomes.Locked => _discount with { Problem = DiscountProblem.Locked, LockedUntil = answer.LockedUntil },
+            AuthoriseOutcomes.NoPin => _discount with { Problem = DiscountProblem.NoPin },
+            AuthoriseOutcomes.NotAllowed or AuthoriseOutcomes.UnknownStaff => _discount with { Problem = DiscountProblem.NotAllowed },
+            _ => _discount with { Problem = DiscountProblem.Offline },
+        };
+
+        if (answer?.Outcome == AuthoriseOutcomes.Authorised)
+        {
+            Give(answer.Authorisation!);
+            return;
+        }
+
+        Render();
+    }
+
+    /// <summary>The discount onto the line or the ticket, citing the authorisation the server gave.</summary>
+    private void Give(string authorisation)
+    {
+        if (_discount is not { } open
+            || !DiscountEntry.TryParse(open.Typed, open.Form, out var hundredths)
+            || open.Reasons?.ReasonCodes.FirstOrDefault(reason => reason.Code == open.ReasonCode) is not { } reason)
+        {
+            return;
+        }
+
+        _session.Discount(open.LineId, new CounterDiscount(open.Form, hundredths, reason.Code, reason.LabelFr, reason.LabelAr, authorisation));
+        CloseDiscount();
     }
 
     /// <summary>"Poids" under a line weighed by hand (B3): the weight is typed again in the field, which takes the focus back.</summary>
@@ -1072,6 +1342,10 @@ public sealed class TillWindow : Window, IDisposable
                 _draftsOpen = _session.Drafts.Count > 0;
                 _tickets = null;
                 Render();
+                break;
+
+            case Operation.TicketDiscount:
+                OpenDiscount(null);
                 break;
 
             case Operation.Tickets:

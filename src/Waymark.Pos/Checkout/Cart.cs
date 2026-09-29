@@ -1,4 +1,7 @@
 using System.Globalization;
+using Waymark.Contracts;
+using Waymark.Contracts.Pos;
+using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
 using WireProduct = Waymark.Contracts.Pos.ProductForSale;
 
@@ -38,13 +41,86 @@ public sealed class Cart
     public IReadOnlyList<CartLine> ActiveLines => [.. _lines.Where(line => !line.IsRemoved)];
 
     /// <summary>
-    /// The sum of the lines still in the sale, or null for a cart that has never had one: with
-    /// no line there is no currency yet, and a zero without one is not a total. A cart whose
-    /// every line was taken out totals zero, in the currency its lines were priced in.
+    /// The store's rounding policy (D-053), which a discount's preview is worked out with (B4): the
+    /// same <see cref="Discounts"/> and the same policy as the sale, so the till shows what it will
+    /// charge. Set from the till's context.
     /// </summary>
-    public Money? Total => _lines.Count == 0
+    public Rounding Policy { get; set; } = Rounding.HalfUp;
+
+    /// <summary>A discount given on the whole ticket (B4, D-091), or null. It follows the ticket: worked out on its lines as they are.</summary>
+    public CounterDiscount? TicketDiscount { get; private set; }
+
+    /// <summary>
+    /// The sum of the lines still in the sale before any discount, or null for a cart that has never
+    /// had a line: with no line there is no currency yet, and a zero without one is not a total.
+    /// </summary>
+    public Money? Subtotal => _lines.Count == 0
         ? null
         : ActiveLines.Aggregate(Money.Zero(_lines[0].UnitPrice.Currency), (sum, line) => sum + line.LineTotal);
+
+    /// <summary>
+    /// The total to pay: the lines less every discount, or null for a cart that has never had a
+    /// line. A cart whose every line was taken out totals zero, in the currency its lines were priced in.
+    /// </summary>
+    public Money? Total => Subtotal is { } subtotal && DiscountTotal is { } off ? subtotal - off : null;
+
+    /// <summary>Everything taken off, the lines' own and the ticket's; null for a cart that has never had a line.</summary>
+    public Money? DiscountTotal => Subtotal is { } subtotal
+        ? ActiveLines.Select(LineDiscountOf).Concat(TicketShares()).Aggregate(subtotal - subtotal, (sum, off) => sum + off)
+        : null;
+
+    /// <summary>What a line's own discount takes off it (B4): zero with none, and for a line taken out.</summary>
+    public Money LineDiscountOf(CartLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        return line.Discount is { } discount && !line.IsRemoved
+            ? Discounts.OnLine(line.LineTotal, discount.AsDomain(line.LineTotal.Currency), Policy)
+            : Money.Zero(line.LineTotal.Currency);
+    }
+
+    /// <summary>
+    /// Each line still in the sale's share of the ticket's discount, in <see cref="ActiveLines"/>'
+    /// order: worked out on what they come to after their own, as the sale will (B4).
+    /// </summary>
+    public IReadOnlyList<Money> TicketShares()
+    {
+        var active = ActiveLines;
+        if (TicketDiscount is not { } ticket || active.Count == 0)
+        {
+            return [.. active.Select(line => Money.Zero(line.LineTotal.Currency))];
+        }
+
+        return Discounts.OnTicket(
+            [.. active.Select(line => line.LineTotal - LineDiscountOf(line))], ticket.AsDomain(active[0].LineTotal.Currency), Policy);
+    }
+
+    /// <summary>
+    /// A discount given on one line, or taken off it with null (B4). False, changing nothing, for a
+    /// line not in the sale. The line is then not plain: a repeat scan starts a new line (D-087).
+    /// </summary>
+    public bool SetDiscount(string lineId, CounterDiscount? discount)
+    {
+        var index = ActiveIndex(lineId);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        _lines[index] = _lines[index] with { Discount = discount };
+        return true;
+    }
+
+    /// <summary>A discount given on the whole ticket, or taken off it with null (B4). Refused on a ticket with no line in the sale.</summary>
+    public bool SetTicketDiscount(CounterDiscount? discount)
+    {
+        if (discount is not null && ActiveLines.Count == 0)
+        {
+            return false;
+        }
+
+        TicketDiscount = discount;
+        return true;
+    }
 
     /// <summary>The line most recently scanned in, for the notice slot's "last article".</summary>
     public CartLine? LastAdded { get; private set; }
@@ -125,7 +201,7 @@ public sealed class Cart
     public static bool TakesAnotherScan(CartLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        return !line.IsRemoved && !line.IsWeighed;
+        return !line.IsRemoved && !line.IsWeighed && line.Discount is null;
     }
 
     /// <summary>
@@ -226,6 +302,7 @@ public sealed class Cart
     {
         _lines.Clear();
         LastAdded = null;
+        TicketDiscount = null;
     }
 }
 
@@ -243,6 +320,7 @@ public sealed class Cart
 /// the price and not a discount taken off one.
 /// </param>
 /// <param name="Weight">For a weighed line (B3): its weight, where it came from and the server's total. Null for a count.</param>
+/// <param name="Discount">A discount given on this line at the counter (B4), or null.</param>
 public sealed record CartLine(
     string LineId,
     string VariantId,
@@ -255,7 +333,8 @@ public sealed record CartLine(
     Quantity StockOnHand,
     bool IsPromotionalPrice = false,
     DateTimeOffset? RemovedAt = null,
-    LineWeight? Weight = null)
+    LineWeight? Weight = null,
+    CounterDiscount? Discount = null)
 {
     /// <summary>Sold by weight (B3): one weighing, never merged, never stepped.</summary>
     public bool IsWeighed => Weight is not null;
@@ -268,8 +347,9 @@ public sealed record CartLine(
         ?? Domain.Values.Quantity.FromThousandths(checked(Count * (long)Domain.Values.Quantity.Scale), UnitCode);
 
     /// <summary>
-    /// The unit price times a whole count, exact and with nothing to round; for a weighed line, the
-    /// server's total, which the till never works out itself (D-090).
+    /// The line before any discount: the unit price times a whole count, exact and with nothing to
+    /// round; for a weighed line, the server's total, which the till never works out itself (D-090).
+    /// A discount is shown under it (<see cref="Cart.LineDiscountOf"/>), never folded into it.
     /// </summary>
     public Money LineTotal => Weight?.LineTotal ?? UnitPrice * Count;
 
@@ -290,4 +370,21 @@ public sealed record LineWeight(Quantity Quantity, string Source, Money LineTota
 {
     /// <summary>Typed at the till: the only weight the cashier may type again, and the one the sale sends.</summary>
     public bool IsTyped => Source == Contracts.Pos.QuantitySources.TypedWeight;
+}
+
+/// <summary>A discount given at the counter as the till holds it (B4, D-091): what, why, and the authorisation that allows it.</summary>
+/// <param name="Form">One of <see cref="DiscountForms"/>.</param>
+/// <param name="Hundredths">A percent in basis points (1000 is 10 %), or an amount in centimes.</param>
+/// <param name="Authorisation">What StoreServer answered; it names nobody on the wire.</param>
+public sealed record CounterDiscount(string Form, long Hundredths, string ReasonCode, string ReasonFr, string ReasonAr, string Authorisation)
+{
+    public bool IsPercent => Form == DiscountForms.Percent;
+
+    /// <summary>The same discount as the Domain works it out.</summary>
+    public Discount AsDomain(Currency currency) => IsPercent
+        ? new Discount.Percent(new BasisPoints(checked((int)Hundredths)))
+        : new Discount.Amount(Money.FromMinorUnits(Hundredths, currency));
+
+    /// <summary>As the sale sends it: the value as invariant text, never the money it comes to.</summary>
+    public DiscountRequest ToWire() => new(Form, Figures.Amount(Hundredths), ReasonCode, Authorisation);
 }

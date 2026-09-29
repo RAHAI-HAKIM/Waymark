@@ -8,10 +8,29 @@ namespace Waymark.StoreServer.Sales;
 public static class SaleWire
 {
     /// <summary>The sale to complete, sold by <paramref name="sellerId"/>: the session's person, never the till's say-so.</summary>
-    public static CompleteSale ToCommand(SaleRequest request, string sellerId) => new(
+    /// <param name="authorisedBy">
+    /// Who gave an authorisation the sale cites, in this session, for a discount; null when nobody
+    /// did. A discount citing nothing valid reaches the handler with nobody, and is refused there.
+    /// </param>
+    public static CompleteSale ToCommand(SaleRequest request, string sellerId, Func<string?, string?>? authorisedBy = null) => new(
         request.TerminalId,
         sellerId,
-        [.. request.Lines.Select(line => new SaleLineRequest(line.Barcode, line.Count, Weight(line.Weight)))]);
+        [.. request.Lines.Select(line => new SaleLineRequest(
+            line.Barcode, line.Count, Weight(line.Weight), Discount(line.Discount, authorisedBy)))],
+        Discount(request.TicketDiscount, authorisedBy));
+
+    /// <summary>
+    /// A discount as the handler reads it (B4): a percent in basis points, an amount in minor units.
+    /// A form or a value that cannot be read becomes a value of zero, which the rules refuse: the
+    /// sale is refused with its reason, never sold without the discount the customer was promised.
+    /// </summary>
+    private static GivenDiscount? Discount(DiscountRequest? discount, Func<string?, string?>? authorisedBy) => discount is null
+        ? null
+        : new GivenDiscount(
+            discount.Form == DiscountForms.Amount ? DiscountForm.Amount : DiscountForm.Percent,
+            discount.Form is DiscountForms.Amount or DiscountForms.Percent && WireText.TryHundredths(discount.Value, out var hundredths) ? hundredths : 0,
+            discount.ReasonCode,
+            authorisedBy?.Invoke(discount.Authorisation) ?? string.Empty);
 
     /// <summary>
     /// A typed weight as thousandths. Text that is not a weight becomes zero, which the lookup
