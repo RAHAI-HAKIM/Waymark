@@ -62,6 +62,9 @@ public static class Capabilities
 {
     /// <summary>A discount given at the counter (B4).</summary>
     public const string ApplyDiscount = "apply_discount";
+
+    /// <summary>A unit price typed in place of the price in force (B5).</summary>
+    public const string OverridePrice = "override_price";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>
@@ -69,9 +72,20 @@ public static class Capabilities
 /// <param name="Value">"10" or "12.5" for a percent; "50.00" for an amount. Invariant text, at most two decimals.</param>
 /// <param name="ReasonCode">An active <c>discount</c> reason's code.</param>
 /// <param name="Authorisation">What <c>/api/till/authorise</c> answered.</param>
+/// <param name="Note">What the cashier wrote, for a reason that asks for a note (F-28); null otherwise.</param>
 public sealed record DiscountRequest(
     [property: JsonPropertyName("form")] string Form,
     [property: JsonPropertyName("value")] string Value,
+    [property: JsonPropertyName("reason_code")] string ReasonCode,
+    [property: JsonPropertyName("authorisation")] string Authorisation,
+    [property: JsonPropertyName("note")] string? Note = null);
+
+/// <summary>A unit price typed at the counter in place of the price in force (B5, D-092). The server checks the band again.</summary>
+/// <param name="Price">The new unit price, invariant text: "120.00".</param>
+/// <param name="ReasonCode">An active <c>price_override</c> reason's code.</param>
+/// <param name="Authorisation">What <c>/api/till/authorise</c> answered for <see cref="Capabilities.OverridePrice"/>.</param>
+public sealed record PriceOverrideRequest(
+    [property: JsonPropertyName("price")] string Price,
     [property: JsonPropertyName("reason_code")] string ReasonCode,
     [property: JsonPropertyName("authorisation")] string Authorisation);
 

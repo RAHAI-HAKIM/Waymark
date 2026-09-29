@@ -96,6 +96,7 @@ public static class QuantitySources
 /// negative is not a bug (CLAUDE.md §3.8).
 /// </param>
 /// <param name="IsWeighted">Sold by weight (B3): the till asks for a weight unless a label gave one.</param>
+/// <param name="UnitCost">What a unit of the oldest batch in stock cost, exact text; null with none. For the till's below-cost warning (B5), never shown.</param>
 public sealed record ProductForSale(
     [property: JsonPropertyName("variant_id")] string VariantId,
     [property: JsonPropertyName("product_id")] string ProductId,
@@ -109,7 +110,8 @@ public sealed record ProductForSale(
     [property: JsonPropertyName("currency")] string Currency,
     [property: JsonPropertyName("is_promotional_price")] bool IsPromotionalPrice,
     [property: JsonPropertyName("stock_on_hand")] string StockOnHand,
-    [property: JsonPropertyName("is_weighted")] bool IsWeighted = false);
+    [property: JsonPropertyName("is_weighted")] bool IsWeighted = false,
+    [property: JsonPropertyName("unit_cost")] string? UnitCost = null);
 
 /// <summary>The values of <see cref="ProductForSale.TvaRateSource"/> (D-075).</summary>
 public static class TvaRateSource

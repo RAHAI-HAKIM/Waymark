@@ -27,11 +27,16 @@ public sealed record SaleRequest(
 /// label, whose code carries its own weight or price and is read again by the server (D-090).
 /// </param>
 /// <param name="Discount">A discount given on this line at the counter (B4), or null.</param>
+/// <param name="PriceOverride">
+/// A unit price typed in place of the price in force (B5), or null, and then left out of the JSON: a
+/// sale sends no price unless one was typed at the counter, and the server checks that one again (D-092).
+/// </param>
 public sealed record SaleRequestLine(
     [property: JsonPropertyName("barcode")] string Barcode,
     [property: JsonPropertyName("count")] int Count,
     [property: JsonPropertyName("weight")] string? Weight = null,
-    [property: JsonPropertyName("discount")] DiscountRequest? Discount = null);
+    [property: JsonPropertyName("discount")] DiscountRequest? Discount = null,
+    [property: JsonPropertyName("price_override"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PriceOverrideRequest? PriceOverride = null);
 
 /// <summary>
 /// StoreServer's answer to a sale. Like the lookup (D-066), a refusal is an answer, a 200

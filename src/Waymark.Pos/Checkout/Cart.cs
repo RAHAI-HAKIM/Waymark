@@ -110,6 +110,22 @@ public sealed class Cart
         return true;
     }
 
+    /// <summary>
+    /// A unit price typed in place of the price in force (B5, D-092), or taken off with null. False,
+    /// changing nothing, for a line not in the sale or a weighed one: a weight's price is the server's.
+    /// </summary>
+    public bool SetOverride(string lineId, PriceOverride? priceOverride)
+    {
+        var index = ActiveIndex(lineId);
+        if (index < 0 || _lines[index].IsWeighed)
+        {
+            return false;
+        }
+
+        _lines[index] = _lines[index] with { Override = priceOverride };
+        return true;
+    }
+
     /// <summary>A discount given on the whole ticket, or taken off it with null (B4). Refused on a ticket with no line in the sale.</summary>
     public bool SetTicketDiscount(CounterDiscount? discount)
     {
@@ -165,7 +181,8 @@ public sealed class Cart
         var line = index < 0
             ? new CartLine(
                 NextLineId(), product.VariantId, barcode, product.ProductName, product.VariantName,
-                product.SellingUnitCode, price, units, stock, product.IsPromotionalPrice)
+                product.SellingUnitCode, price, units, stock, product.IsPromotionalPrice,
+                UnitCost: product.UnitCost is { } cost ? WireFigures.Money(cost, product.Currency) : null)
             : _lines[index] with
             {
                 UnitPrice = price,
@@ -201,7 +218,7 @@ public sealed class Cart
     public static bool TakesAnotherScan(CartLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        return !line.IsRemoved && !line.IsWeighed && line.Discount is null;
+        return !line.IsRemoved && !line.IsWeighed && line.Discount is null && line.Override is null;
     }
 
     /// <summary>
@@ -321,6 +338,8 @@ public sealed class Cart
 /// </param>
 /// <param name="Weight">For a weighed line (B3): its weight, where it came from and the server's total. Null for a count.</param>
 /// <param name="Discount">A discount given on this line at the counter (B4), or null.</param>
+/// <param name="Override">A unit price typed in place of the price in force (B5), or null.</param>
+/// <param name="UnitCost">What a unit cost the shop, from the lookup; only for the below-cost warning (B5).</param>
 public sealed record CartLine(
     string LineId,
     string VariantId,
@@ -334,8 +353,13 @@ public sealed record CartLine(
     bool IsPromotionalPrice = false,
     DateTimeOffset? RemovedAt = null,
     LineWeight? Weight = null,
-    CounterDiscount? Discount = null)
+    CounterDiscount? Discount = null,
+    PriceOverride? Override = null,
+    Money? UnitCost = null)
 {
+    /// <summary>What a unit is charged: the price typed at the counter when there is one (B5), else the price in force.</summary>
+    public Money ChargedPrice => Override?.NewPrice ?? UnitPrice;
+
     /// <summary>Sold by weight (B3): one weighing, never merged, never stepped.</summary>
     public bool IsWeighed => Weight is not null;
 
@@ -351,7 +375,7 @@ public sealed record CartLine(
     /// round; for a weighed line, the server's total, which the till never works out itself (D-090).
     /// A discount is shown under it (<see cref="Cart.LineDiscountOf"/>), never folded into it.
     /// </summary>
-    public Money LineTotal => Weight?.LineTotal ?? UnitPrice * Count;
+    public Money LineTotal => Weight?.LineTotal ?? ChargedPrice * Count;
 
     /// <summary>
     /// The cart holds more than the store records on hand (Hakim, 18/09). A
@@ -376,7 +400,9 @@ public sealed record LineWeight(Quantity Quantity, string Source, Money LineTota
 /// <param name="Form">One of <see cref="DiscountForms"/>.</param>
 /// <param name="Hundredths">A percent in basis points (1000 is 10 %), or an amount in centimes.</param>
 /// <param name="Authorisation">What StoreServer answered; it names nobody on the wire.</param>
-public sealed record CounterDiscount(string Form, long Hundredths, string ReasonCode, string ReasonFr, string ReasonAr, string Authorisation)
+/// <param name="Note">What the cashier wrote, for a reason that asks for a note (F-28); null otherwise.</param>
+public sealed record CounterDiscount(
+    string Form, long Hundredths, string ReasonCode, string ReasonFr, string ReasonAr, string Authorisation, string? Note = null)
 {
     public bool IsPercent => Form == DiscountForms.Percent;
 
@@ -386,5 +412,13 @@ public sealed record CounterDiscount(string Form, long Hundredths, string Reason
         : new Discount.Amount(Money.FromMinorUnits(Hundredths, currency));
 
     /// <summary>As the sale sends it: the value as invariant text, never the money it comes to.</summary>
-    public DiscountRequest ToWire() => new(Form, Figures.Amount(Hundredths), ReasonCode, Authorisation);
+    public DiscountRequest ToWire() => new(Form, Figures.Amount(Hundredths), ReasonCode, Authorisation, Note);
+}
+
+/// <summary>A unit price typed at the counter in place of the price in force (B5, D-092), as the till holds it.</summary>
+/// <param name="Authorisation">What StoreServer answered for <c>override_price</c>, rank 3.</param>
+public sealed record PriceOverride(Money NewPrice, string ReasonCode, string ReasonFr, string ReasonAr, string Authorisation)
+{
+    /// <summary>As the sale sends it: the price as invariant text; the server checks the band again.</summary>
+    public PriceOverrideRequest ToWire() => new(Figures.Amount(NewPrice.MinorUnits), ReasonCode, Authorisation);
 }

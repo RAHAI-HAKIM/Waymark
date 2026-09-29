@@ -39,7 +39,14 @@ public enum DiscountForm
 /// The person of rank 2 who allowed it: the seller, or the manager whose PIN the till asked for. The
 /// host resolves it from the session and the authorisation; the till never names anyone (D-083).
 /// </param>
-public sealed record GivenDiscount(DiscountForm Form, long Value, string ReasonCode, string AuthorisedBy);
+/// <param name="Note">What the cashier wrote, for a reason that asks for a note (F-28); null otherwise.</param>
+public sealed record GivenDiscount(DiscountForm Form, long Value, string ReasonCode, string AuthorisedBy, string? Note = null);
+
+/// <summary>A unit price typed at the counter in place of the price in force (B5, D-092).</summary>
+/// <param name="NewPrice">The new unit price, in minor units of the sale's currency.</param>
+/// <param name="ReasonCode">An active <c>price_override</c> reason (D-079).</param>
+/// <param name="AuthorisedBy">The person of rank 3 who allowed it, resolved by the host from the authorisation.</param>
+public sealed record GivenOverride(long NewPrice, string ReasonCode, string AuthorisedBy);
 
 /// <summary>A scanned code and how many units of it.</summary>
 /// <param name="WeightThousandths">
@@ -47,7 +54,9 @@ public sealed record GivenDiscount(DiscountForm Form, long Value, string ReasonC
 /// null for a count, and for a scale label, which carries its own weight or price.
 /// </param>
 /// <param name="Discount">A discount given on this line at the counter (B4), or null.</param>
-public sealed record SaleLineRequest(string Barcode, int Count, long? WeightThousandths = null, GivenDiscount? Discount = null);
+/// <param name="Override">A unit price typed in place of the price in force (B5), or null.</param>
+public sealed record SaleLineRequest(
+    string Barcode, int Count, long? WeightThousandths = null, GivenDiscount? Discount = null, GivenOverride? Override = null);
 
 /// <summary>What the sale came to.</summary>
 /// <param name="TransactionId">The sale's row.</param>
@@ -138,6 +147,28 @@ public sealed class CompleteSaleHandler(
         for (var index = 0; index < priced.Count; index++)
         {
             var (product, count, weighed) = priced[index];
+
+            // A price overridden at the counter (B5, D-092): the band is checked again here, and the
+            // line is sold at the new price, the price in force kept beside it on the row.
+            var listPrice = (Money?)null;
+            if (command.Lines[index].Override is { } given)
+            {
+                if (weighed is not null)
+                {
+                    throw new SaleRefusedException($"{product.ProductName}: a weighed line's price is not overridden at the counter.");
+                }
+
+                var newPrice = Money.FromMinorUnits(given.NewPrice, currency);
+                var check = PriceOverride.Check(product.PriceTtc, newPrice, null);
+                if (!check.MayCharge)
+                {
+                    throw new SaleRefusedException($"{product.ProductName}: the price cannot be {newPrice} ({check.Verdict}; at most {check.Ceiling}).");
+                }
+
+                listPrice = product.PriceTtc;
+                product = product with { PriceTtc = newPrice };
+            }
+
             // A weighed line takes its weight from the lookup (typed, or read from a label), a
             // counted one its count (D-090).
             var wanted = weighed?.Quantity ?? product.Unit.Whole(count);
@@ -159,7 +190,7 @@ public sealed class CompleteSaleHandler(
 
             var rowGross = shares
                 ?? [.. takes.Select(take => SaleArithmetic.Line(product.PriceTtc, take.Taken, zero, product.TvaRate, policy).Gross)];
-            plans.Add(new LinePlan(product, source, takes, rowGross, command.Lines[index].Discount));
+            plans.Add(new LinePlan(product, source, takes, rowGross, command.Lines[index].Discount, listPrice, command.Lines[index].Override));
 
             // Lowered now, as each line is taken, so a second line of the same product reads the
             // levels the first left.
@@ -181,7 +212,7 @@ public sealed class CompleteSaleHandler(
 
         for (var index = 0; index < plans.Count; index++)
         {
-            var (product, source, takes, rowGross, given) = plans[index];
+            var (product, source, takes, rowGross, given, listPrice, overridden) = plans[index];
             // A line with nothing off takes nothing from any row, and never asks the rules.
             var off = lineOff[index] + ticketOff[index];
             IReadOnlyList<Money> parts = off.IsZero ? [.. rowGross.Select(_ => zero)] : Discounts.Spread(off, rowGross);
@@ -210,6 +241,10 @@ public sealed class CompleteSaleHandler(
                     DiscountAmount = part,
                     DiscountReasonCode = part.IsZero ? null : why?.ReasonCode,
                     AuthorisedBy = part.IsZero ? null : why?.AuthorisedBy,
+                    DiscountNote = part.IsZero ? null : why?.Note,
+                    ListPrice = listPrice,
+                    OverrideReasonCode = overridden?.ReasonCode,
+                    OverrideAuthorisedBy = overridden?.AuthorisedBy,
                     TaxAmount = amounts.Split.Tax,
                     LineTotal = amounts.LineTotal,
                     CreatedAt = now,
@@ -251,6 +286,9 @@ public sealed class CompleteSaleHandler(
             RoundingPolicy = policy,
             Subtotal = net,
             DiscountTotal = discounted,
+            DiscountReasonCode = command.TicketDiscount?.ReasonCode,
+            DiscountAuthorisedBy = command.TicketDiscount?.AuthorisedBy,
+            DiscountNote = command.TicketDiscount?.Note,
             TaxTotal = tax,
             TotalAmount = total,
             Currency = currency.Code,
@@ -339,7 +377,9 @@ public sealed class CompleteSaleHandler(
         QuantitySource Source,
         IReadOnlyList<(BatchLevel Batch, Quantity Taken)> Takes,
         IReadOnlyList<Money> RowGross,
-        GivenDiscount? Given);
+        GivenDiscount? Given,
+        Money? ListPrice,
+        GivenOverride? Override);
 
     private static Money Sum(IReadOnlyList<Money> amounts, Money zero) => amounts.Aggregate(zero, (sum, amount) => sum + amount);
 
@@ -370,15 +410,29 @@ public sealed class CompleteSaleHandler(
     private async Task CheckReasonsAsync(CompleteSale command, CancellationToken cancellationToken)
     {
         var given = command.Lines.Select(line => line.Discount).Append(command.TicketDiscount).OfType<GivenDiscount>().ToList();
-        if (given.Count == 0)
+        if (given.Count > 0)
         {
-            return;
+            var accepted = (await reasons.ForAsync(ReasonCodeAppliesTo.Discount, cancellationToken)).ToDictionary(reason => reason.Code, StringComparer.Ordinal);
+            if (given.FirstOrDefault(discount => !accepted.ContainsKey(discount.ReasonCode) || string.IsNullOrWhiteSpace(discount.AuthorisedBy)) is { } wrong)
+            {
+                throw new SaleRefusedException($"'{wrong.ReasonCode}' is not a discount reason this shop accepts, or nobody allowed it.");
+            }
+
+            // A reason that asks for a note is not recorded without one (F-28, D-092).
+            if (given.FirstOrDefault(discount => accepted[discount.ReasonCode].RequiresNote && string.IsNullOrWhiteSpace(discount.Note)) is { } bare)
+            {
+                throw new SaleRefusedException($"'{bare.ReasonCode}' asks for a note, and none was written.");
+            }
         }
 
-        var accepted = (await reasons.ForAsync(ReasonCodeAppliesTo.Discount, cancellationToken)).Select(reason => reason.Code).ToHashSet(StringComparer.Ordinal);
-        if (given.FirstOrDefault(discount => !accepted.Contains(discount.ReasonCode) || string.IsNullOrWhiteSpace(discount.AuthorisedBy)) is { } wrong)
+        var overrides = command.Lines.Select(line => line.Override).OfType<GivenOverride>().ToList();
+        if (overrides.Count > 0)
         {
-            throw new SaleRefusedException($"'{wrong.ReasonCode}' is not a discount reason this shop accepts, or nobody allowed it.");
+            var accepted = (await reasons.ForAsync(ReasonCodeAppliesTo.PriceOverride, cancellationToken)).Select(reason => reason.Code).ToHashSet(StringComparer.Ordinal);
+            if (overrides.FirstOrDefault(given => !accepted.Contains(given.ReasonCode) || string.IsNullOrWhiteSpace(given.AuthorisedBy)) is { } wrong)
+            {
+                throw new SaleRefusedException($"'{wrong.ReasonCode}' is not a price override reason this shop accepts, or nobody allowed it.");
+            }
         }
     }
 

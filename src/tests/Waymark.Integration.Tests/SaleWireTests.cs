@@ -148,4 +148,26 @@ public sealed class SaleWireTests
 
         Assert.Equal(0, SaleWire.ToCommand(request, "nabil", _ => "samia").Lines[0].Discount!.Value);
     }
+
+    [Fact]
+    public void An_override_reaches_the_command_in_centimes_with_whoever_the_server_says_allowed_it()
+    {
+        var request = new SaleRequest("till", [
+            new SaleRequestLine("6130000000017", 1, PriceOverride: new PriceOverrideRequest("120.00", "etiquette_rayon", "auth-o"))]);
+
+        var command = SaleWire.ToCommand(request, "nabil", _ => null, cited => cited == "auth-o" ? "owner" : null);
+
+        Assert.Equal(new GivenOverride(12_000, "etiquette_rayon", "owner"), command.Lines[0].Override);
+    }
+
+    [Fact]
+    public void A_discount_authorisation_does_not_allow_an_override()
+    {
+        var request = new SaleRequest("till", [
+            new SaleRequestLine("6130000000017", 1, PriceOverride: new PriceOverrideRequest("120.00", "etiquette_rayon", "auth-d"))]);
+
+        var command = SaleWire.ToCommand(request, "nabil", cited => cited == "auth-d" ? "manager" : null, _ => null);
+
+        Assert.Equal(string.Empty, command.Lines[0].Override!.AuthorisedBy);
+    }
 }

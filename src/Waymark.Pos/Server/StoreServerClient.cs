@@ -185,6 +185,13 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         return list?.ReasonCodes is null ? null : list;
     }
 
+    /// <summary>The shop's active price override reasons (B5). Null when the server could not say.</summary>
+    public async Task<ReasonCodeList?> OverrideReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=price_override", cancellationToken);
+        return list?.ReasonCodes is null ? null : list;
+    }
+
     /// <summary>
     /// Whether a discount may be given (B4, D-091): the seller alone, or a manager's PIN. Null when
     /// the server could not say: the till then says it is offline, never that the PIN was wrong.
@@ -422,6 +429,9 @@ public interface ITillServer
 
     /// <summary>The shop's active reasons for a discount (B4, D-079). Null when the server could not say.</summary>
     Task<ReasonCodeList?> DiscountReasonsAsync(CancellationToken cancellationToken = default) => Task.FromResult<ReasonCodeList?>(null);
+
+    /// <summary>The shop's active reasons for a price override (B5, D-079). Null when the server could not say.</summary>
+    Task<ReasonCodeList?> OverrideReasonsAsync(CancellationToken cancellationToken = default) => Task.FromResult<ReasonCodeList?>(null);
 
     /// <summary>May the seller give a discount, or the manager whose PIN is typed (B4)? Null when the server could not say.</summary>
     Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default) =>

@@ -412,7 +412,13 @@ app.MapPost("/api/till/authorise", async (
     AuthoriseRequest request, HttpRequest http, TillSessions sessions, IStaffCredentials credentials,
     IRecommendationBoard staff, CancellationToken cancellationToken) =>
 {
-    if (request.Capability != Capabilities.ApplyDiscount)
+    Capability? asked = request.Capability switch
+    {
+        Capabilities.ApplyDiscount => Capability.ApplyDiscount,
+        Capabilities.OverridePrice => Capability.OverridePrice,
+        _ => null,
+    };
+    if (asked is not { } capability)
     {
         return Results.Ok(new AuthoriseAnswer(AuthoriseOutcomes.UnknownCapability, null, null, null, null));
     }
@@ -420,7 +426,7 @@ app.MapPost("/api/till/authorise", async (
     var answer = await sessions.AuthoriseAsync(
         http.Headers[TillSessionHeader.Name].ToString(),
         request,
-        Capability.ApplyDiscount,
+        capability,
         credentials,
         async id => (await staff.StaffAsync(id, cancellationToken))?.Rank,
         cancellationToken);
@@ -479,7 +485,11 @@ app.MapPost("/api/sales", async (
     try
     {
         // A discount cites an authorisation given in this session (B4); who gave it is the server's.
-        var command = SaleWire.ToCommand(request, seller, cited => sessions.AuthorisedBy(token, cited, Capability.ApplyDiscount));
+        var command = SaleWire.ToCommand(
+            request,
+            seller,
+            cited => sessions.AuthorisedBy(token, cited, Capability.ApplyDiscount),
+            cited => sessions.AuthorisedBy(token, cited, Capability.OverridePrice));
         var sale = await executor.ExecuteAsync(handler, command, cancellationToken);
         return Results.Ok(SaleWire.Completed(sale));
     }

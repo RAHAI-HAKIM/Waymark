@@ -138,6 +138,10 @@ public enum NotSellableReason
 /// till, never a refusal (CLAUDE.md §3.8).
 /// </param>
 /// <param name="IsWeighted">Sold by weight (B3): the till asks for a weight unless a label gave one.</param>
+/// <param name="UnitCost">
+/// What a unit of the oldest batch in stock cost the shop, or null with none: the till warns when a
+/// price is overridden below it (B5, D-092). Never shown as a figure.
+/// </param>
 public sealed record ProductForSale(
     string VariantId,
     string ProductId,
@@ -149,7 +153,8 @@ public sealed record ProductForSale(
     Money PriceTtc,
     bool IsPromotionalPrice,
     Quantity StockOnHand,
-    bool IsWeighted = false);
+    bool IsWeighted = false,
+    Money? UnitCost = null);
 
 /// <summary>A weighed product's quantity, where it came from, and what the line comes to (B3, D-090).</summary>
 /// <param name="Quantity">In the selling unit, on a step the unit allows.</param>

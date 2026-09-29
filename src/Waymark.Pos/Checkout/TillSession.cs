@@ -142,6 +142,22 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     }
 
     /// <summary>
+    /// A unit price typed in place of the price in force (B5, D-092), or taken off with null. The
+    /// window has the authorisation already. False, changing nothing, when it cannot be given now.
+    /// </summary>
+    public bool OverridePrice(string lineId, PriceOverride? priceOverride)
+    {
+        if (!MayDiscount || !Cart.SetOverride(lineId, priceOverride))
+        {
+            return false;
+        }
+
+        Notice = null;
+        Raise();
+        return true;
+    }
+
+    /// <summary>
     /// A discount given at the counter (B4, D-091), on a line, or on the ticket when
     /// <paramref name="lineId"/> is null; null takes it off. The window has the authorisation already:
     /// the server gave it. False, changing nothing, when no discount can be given now.
@@ -707,7 +723,8 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
                 line.Barcode,
                 line.Count,
                 line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null,
-                line.Discount?.ToWire()))],
+                line.Discount?.ToWire(),
+                line.Override?.ToWire()))],
             // What was given, never what it comes to: the server works the money out (D-091).
             Cart.TicketDiscount?.ToWire());
 

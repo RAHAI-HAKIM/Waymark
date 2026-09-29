@@ -246,7 +246,8 @@ public sealed class TillWindow : Window, IDisposable
                     _pin = string.Empty;
                     Render();
                 },
-                Validate: () => _ = ValidatePinAsync()));
+                Validate: () => _ = ValidatePinAsync(),
+                Price: OpenPrice));
 
         _signInActions = new SignInActions(
             Select: _signIn.Select,
@@ -1003,9 +1004,11 @@ public sealed class TillWindow : Window, IDisposable
         _weighTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         if (_discount is { Authorising: false } open)
         {
-            // The discount's value (B4): the panel shows what it takes off as it is typed.
+            // The discount's value (B4), or its note (F-28): the panel answers as it is typed.
             _search = null;
-            _discount = open with { Typed = _input.Text ?? string.Empty, Problem = null };
+            _discount = open.Noting
+                ? open with { Note = _input.Text ?? string.Empty, Problem = null }
+                : open with { Typed = _input.Text ?? string.Empty, Problem = null };
             Render();
             return;
         }
@@ -1096,9 +1099,33 @@ public sealed class TillWindow : Window, IDisposable
         _ = LoadReasonsAsync();
     }
 
+    /// <summary>
+    /// "Prix" under a line (B5, D-092): the panel opens in the rail with the shop's override reasons,
+    /// and the new unit price is typed in the field. Never on a weighed line.
+    /// </summary>
+    private void OpenPrice(string lineId)
+    {
+        if (!_session.MayDiscount || _session.Cart.ActiveLines.FirstOrDefault(line => line.LineId == lineId) is not { IsWeighed: false } line)
+        {
+            return;
+        }
+
+        _draftsOpen = false;
+        _tickets = null;
+        _search = null;
+        _pin = string.Empty;
+        _discount = new DiscountState(lineId, DiscountForms.Amount, string.Empty, null, false, line.Override?.ReasonCode, Kind: CounterKind.PriceOverride);
+        _input.Text = string.Empty;
+        Render();
+        _input.Focus();
+        _ = LoadReasonsAsync();
+    }
+
     private async Task LoadReasonsAsync()
     {
-        var reasons = await _server.DiscountReasonsAsync();
+        var reasons = _discount?.Kind == CounterKind.PriceOverride
+            ? await _server.OverrideReasonsAsync()
+            : await _server.DiscountReasonsAsync();
         if (_discount is { } open)
         {
             _discount = open with { Reasons = reasons, Offline = reasons is null };
@@ -1131,7 +1158,15 @@ public sealed class TillWindow : Window, IDisposable
     {
         if (_discount is { } open)
         {
-            _session.Discount(open.LineId, null);
+            if (open.Kind == CounterKind.PriceOverride && open.LineId is { } lineId)
+            {
+                _session.OverridePrice(lineId, null);
+            }
+            else
+            {
+                _session.Discount(open.LineId, null);
+            }
+
             CloseDiscount();
         }
     }
@@ -1147,9 +1182,17 @@ public sealed class TillWindow : Window, IDisposable
             return;
         }
 
-        if (!DiscountEntry.TryParse(open.Typed, open.Form, out _))
+        var overriding = open.Kind == CounterKind.PriceOverride;
+        if (!DiscountEntry.TryParse(open.Typed, overriding ? DiscountForms.Amount : open.Form, out var typed))
         {
             _discount = open with { Problem = DiscountProblem.ValueInvalid };
+            Render();
+            return;
+        }
+
+        if (overriding && BandProblem(open, typed) is { } outside)
+        {
+            _discount = open with { Problem = outside };
             Render();
             return;
         }
@@ -1161,7 +1204,28 @@ public sealed class TillWindow : Window, IDisposable
             return;
         }
 
-        var answer = await _server.AuthoriseAsync(new AuthoriseRequest(Capabilities.ApplyDiscount, null, null), person.Token);
+        // A reason that asks for a note is not given without one (F-28): the field takes the note.
+        var reason = open.Reasons?.ReasonCodes.FirstOrDefault(r => r.Code == open.ReasonCode);
+        if (!overriding && reason is { RequiresNote: true })
+        {
+            if (!open.Noting)
+            {
+                _discount = open with { Noting = true, Problem = null };
+                _input.Text = string.Empty;
+                Render();
+                _input.Focus();
+                return;
+            }
+
+            if (open.Note.Trim().Length == 0)
+            {
+                _discount = open with { Problem = DiscountProblem.NoteMissing };
+                Render();
+                return;
+            }
+        }
+
+        var answer = await _server.AuthoriseAsync(new AuthoriseRequest(CapabilityOf(open), null, null), person.Token);
         if (_discount is null)
         {
             return;
@@ -1207,7 +1271,7 @@ public sealed class TillWindow : Window, IDisposable
 
         var pin = _pin;
         _pin = string.Empty;
-        var answer = await _server.AuthoriseAsync(new AuthoriseRequest(Capabilities.ApplyDiscount, manager, pin), person.Token);
+        var answer = await _server.AuthoriseAsync(new AuthoriseRequest(CapabilityOf(_discount), manager, pin), person.Token);
         if (_discount is null)
         {
             return;
@@ -1236,14 +1300,57 @@ public sealed class TillWindow : Window, IDisposable
     private void Give(string authorisation)
     {
         if (_discount is not { } open
-            || !DiscountEntry.TryParse(open.Typed, open.Form, out var hundredths)
+            || !DiscountEntry.TryParse(open.Typed, open.Kind == CounterKind.PriceOverride ? DiscountForms.Amount : open.Form, out var hundredths)
             || open.Reasons?.ReasonCodes.FirstOrDefault(reason => reason.Code == open.ReasonCode) is not { } reason)
         {
             return;
         }
 
-        _session.Discount(open.LineId, new CounterDiscount(open.Form, hundredths, reason.Code, reason.LabelFr, reason.LabelAr, authorisation));
+        if (open.Kind == CounterKind.PriceOverride && open.LineId is { } lineId
+            && _session.Cart.ActiveLines.FirstOrDefault(line => line.LineId == lineId) is { } line)
+        {
+            _session.OverridePrice(lineId, new PriceOverride(
+                Domain.Values.Money.FromMinorUnits(hundredths, line.UnitPrice.Currency), reason.Code, reason.LabelFr, reason.LabelAr, authorisation));
+        }
+        else
+        {
+            var note = open.Note.Trim();
+            _session.Discount(open.LineId, new CounterDiscount(
+                open.Form, hundredths, reason.Code, reason.LabelFr, reason.LabelAr, authorisation, note.Length == 0 ? null : note));
+        }
+
         CloseDiscount();
+    }
+
+    /// <summary>What the counter panel asks the server to authorise: a discount, rank 2, or a price, rank 3.</summary>
+    private static string CapabilityOf(DiscountState? open) =>
+        open?.Kind == CounterKind.PriceOverride ? Capabilities.OverridePrice : Capabilities.ApplyDiscount;
+
+    /// <summary>
+    /// The band (D-092), asked before the server is: the same rule it checks again. None while the
+    /// rule is not written: the server's check still stands.
+    /// </summary>
+    private DiscountProblem? BandProblem(DiscountState open, long centimes)
+    {
+        if (_session.Cart.ActiveLines.FirstOrDefault(line => line.LineId == open.LineId) is not { } line)
+        {
+            return DiscountProblem.ValueInvalid;
+        }
+
+        try
+        {
+            return Domain.Sales.PriceOverride.Check(line.UnitPrice, Domain.Values.Money.FromMinorUnits(centimes, line.UnitPrice.Currency), line.UnitCost).Verdict switch
+            {
+                Domain.Sales.OverrideVerdict.AboveBand => DiscountProblem.AboveBand,
+                Domain.Sales.OverrideVerdict.NotAboveZero => DiscountProblem.NotAboveZero,
+                Domain.Sales.OverrideVerdict.Unchanged => DiscountProblem.Unchanged,
+                _ => null,
+            };
+        }
+        catch (NotImplementedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>"Poids" under a line weighed by hand (B3): the weight is typed again in the field, which takes the focus back.</summary>

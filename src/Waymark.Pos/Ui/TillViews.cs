@@ -44,7 +44,8 @@ public sealed record DiscountActions(
     Action<char> Digit,
     Action Backspace,
     Action Clear,
-    Action Validate);
+    Action Validate,
+    Action<string>? Price = null);
 
 /// <summary>
 /// The G1 regions, each drawn from its part of <see cref="TillScreen"/> and nothing else (kit §5).
@@ -389,6 +390,19 @@ public static partial class TillViews
                 KeyLook.Secondary,
                 TillKey.Labelled(Locked(LucideIcons.Percent, discount, theme), lineActions.DiscountKey, theme.TextMuted),
                 () => discounts.Open(id),
+                height: TillSizes.LineKey)
+            { Margin = new Thickness(8, 0, 0, 0) }, Dock.Left));
+        }
+
+        // "Prix" (B5): locked as the board draws it; never under a weighed line.
+        if (lineActions.Price is { } price && actions.Discounts?.Price is { } openPrice)
+        {
+            var id = lineActions.LineId;
+            bar.Children.Add(Docked(new TillKey(
+                theme,
+                KeyLook.Secondary,
+                Locked(LucideIcons.Tag, price, theme),
+                () => openPrice(id),
                 height: TillSizes.LineKey)
             { Margin = new Thickness(8, 0, 0, 0) }, Dock.Left));
         }
@@ -799,19 +813,22 @@ public static partial class TillViews
     /// </summary>
     private static Border AuthorisePanel(Rail.Authorise panel, TillTheme theme, TillActions actions)
     {
+        // Compact, and never in a scroll viewer (Hakim, 29/09): each digit redraws the rail, and a
+        // scroll viewer rebuilt on every redraw jumped back to the top after every key pressed. The
+        // panel fits the rail at the till's smallest window instead.
         var discounts = actions.Discounts;
-        var body = new StackPanel { Spacing = 8 };
+        var body = new StackPanel { Spacing = 6 };
         body.Children.Add(theme.Label(panel.Label, theme.TextSecondary));
-        body.Children.Add(Wrapped(Words(panel.Title, 18, FontWeight.SemiBold, theme.Text, theme)));
+        body.Children.Add(Wrapped(Words(panel.Title, 16, FontWeight.SemiBold, theme.Text, theme)));
         body.Children.Add(new Border
         {
             Background = theme.Tile,
             CornerRadius = new CornerRadius(TillSizes.KeyRadius),
-            Padding = new Thickness(12, 8),
+            Padding = new Thickness(10, 6),
             Child = Wrapped(theme.BodySmall(panel.Summary, theme.TextSecondary)),
         });
 
-        body.Children.Add(new Border { Margin = new Thickness(0, 4, 0, 0), Child = theme.Label(panel.WhoTitle, theme.TextSecondary) });
+        body.Children.Add(theme.Label(panel.WhoTitle, theme.TextSecondary));
         var who = new WrapPanel();
         foreach (var person in panel.Approvers)
         {
@@ -821,21 +838,22 @@ public static partial class TillViews
                 person.Selected ? KeyLook.Primary : KeyLook.Secondary,
                 Words(person.Name, 14, FontWeight.SemiBold, person.Selected ? theme.ActionLabel : person.Available ? theme.Text : theme.DisabledLabel, theme),
                 () => discounts?.Approver(id),
-                person.Available)
-            { Margin = new Thickness(0, 0, 6, 6), Tag = person });
+                person.Available,
+                CompactKey)
+            { Margin = new Thickness(0, 0, 6, 4), Tag = person });
         }
 
         body.Children.Add(who);
         body.Children.Add(theme.Label(panel.PinTitle, theme.TextSecondary));
 
         // The dots: one filled per digit typed, never the digit (as at sign-in).
-        var dots = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center, FlowDirection = FlowDirection.LeftToRight };
+        var dots = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, FlowDirection = FlowDirection.LeftToRight };
         for (var i = 0; i < Math.Max(4, panel.PinLength); i++)
         {
             dots.Children.Add(new Ellipse
             {
-                Width = 14,
-                Height = 14,
+                Width = 12,
+                Height = 12,
                 Fill = i < panel.PinLength ? theme.Text : null,
                 Stroke = i < panel.PinLength ? null : theme.TextSecondary,
                 StrokeThickness = 2,
@@ -844,7 +862,7 @@ public static partial class TillViews
 
         body.Children.Add(new Border
         {
-            Height = 52,
+            Height = CompactKey,
             Background = theme.Card,
             BorderBrush = theme.FocusRing,
             BorderThickness = new Thickness(2),
@@ -856,12 +874,12 @@ public static partial class TillViews
         var pad = new UniformGrid { Columns = 3, FlowDirection = FlowDirection.LeftToRight };
         foreach (var digit in "123456789")
         {
-            pad.Children.Add(PadKey(TillTheme.Figure(digit.ToString(), 20, theme.Text), () => discounts?.Digit(digit), true, theme));
+            pad.Children.Add(CompactPadKey(TillTheme.Figure(digit.ToString(), 18, theme.Text), () => discounts?.Digit(digit), theme));
         }
 
-        pad.Children.Add(PadKey(TillTheme.Icon(LucideIcons.RotateCw, theme.Text, 18), () => discounts?.Clear(), true, theme));
-        pad.Children.Add(PadKey(TillTheme.Figure("0", 20, theme.Text), () => discounts?.Digit('0'), true, theme));
-        pad.Children.Add(PadKey(TillTheme.Icon(LucideIcons.Delete, theme.Text, 22), () => discounts?.Backspace(), true, theme));
+        pad.Children.Add(CompactPadKey(TillTheme.Icon(LucideIcons.RotateCw, theme.Text, 16), () => discounts?.Clear(), theme));
+        pad.Children.Add(CompactPadKey(TillTheme.Figure("0", 18, theme.Text), () => discounts?.Digit('0'), theme));
+        pad.Children.Add(CompactPadKey(TillTheme.Icon(LucideIcons.Delete, theme.Text, 20), () => discounts?.Backspace(), theme));
         body.Children.Add(pad);
 
         if (panel.Message is { } message)
@@ -870,21 +888,37 @@ public static partial class TillViews
             body.Children.Add(Wrapped(theme.BodySmall(message, refusedInk)));
         }
 
-        var keys = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
-        keys.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(panel.Back, theme.TextSecondary), () => discounts?.Close()), Dock.Left));
+        var keys = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+        keys.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(panel.Back, theme.TextSecondary), () => discounts?.Close(), height: CompactKey), Dock.Left));
         keys.Children.Add(new TillKey(
             theme,
             KeyLook.Primary,
-            Centred(Words(panel.Validate, 16, FontWeight.SemiBold, panel.MayValidate ? theme.ActionLabel : theme.DisabledLabel, theme)),
+            Centred(Words(panel.Validate, 15, FontWeight.SemiBold, panel.MayValidate ? theme.ActionLabel : theme.DisabledLabel, theme)),
             () => discounts?.Validate(),
-            panel.MayValidate)
+            panel.MayValidate,
+            CompactKey)
         { Margin = new Thickness(8, 0, 0, 0) });
         body.Children.Add(keys);
 
-        var card = Card(theme, null, new ScrollViewer { Content = body });
-        card.VerticalAlignment = VerticalAlignment.Stretch;
+        var card = Card(theme, null, body);
+        card.Padding = new Thickness(12);
+        card.VerticalAlignment = VerticalAlignment.Top;
         card.Tag = panel;
         return card;
+    }
+
+    /// <summary>The manager step's keys: smaller than the sign-in pad's, so the step fits the rail without scrolling.</summary>
+    private const double CompactKey = 44;
+
+    private static TillKey CompactPadKey(Control face, Action pressed, TillTheme theme)
+    {
+        if (face is Layoutable layoutable)
+        {
+            layoutable.HorizontalAlignment = HorizontalAlignment.Center;
+            layoutable.VerticalAlignment = VerticalAlignment.Center;
+        }
+
+        return new TillKey(theme, KeyLook.Pad, face, pressed, true, CompactKey) { Margin = new Thickness(2) };
     }
 
     // ============================================================ B1: search, tickets, a past ticket

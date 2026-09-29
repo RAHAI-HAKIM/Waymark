@@ -71,6 +71,9 @@ public sealed record ScreenState(
 /// <param name="Form">One of <c>DiscountForms</c>.</param>
 /// <param name="Staff">Who may be asked to authorise: the sign-in list.</param>
 /// <param name="PinLength">How many digits of the manager's PIN are typed: the dots, never the digits.</param>
+/// <param name="Kind">A discount (B4), or a price typed in place of the price in force (B5).</param>
+/// <param name="Note">What was typed for a reason that asks for a note (F-28).</param>
+/// <param name="Noting">The field now holds the note, not the value.</param>
 public sealed record DiscountState(
     string? LineId,
     string Form,
@@ -84,7 +87,17 @@ public sealed record DiscountState(
     int PinLength = 0,
     DiscountProblem? Problem = null,
     int? AttemptsLeft = null,
-    DateTimeOffset? LockedUntil = null);
+    DateTimeOffset? LockedUntil = null,
+    CounterKind Kind = CounterKind.Discount,
+    string Note = "",
+    bool Noting = false);
+
+/// <summary>What the counter panel gives: a discount (B4), or a new unit price (B5).</summary>
+public enum CounterKind
+{
+    Discount,
+    PriceOverride,
+}
 
 /// <summary>What the discount panel has to say is wrong.</summary>
 public enum DiscountProblem
@@ -96,6 +109,18 @@ public enum DiscountProblem
     Locked,
     NotAllowed,
     NoPin,
+
+    /// <summary>A price above the band (B5).</summary>
+    AboveBand,
+
+    /// <summary>A price of zero or less (B5).</summary>
+    NotAboveZero,
+
+    /// <summary>The price in force itself (B5).</summary>
+    Unchanged,
+
+    /// <summary>A reason that asks for a note, and none written (F-28).</summary>
+    NoteMissing,
 }
 
 /// <summary>A name search: what was typed, the server's answer (null while asked, or when it could not say), which row Entrée takes.</summary>
@@ -162,7 +187,11 @@ public sealed record TillScreen(
             state.Weighing is { } weighing
                 ? new FieldChip(text.WeightChip(weighing.UnitCode), Active: true)
                 : state.Discounting is { } discounting
-                    ? new FieldChip(text.DiscountChip(discounting.Form == DiscountForms.Percent ? "%" : text.CurrencySymbol(CurrencyOf(state) ?? Currency.Dzd)), Active: true)
+                    ? new FieldChip(
+                        discounting.Noting ? text.NoteChip
+                        : discounting.Kind == CounterKind.PriceOverride ? $"{text.PriceKey.ToUpperInvariant()} · {text.CurrencySymbol(CurrencyOf(state) ?? Currency.Dzd)}"
+                        : text.DiscountChip(discounting.Form == DiscountForms.Percent ? "%" : text.CurrencySymbol(CurrencyOf(state) ?? Currency.Dzd)),
+                        Active: true)
                     : new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
             state.Weighing is null && state.Discounting is null ? ResultsOf(state) : null,
             WeighOf(state));
@@ -398,7 +427,7 @@ public sealed record TillScreen(
                 Article(line),
                 ChipsOf(line, text, state),
                 // A weighed line's price is per unit of weight, and says so: "180,00 /kg" (G1 board).
-                line.IsWeighed ? $"{DisplayFigures.Amount(line.UnitPrice)} /{line.UnitCode}" : DisplayFigures.Amount(line.UnitPrice),
+                line.IsWeighed ? $"{DisplayFigures.Amount(line.UnitPrice)} /{line.UnitCode}" : DisplayFigures.Amount(line.ChargedPrice),
                 DisplayFigures.Amount(line.LineTotal),
                 line.IsRemoved,
                 selected,
@@ -514,7 +543,7 @@ public sealed record TillScreen(
 
         return new LineActions(
             line.LineId, line.Count, DisplayFigures.Count(line.Count), line.Count > 1, state.Text.RemoveLine, RemoveLineKey,
-            Discount: state.Text.DiscountKey, DiscountKey: DiscountLineKey);
+            Discount: state.Text.DiscountKey, DiscountKey: DiscountLineKey, Price: state.Text.PriceKey);
     }
 
     /// <summary>
@@ -537,6 +566,12 @@ public sealed record TillScreen(
         if (line.IsPromotionalPrice)
         {
             chips.Add(new Chip(Tone.Neutral, text.PromotionalPrice));
+        }
+
+        // A price typed at the counter, said on the line (B5): whoever reviews the drawer sees it.
+        if (line.Override is not null)
+        {
+            chips.Add(new Chip(Tone.Neutral, text.PriceOverrideLabel));
         }
 
         // Where a weight came from, said on the line (D-090): a typed weight is the one nothing
@@ -592,7 +627,9 @@ public sealed record TillScreen(
 
         if (state.Discounting is { } discounting)
         {
-            return discounting.Authorising ? AuthoriseOf(state, discounting) : DiscountPanelOf(state, discounting);
+            return discounting.Authorising ? AuthoriseOf(state, discounting)
+                : discounting.Kind == CounterKind.PriceOverride ? OverridePanelOf(state, discounting)
+                : DiscountPanelOf(state, discounting);
         }
 
         if (state.DraftsOpen)
@@ -657,6 +694,13 @@ public sealed record TillScreen(
         }
 
         var reasons = discounting.Reasons?.ReasonCodes ?? [];
+        var chosen = reasons.FirstOrDefault(reason => reason.Code == discounting.ReasonCode);
+        if (discounting.Noting && chosen is not null)
+        {
+            // The note step (F-28): the field holds the note; the panel says what it is for.
+            return NotePanelOf(state, discounting, line, gross, text.RightToLeft ? chosen.LabelAr : chosen.LabelFr);
+        }
+
         var message = discounting.Offline ? text.DiscountOffline
             : discounting.Reasons is not null && reasons.Count == 0 ? text.NoDiscountReasons
             : discounting.Problem == DiscountProblem.ValueInvalid || (discounting.Typed.Trim().Length > 0 && !valid) ? text.DiscountInvalid(percent)
@@ -687,15 +731,106 @@ public sealed record TillScreen(
     }
 
     /// <summary>
+    /// The note step (F-28, D-092): a reason that asks for a note is not given without one. The
+    /// panel keeps its place; the note typed shows where the preview was.
+    /// </summary>
+    private static Rail.Discount NotePanelOf(ScreenState state, DiscountState discounting, CartLine? line, Money gross, string reason)
+    {
+        var text = state.Text;
+        var typed = discounting.Note.Trim();
+        return new Rail.Discount(
+            line is null ? text.TicketDiscountLabel : text.DiscountLabel,
+            line is null ? text.CurrentTicket : Article(line),
+            DisplayFigures.AmountWithCurrency(gross, text),
+            [],
+            typed.Length == 0 ? null : $"« {typed} »",
+            text.ReasonTitle,
+            [new ReasonRow(discounting.ReasonCode ?? string.Empty, reason, true)],
+            text.NotePrompt(reason),
+            discounting.Problem == DiscountProblem.NoteMissing,
+            typed.Length > 0,
+            text.ContinueKey,
+            text.BackToTicket,
+            null);
+    }
+
+    /// <summary>
+    /// The price panel (B5, D-092), the discount panel's shape without % and DA: the price in force,
+    /// the price typed in the field, what the line then comes to, the band (<see cref="Domain.Sales.PriceOverride"/>,
+    /// the same rule the server checks), a warning below cost, the reasons, then Continuer.
+    /// </summary>
+    private static Rail.Discount OverridePanelOf(ScreenState state, DiscountState discounting)
+    {
+        var text = state.Text;
+        var currency = CurrencyOf(state) ?? Currency.Dzd;
+        var line = discounting.LineId is { } id ? state.Cart.ActiveLines.FirstOrDefault(l => l.LineId == id) : null;
+        if (line is null)
+        {
+            return new Rail.Discount(text.PriceOverrideLabel, string.Empty, string.Empty, [], null, text.ReasonTitle, [], null, false, false,
+                text.ContinueKey, text.BackToTicket, null);
+        }
+
+        var valid = DiscountEntry.TryParse(discounting.Typed, DiscountForms.Amount, out var centimes);
+        var newPrice = Domain.Values.Money.FromMinorUnits(centimes, currency);
+        var check = valid ? OffCheck(() => Domain.Sales.PriceOverride.Check(line.UnitPrice, newPrice, line.UnitCost)) : null;
+        var reasons = discounting.Reasons?.ReasonCodes ?? [];
+
+        var (message, refused) = discounting.Offline ? (text.DiscountOffline, true)
+            : discounting.Reasons is not null && reasons.Count == 0 ? (text.NoOverrideReasons, true)
+            : discounting.Typed.Trim().Length == 0 ? (text.PricePrompt, false)
+            : !valid ? (text.PriceInvalid, true)
+            : check?.Verdict switch
+            {
+                Domain.Sales.OverrideVerdict.AboveBand => (text.PriceAboveBand(DisplayFigures.AmountWithCurrency(check.Ceiling, text)), true),
+                Domain.Sales.OverrideVerdict.NotAboveZero => (text.PriceNotAboveZero, true),
+                Domain.Sales.OverrideVerdict.Unchanged => (text.PriceUnchanged, true),
+                Domain.Sales.OverrideVerdict.AcceptedBelowCost => (text.PriceBelowCost, false),
+                _ => discounting.Problem == DiscountProblem.NoReason ? (text.ChooseReason, true) : ((string?)null, false),
+            };
+
+        return new Rail.Discount(
+            text.PriceOverrideLabel,
+            Article(line),
+            text.PriceInForce(DisplayFigures.AmountWithCurrency(line.UnitPrice, text)),
+            [],
+            check is { MayCharge: true } ? text.NewTotal(DisplayFigures.AmountWithCurrency(newPrice * line.Count, text)) : null,
+            text.ReasonTitle,
+            [.. reasons.Select(reason => new ReasonRow(
+                reason.Code, text.RightToLeft ? reason.LabelAr : reason.LabelFr, reason.Code == discounting.ReasonCode))],
+            message,
+            refused,
+            check is { MayCharge: true } && discounting.ReasonCode is not null && !discounting.Offline,
+            text.ContinueKey,
+            text.BackToTicket,
+            line.Override is null ? null : text.BackToListPrice);
+    }
+
+    /// <summary>The band's verdict, or none while the rule is not written (Hakim's piece, as <see cref="Off{T}"/>).</summary>
+    private static Domain.Sales.OverrideCheck? OffCheck(Func<Domain.Sales.OverrideCheck> work)
+    {
+        try
+        {
+            return work();
+        }
+        catch (NotImplementedException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// The manager step (B4), as the board draws "Annuler le ticket" (09-pin): what is asked, who
     /// authorises it, their PIN as dots, and the pad. The PIN is checked by StoreServer only (§3.10).
     /// </summary>
     private static Rail.Authorise AuthoriseOf(ScreenState state, DiscountState discounting)
     {
         var text = state.Text;
-        var percent = discounting.Form == DiscountForms.Percent;
-        var given = DiscountEntry.TryParse(discounting.Typed, discounting.Form, out var hundredths)
-            ? Given(state, new CounterDiscount(discounting.Form, hundredths, string.Empty, string.Empty, string.Empty, string.Empty))
+        var overriding = discounting.Kind == CounterKind.PriceOverride;
+        var form = overriding ? DiscountForms.Amount : discounting.Form;
+        var given = DiscountEntry.TryParse(discounting.Typed, form, out var hundredths)
+            ? overriding
+                ? DisplayFigures.AmountWithCurrency(Domain.Values.Money.FromMinorUnits(hundredths, CurrencyOf(state) ?? Currency.Dzd), state.Text)
+                : Given(state, new CounterDiscount(form, hundredths, string.Empty, string.Empty, string.Empty, string.Empty))
             : discounting.Typed;
         var reason = discounting.Reasons?.ReasonCodes.FirstOrDefault(r => r.Code == discounting.ReasonCode);
         var line = discounting.LineId is { } id ? state.Cart.ActiveLines.FirstOrDefault(l => l.LineId == id) : null;
@@ -712,7 +847,7 @@ public sealed record TillScreen(
 
         return new Rail.Authorise(
             text.ManagerApproval,
-            $"{(line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
+            $"{(overriding ? text.PriceOverrideLabel : line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
             $"{(line is null ? text.CurrentTicket : Article(line))} · {(reason is null ? string.Empty : text.RightToLeft ? reason.LabelAr : reason.LabelFr)}",
             text.WhoApproves,
             [.. (discounting.Staff?.Staff ?? []).Select(person => new ApproverRow(
@@ -722,7 +857,7 @@ public sealed record TillScreen(
             discounting.PinLength,
             message,
             discounting.ManagerId is not null && discounting.PinLength >= 4,
-            text.ApproveDiscount,
+            overriding ? text.ApproveOverride : text.ApproveDiscount,
             text.BackToTicket);
     }
 
@@ -1156,9 +1291,10 @@ public sealed record EmptyState(string Title, string Hint);
 /// <param name="Reweigh">"Poids", for a line whose weight was typed; null otherwise (B3).</param>
 /// <param name="IsWeighed">A weighed line: no stepper, one weighing (B3).</param>
 /// <param name="Discount">"Remise" (B4): locked, and pressable; a cashier's asks for a manager's PIN.</param>
+/// <param name="Price">"Prix" (B5): locked, rank 3; never on a weighed line.</param>
 public sealed record LineActions(
     string LineId, int Count, string Quantity, bool MayDecrease, string Remove, string RemoveKey, string? Reweigh = null, bool IsWeighed = false,
-    string? Discount = null, string? DiscountKey = null);
+    string? Discount = null, string? DiscountKey = null, string? Price = null);
 
 /// <summary>The weight card (B3, D-090), floating where the search results float.</summary>
 /// <param name="PerUnit">"180,00 DA / kg".</param>

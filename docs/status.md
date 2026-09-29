@@ -4,7 +4,8 @@ Where the work stands, what is wrong, and what comes next. Rewrite this file as 
 lands; it is the only document that is allowed to go stale in a week. Last pass:
 **27/09/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
 weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is done** (§13): a
-discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). **B5 is done** (§14): a
+price typed at the counter, rank 3, within a band (D-092). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -14,8 +15,8 @@ discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). Ph
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1817**, all green (Integration 640 · Pos 510 · Domain 325 · Generator 237 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
-| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, **7 migrations**: `WeighedGoods` (B3) added `transaction_items.quantity_source` and `stores.scale_label_format` |
+| Tests | **1861**, all green in Debug and Release (Integration 652 · Pos 526 · Domain 341 · Generator 237 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, **8 migrations**: `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
 | Recaps | `recaps/phase-0.md` and `recaps/phase-0.5.md`. Read one only when a question reaches back into a finished phase |
@@ -44,11 +45,10 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
-| F-28 | Low | **A row carries one discount reason, and some reasons ask for a note nobody can write.** A line with its own discount and a share of the ticket's keeps its own reason and authoriser (the ticket's are on every other row); `transactions` has no discount reason. And `reason_codes.requires_note` ("Autre (préciser)") has no column to hold the note, so such a reason is offered with none | `Application/Sales/CompleteSale.cs`, `transaction_items` | **Decided 29/09, D-092**: settled by B5's migration |
 | F-27 | Low | **Two B3 pieces of the G1 board are not built**: the "Poids / PLU · saisie manuelle" key (F2) beside the field, and the rail's "Articles sans code-barres" grid (Tomates 180,00 /kg, Œufs 25,00 /u… and "Nouvel article"). B3 sells them by PLU typed in the field | G1 board, `Pos/Ui/TillViews.cs` | **Hakim brings the design**: what F2 does beyond focusing the field, which products the grid shows and in what order, and what "Nouvel article" is (O-25) |
 | F-25 | Low | **The Almanac card's "1 / 3" takes a touch only on its 12 px figures**, the defect D-084 fixed for keys. It is a label that acts, not a key | `Pos/Ui/TillViews.cs`, `Almanac` | **Decide** at the next rail design: a key, or a larger target |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
-| F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
+| F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` **29/09: a second suspect.** `StoreServerStartupTests.A_generated_store_is_imported_served_and_reopened_after_a_restart` failed in two full runs (28/09 Debug, after 3 min; 29/09 Release) and passed alone every time (36–48 s): a real process under the whole suite's load, likely its startup deadline | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
 
 Phase 0.5's own findings were all closed inside the phase; `recaps/phase-0.5.md` §5 lists
 them and what settled each.
@@ -115,7 +115,7 @@ starting point is always code already reviewed. §7 below is the map.
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
-| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2, B1, B3, B4 done** (§10–§13) |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B1–B5 done** (§10–§14) |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
@@ -515,4 +515,28 @@ broken on purpose five ways (an even split over rows survived at first, until a 
 `TillSessionsTests`, `SaleWireTests`, `TillWindowTests`. **Broken on purpose**, 16 mutations, each caught; which reason a row keeps survived at first, and a two-reason test was added until it did not. **For Hakim's review:** the panel and the
 manager step have no board of their own (built from the kit and 09-pin); the manager is picked by
 name; the Arabic words are `// ar: à relire`.
+
+---
+
+## 14. Session B5 — done 29/09 (D-092)
+
+**✍ Hakim's piece:** `Domain/Sales/PriceOverride.cs`: whether a typed unit price may replace the
+price in force, below cost said; its 16 tests are `PriceOverrideTests`. The ceiling is rounded down by
+whole-number division, not by a `Rounding` policy, which has no truncation on purpose: a limit is not
+a charged amount. **The manager step is compact and never scrolls** (Hakim, 29/09): a scroll viewer
+rebuilt on each digit jumped back to the top; a window test holds it.
+
+| Where | What |
+| :---- | :---- |
+| Migration `OverridesAndDiscountReasons` | The override on the row, the ticket discount's reason on the ticket, the notes (F-28, closed) |
+| `Application/Sales/CompleteSale.cs` | The band checked again, the line sold at the new price with `list_price` kept; override reasons, and a note when a reason asks for one |
+| `POST /api/till/authorise` | Now also `override_price`, rank 3; a discount's authorisation allows no override |
+| `Persistence/Catalogue/ProductLookup.cs` | The oldest batch in stock's unit cost, for the below-cost warning |
+| `Pos/Checkout/Cart.cs`, `TillSession.cs` | `PriceOverride`, `ChargedPrice`, `SetOverride`, `OverridePrice`; a discount's `Note` |
+| `Pos/Screen/TillScreen.cs`, `Ui/TillViews.cs`, `TillWindow.cs` | "Prix" under a line; the price panel (B4's, without % and DA); "PRIX MODIFIÉ" on the line; the note step |
+
+**The tests:** `PriceOverrideTests`, `TillOverrideTests`, and the B5 sections of `CompleteSaleTests`,
+`SaleWireTests`, `TillWindowTests`. **Broken on purpose**, 11 mutations, each caught. **For Hakim's
+review:** the price panel and the note step have no board (built from the kit); the Arabic words are
+`// ar: à relire`.
 

@@ -250,6 +250,46 @@ public abstract class TillText
 
     public abstract string DiscountOffline { get; }
 
+    // ------------------------------------------------------------------ price overrides (B5)
+
+    /// <summary>"Prix": the key under a selected line.</summary>
+    public abstract string PriceKey { get; }
+
+    /// <summary>The panel's label and the line's chip: "PRIX MODIFIÉ".</summary>
+    public abstract string PriceOverrideLabel { get; }
+
+    /// <summary>"Prix en vigueur 143,00 DA".</summary>
+    public abstract string PriceInForce(string price);
+
+    /// <summary>"Nouveau total 240,00 DA".</summary>
+    public abstract string NewTotal(string total);
+
+    public abstract string PricePrompt { get; }
+
+    public abstract string PriceInvalid { get; }
+
+    /// <summary>Above the band: the most that may be charged, and what to do instead.</summary>
+    public abstract string PriceAboveBand(string ceiling);
+
+    public abstract string PriceNotAboveZero { get; }
+
+    public abstract string PriceUnchanged { get; }
+
+    /// <summary>A warning, not a refusal: below what the goods cost.</summary>
+    public abstract string PriceBelowCost { get; }
+
+    public abstract string BackToListPrice { get; }
+
+    public abstract string NoOverrideReasons { get; }
+
+    public abstract string ApproveOverride { get; }
+
+    /// <summary>The field's chip while a note is typed: "NOTE".</summary>
+    public abstract string NoteChip { get; }
+
+    /// <summary>What the note is for: "Précisez « Autre »".</summary>
+    public abstract string NotePrompt(string reason);
+
     /// <summary>"AUTORISATION RESPONSABLE".</summary>
     public abstract string ManagerApproval { get; }
 
@@ -426,7 +466,7 @@ public abstract class TillText
         public override string TicketNumber(string invoiceNumber) => $"Ticket n° {invoiceNumber}";
         public override string Lines(int count) => count == 1 ? "1 ligne" : $"{DisplayFigures.Count(count)} lignes";
 
-        public override string SearchPlaceholder => "Scanner ou saisir un code-barres";
+        public override string SearchPlaceholder => "Recherchez un produit ou saisissez le code-barres";
         public override string LastArticle => "DERNIER ARTICLE";
         public override string Ready => "PRÊT";
         public override string LastSaleLine(string invoiceNumber, string clock, string total) =>
@@ -546,6 +586,21 @@ public abstract class TillText
         public override string ChooseReason => "Choisissez un motif";
         public override string NoDiscountReasons => "Aucun motif de remise n'est défini : une remise ne peut pas être enregistrée";
         public override string DiscountOffline => "Serveur du magasin injoignable : la remise attend";
+        public override string PriceKey => "Prix";
+        public override string PriceOverrideLabel => "PRIX MODIFIÉ";
+        public override string PriceInForce(string price) => $"Prix en vigueur {price}";
+        public override string NewTotal(string total) => $"Nouveau total {total}";
+        public override string PricePrompt => "Tapez le nouveau prix unitaire dans le champ, puis choisissez le motif";
+        public override string PriceInvalid => "Un prix au-dessus de zéro, 2 décimales au plus";
+        public override string PriceAboveBand(string ceiling) => $"Au plus {ceiling} (20 % au-dessus) : au-delà, corrigez le prix au catalogue";
+        public override string PriceNotAboveZero => "Un prix au-dessus de zéro : pour offrir l'article, une remise de 100 %";
+        public override string PriceUnchanged => "C'est déjà le prix en vigueur";
+        public override string PriceBelowCost => "SOUS LE PRIX D'ACHAT · le propriétaire valide en connaissance de cause";
+        public override string BackToListPrice => "Revenir au prix en vigueur";
+        public override string NoOverrideReasons => "Aucun motif de prix modifié n'est défini : le prix ne peut pas être modifié";
+        public override string ApproveOverride => "Valider le prix";
+        public override string NoteChip => "NOTE";
+        public override string NotePrompt(string reason) => $"Précisez « {reason} » dans le champ, puis Entrée";
         public override string ManagerApproval => "AUTORISATION RESPONSABLE";
         public override string WhoApproves => "QUI AUTORISE";
         public override string ManagerPin => "PIN RESPONSABLE";
@@ -645,7 +700,7 @@ public abstract class TillText
         // Arabic counts its nouns in four forms: one, two (the dual), three to ten, eleven and up.
         public override string Lines(int count) => ArabicCount(count, "سطر واحد", "سطران", "أسطر", "سطرًا", "سطر");
 
-        public override string SearchPlaceholder => "امسح الرمز الشريطي أو أدخله"; // ar: à relire
+        public override string SearchPlaceholder => "ابحث عن منتج او ادخل الرمز الشريطي"; // ar: à relire
         public override string LastArticle => "آخر منتج";
         public override string Ready => "جاهز"; // ar: à relire
         public override string LastSaleLine(string invoiceNumber, string clock, string total) =>
@@ -764,6 +819,21 @@ public abstract class TillText
         public override string ChooseReason => "اختر سببًا"; // ar: à relire
         public override string NoDiscountReasons => "لا يوجد سبب تخفيض معرَّف: لا يمكن تسجيل التخفيض"; // ar: à relire
         public override string DiscountOffline => "خادم المتجر غير متاح: التخفيض في الانتظار"; // ar: à relire
+        public override string PriceKey => "السعر"; // ar: à relire
+        public override string PriceOverrideLabel => "سعر معدَّل"; // ar: à relire
+        public override string PriceInForce(string price) => $"السعر الساري {price}"; // ar: à relire
+        public override string NewTotal(string total) => $"المجموع الجديد {total}"; // ar: à relire
+        public override string PricePrompt => "اكتب سعر الوحدة الجديد في الحقل ثم اختر السبب"; // ar: à relire
+        public override string PriceInvalid => "سعر أكبر من الصفر، برقمين عشريين على الأكثر"; // ar: à relire
+        public override string PriceAboveBand(string ceiling) => $"على الأكثر {ceiling} (20 % فوق السعر): بعده يُصحَّح السعر في الكتالوج"; // ar: à relire
+        public override string PriceNotAboveZero => "سعر أكبر من الصفر: لإهداء المنتج، تخفيض 100 %"; // ar: à relire
+        public override string PriceUnchanged => "هذا هو السعر الساري"; // ar: à relire
+        public override string PriceBelowCost => "أقل من سعر الشراء · المالك يؤكد عن علم"; // ar: à relire
+        public override string BackToListPrice => "العودة إلى السعر الساري"; // ar: à relire
+        public override string NoOverrideReasons => "لا يوجد سبب لتعديل السعر: لا يمكن تعديله"; // ar: à relire
+        public override string ApproveOverride => "تأكيد السعر"; // ar: à relire
+        public override string NoteChip => "ملاحظة"; // ar: à relire
+        public override string NotePrompt(string reason) => $"وضّح «{reason}» في الحقل ثم إدخال"; // ar: à relire
         public override string ManagerApproval => "إذن المسؤول"; // ar: à relire
         public override string WhoApproves => "من يأذن"; // ar: à relire
         public override string ManagerPin => "رمز المسؤول"; // ar: à relire

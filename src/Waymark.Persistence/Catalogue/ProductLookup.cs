@@ -278,6 +278,16 @@ public sealed class ProductLookup(WaymarkDbContext context, IStoreCalendar calen
             .Where(i => i.VariantId == variant.VariantId)
             .SumAsync(i => i.Quantity, cancellationToken);
 
+        // What a unit of the oldest batch still in stock cost (B5): the batch the sale takes first,
+        // near enough, for the till's below-cost warning. Read in memory: a variant has few batches.
+        var inStock = await context.Inventories
+            .Where(level => level.VariantId == variant.VariantId && level.Quantity > 0)
+            .Join(context.BatchItems, level => new { level.BatchId, level.VariantId }, item => new { item.BatchId, item.VariantId },
+                (level, item) => new { item.BatchId, item.UnitCost })
+            .Join(context.Batches, item => item.BatchId, batch => batch.BatchId, (item, batch) => new { item.UnitCost, batch.ReceivedDate })
+            .ToListAsync(cancellationToken);
+        var unitCost = inStock.Count == 0 ? (Money?)null : inStock.OrderBy(row => row.ReceivedDate).First().UnitCost;
+
         return new ProductLookupResult.Found(new ProductForSale(
             variant.VariantId,
             product.ProductId,
@@ -289,7 +299,8 @@ public sealed class ProductLookup(WaymarkDbContext context, IStoreCalendar calen
             price.PriceValue,
             price.PriceType == PriceType.Promotional,
             Quantity.FromThousandths(stockThousandths, unit.UnitCode),
-            variant.IsWeighted));
+            variant.IsWeighted,
+            unitCost));
     }
 
     /// <summary>

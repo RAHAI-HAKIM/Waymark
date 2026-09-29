@@ -250,7 +250,7 @@ public sealed class TillScreenTests
 
         Assert.True(onLive.Lines[0].Selected);
         Assert.Equal(
-            new LineActions(cart.LineOf("a"), 4, "4", true, "Retirer la ligne", "F8", Discount: "Remise", DiscountKey: "F4"), onLive.Actions);
+            new LineActions(cart.LineOf("a"), 4, "4", true, "Retirer la ligne", "F8", Discount: "Remise", DiscountKey: "F4", Price: "Prix"), onLive.Actions);
         Assert.False(onStruck.Lines[1].Selected);
         Assert.Null(onStruck.Actions);
     }

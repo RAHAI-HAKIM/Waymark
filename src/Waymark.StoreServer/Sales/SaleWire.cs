@@ -12,12 +12,25 @@ public static class SaleWire
     /// Who gave an authorisation the sale cites, in this session, for a discount; null when nobody
     /// did. A discount citing nothing valid reaches the handler with nobody, and is refused there.
     /// </param>
-    public static CompleteSale ToCommand(SaleRequest request, string sellerId, Func<string?, string?>? authorisedBy = null) => new(
+    /// <param name="overriddenBy">The same for a price override (B5), rank 3's authorisation.</param>
+    public static CompleteSale ToCommand(
+        SaleRequest request, string sellerId, Func<string?, string?>? authorisedBy = null, Func<string?, string?>? overriddenBy = null) => new(
         request.TerminalId,
         sellerId,
         [.. request.Lines.Select(line => new SaleLineRequest(
-            line.Barcode, line.Count, Weight(line.Weight), Discount(line.Discount, authorisedBy)))],
+            line.Barcode, line.Count, Weight(line.Weight), Discount(line.Discount, authorisedBy), Override(line.PriceOverride, overriddenBy)))],
         Discount(request.TicketDiscount, authorisedBy));
+
+    /// <summary>
+    /// A price override as the handler reads it (B5): the new price in minor units. A price that
+    /// cannot be read becomes zero, which the band refuses: the sale is refused, never sold at the old price.
+    /// </summary>
+    private static GivenOverride? Override(PriceOverrideRequest? given, Func<string?, string?>? overriddenBy) => given is null
+        ? null
+        : new GivenOverride(
+            WireText.TryHundredths(given.Price, out var price) ? price : 0,
+            given.ReasonCode,
+            overriddenBy?.Invoke(given.Authorisation) ?? string.Empty);
 
     /// <summary>
     /// A discount as the handler reads it (B4): a percent in basis points, an amount in minor units.
@@ -30,7 +43,8 @@ public static class SaleWire
             discount.Form == DiscountForms.Amount ? DiscountForm.Amount : DiscountForm.Percent,
             discount.Form is DiscountForms.Amount or DiscountForms.Percent && WireText.TryHundredths(discount.Value, out var hundredths) ? hundredths : 0,
             discount.ReasonCode,
-            authorisedBy?.Invoke(discount.Authorisation) ?? string.Empty);
+            authorisedBy?.Invoke(discount.Authorisation) ?? string.Empty,
+            string.IsNullOrWhiteSpace(discount.Note) ? null : discount.Note.Trim());
 
     /// <summary>
     /// A typed weight as thousandths. Text that is not a weight becomes zero, which the lookup

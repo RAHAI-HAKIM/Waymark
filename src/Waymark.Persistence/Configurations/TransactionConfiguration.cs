@@ -45,6 +45,10 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             table.HasCheckConstraint(
                 "ck_transactions_rounding_policy",
                 @"rounding_policy IN ('half_even','half_up')");
+            // A ticket discount names who allowed it (F-28, D-092).
+            table.HasCheckConstraint(
+                "ck_transactions_discount_reason",
+                @"discount_reason_code IS NULL OR discount_authorised_by IS NOT NULL");
         });
 
         builder.HasKey(x => x.TransactionId);
@@ -149,6 +153,22 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             .WithMany()
             .HasForeignKey(x => x.CustomerId)
             .HasPrincipalKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.Property(x => x.DiscountReasonCode)
+            .HasColumnName("discount_reason_code");
+        builder.Property(x => x.DiscountAuthorisedBy)
+            .HasColumnName("discount_authorised_by");
+        builder.Property(x => x.DiscountNote)
+            .HasColumnName("discount_note");
+        builder.HasOne<Staff>()
+            .WithMany()
+            .HasForeignKey(x => x.DiscountAuthorisedBy)
+            .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<ReasonCode>()
+            .WithMany()
+            .HasForeignKey(x => x.DiscountReasonCode)
+            .HasPrincipalKey(x => x.ReasonCodeValue)
             .OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<Staff>()
             .WithMany()

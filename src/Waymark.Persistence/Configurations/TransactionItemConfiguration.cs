@@ -44,6 +44,13 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             table.HasCheckConstraint(
                 "ck_transaction_items_discount_amount_2",
                 @"discount_amount = 0 OR discount_reason_code IS NOT NULL");
+            // An override is recorded whole or not at all (D-092).
+            table.HasCheckConstraint(
+                "ck_transaction_items_override",
+                @"(list_price IS NULL AND override_reason_code IS NULL AND override_authorised_by IS NULL) OR (list_price IS NOT NULL AND override_reason_code IS NOT NULL AND override_authorised_by IS NOT NULL)");
+            table.HasCheckConstraint(
+                "ck_transaction_items_list_price",
+                @"list_price IS NULL OR list_price >= 0");
             table.HasCheckConstraint(
                 "ck_transaction_items_quantity_source",
                 @"quantity_source IN ('count','typed_weight','label_weight','label_price')");
@@ -87,6 +94,15 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
 
         // The default is for the rows written before B3, every one a count; the entity's
         // property is required, so no writer leans on it (D-090).
+        builder.Property(x => x.ListPrice)
+            .HasColumnName("list_price");
+        builder.Property(x => x.OverrideReasonCode)
+            .HasColumnName("override_reason_code");
+        builder.Property(x => x.OverrideAuthorisedBy)
+            .HasColumnName("override_authorised_by");
+        builder.Property(x => x.DiscountNote)
+            .HasColumnName("discount_note");
+
         builder.Property(x => x.QuantitySource)
             .HasColumnName("quantity_source")
             .HasConversion(EnumConverters.QuantitySourceConverter)
@@ -106,6 +122,16 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             .WithMany()
             .HasForeignKey(x => x.AuthorisedBy)
             .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Staff>()
+            .WithMany()
+            .HasForeignKey(x => x.OverrideAuthorisedBy)
+            .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<ReasonCode>()
+            .WithMany()
+            .HasForeignKey(x => x.OverrideReasonCode)
+            .HasPrincipalKey(x => x.ReasonCodeValue)
             .OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<ReasonCode>()
             .WithMany()

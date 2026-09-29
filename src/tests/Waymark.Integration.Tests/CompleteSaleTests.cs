@@ -649,6 +649,34 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
 
     private const string Damaged = "article_abime";
 
+    private const string ShelfLabel = "etiquette_rayon";
+
+    private const string Other = "autre_precise";
+
+    /// <summary>A price override reason, and a discount reason that asks for a note (B5).</summary>
+    private void MoreReasons()
+    {
+        Reasons();
+        using var context = database.NewContext();
+        foreach (var (code, kind, note) in new[] { (ShelfLabel, ReasonCodeAppliesTo.PriceOverride, false), (Other, ReasonCodeAppliesTo.Discount, true) })
+        {
+            if (!context.ReasonCodes.Any(reason => reason.ReasonCodeValue == code))
+            {
+                context.ReasonCodes.Add(new ReasonCode
+                {
+                    ReasonCodeValue = code,
+                    AppliesTo = kind,
+                    LabelAr = code,
+                    LabelFr = code,
+                    RequiresNote = note,
+                    CreatedAt = Now,
+                });
+            }
+        }
+
+        context.SaveChanges();
+    }
+
     private static GivenDiscount Percent(int basisPoints, string by, string reason = Gesture) => new(DiscountForm.Percent, basisPoints, reason, by);
 
     private static GivenDiscount Amount(long centimes, string by, string reason = Gesture) => new(DiscountForm.Amount, centimes, reason, by);
@@ -795,5 +823,107 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
         var items = await ItemsOf(shop, sale);
         Assert.Equal(Damaged, items.Single(i => i.VariantId == shop.Milk.VariantId).DiscountReasonCode);
         Assert.Equal(Gesture, items.Single(i => i.VariantId == shop.Bread.VariantId).DiscountReasonCode);
+    }
+
+    // ------------------------------------------------------- price overrides (B5, D-092) and notes (F-28)
+
+    [Fact]
+    public async Task An_override_sells_at_the_new_price_and_keeps_the_price_it_replaced()
+    {
+        MoreReasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        var sale = await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 2, Override: new GivenOverride(12_000, ShelfLabel, shop.StaffId)));
+
+        var item = Assert.Single(await ItemsOf(shop, sale));
+        Assert.Equal((Dzd(12_000), Dzd(14_300)), (item.SellPrice, item.ListPrice!.Value));
+        Assert.Equal((ShelfLabel, shop.StaffId), (item.OverrideReasonCode, item.OverrideAuthorisedBy));
+        Assert.Equal(Dzd(24_000), sale.Total);
+    }
+
+    [Fact]
+    public async Task An_override_up_within_the_band_is_charged()
+    {
+        MoreReasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        // 143,00 + 20 % is 171,60.
+        var sale = await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Override: new GivenOverride(17_160, ShelfLabel, shop.StaffId)));
+
+        Assert.Equal(Dzd(17_160), sale.Total);
+    }
+
+    [Theory]
+    [InlineData(17_161)] // a centime above the band
+    [InlineData(0)]
+    [InlineData(14_300)] // unchanged
+    public async Task An_override_the_band_refuses_is_a_refused_sale_with_nothing_written(long price)
+    {
+        MoreReasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() =>
+            Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Override: new GivenOverride(price, ShelfLabel, shop.StaffId))));
+
+        using var read = Read(shop);
+        Assert.False(await read.Transactions.AnyAsync());
+    }
+
+    [Fact]
+    public async Task A_discount_after_an_override_comes_off_the_new_price()
+    {
+        MoreReasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        var sale = await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1,
+            Discount: Percent(1_000, shop.StaffId), Override: new GivenOverride(12_000, ShelfLabel, shop.StaffId)));
+
+        Assert.Equal(Dzd(10_800), sale.Total);
+    }
+
+    [Theory]
+    [InlineData(Gesture, true)]   // a discount reason is not an override reason
+    [InlineData(ShelfLabel, false)] // nobody allowed it
+    public async Task An_override_with_no_accepted_reason_or_nobody_allowing_it_is_refused(string reason, bool allowed)
+    {
+        MoreReasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() => Sell(shop, null,
+            new SaleLineRequest(shop.Milk.Barcode, 1, Override: new GivenOverride(12_000, reason, allowed ? shop.StaffId : string.Empty))));
+    }
+
+    [Fact]
+    public async Task A_ticket_discount_is_recorded_on_the_ticket_with_who_allowed_it()
+    {
+        MoreReasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        var sale = await Sell(shop, Percent(1_000, shop.StaffId), new SaleLineRequest(shop.Milk.Barcode, 1));
+
+        using var read = Read(shop);
+        var row = await read.Transactions.SingleAsync(t => t.TransactionId == sale.TransactionId);
+        Assert.Equal((Gesture, shop.StaffId), (row.DiscountReasonCode, row.DiscountAuthorisedBy));
+    }
+
+    [Fact]
+    public async Task A_reason_that_asks_for_a_note_is_refused_without_one_and_keeps_it_when_written()
+    {
+        MoreReasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() =>
+            Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Percent(1_000, shop.StaffId, Other))));
+
+        var sale = await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1,
+            Discount: Percent(1_000, shop.StaffId, Other) with { Note = "client fidèle" }));
+        Assert.Equal("client fidèle", Assert.Single(await ItemsOf(shop, sale)).DiscountNote);
     }
 }

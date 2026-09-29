@@ -482,6 +482,74 @@ public sealed class TillWindowTests
     });
 
     [Fact]
+    public Task Prix_under_a_line_a_new_price_a_reason_and_the_owners_pin_change_what_it_charges() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Tap(till.Rows()[0], new Point(200, 10));
+
+        var price = till.Window.GetVisualDescendants().OfType<TillKey>()
+            .First(key => key.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "Prix"));
+        till.Tap(price, new Point(20, 20));
+        till.Type("120");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ReasonRow));
+        till.Tap(Keyed<ReasonRow>(till, _ => true), new Point(20, 20));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ApproverRow));
+        till.Tap(Keyed<ApproverRow>(till, row => row.StaffId == "samia"), new Point(20, 20));
+        till.Window.KeyTextInput("1357");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Rail.Authorise { PinLength: 4 }));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Session.Cart.Lines[0].Override is not null);
+
+        Assert.Equal((12_000L, "auth-samia"), (till.Session.Cart.Lines[0].ChargedPrice.MinorUnits, till.Session.Cart.Lines[0].Override!.Authorisation));
+    });
+
+    [Fact]
+    public Task A_reason_that_asks_for_a_note_takes_the_field_for_it_before_the_discount_is_given() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.Server.SellerMayDiscount = true;
+        till.ScanMany(1);
+
+        till.Key(Key.F6, PhysicalKey.F6);
+        till.Type("10");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ReasonRow { Code: "autre" }));
+        till.Tap(Keyed<ReasonRow>(till, row => row.Code == "autre"), new Point(20, 20));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        Assert.Null(till.Session.Cart.TicketDiscount); // not without its note
+
+        till.Type("client");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Session.Cart.TicketDiscount is not null);
+
+        Assert.Equal(("autre", "client", 1_000L), (till.Session.Cart.TicketDiscount!.ReasonCode, till.Session.Cart.TicketDiscount.Note, till.Session.Cart.TicketDiscount.Hundredths));
+    });
+
+    [Fact]
+    public Task The_manager_step_fits_the_rail_and_does_not_scroll_as_digits_are_typed() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Key(Key.F6, PhysicalKey.F6);
+        till.Type("50");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ReasonRow));
+        till.Tap(Keyed<ReasonRow>(till, row => row.Code == "geste_commercial"), new Point(20, 20));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ApproverRow));
+
+        till.Window.KeyTextInput("13");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Rail.Authorise { PinLength: 2 }));
+
+        // Hakim, 29/09: each digit redraws the rail, and a scroll viewer rebuilt each time jumped to the top.
+        var panel = till.Window.GetVisualDescendants().OfType<Border>().Single(border => border.Tag is Screen.Rail.Authorise);
+        Assert.Empty(panel.GetVisualAncestors().OfType<ScrollViewer>());
+        Assert.Empty(panel.GetVisualDescendants().OfType<ScrollViewer>());
+        var bottom = panel.TranslatePoint(new Point(0, panel.Bounds.Height), till.Window)!.Value.Y;
+        Assert.True(bottom <= till.Window.Bounds.Height, $"The panel ends at {bottom:0}, below the window ({till.Window.Bounds.Height:0}).");
+    });
+
+    [Fact]
     public Task Echap_closes_the_discount_and_nothing_is_given() => Headless.Run(() =>
     {
         using var till = Till.SignedIn();
@@ -693,7 +761,12 @@ public sealed class TillWindowTests
 
         public Task<Waymark.Contracts.Reference.ReasonCodeList?> DiscountReasonsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("discount",
-                [new Waymark.Contracts.Reference.ReasonCodeOption("geste_commercial", "لفتة تجارية", "Geste commercial", false, false)]));
+                [new Waymark.Contracts.Reference.ReasonCodeOption("geste_commercial", "لفتة تجارية", "Geste commercial", false, false),
+                 new Waymark.Contracts.Reference.ReasonCodeOption("autre", "أخرى", "Autre", true, false)]));
+
+        public Task<Waymark.Contracts.Reference.ReasonCodeList?> OverrideReasonsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("price_override",
+                [new Waymark.Contracts.Reference.ReasonCodeOption("etiquette_rayon", "ملصق الرف", "Étiquette rayon", false, false)]));
 
         /// <summary>Samia is the manager, PIN 1357 (B4).</summary>
         public Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default) =>

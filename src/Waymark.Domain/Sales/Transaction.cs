@@ -52,6 +52,18 @@ public sealed class Transaction : IStoreScoped
 
     public Money DiscountTotal { get; init; }
 
+    /// <summary>
+    /// The reason of a discount given on the whole ticket (B4, F-28, D-092); null with none. Each row
+    /// keeps a reason too (its own line discount's, else this), as its CHECK requires.
+    /// </summary>
+    public string? DiscountReasonCode { get; init; }
+
+    /// <summary>Who allowed the ticket's discount; set with <see cref="DiscountReasonCode"/>.</summary>
+    public string? DiscountAuthorisedBy { get; init; }
+
+    /// <summary>The note a ticket discount's reason asked for, when it asked for one.</summary>
+    public string? DiscountNote { get; init; }
+
     public Money TaxTotal { get; init; }
 
     public Money TotalAmount { get; init; }

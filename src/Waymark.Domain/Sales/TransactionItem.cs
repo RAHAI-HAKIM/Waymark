@@ -60,4 +60,19 @@ public sealed class TransactionItem
     /// weighed could be sold until B3).
     /// </summary>
     public required QuantitySource QuantitySource { get; init; }
+
+    /// <summary>
+    /// The price in force when the row's price was overridden at the counter (B5, D-092); null when
+    /// it was not. <see cref="SellPrice"/> stays what was charged, so the row still recomputes.
+    /// </summary>
+    public Money? ListPrice { get; init; }
+
+    /// <summary>Why the price was overridden: a <c>price_override</c> reason (D-079). Set with <see cref="ListPrice"/>.</summary>
+    public string? OverrideReasonCode { get; init; }
+
+    /// <summary>Who allowed the override, rank 3 (D-092). Set with <see cref="ListPrice"/>.</summary>
+    public string? OverrideAuthorisedBy { get; init; }
+
+    /// <summary>What the cashier wrote for a discount reason that asks for a note (F-28, D-092).</summary>
+    public string? DiscountNote { get; init; }
 }

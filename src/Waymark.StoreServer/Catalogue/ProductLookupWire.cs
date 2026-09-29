@@ -53,7 +53,8 @@ public static class ProductLookupWire
         product.PriceTtc.Currency.Code,
         product.IsPromotionalPrice,
         WireText.Figure(product.StockOnHand),
-        product.IsWeighted);
+        product.IsWeighted,
+        product.UnitCost is { } cost ? WireText.Figure(cost) : null);
 
     private static WeighedAnswer? Weighed(WeighedQuantity? weighed) => weighed is null
         ? null

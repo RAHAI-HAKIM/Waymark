@@ -51,7 +51,7 @@ public sealed class MoneyMappingTests : IClassFixture<MigratedDatabaseFixture>
         "customers.credit", "customers.credit_limit",
         "transactions.subtotal", "transactions.discount_total",
         "transactions.tax_total", "transactions.total_amount",
-        "transaction_items.sell_price", "transaction_items.unit_cost_at_sale",
+        "transaction_items.sell_price", "transaction_items.unit_cost_at_sale", "transaction_items.list_price",
         "transaction_items.discount_amount", "transaction_items.tax_amount",
         "transaction_items.line_total",
         "transaction_payments.amount",
