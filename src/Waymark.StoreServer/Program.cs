@@ -117,6 +117,10 @@ builder.Services.AddSingleton<TillSessions>();
 builder.Services.AddScoped<IStaffCredentials, Waymark.Persistence.Organisation.StaffCredentials>();
 builder.Services.AddScoped<SetStaffPinHandler>();
 
+// How the store's scale labels are read (B3, D-090), set by --scale-format= until H2.
+builder.Services.AddScoped<IStoreSettings, Waymark.Persistence.Organisation.StoreSettings>();
+builder.Services.AddScoped<SetScaleLabelFormatHandler>();
+
 // Commands (D-050): one unit of work per request, which stages every row and the executor
 // commits once. The same instance is the staging side and the committing side.
 builder.Services.AddScoped<WaymarkUnitOfWork>();
@@ -266,6 +270,18 @@ if (app.Configuration[SetPinSwitch.Setting] is { } pinFor)
         scope.ServiceProvider.GetRequiredService<SetStaffPinHandler>());
 }
 
+// --scale-format=<preset or mask> (B3, D-090): how this store's scale labels are read, then exit.
+// After the startup checks, like --set-pin; "list" prints the presets.
+if (app.Configuration[ScaleFormatSwitch.Setting] is { } scaleFormat)
+{
+    using var scope = app.Services.CreateScope();
+    return await ScaleFormatSwitch.RunAsync(
+        scaleFormat,
+        Console.Out,
+        scope.ServiceProvider.GetRequiredService<CommandExecutor>(),
+        scope.ServiceProvider.GetRequiredService<SetScaleLabelFormatHandler>());
+}
+
 // The POS uses this to decide whether the server is reachable before falling
 // back to its Level-2 cache.
 app.MapGet("/health", () => Results.Ok(new
@@ -280,11 +296,30 @@ app.MapGet("/health", () => Results.Ok(new
 // with no code at all. The code is a query parameter, not a path segment: ASP.NET Core leaves
 // "%2F" encoded in a route value, so a typed "12/34" would be looked up as "12%2F34", and decoding
 // it again would double-decode every other code. A query string is decoded exactly once.
+//
+// B3 (D-090): `weight`, for a product sold by weight whose weight was typed, is decimal text in its
+// selling unit, "0.556". A scale label needs none: its code carries its weight or price.
 app.MapGet("/api/products/lookup", async (
-    string? barcode, IProductLookup lookup, CancellationToken cancellationToken) =>
-    string.IsNullOrWhiteSpace(barcode)
-        ? Results.BadRequest("A barcode is required: /api/products/lookup?barcode=...")
-        : Results.Ok(ProductLookupWire.ToWire(barcode, await lookup.FindForSaleAsync(barcode, cancellationToken))));
+    string? barcode, string? weight, IProductLookup lookup, CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(barcode))
+    {
+        return Results.BadRequest("A barcode is required: /api/products/lookup?barcode=...");
+    }
+
+    long? thousandths = null;
+    if (weight is not null)
+    {
+        if (!Waymark.StoreServer.WireText.TryThousandths(weight, out var typed))
+        {
+            return Results.BadRequest("A weight is decimal text in the selling unit: weight=0.556");
+        }
+
+        thousandths = typed;
+    }
+
+    return Results.Ok(ProductLookupWire.ToWire(barcode, await lookup.FindForSaleAsync(barcode, thousandths, cancellationToken)));
+});
 
 // B1 (D-088): products by name. Fewer than two characters is an empty answer, not an error: the
 // till asks as the cashier types, and the first letter is not a mistake.

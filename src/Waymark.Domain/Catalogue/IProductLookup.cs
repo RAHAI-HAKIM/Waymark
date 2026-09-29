@@ -1,3 +1,5 @@
+using Waymark.Domain.Enums;
+using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
 
 namespace Waymark.Domain.Catalogue;
@@ -13,10 +15,16 @@ namespace Waymark.Domain.Catalogue;
 public interface IProductLookup
 {
     /// <summary>
-    /// The variant whose barcode is <paramref name="code"/>, or failing that whose PLU is (D-088):
-    /// a code typed by hand is either, and a barcode is tried first because a scan is one.
+    /// The variant whose barcode is <paramref name="code"/>, or failing that whose PLU is (D-088), or
+    /// failing both the product a scale label names in the store's format (D-090). The barcode is
+    /// tried first because a scan is one, and because every in-store barcode starts like a label.
     /// </summary>
-    Task<ProductLookupResult> FindForSaleAsync(string code, CancellationToken cancellationToken = default);
+    /// <param name="typedWeightThousandths">
+    /// A weight typed at the till, in thousandths of the selling unit, for a product sold by
+    /// weight; null otherwise. A label carries its own and takes none.
+    /// </param>
+    Task<ProductLookupResult> FindForSaleAsync(
+        string code, long? typedWeightThousandths = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -47,7 +55,12 @@ public abstract record ProductLookupResult
     }
 
     /// <summary>The till may sell it.</summary>
-    public sealed record Found(ProductForSale Product) : ProductLookupResult;
+    /// <param name="Weighed">
+    /// For a product sold by weight whose weight is known (typed, or read from a label): how much,
+    /// from where, and what the line comes to. Null for a product sold by count, and for a weighed
+    /// one whose weight the till has still to ask for.
+    /// </param>
+    public sealed record Found(ProductForSale Product, WeighedQuantity? Weighed = null) : ProductLookupResult;
 
     /// <summary>No variant carries this barcode.</summary>
     public sealed record UnknownBarcode : ProductLookupResult;
@@ -78,8 +91,23 @@ public enum NotSellableReason
     /// <summary>The variant is archived. A discontinued one still sells its remaining stock.</summary>
     Archived,
 
-    /// <summary>Sold by weight: scales and weight-embedded codes are Phase 1.</summary>
-    Weighted,
+    /// <summary>A weight was typed for a product sold by count (B3).</summary>
+    NotSoldByWeight,
+
+    /// <summary>A typed weight that is not above zero, or finer than the unit is sold to (B3).</summary>
+    WeightInvalid,
+
+    /// <summary>
+    /// A scale label names a product that is not set up for labels: sold by count, or its
+    /// <c>barcode_type</c> is <c>standard</c>. The catalogue needs fixing, not the label (B3).
+    /// </summary>
+    LabelNotSetUp,
+
+    /// <summary>
+    /// A scale label whose value cannot be sold: a weight of zero or off the unit's step, or a price
+    /// worth less than half a step of the product (B3, D-090).
+    /// </summary>
+    LabelValueInvalid,
 
     /// <summary>
     /// Neither a barcode nor a PLU (B1): a sale sends codes (D-070), so a product with none cannot be
@@ -109,6 +137,7 @@ public enum NotSellableReason
 /// This store's level across its batches. Zero or negative is a warning at the
 /// till, never a refusal (CLAUDE.md §3.8).
 /// </param>
+/// <param name="IsWeighted">Sold by weight (B3): the till asks for a weight unless a label gave one.</param>
 public sealed record ProductForSale(
     string VariantId,
     string ProductId,
@@ -119,4 +148,11 @@ public sealed record ProductForSale(
     TvaRateSource TvaRateSource,
     Money PriceTtc,
     bool IsPromotionalPrice,
-    Quantity StockOnHand);
+    Quantity StockOnHand,
+    bool IsWeighted = false);
+
+/// <summary>A weighed product's quantity, where it came from, and what the line comes to (B3, D-090).</summary>
+/// <param name="Quantity">In the selling unit, on a step the unit allows.</param>
+/// <param name="Source">Typed, a weight label or a price label: which figure is exact.</param>
+/// <param name="Amounts">The line as one, before it is split over batches; the sale re-derives it per batch.</param>
+public sealed record WeighedQuantity(Quantity Quantity, QuantitySource Source, LineAmounts Amounts);

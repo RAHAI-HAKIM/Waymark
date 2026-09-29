@@ -211,6 +211,42 @@ public abstract class TillText
     /// <summary>The field's chip: "QTÉ × 3".</summary>
     public abstract string NextCount(string count);
 
+    // ------------------------------------------------------------------ weighed goods (B3)
+
+    /// <summary>The field's chip while a weight is awaited: "POIDS · kg".</summary>
+    public abstract string WeightChip(string unit);
+
+    /// <summary>The card's label: "POIDS".</summary>
+    public abstract string WeighTitle { get; }
+
+    /// <summary>"180,00 DA / kg".</summary>
+    public abstract string PerUnit(string price, string unit);
+
+    /// <summary>What the card asks for before anything is typed.</summary>
+    public abstract string WeighPrompt(string unit);
+
+    /// <summary>"Entrée pèse · Échap annule".</summary>
+    public abstract string WeighKeys { get; }
+
+    /// <summary>The text typed is not a weight the unit is sold in.</summary>
+    public abstract string WeighInvalid(int decimals);
+
+    /// <summary>A line's chip: its weight was typed at the till.</summary>
+    public abstract string TypedWeight { get; }
+
+    /// <summary>A line's chip: its weight was read from a scale label.</summary>
+    public abstract string LabelWeight { get; }
+
+    /// <summary>A line's chip: its price was read from a scale label.</summary>
+    public abstract string LabelPrice { get; }
+
+    /// <summary>"Poids": the key under a line weighed by hand.</summary>
+    public abstract string Reweigh { get; }
+
+    public abstract string CountIgnored { get; }
+
+    public abstract string CountIgnoredDetail { get; }
+
     /// <summary>"stock 12".</summary>
     public abstract string Stock(string quantity);
 
@@ -348,7 +384,10 @@ public abstract class TillText
             Contracts.Pos.NotSellableReason.NoCurrentPrice => "aucun prix en vigueur aujourd'hui",
             Contracts.Pos.NotSellableReason.PriceNotTaxInclusive => "le prix est enregistré hors taxe ; la caisse vend en TTC",
             Contracts.Pos.NotSellableReason.Archived => "article archivé",
-            Contracts.Pos.NotSellableReason.Weighted => "vendu au poids, pas encore pris en charge",
+            Contracts.Pos.NotSellableReason.NotSoldByWeight => "vendu à la pièce, pas au poids",
+            Contracts.Pos.NotSellableReason.WeightInvalid => "poids refusé : au-dessus de zéro, et pas plus fin que l'unité",
+            Contracts.Pos.NotSellableReason.LabelNotSetUp => "étiquette de balance pour un article non vendu au poids : à corriger au catalogue",
+            Contracts.Pos.NotSellableReason.LabelValueInvalid => "étiquette illisible : poids ou prix impossible à vendre",
             Contracts.Pos.NotSellableReason.NoCode => "ni code-barres ni PLU : l'article ne peut pas être vendu",
             _ => $"refusé ({reason})",
         };
@@ -430,6 +469,21 @@ public abstract class TillText
         public override string NoDrafts => "Aucun ticket annulé aujourd'hui.";
 
         public override string NextCount(string count) => $"QTÉ × {count}";
+
+        public override string WeightChip(string unit) => $"POIDS · {unit}";
+        public override string WeighTitle => "POIDS";
+        public override string PerUnit(string price, string unit) => $"{price} / {unit}";
+        public override string WeighPrompt(string unit) => $"Tapez le poids en {unit}, puis Entrée";
+        public override string WeighKeys => "Entrée pèse · Échap annule";
+        public override string WeighInvalid(int decimals) => decimals == 0
+            ? "Un poids entier, au-dessus de zéro"
+            : $"Un poids au-dessus de zéro, {decimals} décimale{(decimals > 1 ? "s" : string.Empty)} au plus : 0,556";
+        public override string TypedWeight => "POIDS SAISI";
+        public override string LabelWeight => "ÉTIQUETTE";
+        public override string LabelPrice => "ÉTIQUETTE PRIX";
+        public override string Reweigh => "Poids";
+        public override string CountIgnored => "QUANTITÉ IGNORÉE";
+        public override string CountIgnoredDetail => "un article pesé se vend à son poids, pas à la quantité";
         public override string Stock(string quantity) => $"stock {quantity}";
         public override string Searching => "Recherche…";
         public override string SearchOffline => "Serveur du magasin injoignable : rien à montrer pour l'instant.";
@@ -522,7 +576,10 @@ public abstract class TillText
             Contracts.Pos.NotSellableReason.NoCurrentPrice => "لا يوجد سعر ساري اليوم",
             Contracts.Pos.NotSellableReason.PriceNotTaxInclusive => "السعر مسجّل دون احتساب الرسم؛ الصندوق يبيع بالأسعار شاملة الرسوم",
             Contracts.Pos.NotSellableReason.Archived => "منتج مؤرشف",
-            Contracts.Pos.NotSellableReason.Weighted => "يُباع بالوزن، غير مدعوم بعد",
+            Contracts.Pos.NotSellableReason.NotSoldByWeight => "يُباع بالقطعة لا بالوزن",
+            Contracts.Pos.NotSellableReason.WeightInvalid => "وزن مرفوض: أكبر من الصفر، وليس أدق من الوحدة",
+            Contracts.Pos.NotSellableReason.LabelNotSetUp => "ملصق ميزان لمنتج لا يُباع بالوزن: يُصحَّح في الكتالوج",
+            Contracts.Pos.NotSellableReason.LabelValueInvalid => "ملصق غير مقروء: وزن أو سعر لا يمكن بيعه",
             Contracts.Pos.NotSellableReason.NoCode => "بلا رمز شريطي ولا PLU: لا يمكن بيعه",
             _ => $"مرفوض ({reason})",
         };
@@ -603,6 +660,21 @@ public abstract class TillText
 
         // Search and past tickets (B1). No board shows these in Arabic.
         public override string NextCount(string count) => $"الكمية × {count}"; // ar: à relire
+
+        public override string WeightChip(string unit) => $"الوزن · {unit}"; // ar: à relire
+        public override string WeighTitle => "الوزن"; // ar: à relire
+        public override string PerUnit(string price, string unit) => $"{price} / {unit}"; // ar: à relire
+        public override string WeighPrompt(string unit) => $"اكتب الوزن بـ {unit} ثم اضغط إدخال"; // ar: à relire
+        public override string WeighKeys => "إدخال للوزن · خروج للإلغاء"; // ar: à relire
+        public override string WeighInvalid(int decimals) => decimals == 0 // ar: à relire
+            ? "وزن صحيح أكبر من الصفر"
+            : $"وزن أكبر من الصفر، بـ {decimals} أرقام عشرية على الأكثر: 0,556";
+        public override string TypedWeight => "وزن مُدخَل"; // ar: à relire
+        public override string LabelWeight => "ملصق"; // ar: à relire
+        public override string LabelPrice => "ملصق السعر"; // ar: à relire
+        public override string Reweigh => "الوزن"; // ar: à relire
+        public override string CountIgnored => "الكمية لم تُطبَّق"; // ar: à relire
+        public override string CountIgnoredDetail => "المنتج الموزون يُباع بوزنه لا بالكمية"; // ar: à relire
         public override string Stock(string quantity) => $"المخزون {quantity}"; // ar: à relire
         public override string Searching => "جارٍ البحث…"; // ar: à relire
         public override string SearchOffline => "خادم المتجر غير متاح: لا شيء للعرض حاليًا."; // ar: à relire

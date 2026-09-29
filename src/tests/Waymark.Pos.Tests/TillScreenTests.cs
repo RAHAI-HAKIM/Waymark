@@ -677,5 +677,101 @@ public sealed class TillScreenTests
     private static bool IsPutAside(OperationKey key) => key.Operation is Operation.Park or Operation.CancelTicket;
 
     private static string Clock(DateTimeOffset moment) => DisplayFigures.Clock(TimeZoneInfo.ConvertTime(moment, Algiers));
-}
 
+    // ================================================================ weighed goods (B3, D-090)
+
+    private static readonly ProductForSale Tomatoes = new(
+        "v-tom", "p-tom", "Tomates", "Vrac", "kg", 3, 900, TvaRateSource.FromCategory, "180.00", "DZD", false, "40", IsWeighted: true);
+
+    private static LineWeight Weight(long thousandths, string source, long centimes) =>
+        new(Waymark.Domain.Values.Quantity.FromThousandths(thousandths, "kg"), source,
+            Waymark.Domain.Values.Money.FromMinorUnits(centimes, Waymark.Domain.Values.Currency.Dzd), 3);
+
+    private static PendingWeight Pending(string typed = "", LineWeight? preview = null, string? refusal = null, bool invalid = false) =>
+        new("4011", "Tomates", "Vrac", Waymark.Domain.Values.Money.FromMinorUnits(18_000, Waymark.Domain.Values.Currency.Dzd), "kg", 3, null,
+            typed, preview, refusal, invalid);
+
+    [Fact]
+    public void A_weighed_line_shows_its_weight_and_says_where_the_weight_came_from()
+    {
+        var cart = new Cart();
+        cart.AddWeighed(Tomatoes, "4011", Weight(556, QuantitySources.TypedWeight, 10_008));
+        cart.AddWeighed(Tomatoes, "LABEL", Weight(556, QuantitySources.LabelPrice, 10_000));
+
+        var rows = TillScreen.Build(State(cart: cart)).Cart.Lines;
+
+        Assert.Equal(["0,556 kg", "0,556 kg"], rows.Select(row => row.Quantity));
+        Assert.Equal(["100,08", "100,00"], rows.Select(row => row.Total));
+        Assert.Equal(["180,00 /kg", "180,00 /kg"], rows.Select(row => row.UnitPrice));
+        Assert.Contains(rows[0].Chips, chip => chip.Label == "POIDS SAISI");
+        Assert.Contains(rows[1].Chips, chip => chip.Label == "ÉTIQUETTE PRIX");
+    }
+
+    [Fact]
+    public void A_typed_weight_can_be_typed_again_and_a_labels_cannot()
+    {
+        var cart = new Cart();
+        var typed = cart.AddWeighed(Tomatoes, "4011", Weight(556, QuantitySources.TypedWeight, 10_008));
+        var label = cart.AddWeighed(Tomatoes, "LABEL", Weight(556, QuantitySources.LabelWeight, 10_008));
+
+        var typedActions = TillScreen.Build(State(cart: cart, selected: typed.LineId)).Cart.Actions!;
+        var labelActions = TillScreen.Build(State(cart: cart, selected: label.LineId)).Cart.Actions!;
+
+        Assert.True(typedActions.IsWeighed);
+        Assert.Equal("Poids", typedActions.Reweigh);
+        Assert.Null(labelActions.Reweigh);
+        Assert.False(labelActions.MayDecrease);
+    }
+
+    [Fact]
+    public void While_a_weight_is_awaited_the_field_says_so_and_encaisser_waits()
+    {
+        var screen = TillScreen.Build(State(cart: CartWith(("1", "65.00", 1))) with { Weighing = Pending() });
+
+        Assert.Equal(new FieldChip("POIDS · kg", Active: true), screen.Field);
+        Assert.False(screen.Bottom.Primary.Enabled);
+        Assert.Null(screen.Results);
+    }
+
+    [Fact]
+    public void The_card_asks_for_a_weight_then_shows_the_servers_total()
+    {
+        var asking = TillScreen.Build(State() with { Weighing = Pending() }).Weigh!;
+        var priced = TillScreen.Build(State() with { Weighing = Pending("0,556", Weight(556, QuantitySources.TypedWeight, 10_008)) }).Weigh!;
+
+        Assert.Equal(("Tomates Vrac", $"180,00{DisplayFigures.UnitSeparator}DA / kg", null), (asking.Article, asking.PerUnit, asking.Total));
+        Assert.Equal("Tapez le poids en kg, puis Entrée", asking.Message);
+        Assert.Equal($"0,556 kg = 100,08{DisplayFigures.UnitSeparator}DA", priced.Total);
+        Assert.Null(priced.Message);
+    }
+
+    [Fact]
+    public void The_card_labels_a_weight_it_cannot_take_and_a_weight_the_server_refused()
+    {
+        var invalid = TillScreen.Build(State() with { Weighing = Pending("0,5555", invalid: true) }).Weigh!;
+        var refused = TillScreen.Build(State() with { Weighing = Pending("60", refusal: NotSellableReason.WeightInvalid) }).Weigh!;
+
+        Assert.True(invalid.Refused);
+        Assert.StartsWith("Un poids au-dessus de zéro, 3 décimales au plus", invalid.Message, StringComparison.Ordinal);
+        Assert.True(refused.Refused);
+        Assert.Null(refused.Total);
+    }
+
+    [Fact]
+    public void A_count_spent_on_a_weighed_product_is_a_labelled_warning()
+    {
+        var notice = TillScreen.Build(State(notice: new TillNotice(TillNoticeKind.WeighedTakesNoCount, "4011", string.Empty))).Notice;
+
+        Assert.Equal((Tone.Warning, "QUANTITÉ IGNORÉE"), (notice.Tone, notice.Label));
+    }
+
+    [Fact]
+    public void The_card_redraws_when_its_total_arrives()
+    {
+        var before = TillScreen.Build(State() with { Weighing = Pending("0,556") });
+        var after = TillScreen.Build(State() with { Weighing = Pending("0,556", Weight(556, QuantitySources.TypedWeight, 10_008)) });
+
+        Assert.True(TillScreen.Compare(before, after).Results);
+        Assert.False(TillScreen.Compare(after, after).Results);
+    }
+}

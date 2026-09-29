@@ -282,6 +282,7 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(CustomerPeriodRecord),  // D-043 outbox payload; monthly grain, stored nowhere
             nameof(ProductLookup),         // till ↔ StoreServer answer; a read over several tables
             nameof(ProductForSale),        // an element of that answer
+            nameof(WeighedAnswer),         // an element of that answer: a weighed line priced by the server, before any row (B3)
             nameof(SaleRequest),           // till → StoreServer; codes and counts, never a row
             nameof(SaleRequestLine),       // an element of that request
             nameof(SaleOutcome),           // StoreServer → till; a summary over several tables

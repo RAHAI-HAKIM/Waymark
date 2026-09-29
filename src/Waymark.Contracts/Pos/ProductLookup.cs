@@ -21,11 +21,42 @@ namespace Waymark.Contracts.Pos;
 /// Set when <see cref="Outcome"/> is <c>not_sellable</c>: one of
 /// <see cref="NotSellableReason"/>. Null otherwise.
 /// </param>
+/// <param name="Weighed">
+/// For a product sold by weight whose weight is known, typed or read from a scale label (B3,
+/// D-090): the quantity, where it came from, and the line total the server worked out. Null
+/// otherwise, including a weighed product the till has still to weigh.
+/// </param>
 public sealed record ProductLookup(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("barcode")] string Barcode,
     [property: JsonPropertyName("product")] ProductForSale? Product,
-    [property: JsonPropertyName("reason")] string? Reason);
+    [property: JsonPropertyName("reason")] string? Reason,
+    [property: JsonPropertyName("weighed")] WeighedAnswer? Weighed = null);
+
+/// <summary>A weighed line as the server priced it (B3, D-090). The till shows it; the sale prices it again.</summary>
+/// <param name="Quantity">In the selling unit, as exact decimal text: "0.556".</param>
+/// <param name="QuantitySource">One of <see cref="QuantitySources"/>.</param>
+/// <param name="LineTotal">TTC, as exact decimal text. For a price label, the label's price.</param>
+public sealed record WeighedAnswer(
+    [property: JsonPropertyName("quantity")] string Quantity,
+    [property: JsonPropertyName("quantity_source")] string QuantitySource,
+    [property: JsonPropertyName("line_total")] string LineTotal);
+
+/// <summary>The values of <see cref="WeighedAnswer.QuantitySource"/>, as <c>transaction_items.quantity_source</c> stores them.</summary>
+public static class QuantitySources
+{
+    /// <summary>Whole units, scanned or counted.</summary>
+    public const string Count = "count";
+
+    /// <summary>Typed at the till: nothing vouches for it but the cashier.</summary>
+    public const string TypedWeight = "typed_weight";
+
+    /// <summary>Printed in a scale label as a weight.</summary>
+    public const string LabelWeight = "label_weight";
+
+    /// <summary>Printed in a scale label as a price: the price is exact, the weight worked back from it.</summary>
+    public const string LabelPrice = "label_price";
+}
 
 /// <summary>
 /// A variant as the till may sell it, now, in this store.
@@ -64,6 +95,7 @@ public sealed record ProductLookup(
 /// negative is a warning for the cashier, never a refusal: a level going
 /// negative is not a bug (CLAUDE.md §3.8).
 /// </param>
+/// <param name="IsWeighted">Sold by weight (B3): the till asks for a weight unless a label gave one.</param>
 public sealed record ProductForSale(
     [property: JsonPropertyName("variant_id")] string VariantId,
     [property: JsonPropertyName("product_id")] string ProductId,
@@ -76,7 +108,8 @@ public sealed record ProductForSale(
     [property: JsonPropertyName("price_ttc")] string PriceTtc,
     [property: JsonPropertyName("currency")] string Currency,
     [property: JsonPropertyName("is_promotional_price")] bool IsPromotionalPrice,
-    [property: JsonPropertyName("stock_on_hand")] string StockOnHand);
+    [property: JsonPropertyName("stock_on_hand")] string StockOnHand,
+    [property: JsonPropertyName("is_weighted")] bool IsWeighted = false);
 
 /// <summary>The values of <see cref="ProductForSale.TvaRateSource"/> (D-075).</summary>
 public static class TvaRateSource
@@ -128,8 +161,17 @@ public static class NotSellableReason
     /// <summary>The variant is archived. A discontinued one still sells.</summary>
     public const string Archived = "archived";
 
-    /// <summary>Sold by weight: scales and weight-embedded codes are Phase 1.</summary>
-    public const string Weighted = "weighted";
+    /// <summary>A weight was sent for a product sold by count (B3).</summary>
+    public const string NotSoldByWeight = "not_sold_by_weight";
+
+    /// <summary>A typed weight not above zero, or finer than the product's unit is sold to (B3).</summary>
+    public const string WeightInvalid = "weight_invalid";
+
+    /// <summary>A scale label names a product not set up for labels; the catalogue needs fixing (B3).</summary>
+    public const string LabelNotSetUp = "label_not_set_up";
+
+    /// <summary>A scale label's weight or price cannot be sold: zero, off the unit's step, or too small to weigh (B3).</summary>
+    public const string LabelValueInvalid = "label_value_invalid";
 
     /// <summary>Neither a barcode nor a PLU: a sale sends codes, so a search cannot sell it (B1).</summary>
     public const string NoCode = "no_code";

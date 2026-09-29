@@ -3,7 +3,10 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using Waymark.Contracts.Pos;
 using Waymark.Domain.Catalogue;
+using Waymark.Domain.Enums;
+using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
+using Waymark.StoreServer;
 using Waymark.StoreServer.Catalogue;
 using DomainProduct = Waymark.Domain.Catalogue.ProductForSale;
 using DomainReason = Waymark.Domain.Catalogue.NotSellableReason;
@@ -116,7 +119,10 @@ public sealed class ProductLookupWireTests
         { DomainReason.NoCurrentPrice, WireReason.NoCurrentPrice },
         { DomainReason.PriceNotTaxInclusive, WireReason.PriceNotTaxInclusive },
         { DomainReason.Archived, WireReason.Archived },
-        { DomainReason.Weighted, WireReason.Weighted },
+        { DomainReason.NotSoldByWeight, WireReason.NotSoldByWeight },
+        { DomainReason.WeightInvalid, WireReason.WeightInvalid },
+        { DomainReason.LabelNotSetUp, WireReason.LabelNotSetUp },
+        { DomainReason.LabelValueInvalid, WireReason.LabelValueInvalid },
         { DomainReason.NoCode, WireReason.NoCode },
     };
 
@@ -195,4 +201,55 @@ public sealed class ProductLookupWireTests
         Assert.Contains("\"tva_rate_source\":\"standard_fallback\"", json, StringComparison.Ordinal);
         Assert.Contains("\"is_promotional_price\":true", json, StringComparison.Ordinal);
     }
+
+    // ------------------------------------------------------------------ B3: weighed (D-090)
+
+    [Fact]
+    public void A_weighed_answer_crosses_with_its_quantity_source_and_the_servers_total()
+    {
+        var kg = UnitPrecision.For("kg", 3);
+        var total = Money.FromMinorUnits(10_000, Currency.Dzd);
+        var weighed = new WeighedQuantity(
+            kg.Quantity(556), QuantitySource.LabelPrice, new LineAmounts(total, total, total.SplitTaxInclusive(BasisPoints.ReducedVat, Rounding.HalfUp)));
+
+        var json = JsonSerializer.Serialize(ProductLookupWire.ToWire(
+            "2100537001008", new ProductLookupResult.Found(Milk() with { IsWeighted = true }, weighed)));
+
+        Assert.Contains("\"is_weighted\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"weighed\":{\"quantity\":\"0.556\",\"quantity_source\":\"label_price\",\"line_total\":\"100.00\"}", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_product_with_no_weight_yet_crosses_with_none()
+    {
+        var wire = ProductLookupWire.ToWire("4011", new ProductLookupResult.Found(Milk() with { IsWeighted = true }));
+
+        Assert.True(wire.Product!.IsWeighted);
+        Assert.Null(wire.Weighed);
+    }
+
+    [Theory]
+    [InlineData("0.556", 556)]
+    [InlineData("1", 1_000)]
+    [InlineData("1.5", 1_500)]
+    [InlineData("12.05", 12_050)]
+    [InlineData("0", 0)]
+    public void A_weight_sent_by_the_till_is_read_as_thousandths(string text, long thousandths)
+    {
+        Assert.True(WireText.TryThousandths(text, out var read));
+        Assert.Equal(thousandths, read);
+    }
+
+    [Theory]
+    [InlineData("0,556")]   // a French decimal comma: the till sends invariant text
+    [InlineData("0.5556")]  // finer than a thousandth
+    [InlineData("-1")]
+    [InlineData(".5")]
+    [InlineData("1.")]
+    [InlineData("1.2.3")]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("1e3")]
+    public void Anything_else_is_not_a_weight(string? text) =>
+        Assert.False(WireText.TryThousandths(text, out _));
 }

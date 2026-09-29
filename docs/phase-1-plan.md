@@ -127,8 +127,8 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | :-- | :---- | :---- | :--: | :--: |
 | B1 | Search by name, PLU, stock lookup; **open an old paid ticket** in the ticket view, read-only (D-087); the "QTÉ × n" multiplier on the search field | `TillSession.Handle`, `ProductLookup` | C | M–L |
 | B2 | Quantity edit, line removal, park and resume | `Pos/Checkout/Cart.cs` | C | M |
-| B3 | Weighted items, embedded weight/price barcodes, scale | `KeyboardWedgeScanner` (D-063), `Quantity` (D-036) | **H** | M |
-| B4 | Line and transaction discounts with a reason | **`SaleArithmetic.Line`'s `discount` parameter — already there, never used** | **H** | M |
+| B3 | Weighted items: a typed weight, weight and price labels in the store's format (D-090). The scale itself waits for the hardware survey | `ProductLookup` (D-066), `Quantity` (D-036), `SaleArithmetic` | **H** | M–L |
+| B4 | Line and transaction discounts given at the counter, with a reason, rank 2 (D-091) | **`SaleArithmetic.Line`'s `discount` parameter — already there, never used** | **H** | M |
 | B5 | Price override behind a manager PIN | A2 | **H** | S |
 | B6 | Split tender: cash with change, card, wallet | `CompleteSale`'s single cash payment, `CashTender` (D-034) | **H** | M |
 | B7 | Customer by phone; on-account and the credit limit | `receivable_movements` (D-055) — **schema exists, never exercised** | **H** | M |
@@ -158,7 +158,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | :-- | :---- | :---- | :--: | :--: |
 | E0 | React ramp: rebuild the Board page, diff against the original | `waymark-admin/src/Board.tsx` | **H** (exercise) | S |
 | E1 | Product and variant CRUD, categories | `RecommendationWire`, `DecisionRequest` | C | L |
-| E2 | Bulk price update, archive | `prices`, price-in-force (D-066) | C | M |
+| E2 | Bulk price update, archive; **promotions created in advance and applied by the till** (D-091) | `prices`, price-in-force (D-066) | C | M |
 | E3 | CSV import: validation and a dry-run preview | the generator's catalogue loader | C | L |
 
 ### Block F — Stock (4 sessions)

@@ -19,9 +19,15 @@ public sealed record SaleRequest(
     [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines);
 
 /// <summary>One scanned code and how many units of it.</summary>
+/// <param name="Weight">
+/// For a product sold by weight whose weight was typed (B3): the weight in its selling unit, as
+/// exact decimal text, "0.556", and <paramref name="Count"/> is 1. Null for a count, and for a scale
+/// label, whose code carries its own weight or price and is read again by the server (D-090).
+/// </param>
 public sealed record SaleRequestLine(
     [property: JsonPropertyName("barcode")] string Barcode,
-    [property: JsonPropertyName("count")] int Count);
+    [property: JsonPropertyName("count")] int Count,
+    [property: JsonPropertyName("weight")] string? Weight = null);
 
 /// <summary>
 /// StoreServer's answer to a sale. Like the lookup (D-066), a refusal is an answer, a 200

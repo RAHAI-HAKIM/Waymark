@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Waymark.Domain.Values;
 using Waymark.Domain.Catalogue;
+using Waymark.Domain.Enums;
 using Waymark.Domain.Inventory;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Pricing;
@@ -43,6 +44,9 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             table.HasCheckConstraint(
                 "ck_transaction_items_discount_amount_2",
                 @"discount_amount = 0 OR discount_reason_code IS NOT NULL");
+            table.HasCheckConstraint(
+                "ck_transaction_items_quantity_source",
+                @"quantity_source IN ('count','typed_weight','label_weight','label_price')");
         });
 
         builder.HasKey(x => x.TransactionItemId);
@@ -80,6 +84,14 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);
+
+        // The default is for the rows written before B3, every one a count; the entity's
+        // property is required, so no writer leans on it (D-090).
+        builder.Property(x => x.QuantitySource)
+            .HasColumnName("quantity_source")
+            .HasConversion(EnumConverters.QuantitySourceConverter)
+            .HasDefaultValue(QuantitySource.Count)
+            .HasSentinel(QuantitySource.Count);
 
         // A rebuild recreates only the indexes the model declares.
         builder.HasIndex(x => x.BatchId)

@@ -346,5 +346,61 @@ public sealed class CartTests
 
         Assert.Equal(5, Assert.Single(cart.Lines).Count);
     }
-}
 
+    // ------------------------------------------------------------- weighed lines (B3, D-090)
+
+    private static ProductForSale Tomatoes() =>
+        new("v-tom", "p-tom", "Tomates", "Vrac", "kg", 3, 900, TvaRateSource.FromCategory, "180.00", "DZD", false, "40", IsWeighted: true);
+
+    private static LineWeight Weight(long thousandths, string source = QuantitySources.TypedWeight, long centimes = 10_008) =>
+        new(Quantity.FromThousandths(thousandths, "kg"), source, Dzd(centimes), 3);
+
+    [Fact]
+    public void A_weighed_line_is_its_weight_and_the_servers_total()
+    {
+        var cart = new Cart();
+
+        var line = cart.AddWeighed(Tomatoes(), "4011", Weight(556));
+
+        Assert.Equal((556L, Dzd(10_008)), (line.Quantity.Thousandths, line.LineTotal));
+        Assert.Equal(Dzd(10_008), cart.Total);
+    }
+
+    [Fact]
+    public void A_second_weighing_is_a_second_line_never_a_weight_added_to_the_first()
+    {
+        var cart = new Cart();
+        cart.AddWeighed(Tomatoes(), "4011", Weight(556));
+
+        cart.AddWeighed(Tomatoes(), "4011", Weight(300, centimes: 5_400));
+
+        Assert.Equal(2, cart.Lines.Count);
+        Assert.False(Cart.TakesAnotherScan(cart.Lines[0]));
+    }
+
+    [Fact]
+    public void A_weighed_product_is_never_added_as_a_count() =>
+        Assert.Throws<InvalidOperationException>(() => new Cart().Add(Tomatoes(), "4011"));
+
+    [Fact]
+    public void A_weighed_line_has_no_count_to_set()
+    {
+        var cart = new Cart();
+        var line = cart.AddWeighed(Tomatoes(), "4011", Weight(556));
+
+        Assert.False(cart.SetCount(line.LineId, 2));
+        Assert.Equal(556, cart.Lines[0].Quantity.Thousandths);
+    }
+
+    [Fact]
+    public void Only_a_typed_weight_can_be_replaced()
+    {
+        var cart = new Cart();
+        var typed = cart.AddWeighed(Tomatoes(), "4011", Weight(556));
+        var label = cart.AddWeighed(Tomatoes(), "LABEL", Weight(556, QuantitySources.LabelWeight));
+
+        Assert.True(cart.SetWeight(typed.LineId, Weight(1_000, centimes: 18_000)));
+        Assert.False(cart.SetWeight(label.LineId, Weight(1_000, centimes: 18_000)));
+        Assert.Equal([1_000L, 556L], cart.Lines.Select(line => line.Quantity.Thousandths));
+    }
+}

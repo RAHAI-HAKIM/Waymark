@@ -27,7 +27,8 @@ public sealed record TillActions(
     Action<string> OpenTicket,
     Action<int> TicketsDay,
     Action TicketsScope,
-    Action CloseTickets);
+    Action CloseTickets,
+    Action<string>? Reweigh = null);
 
 /// <summary>
 /// The G1 regions, each drawn from its part of <see cref="TillScreen"/> and nothing else (kit §5).
@@ -324,6 +325,71 @@ public static partial class TillViews
     /// </summary>
     private static Border LineActionBar(LineActions lineActions, TillTheme theme, TillActions actions)
     {
+        var bar = new DockPanel();
+        bar.Children.Add(Docked(
+            lineActions.IsWeighed ? WeightActions(lineActions, theme, actions) : Stepper(lineActions, theme, actions), Dock.Left));
+        bar.Children.Add(RemoveKey(lineActions, theme, actions));
+
+        return new Border
+        {
+            Background = theme.Tile,
+            Padding = new Thickness(12, 2, 12, 4),
+            BorderBrush = theme.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Child = bar,
+            Tag = lineActions,
+        };
+    }
+
+    /// <summary>
+    /// A weighed line's actions (B3): its weight, which is one weighing and has no stepper, then
+    /// "Poids" when the weight was typed and may be typed again. A label's weight is the label's.
+    /// </summary>
+    private static StackPanel WeightActions(LineActions lineActions, TillTheme theme, TillActions actions)
+    {
+        var id = lineActions.LineId;
+        var panel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children =
+            {
+                new Border
+                {
+                    Height = TillSizes.LineKey,
+                    MinWidth = 96,
+                    Margin = new Thickness(0, 2),
+                    Padding = new Thickness(10, 0),
+                    Background = theme.Card,
+                    BorderBrush = theme.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(TillSizes.KeyRadius),
+                    Child = Centred(TillTheme.Figure(lineActions.Quantity, 17, theme.Text, FontWeight.Medium)),
+                },
+            },
+        };
+
+        if (lineActions.Reweigh is { } reweigh && actions.Reweigh is { } press)
+        {
+            panel.Children.Add(new TillKey(
+                theme,
+                KeyLook.Secondary,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { TillTheme.Icon(LucideIcons.Scale, theme.TextMuted, 18), theme.Body(reweigh, theme.Text, FontWeight.SemiBold) },
+                },
+                () => press(id),
+                height: TillSizes.LineKey));
+        }
+
+        return panel;
+    }
+
+    /// <summary>The − / + stepper and the count between them (B2).</summary>
+    private static StackPanel Stepper(LineActions lineActions, TillTheme theme, TillActions actions)
+    {
         var id = lineActions.LineId;
         var count = lineActions.Count;
         var minusInk = lineActions.MayDecrease ? theme.Text : theme.DisabledLabel;
@@ -343,7 +409,12 @@ public static partial class TillViews
             },
         };
 
-        var remove = new TillKey(
+        return stepper;
+    }
+
+    /// <summary>"Retirer la ligne", at the end of the bar.</summary>
+    private static TillKey RemoveKey(LineActions lineActions, TillTheme theme, TillActions actions) =>
+        new TillKey(
             theme,
             KeyLook.Secondary,
             TillKey.Labelled(
@@ -358,21 +429,6 @@ public static partial class TillViews
             actions.RemoveSelected,
             height: TillSizes.LineKey)
         { HorizontalAlignment = HorizontalAlignment.Right };
-
-        var bar = new DockPanel();
-        bar.Children.Add(Docked(stepper, Dock.Left));
-        bar.Children.Add(remove);
-
-        return new Border
-        {
-            Background = theme.Tile,
-            Padding = new Thickness(12, 2, 12, 4),
-            BorderBrush = theme.BorderSubtle,
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Child = bar,
-            Tag = lineActions,
-        };
-    }
 
     /// <summary>
     /// The count between − and +, which takes a number typed on the keyboard (Hakim, 25/09): touched,
@@ -644,6 +700,60 @@ public static partial class TillViews
             ClipToBounds = true,
             Child = new ScrollViewer { Content = list },
             Tag = results,
+        };
+    }
+
+    /// <summary>
+    /// The weight card (B3, D-090), floating under the field where the results float: the product,
+    /// its price per unit, then the server's total for what was typed, or what to type, or why it
+    /// cannot be sold. The weight itself is typed in the field; the card only answers it.
+    /// </summary>
+    public static Control Weigh(WeighCard card, TillTheme theme)
+    {
+        var body = new StackPanel
+        {
+            Spacing = 4,
+            Children =
+            {
+                theme.Label(card.Title, theme.TextSecondary),
+                Words(card.Article, 15, FontWeight.SemiBold, theme.Text, theme),
+                theme.Prose(card.PerUnit, 13, theme.TextSecondary),
+            },
+        };
+
+        if (card.Total is { } total)
+        {
+            body.Children.Add(new Border
+            {
+                Margin = new Thickness(0, 6, 0, 0),
+                Child = TillTheme.Figure(total, 22, theme.Text, FontWeight.SemiBold),
+            });
+        }
+
+        if (card.Message is { } message)
+        {
+            // A refusal is labelled before it is coloured (CLAUDE.md §6): the words say it, the ink agrees.
+            var (_, refusedInk, _) = theme.ToneOnSurface(Tone.Critical);
+            body.Children.Add(new Border
+            {
+                Margin = new Thickness(0, 6, 0, 0),
+                Child = Wrapped(theme.BodySmall(message, card.Refused ? refusedInk : theme.TextSecondary)),
+            });
+        }
+
+        body.Children.Add(new Border { Margin = new Thickness(0, 8, 0, 0), Child = theme.BodySmall(card.Keys, theme.TextMuted) });
+
+        return new Border
+        {
+            Background = theme.Card,
+            BorderBrush = theme.FocusRing,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.CardRadius),
+            Margin = new Thickness(TillSizes.Margin, 4, TillSizes.Margin, 0),
+            Padding = new Thickness(16, 12),
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = body,
+            Tag = card,
         };
     }
 

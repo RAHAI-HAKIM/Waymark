@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Waymark.Contracts.Pos;
 using Waymark.Domain.Catalogue;
+using Waymark.Domain.Enums;
 using DomainProduct = Waymark.Domain.Catalogue.ProductForSale;
 using DomainReason = Waymark.Domain.Catalogue.NotSellableReason;
 using DomainTvaSource = Waymark.Domain.Catalogue.TvaRateSource;
@@ -19,7 +20,7 @@ public static class ProductLookupWire
     public static ProductLookup ToWire(string barcode, ProductLookupResult result) => result switch
     {
         ProductLookupResult.Found found =>
-            new ProductLookup(ProductLookupOutcome.Found, barcode, Product(found.Product), Reason: null),
+            new ProductLookup(ProductLookupOutcome.Found, barcode, Product(found.Product), Reason: null, Weighed(found.Weighed)),
         ProductLookupResult.UnknownBarcode =>
             new ProductLookup(ProductLookupOutcome.UnknownBarcode, barcode, Product: null, Reason: null),
         ProductLookupResult.NotSellable refused =>
@@ -51,7 +52,21 @@ public static class ProductLookupWire
         WireText.Figure(product.PriceTtc),
         product.PriceTtc.Currency.Code,
         product.IsPromotionalPrice,
-        WireText.Figure(product.StockOnHand));
+        WireText.Figure(product.StockOnHand),
+        product.IsWeighted);
+
+    private static WeighedAnswer? Weighed(WeighedQuantity? weighed) => weighed is null
+        ? null
+        : new WeighedAnswer(WireText.Figure(weighed.Quantity), Source(weighed.Source), WireText.Figure(weighed.Amounts.LineTotal));
+
+    private static string Source(QuantitySource source) => source switch
+    {
+        QuantitySource.Count => QuantitySources.Count,
+        QuantitySource.TypedWeight => QuantitySources.TypedWeight,
+        QuantitySource.LabelWeight => QuantitySources.LabelWeight,
+        QuantitySource.LabelPrice => QuantitySources.LabelPrice,
+        _ => throw new UnreachableException($"A quantity source this mapping does not know: {source}."),
+    };
 
     private static string TvaSource(DomainTvaSource source) => source switch
     {
@@ -65,7 +80,10 @@ public static class ProductLookupWire
         DomainReason.NoCurrentPrice => WireReason.NoCurrentPrice,
         DomainReason.PriceNotTaxInclusive => WireReason.PriceNotTaxInclusive,
         DomainReason.Archived => WireReason.Archived,
-        DomainReason.Weighted => WireReason.Weighted,
+        DomainReason.NotSoldByWeight => WireReason.NotSoldByWeight,
+        DomainReason.WeightInvalid => WireReason.WeightInvalid,
+        DomainReason.LabelNotSetUp => WireReason.LabelNotSetUp,
+        DomainReason.LabelValueInvalid => WireReason.LabelValueInvalid,
         DomainReason.NoCode => WireReason.NoCode,
         _ => throw new UnreachableException($"A refusal this mapping does not know: {reason}."),
     };

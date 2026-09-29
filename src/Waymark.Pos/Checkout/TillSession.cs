@@ -1,4 +1,6 @@
+using Waymark.Contracts;
 using Waymark.Contracts.Pos;
+using Waymark.Pos.Screen;
 using Waymark.Pos.Server;
 
 namespace Waymark.Pos.Checkout;
@@ -43,6 +45,13 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// D-088). Used once, then back to 1.
     /// </summary>
     public int NextCount { get; private set; } = 1;
+
+    /// <summary>
+    /// A product sold by weight waiting for its weight (B3, D-090), or null: its code was scanned,
+    /// typed or touched, or "Poids" was pressed under a line weighed by hand. The weight is typed in
+    /// the field; Entrée weighs it, Échap or the next scan gives it up.
+    /// </summary>
+    public PendingWeight? Weighing { get; private set; }
 
     /// <summary>
     /// A past ticket open read-only in the ticket view (B1, D-088), or null. The ticket on screen is
@@ -112,7 +121,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// not the ticket just paid, and it is not waiting on an unconfirmed sale (D-085), which the
     /// cashier checks first.
     /// </summary>
-    public bool MayPutAside => Cart.ActiveLines.Count > 0 && Paid is null && Unconfirmed is null && Viewing is null;
+    public bool MayPutAside => Cart.ActiveLines.Count > 0 && Paid is null && Unconfirmed is null && Viewing is null && Weighing is null;
 
     /// <summary>Raised after every change to <see cref="Cart"/> or <see cref="Notice"/>.</summary>
     public event EventHandler? Changed;
@@ -320,6 +329,88 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         return _tail;
     }
 
+    /// <summary>
+    /// The weight typed so far, priced by the server as the cashier types (B3): the card under the
+    /// field shows its total before Entrée. An answer to an older text is dropped.
+    /// </summary>
+    public async Task PreviewWeightAsync(string typed)
+    {
+        if (Weighing is not { } pending)
+        {
+            return;
+        }
+
+        if (!WeightEntry.TryParse(typed, pending.Decimals, out var thousandths))
+        {
+            Weighing = pending with { Typed = typed, Preview = null, Refusal = null, Invalid = typed.Trim().Length > 0 };
+            Raise();
+            return;
+        }
+
+        Weighing = pending with { Typed = typed, Invalid = false };
+        var answer = await products.WeighAsync(pending.Code, Figures.Quantity(thousandths));
+        if (Weighing is not { } now || now.Typed != typed || now.Code != pending.Code)
+        {
+            return;
+        }
+
+        Weighing = answer switch
+        {
+            LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.Found, Weighed: { } weighed, Product: { } product } } =>
+                now with { Preview = WireFigures.Weight(weighed, product), Refusal = null },
+            LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.NotSellable } refused } =>
+                now with { Preview = null, Refusal = refused.Reason },
+            _ => now with { Preview = null, Refusal = null },
+        };
+        Raise();
+    }
+
+    /// <summary>
+    /// Entrée on a weight (B3): the weight typed, weighed by the server and put on the ticket, behind
+    /// any code still being looked up. False, weighing nothing, when the text is not a weight the unit
+    /// can be sold in (<see cref="WeightEntry"/>): the card says so and the text stays to be corrected.
+    /// </summary>
+    public bool ConfirmWeight(string typed)
+    {
+        if (Weighing is not { } pending)
+        {
+            return false;
+        }
+
+        if (!WeightEntry.TryParse(typed, pending.Decimals, out var thousandths))
+        {
+            Weighing = pending with { Typed = typed, Preview = null, Invalid = true };
+            Raise();
+            return false;
+        }
+
+        _tail = WeighAfter(_tail, pending, thousandths);
+        return true;
+    }
+
+    /// <summary>Échap on a weight: nothing is weighed, and the ticket is as it was.</summary>
+    public void CancelWeighing()
+    {
+        if (Weighing is not null)
+        {
+            Weighing = null;
+            Raise();
+        }
+    }
+
+    /// <summary>
+    /// "Poids" under a line weighed by hand (B3): the weight typed again. A label's line has no such
+    /// key; its weight or price is the label's (<see cref="Checkout.Cart.SetWeight"/>).
+    /// </summary>
+    public void Reweigh(string lineId)
+    {
+        if (Paid is null && Cart.ActiveLines.FirstOrDefault(line => line.LineId == lineId) is { Weight: { IsTyped: true } weight } line)
+        {
+            Weighing = new PendingWeight(line.Barcode, line.ProductName, line.VariantName, line.UnitPrice, line.UnitCode, weight.UnitDecimals, lineId);
+            Raise();
+        }
+    }
+
     /// <summary>Opens a past ticket read-only (B1). Nothing of the ticket on screen changes.</summary>
     public void View(PastTicketDetail ticket)
     {
@@ -393,6 +484,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         {
         }
 
+        Weighing = null; // a scan gives up a weight not yet typed: the scanned product is what the cashier holds
         Notice = await Handle(code);
         Paid = null;
         Viewing = null;
@@ -415,7 +507,8 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         {
         }
 
-        Notice = AddToCart(product, code);
+        Weighing = null;
+        Notice = AddToCart(product, code, weighed: null);
         Paid = null;
         Viewing = null;
         if (Notice is null)
@@ -430,18 +523,103 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// <summary>
     /// A found product into the cart, with the "QTÉ × n" typed before it, which is then spent. The
     /// same for a scan and a touch, so the two cannot disagree about a count.
+    ///
+    /// <para>
+    /// A product sold by weight takes no count (B3): with a label's weight it goes in as that weight;
+    /// without one it waits for a weight (<see cref="Weighing"/>). A count typed before it is spent
+    /// and the cashier told, so "× 3" never silently becomes one weighing.
+    /// </para>
     /// </summary>
-    private TillNotice? AddToCart(ProductForSale product, string code)
+    private TillNotice? AddToCart(ProductForSale product, string code, WeighedAnswer? weighed)
     {
         try
         {
-            Cart.Add(product, code, NextCount);
+            if (!product.IsWeighted)
+            {
+                Cart.Add(product, code, NextCount);
+                NextCount = 1;
+                return null;
+            }
+
+            var countIgnored = NextCount > 1;
             NextCount = 1;
-            return null;
+            if (weighed is not null)
+            {
+                Cart.AddWeighed(product, code, WireFigures.Weight(weighed, product));
+            }
+            else
+            {
+                Weighing = new PendingWeight(
+                    code, product.ProductName, product.VariantName, WireFigures.Money(product.PriceTtc, product.Currency),
+                    product.SellingUnitCode, product.SellingUnitDecimalPlaces, LineId: null);
+            }
+
+            return countIgnored ? new TillNotice(TillNoticeKind.WeighedTakesNoCount, code, string.Empty) : null;
         }
         catch (Exception exception) when (exception is FormatException or InvalidOperationException)
         {
             return new TillNotice(TillNoticeKind.ServerUnavailable, code, $"The answer could not be used: {exception.Message}");
+        }
+    }
+
+    private async Task WeighAfter(Task previous, PendingWeight pending, long thousandths)
+    {
+        try
+        {
+            await previous;
+        }
+        catch (Exception) when (previous.IsFaulted || previous.IsCanceled)
+        {
+        }
+
+        if (!ReferenceEquals(Weighing, pending) && Weighing?.Code != pending.Code)
+        {
+            return; // given up, or replaced by a scan, while the weight was on its way
+        }
+
+        var answer = await products.WeighAsync(pending.Code, Figures.Quantity(thousandths));
+        Observe(reachable: answer is not LookupAnswer.ServerUnavailable);
+        Weighing = null;
+        Notice = answer switch
+        {
+            LookupAnswer.ServerUnavailable unavailable => new TillNotice(TillNoticeKind.ServerUnavailable, pending.Code, unavailable.Why),
+            LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.NotSellable } refused } =>
+                new TillNotice(TillNoticeKind.NotSellable, pending.Code, refused.Reason ?? string.Empty),
+            LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.Found, Product: { } product, Weighed: { } weighed } } =>
+                PutWeight(pending, product, weighed),
+            _ => new TillNotice(TillNoticeKind.ServerUnavailable, pending.Code, "StoreServer's answer could not be read."),
+        };
+
+        if (Notice is null)
+        {
+            Paid = null;
+            LastSale = null;
+            LastSaleAt = null;
+        }
+
+        Raise();
+    }
+
+    /// <summary>The weighed product onto the ticket, or its line's weight replaced ("Poids").</summary>
+    private TillNotice? PutWeight(PendingWeight pending, ProductForSale product, WeighedAnswer weighed)
+    {
+        try
+        {
+            var weight = WireFigures.Weight(weighed, product);
+            if (pending.LineId is { } lineId)
+            {
+                Cart.SetWeight(lineId, weight);
+            }
+            else
+            {
+                Cart.AddWeighed(product, pending.Code, weight);
+            }
+
+            return null;
+        }
+        catch (Exception exception) when (exception is FormatException or InvalidOperationException)
+        {
+            return new TillNotice(TillNoticeKind.ServerUnavailable, pending.Code, $"The answer could not be used: {exception.Message}");
         }
     }
 
@@ -458,7 +636,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         // D-085: a sale that may already be recorded is not sent again until the cashier has
         // checked. The screen shows Encaisser unavailable; this refuses whatever pressed it.
         // Nor while a past ticket is open (B1): the ticket that would be sold is hidden under it.
-        if (Cart.ActiveLines.Count == 0 || Unconfirmed is not null || Viewing is not null)
+        if (Cart.ActiveLines.Count == 0 || Unconfirmed is not null || Viewing is not null || Weighing is not null)
         {
             return;
         }
@@ -481,7 +659,12 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             till.TerminalId,
             // Only what is still in the sale. A line taken out stays on screen, struck, and must
             // never be charged: sending it would put back what the cashier removed.
-            [.. Cart.ActiveLines.Select(line => new SaleRequestLine(line.Barcode, line.Count))]);
+            // A weight typed by hand travels as text; a label's travels in its code, which the
+            // server reads again (D-090).
+            [.. Cart.ActiveLines.Select(line => new SaleRequestLine(
+                line.Barcode,
+                line.Count,
+                line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null))]);
 
         switch (await sales.CompleteSaleAsync(request, seller.Token))
         {
@@ -537,8 +720,8 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
                 // The reason's code, not words: the screen says it in the till's language.
                 return new TillNotice(TillNoticeKind.NotSellable, code, refused.Reason ?? string.Empty);
 
-            case LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.Found, Product: { } product } }:
-                return AddToCart(product, code);
+            case LookupAnswer.Answered { Lookup: { Outcome: ProductLookupOutcome.Found, Product: { } product } found }:
+                return AddToCart(product, code, found.Weighed);
 
             default:
                 return new TillNotice(TillNoticeKind.ServerUnavailable, code, "StoreServer's answer could not be read.");
@@ -578,7 +761,32 @@ public enum TillNoticeKind
 
     /// <summary>A past ticket of another day or till, and the person's rank does not reach 2 (B1, D-088).</summary>
     TicketNotAllowed,
+
+    /// <summary>A "× n" typed before a product sold by weight: spent, and not applied (B3).</summary>
+    WeighedTakesNoCount,
 }
+
+/// <summary>A product sold by weight waiting for its weight (B3, D-090).</summary>
+/// <param name="Code">What the sale will send for it: its barcode or PLU.</param>
+/// <param name="UnitPrice">Per unit of weight, for the card: "180,00 DA/kg".</param>
+/// <param name="Decimals">How finely the unit is sold: the most decimals a weight may have.</param>
+/// <param name="LineId">The line whose typed weight is being corrected, or null for a new weighing.</param>
+/// <param name="Typed">The text in the field so far.</param>
+/// <param name="Preview">The server's answer to it: the weight and the total, before Entrée.</param>
+/// <param name="Refusal">The server's reason, when it refused that weight.</param>
+/// <param name="Invalid">The text is not a weight the unit can be sold in.</param>
+public sealed record PendingWeight(
+    string Code,
+    string ProductName,
+    string VariantName,
+    Domain.Values.Money UnitPrice,
+    string UnitCode,
+    int Decimals,
+    string? LineId,
+    string Typed = "",
+    LineWeight? Preview = null,
+    string? Refusal = null,
+    bool Invalid = false);
 
 /// <summary>Which till this is: its terminal id, from <c>--terminal=</c>. Who sells at it is the sign-in's (A5).</summary>
 public sealed record TillIdentity(string? TerminalId);

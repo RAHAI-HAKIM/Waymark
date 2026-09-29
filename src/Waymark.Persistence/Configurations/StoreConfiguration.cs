@@ -81,6 +81,8 @@ internal sealed class StoreConfiguration : IEntityTypeConfiguration<Store>
             .HasConversion(EnumConverters.RoundingConverter)
             .HasDefaultValue(Rounding.HalfUp)
             .HasSentinel(Rounding.HalfUp);
+        builder.Property(x => x.ScaleLabelFormat)
+            .HasColumnName("scale_label_format");
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

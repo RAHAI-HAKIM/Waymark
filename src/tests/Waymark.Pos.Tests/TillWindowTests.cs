@@ -387,6 +387,51 @@ public sealed class TillWindowTests
         Assert.Equal(TillNoticeKind.TicketUnknown, till.Session.Notice?.Kind);
     });
 
+    // ================================================================ weighed goods (B3, D-090)
+
+    private static WeighCard? Card(Till till) =>
+        till.Window.GetVisualDescendants().OfType<Border>().Select(border => border.Tag).OfType<WeighCard>().SingleOrDefault();
+
+    [Fact]
+    public Task A_plu_typed_asks_for_a_weight_and_entree_on_the_weight_puts_it_on_the_ticket() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+
+        till.Type("4011");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => Card(till) is not null);
+        Assert.Equal("Tomates Vrac", Card(till)!.Article);
+        Assert.Empty(till.Session.Cart.Lines);
+
+        // The card shows the server's total once the cashier pauses, before Entrée.
+        till.Type("0,556");
+        till.WaitFor(() => Card(till)?.Total is not null);
+        Assert.StartsWith("0,556 kg = 100,08", Card(till)!.Total, StringComparison.Ordinal);
+
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Session.Cart.Lines.Count == 1);
+
+        Assert.Equal(556, till.Session.Cart.Lines[0].Quantity.Thousandths);
+        Assert.Null(Card(till));
+        Assert.Equal(string.Empty, till.SearchField.Text);
+        Assert.Contains("0.556", till.Server.Weights);
+    });
+
+    [Fact]
+    public Task Echap_gives_a_weighing_up_and_the_field_is_the_search_field_again() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.Type("4011");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => Card(till) is not null);
+
+        till.Key(Key.Escape, PhysicalKey.Escape);
+
+        Assert.Null(till.Session.Weighing);
+        Assert.Null(Card(till));
+        Assert.Empty(till.Session.Cart.Lines);
+    });
+
     // ================================================================ a till started before its server
 
     [Fact]
@@ -569,10 +614,32 @@ public sealed class TillWindowTests
                 return Task.FromResult<LookupAnswer>(new LookupAnswer.ServerUnavailable("down"));
             }
 
+            if (barcode == Tomatoes.VariantId[2..])
+            {
+                return Task.FromResult<LookupAnswer>(new LookupAnswer.Answered(new ProductLookup(ProductLookupOutcome.Found, barcode, Tomatoes, null)));
+            }
+
             var product = new ProductForSale(
                 "v-" + barcode, "p-" + barcode, "Article " + barcode[^3..], "1 L", "pc", 0, 1900, TvaRateSource.FromCategory,
                 "143.00", "DZD", false, "100");
             return Task.FromResult<LookupAnswer>(new LookupAnswer.Answered(new ProductLookup(ProductLookupOutcome.Found, barcode, product, null)));
+        }
+
+        /// <summary>PLU 4011: tomatoes at 180,00/kg, sold by weight (B3).</summary>
+        public static readonly ProductForSale Tomatoes = new(
+            "v-4011", "p-4011", "Tomates", "Vrac", "kg", 3, 900, TvaRateSource.FromCategory, "180.00", "DZD", false, "40", IsWeighted: true);
+
+        public List<string> Weights { get; } = [];
+
+        /// <summary>A weight priced as the server would: weight × 180,00, half up.</summary>
+        public Task<LookupAnswer> WeighAsync(string code, string weight, CancellationToken cancellationToken = default)
+        {
+            Weights.Add(weight);
+            var thousandths = (long)(decimal.Parse(weight, System.Globalization.CultureInfo.InvariantCulture) * 1000);
+            var centimes = ((thousandths * 18_000) + 500) / 1000;
+            return Task.FromResult<LookupAnswer>(new LookupAnswer.Answered(new ProductLookup(
+                ProductLookupOutcome.Found, code, Tomatoes, null,
+                new WeighedAnswer(weight, QuantitySources.TypedWeight, $"{centimes / 100}.{centimes % 100:D2}"))));
         }
 
         public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, string sessionToken, CancellationToken cancellationToken = default)

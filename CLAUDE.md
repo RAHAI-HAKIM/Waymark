@@ -69,6 +69,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **No arithmetic that can round exists as an operator.** `Times`, `Percent`, `Allocate` take an explicit policy, so grepping them enumerates every site where a centime can be created. **Never add `operator *(Money, decimal)`.**
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
+- **A scale label's price is exact** (D-090): the weight is worked back from it, `quantity_source` says which figure a row keeps exact, and a weight is priced by the server, never the till.
 - **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
 - **The TVA rate comes from `TvaRate.Resolve`**, never from a query (D-075): categories that agree give their rate; none, a null, or a disagreement gives 19% marked `StandardFallback`.
 - **Reasons come from `IReasonCodes`** (D-079): active only, ordered, and the list is what the foreign key will accept. `requires_manager` is carried, never enforced — rank is `StaffPermissions`.

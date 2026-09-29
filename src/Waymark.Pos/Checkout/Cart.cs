@@ -12,8 +12,8 @@ namespace Waymark.Pos.Checkout;
 /// and the cash rounding) are computed by StoreServer when the sale completes
 /// (hop 2). So the cart does only arithmetic that cannot round: a scan adds one
 /// whole unit, and a line total is the unit price times a whole count, which
-/// <see cref="Money"/> does exactly. Fractional quantities arrive with weighing
-/// in Phase 1, and with them a rounding policy.
+/// <see cref="Money"/> does exactly. <b>A weighed line's total is the server's</b>
+/// (B3, D-090): the till never rounds a weight times a price itself.
 /// </para>
 /// </summary>
 public sealed class Cart
@@ -62,6 +62,11 @@ public sealed class Cart
         ArgumentOutOfRangeException.ThrowIfLessThan(units, 1);
         ArgumentNullException.ThrowIfNull(product);
         ArgumentException.ThrowIfNullOrWhiteSpace(barcode);
+        if (product.IsWeighted)
+        {
+            // A weighed product is added with its weight (AddWeighed), never as units of nothing.
+            throw new InvalidOperationException($"{product.ProductName} is sold by weight: it needs a weight, not a count.");
+        }
 
         var price = WireFigures.Money(product.PriceTtc, product.Currency);
         var stock = WireFigures.Quantity(product.StockOnHand, product.SellingUnitCode);
@@ -112,15 +117,60 @@ public sealed class Cart
 
     /// <summary>
     /// Whether a second scan of the same product adds to this line rather than starting a new one
-    /// (D-087): only a plain line does. A line taken out is finished with. <b>B3, B4 and B5 add to
-    /// this rule</b>: a weighed line, a line with a discount and a line whose price was overridden
-    /// are not plain, and a scan merged into one would take its weight, discount or price without
-    /// anybody deciding it.
+    /// (D-087): only a plain line does. A line taken out is finished with, and so is a weighed one
+    /// (B3): a second weighing is a second line, never a weight added to the first. <b>B4 and B5 add
+    /// to this rule</b>: a line with a discount and a line whose price was overridden are not plain
+    /// either, and a scan merged into one would take its discount or price without anybody deciding it.
     /// </summary>
     public static bool TakesAnotherScan(CartLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        return !line.IsRemoved;
+        return !line.IsRemoved && !line.IsWeighed;
+    }
+
+    /// <summary>
+    /// A weighed line (B3, D-090): the product, the code sent for it, and the weight and total the
+    /// server answered. Always a line of its own, one weighing each.
+    /// </summary>
+    /// <exception cref="FormatException">A figure on the wire cannot be read exactly.</exception>
+    /// <exception cref="InvalidOperationException">The product is priced in another currency than the cart.</exception>
+    public CartLine AddWeighed(WireProduct product, string code, LineWeight weight)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        ArgumentNullException.ThrowIfNull(weight);
+
+        var price = WireFigures.Money(product.PriceTtc, product.Currency);
+        if (_lines.Count > 0 && _lines[0].UnitPrice.Currency.Code != price.Currency.Code)
+        {
+            throw new InvalidOperationException(
+                $"{product.ProductName} is priced in {price.Currency.Code}, the cart in {_lines[0].UnitPrice.Currency.Code}.");
+        }
+
+        var line = new CartLine(
+            NextLineId(), product.VariantId, code, product.ProductName, product.VariantName, product.SellingUnitCode, price, 1,
+            WireFigures.Quantity(product.StockOnHand, product.SellingUnitCode), product.IsPromotionalPrice, Weight: weight);
+        _lines.Add(line);
+        LastAdded = line;
+        return line;
+    }
+
+    /// <summary>
+    /// A typed weight corrected ("Poids" under a selected line, B3). Only a typed weight: a label's
+    /// weight or price is the label's, and a wrong label is a line removed, not a weight retyped.
+    /// </summary>
+    /// <returns>False, changing nothing, for a line not in the sale or not weighed by hand.</returns>
+    public bool SetWeight(string lineId, LineWeight weight)
+    {
+        ArgumentNullException.ThrowIfNull(weight);
+        var index = ActiveIndex(lineId);
+        if (index < 0 || _lines[index].Weight is not { IsTyped: true })
+        {
+            return false;
+        }
+
+        _lines[index] = _lines[index] with { Weight = weight };
+        return true;
     }
 
     /// <summary>
@@ -154,7 +204,7 @@ public sealed class Cart
     public bool SetCount(string lineId, int count)
     {
         var index = ActiveIndex(lineId);
-        if (index < 0 || count is < 1 or > MaxCount)
+        if (index < 0 || count is < 1 or > MaxCount || _lines[index].IsWeighed)
         {
             return false;
         }
@@ -192,6 +242,7 @@ public sealed class Cart
 /// cashier because customers ask; it changes no arithmetic, because a promotional price is
 /// the price and not a discount taken off one.
 /// </param>
+/// <param name="Weight">For a weighed line (B3): its weight, where it came from and the server's total. Null for a count.</param>
 public sealed record CartLine(
     string LineId,
     string VariantId,
@@ -203,16 +254,24 @@ public sealed record CartLine(
     int Count,
     Quantity StockOnHand,
     bool IsPromotionalPrice = false,
-    DateTimeOffset? RemovedAt = null)
+    DateTimeOffset? RemovedAt = null,
+    LineWeight? Weight = null)
 {
+    /// <summary>Sold by weight (B3): one weighing, never merged, never stepped.</summary>
+    public bool IsWeighed => Weight is not null;
+
     /// <summary>Taken out before payment: shown struck through, never charged, never sent.</summary>
     public bool IsRemoved => RemovedAt is not null;
 
     /// <summary>How much of the product the line holds, in its selling unit.</summary>
-    public Quantity Quantity => Domain.Values.Quantity.FromThousandths(checked(Count * (long)Domain.Values.Quantity.Scale), UnitCode);
+    public Quantity Quantity => Weight?.Quantity
+        ?? Domain.Values.Quantity.FromThousandths(checked(Count * (long)Domain.Values.Quantity.Scale), UnitCode);
 
-    /// <summary>The unit price times a whole count: exact, nothing to round.</summary>
-    public Money LineTotal => UnitPrice * Count;
+    /// <summary>
+    /// The unit price times a whole count, exact and with nothing to round; for a weighed line, the
+    /// server's total, which the till never works out itself (D-090).
+    /// </summary>
+    public Money LineTotal => Weight?.LineTotal ?? UnitPrice * Count;
 
     /// <summary>
     /// The cart holds more than the store records on hand (Hakim, 18/09). A
@@ -220,4 +279,15 @@ public sealed record CartLine(
     /// hand, and a level going negative is not a bug (CLAUDE.md §3.8).
     /// </summary>
     public bool ExceedsStockOnHand => Quantity > StockOnHand;
+}
+
+/// <summary>A weighed line's weight, as the server answered it (B3, D-090).</summary>
+/// <param name="Quantity">In the selling unit.</param>
+/// <param name="Source">One of <c>QuantitySources</c>: typed, a weight label or a price label.</param>
+/// <param name="LineTotal">The server's total. For a price label, the label's price.</param>
+/// <param name="UnitDecimals">How finely the unit is sold, for the weight typed again.</param>
+public sealed record LineWeight(Quantity Quantity, string Source, Money LineTotal, int UnitDecimals)
+{
+    /// <summary>Typed at the till: the only weight the cashier may type again, and the one the sale sends.</summary>
+    public bool IsTyped => Source == Contracts.Pos.QuantitySources.TypedWeight;
 }

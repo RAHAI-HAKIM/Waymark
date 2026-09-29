@@ -11,7 +11,14 @@ public static class SaleWire
     public static CompleteSale ToCommand(SaleRequest request, string sellerId) => new(
         request.TerminalId,
         sellerId,
-        [.. request.Lines.Select(line => new SaleLineRequest(line.Barcode, line.Count))]);
+        [.. request.Lines.Select(line => new SaleLineRequest(line.Barcode, line.Count, Weight(line.Weight)))]);
+
+    /// <summary>
+    /// A typed weight as thousandths. Text that is not a weight becomes zero, which the lookup
+    /// refuses as <c>weight_invalid</c>: the sale is refused with its reason, never sold by count.
+    /// </summary>
+    private static long? Weight(string? text) =>
+        text is null ? null : WireText.TryThousandths(text, out var thousandths) ? thousandths : 0;
 
     /// <summary>
     /// Who is selling (A5, D-083): the person the session signed in, when the session is this till's.

@@ -148,6 +148,7 @@ public sealed class PastTicketsTests(MigratedDatabaseFixture database) : IClassF
                     SellPrice = Dzd(price),
                     TaxAmount = Dzd(price * units / 10),
                     LineTotal = Dzd(price * units),
+                    QuantitySource = Waymark.Domain.Enums.QuantitySource.Count,
                     CreatedAt = at.AddMilliseconds(n),
                 });
             }

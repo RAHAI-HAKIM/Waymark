@@ -82,6 +82,7 @@ public sealed class TillWindow : Window, IDisposable
     private readonly Border _fieldChipHost = new();
     private readonly Border _resultsHost = new() { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top };
     private ITimer? _searchTimer;
+    private ITimer? _weighTimer;
     private SearchState? _search;
     private TicketsState? _tickets;
     private int _cardIndex;
@@ -197,7 +198,8 @@ public sealed class TillWindow : Window, IDisposable
             {
                 _tickets = null;
                 Render();
-            });
+            },
+            Reweigh: Reweigh);
 
         _signInActions = new SignInActions(
             Select: _signIn.Select,
@@ -449,7 +451,8 @@ public sealed class TillWindow : Window, IDisposable
             _search,
             _session.NextCount,
             _session.Viewing,
-            _tickets));
+            _tickets,
+            _session.Weighing));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
@@ -489,7 +492,9 @@ public sealed class TillWindow : Window, IDisposable
 
         if (changes.Results)
         {
-            _resultsHost.Child = screen.Results is { } results ? TillViews.Results(results, _theme, _actions) : null;
+            _resultsHost.Child = screen.Weigh is { } weigh ? TillViews.Weigh(weigh, _theme)
+                : screen.Results is { } results ? TillViews.Results(results, _theme, _actions)
+                : null;
         }
 
         FollowCart();
@@ -740,7 +745,13 @@ public sealed class TillWindow : Window, IDisposable
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_session.Viewing is not null)
+                if (_session.Weighing is not null)
+                {
+                    // A weight not typed after all (B3): nothing is weighed.
+                    _session.CancelWeighing();
+                    _input.Text = string.Empty;
+                }
+                else if (_session.Viewing is not null)
                 {
                     _session.CloseView();
                 }
@@ -853,6 +864,18 @@ public sealed class TillWindow : Window, IDisposable
     /// </summary>
     private void EnterInField()
     {
+        // A product sold by weight is waiting (B3): what the field holds is its weight, whatever it
+        // would otherwise be read as. A weight the unit cannot take stays in the field to be corrected.
+        if (_session.Weighing is not null)
+        {
+            if (_session.ConfirmWeight(_input.Text ?? string.Empty))
+            {
+                _input.Text = string.Empty;
+            }
+
+            return;
+        }
+
         var entry = FieldInput.Read(_input.Text);
         switch (entry.Kind)
         {
@@ -893,8 +916,23 @@ public sealed class TillWindow : Window, IDisposable
     /// <summary>The field changed: a name starts the timer; anything else closes the results.</summary>
     private void OnFieldChanged()
     {
-        var entry = FieldInput.Read(_input.Text);
         _searchTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _weighTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        if (_session.Weighing is not null)
+        {
+            // The weight typed so far, priced by the server once the cashier pauses, as a name is
+            // searched (B3): the card shows the total the sale will charge before Entrée.
+            _search = null;
+            var typed = _input.Text ?? string.Empty;
+            _weighTimer ??= _clock.CreateTimer(
+                _ => Dispatcher.UIThread.Post(() => _ = _session.PreviewWeightAsync(_input.Text ?? string.Empty)),
+                null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _weighTimer.Change(typed.Length == 0 ? TimeSpan.Zero : SearchAfter, Timeout.InfiniteTimeSpan);
+            Render();
+            return;
+        }
+
+        var entry = FieldInput.Read(_input.Text);
         if (entry.Kind == FieldKind.Name)
         {
             _search = new SearchState(entry.Text, _search?.Query == entry.Text ? _search.Answer : null, false, 0);
@@ -936,6 +974,14 @@ public sealed class TillWindow : Window, IDisposable
     {
         var index = answer?.Results.ToList().FindIndex(result => result.Outcome == ProductLookupOutcome.Found && result.Code is not null) ?? -1;
         return Math.Max(index, 0);
+    }
+
+    /// <summary>"Poids" under a line weighed by hand (B3): the weight is typed again in the field, which takes the focus back.</summary>
+    private void Reweigh(string lineId)
+    {
+        _input.Text = string.Empty;
+        _session.Reweigh(lineId);
+        _input.Focus();
     }
 
     /// <summary>A result touched, or taken by Entrée: sold as a scan of its code, if it can be. The field clears.</summary>
@@ -1250,5 +1296,6 @@ public sealed class TillWindow : Window, IDisposable
 
         _scanner.Dispose();
         _searchTimer?.Dispose();
+        _weighTimer?.Dispose();
     }
 }

@@ -128,6 +128,7 @@ internal sealed class SaleWriter
                 TaxAmount = amounts.Split.Tax,
                 LineTotal = amounts.LineTotal,
                 CreatedAt = now,
+                QuantitySource = QuantitySource.Count, // the generator sells whole units only
             });
         }
 
@@ -219,6 +220,7 @@ internal sealed class SaleWriter
                 TaxAmount = amounts.Split.Tax,
                 LineTotal = amounts.LineTotal,
                 CreatedAt = now,
+                QuantitySource = QuantitySource.Count, // the generator sells whole units only
             });
 
             Movement(StockMovementType.Sale, line, QuantityDelta.Decrease(line.Quantity), date, "transaction", transactionId, null, staff, now);
@@ -343,6 +345,7 @@ internal sealed class SaleWriter
             TaxAmount = amounts.Split.Tax,
             LineTotal = amounts.LineTotal,
             CreatedAt = now,
+            QuantitySource = QuantitySource.Count, // the generator sells whole units only
         });
 
         db.Transactions.Add(new Transaction

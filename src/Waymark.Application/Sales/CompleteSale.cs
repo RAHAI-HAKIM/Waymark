@@ -21,7 +21,11 @@ public sealed record CompleteSale(string TerminalId, string StaffId, IReadOnlyLi
     : ICommand<CompletedSale>;
 
 /// <summary>A scanned code and how many units of it.</summary>
-public sealed record SaleLineRequest(string Barcode, int Count);
+/// <param name="WeightThousandths">
+/// A weight typed at the till for a product sold by weight, in thousandths of its unit (B3);
+/// null for a count, and for a scale label, which carries its own weight or price.
+/// </param>
+public sealed record SaleLineRequest(string Barcode, int Count, long? WeightThousandths = null);
 
 /// <summary>What the sale came to.</summary>
 /// <param name="TransactionId">The sale's row.</param>
@@ -84,7 +88,7 @@ public sealed class CompleteSaleHandler(
         var now = clock.GetUtcNow();
         var today = calendar.Today;
 
-        var priced = new List<(ProductForSale Product, int Count)>();
+        var priced = new List<(ProductForSale Product, int Count, WeighedQuantity? Weighed)>();
         foreach (var line in command.Lines)
         {
             priced.Add(await Price(line, cancellationToken));
@@ -98,18 +102,33 @@ public sealed class CompleteSaleHandler(
         var sold = new List<SoldLine>();
         var tier2Lines = new List<Tier2Line>();
 
-        foreach (var (product, count) in priced)
+        foreach (var (product, count, weighed) in priced)
         {
-            var wanted = product.Unit.Whole(count);
+            // A weighed line takes its weight from the lookup (typed, or read from a label), a
+            // counted one its count (D-090).
+            var wanted = weighed?.Quantity ?? product.Unit.Whole(count);
+            var source = weighed?.Source ?? QuantitySource.Count;
             var batches = await ledger.BatchesAsync(product.VariantId, product.Unit.Code, cancellationToken);
             if (batches.Count == 0)
             {
                 throw new SaleRefusedException($"{product.ProductName} has never been received: there is no batch to sell it from.");
             }
 
-            foreach (var (batch, taken) in BatchAllocation.Take(batches, wanted, today))
+            var takes = BatchAllocation.Take(batches, wanted, today);
+
+            // A price label's price is exact, so it is split over the batches with Allocate and
+            // sums back to the label (O-26). Every other line is priced per batch, as D-070 does:
+            // each row is then its own quantity × price, and recomputes from itself.
+            var shares = source == QuantitySource.LabelPrice
+                ? WeighedLine.SplitDeclared(weighed!.Amounts.LineTotal, [.. takes.Select(take => take.Taken)])
+                : null;
+
+            for (var i = 0; i < takes.Count; i++)
             {
-                var amounts = SaleArithmetic.Line(product.PriceTtc, taken, zero, product.TvaRate, policy);
+                var (batch, taken) = takes[i];
+                var amounts = shares is null
+                    ? SaleArithmetic.Line(product.PriceTtc, taken, zero, product.TvaRate, policy)
+                    : new LineAmounts(shares[i], shares[i], shares[i].SplitTaxInclusive(product.TvaRate, policy));
                 (net, tax, total) = (net + amounts.Split.Net, tax + amounts.Split.Tax, total + amounts.LineTotal);
 
                 staging.Add(new TransactionItem
@@ -126,6 +145,7 @@ public sealed class CompleteSaleHandler(
                     TaxAmount = amounts.Split.Tax,
                     LineTotal = amounts.LineTotal,
                     CreatedAt = now,
+                    QuantitySource = source,
                 });
 
                 staging.Add(new StockMovement
@@ -246,13 +266,29 @@ public sealed class CompleteSaleHandler(
     }
 
     /// <summary>The line priced by the scan's own rules, or the reason it cannot be sold.</summary>
-    private async Task<(ProductForSale, int)> Price(SaleLineRequest line, CancellationToken cancellationToken) =>
-        await products.FindForSaleAsync(line.Barcode, cancellationToken) switch
+    private async Task<(ProductForSale, int, WeighedQuantity?)> Price(SaleLineRequest line, CancellationToken cancellationToken)
+    {
+        var found = await products.FindForSaleAsync(line.Barcode, line.WeightThousandths, cancellationToken) switch
         {
-            ProductLookupResult.Found found => (found.Product, line.Count),
+            ProductLookupResult.Found answer => answer,
             ProductLookupResult.NotSellable refused => throw new SaleRefusedException($"{line.Barcode}: not sellable ({refused.Reason})."),
             _ => throw new SaleRefusedException($"{line.Barcode}: no product carries this code."),
         };
+
+        // A weighed product sells by its weight, once: never by a count, never without a weight
+        // (D-090). The lookup already refused a weight typed for a product sold by count.
+        if (found.Product.IsWeighted && found.Weighed is null)
+        {
+            throw new SaleRefusedException($"{line.Barcode}: {found.Product.ProductName} is sold by weight, and no weight was given.");
+        }
+
+        if (found.Weighed is not null && line.Count != 1)
+        {
+            throw new SaleRefusedException($"{line.Barcode}: a weighed line is one weight, not {line.Count}.");
+        }
+
+        return (found.Product, line.Count, found.Weighed);
+    }
 
     /// <summary>
     /// The terminal's open session, or a new one opened by this sale's staff member with no float.

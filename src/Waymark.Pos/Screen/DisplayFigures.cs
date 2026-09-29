@@ -57,6 +57,24 @@ public static class DisplayFigures
         return Amount(amount) + UnitSeparator + text.CurrencySymbol(amount.Currency);
     }
 
+    /// <summary>
+    /// A weight with as many decimals as its unit is sold to (B3): <c>0,556</c>, <c>1,50</c>. Never
+    /// rounded: a weight finer than <paramref name="decimals"/> shows every thousandth it has.
+    /// </summary>
+    public static string Weight(Quantity weight, int decimals)
+    {
+        var magnitude = Math.Abs(weight.Thousandths);
+        var fraction = (magnitude % Quantity.Scale).ToString("000", CultureInfo.InvariantCulture);
+        var shown = Math.Clamp(decimals, 0, 3);
+        while (shown < 3 && fraction[shown..].Any(c => c != '0'))
+        {
+            shown++;
+        }
+
+        var head = (weight.IsNegative ? Minus.ToString() : string.Empty) + Grouped(magnitude / Quantity.Scale);
+        return shown == 0 ? head : head + DecimalSeparator + fraction[..shown];
+    }
+
     /// <summary>A whole count of units, grouped like every other figure.</summary>
     public static string Count(long count) =>
         count < 0 ? Minus + Grouped(Math.Abs(count)) : Grouped(count);

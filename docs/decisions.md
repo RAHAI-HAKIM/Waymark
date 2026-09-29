@@ -769,13 +769,55 @@ its own zone; nothing is sold or put aside while a past ticket is open, since th
 be sold is hidden under it. A code typed all at once is a scan (D-063), so a ticket number is typed,
 not pasted.
 
+### D-090 — B3: weighed goods are typed or read from a scale label; a label's price is exact (Hakim, 27/09; closes O-26)
+**Three ways in:** a weighed product's code typed, scanned or touched asks for its weight, typed in
+the one field (kg, net, `0,556` or `0.556`, no more decimals than the unit allows); a **weight label** carries grams; a
+**price label** carries what the customer pays. **The lookup tries the exact barcode, then the PLU,
+then the label**: every seed-42 barcode starts with 20, the in-store range labels use. **A label is
+read by the store's format**: a mask (`P` prefix, `I` item code matched to the PLU with leading zeros
+ignored, `V` value, `C` the EAN-13 check digit, which must hold), known ones shipped as named
+presets, a custom one allowed, and the store's choice in `stores.scale_label_format` (null is the
+default preset); the variant's `barcode_type` says whether `V` is a weight or a price. **A price
+label's figure is exact (O-26):** the quantity is derived from it and rounded to the unit's step by
+the store's policy, so stock absorbs the gram and money never moves; the row says so in
+`transaction_items.quantity_source` (`count`, `typed_weight`, `label_weight`, `label_price`), which
+also tells a typed weight, the unverifiable one, from a label's. A weighed line split over batches
+rounds per batch as D-070 does; a price label's total is split over them with `Allocate`, and each
+such row's quantity is its total ÷ price to within one step. **The server prices**: the till sends
+the label, or the code and the typed weight. A weighed line never merges (D-087) and takes no `3*`.
+**Not in B3:** a scale's own reading and `tare_weight` (the hardware survey); weighed produce in the
+generator (before J1). **Rejected:** charging weight × price against the label's printed price
+(Law 04-02); the gap as a discount nobody decided (D-076); a database-wide format in `system_config`.
+**Built 27/09:** presets from the scales' own documentation (`standard` CAS/Dibal/Mettler
+`PPIIIIIVVVVVC` in dinars, `standard-centimes`, `item4-verifier`, `item5-verifier`, `item6` the
+reviewed schema's); `X` is a price verifier read past, not checked; set by StoreServer's
+`--scale-format=` (`list` shows them) until H2. `quantity_source` is `required` on the entity, like
+`rounding_policy`: its column default only covers the rows written before it, all counts. A label is
+refused when its check digit fails or its prefix is not the store's (no product), when its product is
+not set up for labels or two PLUs read as one item code (`label_not_set_up`), or when its value
+cannot be sold (`label_value_invalid`); a typed weight as `weight_invalid`, or `not_sold_by_weight`.
+The weight is typed in the one field (D-088), with a card from the kit where the results float: the
+product, its price per kg and the server's total as the cashier types (Claude, 27/09, in place of the
+pad agreed: **for Hakim's review**). "Poids" retypes a typed weight, never a label's.
+
+### D-091 — B4: a discount given at the counter, rank 2, percent or amount, on a line or the ticket (Hakim, 28/09)
+**Two kinds of discount, two sessions.** A discount **given at the counter** (a "geste commercial",
+a damaged article) is B4: a person decides it then, with a reason from `IReasonCodes` (D-079). A
+discount **created in advance** that applies by itself (−10 % this week, two for one) is the
+`promotions` engine, **E2**, where a manager can create one; D-076's pointer to B4 is moved there.
+**Rank 2** gives one (D-077): a cashier's needs a manager's PIN, checked in StoreServer only
+(§3.10), and the row's `authorised_by` is the manager. **Percent or amount, on a line or the ticket.**
+A ticket discount **follows the ticket**: a percent re-applies to the new total, an amount stays,
+capped at it, and the server works both out at payment and spreads them with `Allocate`.
+**Rejected:** cashiers discounting alone up to a threshold (a store setting for H2); dropping a
+ticket discount when the ticket changes.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |
 | :---- | :---- | :---- | :---- |
 | O-23 | **How is statistics tier 2 (local DuckDB) encrypted at rest, and with what key?** *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher, so the database key does not carry over as it is: a separate key, derived or its own, has to be chosen, with its custody (D-057) and its place in the backup set | The real tier-2 writer, Phase 2 (0.5 stubs it, D-065). Until then the DPIA states the gap (§5.4) |
 | O-25 | **A product created at the till, tentative until the owner confirms it in Admin.** Replaces D-081's Divers | A schema change: a pending status on the product and variant, who created it, an Admin review queue, what happens to sales already made if the owner edits or rejects it, and Almanac excluding it until confirmed | Nothing in Phase 1. Replaces D-081 when decided; after E1, since it needs catalogue CRUD |
-| O-26 | **A weighed line priced by the person who weighed it (B3): which figure is exact?** The weight is inferred from the declared price | The customer pays the declared price, but the inferred weight has to round to the unit's decimals, so weight × unit price stops equalling it: 100,00 DA of tomatoes at 180,00/kg → 0,556 kg → 100,08. The row must still recompute from itself (D-053), and money arithmetic is settled (D-031…D-037) | **B3** |
 | O-29 | **Should a sign-in end when the till sits idle, and should a lockout survive a restart?** | Both live in StoreServer's memory (D-083), so rebooting the till clears every lockout: five guesses per reboot. An idle timeout is a rule about the shop floor; a lockout that survives needs a table | Nothing in Phase 1's flow. Before a pilot, since the DPIA's access-control line rests on the lockout |
 | O-28 | **Does a recommendation have an Adjust answer?** The design system says a suggestion has three (Review, Adjust, Dismiss); D-074, confirmed 21/09, records accept and dismiss | The brand promise against a confirmed rule. Adjust needs a rule for what an adjusted payload is and how it is recorded | Ajuster on the till's Almanac card and in Admin, shown unavailable until decided |
 | O-31 | **May a terminal that is not `active` sign in and sell?** Neither sign-in (`TillDirectory`) nor `CompleteSale` reads `terminals.status`, so a retired till still signs in and sells | Who and what may sell is an access rule (D-077, D-083). Claude's recommendation: refuse at sign-in as `unknown_terminal`, and at the sale | **H2** (terminals). Before a pilot |
@@ -809,3 +851,4 @@ not pasted.
 | O-22 | D-053 |
 | O-27 | D-085, interim: Encaisser closed until the cashier has checked. A key the server recognises is still I2's |
 | O-30 | D-086 |
+| O-26 | D-090: the label's price is exact, the quantity derived, the row marked |

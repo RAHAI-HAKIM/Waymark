@@ -44,8 +44,26 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
 
         // A query parameter, escaped: a code typed by hand can hold '/', '?' or
         // '&', and the server decodes a query string exactly once (D-066).
-        var path = new Uri($"api/products/lookup?barcode={Uri.EscapeDataString(barcode)}", UriKind.Relative);
+        return await AskLookupAsync(
+            new Uri($"api/products/lookup?barcode={Uri.EscapeDataString(barcode)}", UriKind.Relative), cancellationToken);
+    }
 
+    /// <summary>
+    /// What StoreServer says of a product sold by weight, weighed at <paramref name="weight"/> (B3,
+    /// D-090): the weight in its selling unit as invariant text, "0.556". The server prices it.
+    /// </summary>
+    public async Task<LookupAnswer> WeighAsync(string code, string weight, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        ArgumentException.ThrowIfNullOrWhiteSpace(weight);
+
+        return await AskLookupAsync(
+            new Uri($"api/products/lookup?barcode={Uri.EscapeDataString(code)}&weight={Uri.EscapeDataString(weight)}", UriKind.Relative),
+            cancellationToken);
+    }
+
+    private async Task<LookupAnswer> AskLookupAsync(Uri path, CancellationToken cancellationToken)
+    {
         try
         {
             using var response = await http.GetAsync(path, cancellationToken);
@@ -360,6 +378,14 @@ public interface ITillServer
 public interface IProductSource
 {
     Task<LookupAnswer> LookupAsync(string barcode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A product sold by weight, weighed (B3, D-090). A source that cannot weigh says the server is
+    /// out of reach, which is what the cashier would be told: the scripted sources of tests before
+    /// B3 need not know about weights.
+    /// </summary>
+    Task<LookupAnswer> WeighAsync(string code, string weight, CancellationToken cancellationToken = default) =>
+        Task.FromResult<LookupAnswer>(new LookupAnswer.ServerUnavailable("This source cannot weigh."));
 }
 
 /// <summary>Where the till sends a sale: <see cref="StoreServerClient"/>, or a script in tests.</summary>

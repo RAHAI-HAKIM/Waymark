@@ -71,7 +71,8 @@ public sealed class SchemaInvariantTests : IClassFixture<MigratedDatabaseFixture
     {
         // Name-based, so it is a guard rather than a proof. The exclusions are
         // columns whose names contain a money word but which are not amounts:
-        // "price_type" is an enum, "last_price_at" a timestamp.
+        // "price_type" is an enum, "last_price_at" a timestamp, "quantity_source"
+        // an enum saying where a quantity came from (D-090).
         var wrong = _schema.Query("""
             SELECT m.name || '.' || i.name || ' is ' || i.type
             FROM sqlite_schema m
@@ -82,6 +83,7 @@ public sealed class SchemaInvariantTests : IClassFixture<MigratedDatabaseFixture
               AND i.name NOT LIKE '%\_at' ESCAPE '\'
               AND i.name NOT LIKE '%\_type' ESCAPE '\'
               AND i.name NOT LIKE '%\_id' ESCAPE '\'
+              AND i.name NOT LIKE '%\_source' ESCAPE '\'
               AND i.type <> 'INTEGER'
             ORDER BY 1
             """);

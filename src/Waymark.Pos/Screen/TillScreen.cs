@@ -34,6 +34,7 @@ public enum Tone
 /// <param name="NextCount">What the next scan or touch adds: the "QTÉ × n" chip (B1).</param>
 /// <param name="Viewing">A past ticket open read-only in the ticket view (B1).</param>
 /// <param name="Tickets">The "Tickets" list, when the rail shows it (B1).</param>
+/// <param name="Weighing">A product sold by weight waiting for its weight (B3).</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -55,7 +56,8 @@ public sealed record ScreenState(
     SearchState? Search = null,
     int NextCount = 1,
     PastTicketDetail? Viewing = null,
-    TicketsState? Tickets = null);
+    TicketsState? Tickets = null,
+    PendingWeight? Weighing = null);
 
 /// <summary>A name search: what was typed, the server's answer (null while asked, or when it could not say), which row Entrée takes.</summary>
 /// <param name="Offline">The server could not answer.</param>
@@ -71,6 +73,7 @@ public sealed record TicketsState(DateOnly Day, bool AllTills, TicketList? List,
 /// </summary>
 /// <param name="Field">The chip in the search field: "QTÉ × 1", or the n typed before a scan (B1).</param>
 /// <param name="Results">The name search's results, floating over the ticket; null when there is no search (B1).</param>
+/// <param name="Weigh">The weight card, floating where the results float, while a weight is awaited (B3).</param>
 public sealed record TillScreen(
     bool RightToLeft,
     TopBar Top,
@@ -79,7 +82,8 @@ public sealed record TillScreen(
     Rail Rail,
     BottomBar Bottom,
     FieldChip Field,
-    ResultsView? Results)
+    ResultsView? Results,
+    WeighCard? Weigh = null)
 {
     /// <summary>The key for "Encaisser". Every action has its F key (G1 kit §9).</summary>
     public const string CollectKey = "F12";
@@ -110,8 +114,43 @@ public sealed record TillScreen(
             CartOf(state),
             RailOf(state),
             BottomOf(state),
-            new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
-            ResultsOf(state));
+            state.Weighing is { } weighing
+                ? new FieldChip(text.WeightChip(weighing.UnitCode), Active: true)
+                : new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
+            state.Weighing is null ? ResultsOf(state) : null,
+            WeighOf(state));
+    }
+
+    /// <summary>
+    /// The weight card (B3, D-090): the product and its price per unit, what was typed, and the
+    /// server's total for it, or why the weight cannot be sold. The till never works a total out
+    /// itself: the figure shown is the one the sale will charge.
+    /// </summary>
+    private static WeighCard? WeighOf(ScreenState state)
+    {
+        if (state.Weighing is not { } weighing)
+        {
+            return null;
+        }
+
+        var text = state.Text;
+        var typed = weighing.Typed.Trim();
+        var message = weighing.Invalid ? text.WeighInvalid(weighing.Decimals)
+            : weighing.Refusal is { } refusal ? text.NotSellableReason(refusal)
+            : typed.Length == 0 ? text.WeighPrompt(weighing.UnitCode)
+            : null;
+        var total = weighing.Preview is { } preview && message is null
+            ? $"{DisplayFigures.Weight(preview.Quantity, weighing.Decimals)} {weighing.UnitCode} = {DisplayFigures.AmountWithCurrency(preview.LineTotal, text)}"
+            : null;
+
+        return new WeighCard(
+            text.WeighTitle,
+            $"{weighing.ProductName} {weighing.VariantName}",
+            text.PerUnit(DisplayFigures.AmountWithCurrency(weighing.UnitPrice, text), weighing.UnitCode),
+            total,
+            message,
+            weighing.Invalid || weighing.Refusal is not null,
+            text.WeighKeys);
     }
 
     /// <summary>
@@ -143,7 +182,7 @@ public sealed record TillScreen(
             Rail: !Same(drawn.Rail, next.Rail),
             Bottom: !Same(drawn.Bottom, next.Bottom),
             Field: drawn.Field != next.Field,
-            Results: !Same(drawn.Results, next.Results));
+            Results: !Same(drawn.Results, next.Results) || drawn.Weigh != next.Weigh);
     }
 
     private static bool Same(ResultsView? drawn, ResultsView? next) => (drawn, next) switch
@@ -254,6 +293,9 @@ public sealed record TillScreen(
             case { Kind: TillNoticeKind.TicketNotAllowed }:
                 return new NoticeLine(Tone.Warning, text.ManagerOnly, text.TicketsNotAllowed);
 
+            case { Kind: TillNoticeKind.WeighedTakesNoCount }:
+                return new NoticeLine(Tone.Warning, text.CountIgnored, text.CountIgnoredDetail);
+
             // An unconfirmed sale takes the rail (RailOf), where its instructions fit; the slot
             // goes on saying what it would otherwise say.
         }
@@ -302,10 +344,13 @@ public sealed record TillScreen(
             var selected = !paid && !line.IsRemoved && line.LineId == state.SelectedLineId;
             return new LineRow(
                 line.LineId,
-                DisplayFigures.Count(line.Count),
+                line.Weight is { } weight
+                    ? $"{DisplayFigures.Weight(weight.Quantity, weight.UnitDecimals)} {line.UnitCode}"
+                    : DisplayFigures.Count(line.Count),
                 Article(line),
                 ChipsOf(line, text, state),
-                DisplayFigures.Amount(line.UnitPrice),
+                // A weighed line's price is per unit of weight, and says so: "180,00 /kg" (G1 board).
+                line.IsWeighed ? $"{DisplayFigures.Amount(line.UnitPrice)} /{line.UnitCode}" : DisplayFigures.Amount(line.UnitPrice),
                 DisplayFigures.Amount(line.LineTotal),
                 line.IsRemoved,
                 selected);
@@ -331,6 +376,15 @@ public sealed record TillScreen(
             return null;
         }
 
+        // A weighed line has no stepper: it is one weighing. A weight typed by hand can be typed
+        // again ("Poids"); a label's cannot, and a wrong label is a line removed (B3).
+        if (line.Weight is { } weight)
+        {
+            return new LineActions(
+                line.LineId, 1, $"{DisplayFigures.Weight(weight.Quantity, weight.UnitDecimals)} {line.UnitCode}", false,
+                state.Text.RemoveLine, RemoveLineKey, weight.IsTyped ? state.Text.Reweigh : null, IsWeighed: true);
+        }
+
         return new LineActions(line.LineId, line.Count, DisplayFigures.Count(line.Count), line.Count > 1, state.Text.RemoveLine, RemoveLineKey);
     }
 
@@ -354,6 +408,18 @@ public sealed record TillScreen(
         if (line.IsPromotionalPrice)
         {
             chips.Add(new Chip(Tone.Neutral, text.PromotionalPrice));
+        }
+
+        // Where a weight came from, said on the line (D-090): a typed weight is the one nothing
+        // vouches for, and whoever reviews the drawer should see which lines were typed.
+        if (line.Weight is { } weight)
+        {
+            chips.Add(new Chip(Tone.Neutral, weight.Source switch
+            {
+                QuantitySources.TypedWeight => text.TypedWeight,
+                QuantitySources.LabelPrice => text.LabelPrice,
+                _ => text.LabelWeight,
+            }));
         }
 
         return chips;
@@ -707,7 +773,7 @@ public sealed record TillScreen(
         var currency = CurrencyOf(state);
         var totalDue = state.Cart.Total ?? (currency is { } known ? Domain.Values.Money.Zero(known) : (Money?)null);
         // Not while a sale is unconfirmed: Encaisser would send it again (D-085).
-        var canCollect = state.Cart.ActiveLines.Count > 0 && state.Unconfirmed is null;
+        var canCollect = state.Cart.ActiveLines.Count > 0 && state.Unconfirmed is null && state.Weighing is null;
 
         // What the drawer takes: the total rounded to the cash step, by the same function the
         // server uses (Money.ToCashTender, D-034), so the button and the receipt agree.
@@ -836,7 +902,17 @@ public sealed record EmptyState(string Title, string Hint);
 /// <param name="Count">The line's count, which − and + change by one.</param>
 /// <param name="Quantity">The same count, as the stepper shows it.</param>
 /// <param name="MayDecrease">False at one: the last unit goes with "Retirer la ligne".</param>
-public sealed record LineActions(string LineId, int Count, string Quantity, bool MayDecrease, string Remove, string RemoveKey);
+/// <param name="Reweigh">"Poids", for a line whose weight was typed; null otherwise (B3).</param>
+/// <param name="IsWeighed">A weighed line: no stepper, one weighing (B3).</param>
+public sealed record LineActions(
+    string LineId, int Count, string Quantity, bool MayDecrease, string Remove, string RemoveKey, string? Reweigh = null, bool IsWeighed = false);
+
+/// <summary>The weight card (B3, D-090), floating where the search results float.</summary>
+/// <param name="PerUnit">"180,00 DA / kg".</param>
+/// <param name="Total">"0,556 kg = 100,08 DA", the server's figure; null until it has answered.</param>
+/// <param name="Message">What to type, or why what was typed cannot be sold; null once a total is shown.</param>
+/// <param name="Refused">The message is a refusal, not a prompt.</param>
+public sealed record WeighCard(string Title, string Article, string PerUnit, string? Total, string? Message, bool Refused, string Keys);
 
 public sealed record Figure(string Label, string Value);
 

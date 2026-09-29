@@ -28,6 +28,18 @@ public static class WireFigures
     public static Quantity Quantity(string text, string unitCode) =>
         Domain.Values.Quantity.FromThousandths(Exact(text, Domain.Values.Quantity.Scale, "a quantity"), unitCode);
 
+    /// <summary>A weighed line as the server answered it (B3): its weight, source and total.</summary>
+    public static Checkout.LineWeight Weight(Contracts.Pos.WeighedAnswer answer, Contracts.Pos.ProductForSale product)
+    {
+        ArgumentNullException.ThrowIfNull(answer);
+        ArgumentNullException.ThrowIfNull(product);
+        return new Checkout.LineWeight(
+            Quantity(answer.Quantity, product.SellingUnitCode),
+            answer.QuantitySource,
+            Money(answer.LineTotal, product.Currency),
+            product.SellingUnitDecimalPlaces);
+    }
+
     private static long Exact(string text, int scale, string what)
     {
         if (!decimal.TryParse(text, Style, CultureInfo.InvariantCulture, out var value))

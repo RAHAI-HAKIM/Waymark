@@ -515,11 +515,14 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
     }
 
     [Fact]
-    public async Task A_weighted_variant_waits_for_phase_1()
+    public async Task A_weighted_variant_sells_and_says_it_is_weighed_so_the_till_asks_for_a_weight()
     {
+        // Refused until B3; now found, marked weighed, with no weight yet (D-090).
         var shop = new Shop(database, weighted: true).Price(LastMonth, 12_000);
 
-        Assert.Equal(NotSellableReason.Weighted, await shop.Refused());
+        var found = Assert.IsType<ProductLookupResult.Found>(await shop.Lookup());
+        Assert.True(found.Product.IsWeighted);
+        Assert.Null(found.Weighed);
     }
 
     // ------------------------------------------------------- the TVA rate

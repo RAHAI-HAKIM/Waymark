@@ -55,6 +55,13 @@ public sealed class Store : IStoreScoped
 
     public string? TaxRegistrationNumber { get; init; }
 
+    /// <summary>
+    /// How this store's scale labels are read (D-090): a preset's name, or a custom mask. Null
+    /// means <see cref="Catalogue.ScaleLabelFormat.Default"/>. Read through
+    /// <see cref="Catalogue.ScaleLabelFormat.Parse"/>, which refuses a mask it cannot read.
+    /// </summary>
+    public string? ScaleLabelFormat { get; init; }
+
     public string FiscalYearStart { get; init; } = "01-01";
 
     public string? ManagerId { get; init; }

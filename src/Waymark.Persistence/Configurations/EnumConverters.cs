@@ -221,6 +221,9 @@ internal static class EnumConverters
     public static readonly ValueConverter<ProcessingPurpose, string> ProcessingPurposeConverter =
         new(value => ToDatabase(value), text => ToProcessingPurpose(text));
 
+    public static readonly ValueConverter<QuantitySource, string> QuantitySourceConverter =
+        new(value => ToDatabase(value), text => ToQuantitySource(text));
+
     public static readonly ValueConverter<Rounding, string> RoundingConverter =
         new(value => ToDatabase(value), text => ToRounding(text));
 
@@ -379,6 +382,26 @@ internal static class EnumConverters
         "price_embedded" => BarcodeType.PriceEmbedded,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown BarcodeType value in the database.")
+    };
+
+    private static string ToDatabase(QuantitySource value) => value switch
+    {
+        QuantitySource.Count => "count",
+        QuantitySource.TypedWeight => "typed_weight",
+        QuantitySource.LabelWeight => "label_weight",
+        QuantitySource.LabelPrice => "label_price",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped QuantitySource.")
+    };
+
+    private static QuantitySource ToQuantitySource(string text) => text switch
+    {
+        "count" => QuantitySource.Count,
+        "typed_weight" => QuantitySource.TypedWeight,
+        "label_weight" => QuantitySource.LabelWeight,
+        "label_price" => QuantitySource.LabelPrice,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown QuantitySource value in the database.")
     };
 
     private static string ToDatabase(BatchStatus value) => value switch

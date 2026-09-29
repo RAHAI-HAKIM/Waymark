@@ -89,4 +89,26 @@ public sealed class SaleWireTests
     }
 
     private static string WireText(Money money) => StoreServer.WireText.Figure(money);
+
+    [Fact]
+    public void A_typed_weight_reaches_the_command_as_thousandths_and_a_label_or_a_count_as_none()
+    {
+        var request = new SaleRequest("till", [
+            new SaleRequestLine("4011", 1, "0.556"),
+            new SaleRequestLine("2100537001008", 1),
+            new SaleRequestLine("6130000000017", 3),
+        ]);
+
+        var lines = SaleWire.ToCommand(request, "staff").Lines;
+
+        Assert.Equal([556L, null, null], lines.Select(line => line.WeightThousandths));
+    }
+
+    [Fact]
+    public void A_weight_that_is_not_one_reaches_the_command_as_zero_so_the_sale_is_refused_not_sold_by_count()
+    {
+        var request = new SaleRequest("till", [new SaleRequestLine("4011", 1, "0,556")]);
+
+        Assert.Equal(0L, SaleWire.ToCommand(request, "staff").Lines.Single().WeightThousandths);
+    }
 }

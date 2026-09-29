@@ -134,51 +134,8 @@ public readonly struct Money : IEquatable<Money>, IComparable<Money>
     public Money Times(long numerator, long denominator, Rounding rounding)
     {
         var currency = RequireCurrency();
-
-        if (denominator == 0)
-        {
-            throw new DivideByZeroException(
-                "Money cannot be divided by zero. If the caller expects zero to be possible, "
-                + "call TryDivideBy and handle the null.");
-        }
-
-        var product = (Int128)MinorUnits * numerator;
-        Int128 divisor = denominator;
-
-        // Normalise the sign onto the product so the half-way test below only
-        // ever compares magnitudes.
-        if (divisor < 0)
-        {
-            divisor = -divisor;
-            product = -product;
-        }
-
-        var quotient = product / divisor;          // truncates toward zero
-        var remainder = product - (quotient * divisor);
-
-        if (remainder != 0)
-        {
-            var twiceRemainder = Int128.Abs(remainder) * 2;
-
-            var awayFromZero = twiceRemainder > divisor
-                || (twiceRemainder == divisor && IsHalfRoundedAway(quotient, rounding));
-
-            if (awayFromZero)
-            {
-                quotient += product < 0 ? -1 : 1;
-            }
-        }
-
-        return new Money(checked((long)quotient), currency);
+        return new Money(RationalRounding.Divide((Int128)MinorUnits * numerator, denominator, rounding), currency);
     }
-
-    private static bool IsHalfRoundedAway(Int128 quotient, Rounding rounding) => rounding switch
-    {
-        Rounding.HalfUp => true,
-        // Away from zero makes an odd quotient even, which is the whole point.
-        Rounding.HalfEven => (quotient & 1) != 0,
-        _ => throw new ArgumentOutOfRangeException(nameof(rounding), rounding, "Unknown rounding policy."),
-    };
 
     /// <summary>A percentage of this amount, rounded once.</summary>
     public Money Percent(BasisPoints rate, Rounding rounding) =>

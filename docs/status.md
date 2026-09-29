@@ -2,9 +2,9 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**25/09/2026**: **block A is done and reviewed** (§9); **B2 is done** (§10); **B1 is built and waits
-on Hakim's past-tickets reader** (§11): one field that scans, types a code, searches a name or opens a
-ticket; the Tickets list; a past ticket read-only (D-088). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+**27/09/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
+weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is agreed, not
+started** (D-091). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -14,8 +14,8 @@ ticket; the Tickets list; a past ticket read-only (D-088). Phase 0.5's recap is 
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1559** once B1's reader is in (Integration 573 · Pos 405 · Generator 237 · Domain 239 · Hardware 64 · Application 41). Until then **21 are red on purpose**: `PastTicketsTests` (20), and the end-to-end `StoreServerStartupTests` at its ticket step. **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
-| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, 6 migrations. **Unchanged by Phase 0.5** — the skeleton needed no migration |
+| Tests | **1743**, all green in Debug and Release (Integration 618 · Pos 477 · Domain 306 · Generator 237 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, **7 migrations**: `WeighedGoods` (B3) added `transaction_items.quantity_source` and `stores.scale_label_format` |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
 | Recaps | `recaps/phase-0.md` and `recaps/phase-0.5.md`. Read one only when a question reaches back into a finished phase |
@@ -44,6 +44,7 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
+| F-27 | Low | **Two B3 pieces of the G1 board are not built**: the "Poids / PLU · saisie manuelle" key (F2) beside the field, and the rail's "Articles sans code-barres" grid (Tomates 180,00 /kg, Œufs 25,00 /u… and "Nouvel article"). B3 sells them by PLU typed in the field | G1 board, `Pos/Ui/TillViews.cs` | **Hakim brings the design**: what F2 does beyond focusing the field, which products the grid shows and in what order, and what "Nouvel article" is (O-25) |
 | F-25 | Low | **The Almanac card's "1 / 3" takes a touch only on its 12 px figures**, the defect D-084 fixed for keys. It is a label that acts, not a key | `Pos/Ui/TillViews.cs`, `Almanac` | **Decide** at the next rail design: a key, or a larger target |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
 | F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
@@ -59,7 +60,6 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | :---- | :---- | :---- |
 | O-23 | *How* is statistics tier 2 (local DuckDB) encrypted, and with what key? *Whether* is settled: it is (D-065) | DuckDB's encryption is not SQLCipher. Decide with the real tier-2 writer in Phase 2. The DPIA states the gap meanwhile (§5.4) |
 | O-25 | A product created at the till, tentative until the owner confirms it in Admin | Schema change. Replaces D-081's Divers when decided; after E1 |
-| O-26 | A weighed line priced by whoever weighed it: which figure is exact once the weight is inferred and rounded? | Money arithmetic. **Blocks B3** |
 | O-28 | Does a recommendation have an Adjust answer (design system) or not (D-074)? | Ajuster is shown unavailable until decided |
 | O-29 | Should a sign-in end when the till is idle, and a lockout survive a restart? Both are memory today (D-083) | Nothing in Phase 1's flow. **Before a pilot** |
 | O-31 | May a terminal that is not `active` sign in and sell? Today a retired till can | An access rule. **H2**, before a pilot |
@@ -114,7 +114,7 @@ starting point is always code already reviewed. §7 below is the map.
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
-| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2 done 25/09** (§10); **B1 built**, Hakim's reader to write (§11) |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B2, B1, B3 done** (§10–§12); B4 agreed (D-091) |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
@@ -403,7 +403,7 @@ Every session was broken on purpose (D-012), each mutation caught by its own tes
 - `StaffPermissions.May` has no caller yet, and there is no reason picker on the till: **B4, B5, B8**.
 - The − / + stepper under a line and parked tickets as tabs (asked at the G1 review): **done in B2**.
 - Clock-in and "Pointer sans ouvrir la caisse": **B10**. Admin sign-in: **I1**.
-- Rounding moves no earlier: a weight inferred from a price is **B3** (O-26), a ticket discount
+- Rounding moves no earlier: a weight inferred from a price is **B3** (D-090), a ticket discount
   spread with `Allocate` is **B4**, only the cash portion rounds in **B6**, counted cash is **C2**.
 - seed-42 has no promotion (**E2**); listing products sold on the TVA fallback is **E**.
 - Still Hakim's to confirm: the dark focus ring `#C6B6EE` (D-082), and the Arabic strings marked
@@ -440,11 +440,10 @@ with their sessions.
 
 ---
 
-## 11. Session B1 — built 25/09, waiting on Hakim's reader (D-088)
+## 11. Session B1 — done 26/09 (D-088, D-089)
 
 **✍ Hakim's piece:** `Persistence/Sales/PastTickets.cs`, the rules in its doc comment, its 20 tests
-in `PastTicketsTests` (red until written). The end-to-end `StoreServerStartupTests` lists and opens
-the sale it made through it, so it is red at that step too until then.
+in `PastTicketsTests`. Money is merged in memory: a converted column cannot be grouped in SQL.
 
 | Where | What |
 | :---- | :---- |
@@ -459,3 +458,37 @@ the sale it made through it, so it is red at that step too until then.
 **Broken on purpose**, twelve mutations, each caught by its own tests; the ranking one was not at
 first, and its test was rewritten until it was. **For Hakim's review:** the results and the Tickets
 panel have no board; they are built from the kit; the Arabic words are `// ar: à relire`.
+
+---
+
+## 12. Session B3 — done 28/09 (D-090)
+
+**`Domain/Sales/WeighedLine.cs`**, the O-26 arithmetic: a weight's line, a price label's quantity
+worked back and rounded once by the store's policy, its price split over batches, and whether a
+stored row recomputes. Written by Claude on Hakim's word (28/09) after his start; the rules are its
+doc comment, its 29 tests `WeighedLineTests`.
+
+| Where | What |
+| :---- | :---- |
+| `Domain/Values/RationalRounding.cs` | The one rounding implementation, lifted out of `Money.Times`, which now calls it |
+| `Domain/Catalogue/ScaleLabelFormat.cs` | The mask, the presets, the EAN-13 check digit, a PLU compared without its zeros |
+| `Persistence/Catalogue/ProductLookup.cs` | Barcode, then PLU, then the store's label format; a typed weight; the new refusals |
+| `Application/Sales/CompleteSale.cs` | A weighed line takes its weight; a price label is split with `Allocate`; `quantity_source` on every row |
+| Migration `WeighedGoods` | `transaction_items.quantity_source` (a CHECK, so the table is rebuilt: its columns come back in alphabetical order), `stores.scale_label_format` |
+| `StoreServer --scale-format=` | Sets the store's format; `list` prints the presets (`Application/Organisation/SetScaleLabelFormat.cs`) |
+| `Pos/Checkout/Cart.cs`, `TillSession.cs` | `LineWeight`, `AddWeighed`, `SetWeight`; `Weighing`, `ConfirmWeight`, `PreviewWeightAsync`, `Reweigh` |
+| `Pos/Screen/WeightEntry.cs`, `TillScreen.cs`, `Ui/TillViews.cs` | What a typed weight is; the weight card; a weighed line's row, chip and "Poids" |
+
+**The tests:** `ScaleLabelFormatTests`, `WeighedGoodsTests` (lookup, sale rows, the format command),
+`TillWeighTests`, `WeightEntryTests`, and the B3 sections of `CartTests`, `TillScreenTests`,
+`TillWindowTests`, `ProductLookupWireTests`, `SaleWireTests`. **Broken on purpose**, 29 mutations,
+each caught by its own tests; a split rounded part by part survived at first, and a three-way split
+test was added until it did not.
+
+**For Hakim's review:** the weight is typed in the field, with a card where the results float,
+rather than the pad agreed; the Arabic words are `// ar: à relire`. **To try it:** seed-42 has
+nothing weighed. `python tools/dev-weighed/add_weighed.py <generated>/waymark-store.db` adds tomatoes
+(PLU 4011, weight labels) and olives (PLU 537, price labels) before the import, and prints a label of
+each to scan. An already imported store is migrated at StoreServer's next start, but has no weighed
+product: import a fresh copy into a new data directory to try one.
+

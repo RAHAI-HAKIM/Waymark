@@ -5,6 +5,7 @@
 // code marker: that marker switches off the nullable context and the analysers
 // on exactly the code that most needs them.
 
+using Waymark.Domain.Enums;
 using Waymark.Domain.Values;
 
 namespace Waymark.Domain.Sales;
@@ -50,4 +51,13 @@ public sealed class TransactionItem
     public required Money LineTotal { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>
+    /// Where <see cref="Quantity"/> came from, and so which of quantity and line total is exact
+    /// (D-090). <b>Required, with no default</b>, like <see cref="Transaction.RoundingPolicy"/>: a
+    /// weighed row that silently took <c>count</c> would recompute the wrong way round. The column's
+    /// default exists only for the rows written before it (all of them counts, since nothing
+    /// weighed could be sold until B3).
+    /// </summary>
+    public required QuantitySource QuantitySource { get; init; }
 }
