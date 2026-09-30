@@ -26,6 +26,9 @@ public enum KeyLook
 
     /// <summary>A PIN pad key: the tile ground, no edge (G1 "Connexion").</summary>
     Pad,
+
+    /// <summary>The choice that is down, among several (the payment's method keys, B6): the tile ground and the action's edge.</summary>
+    Chosen,
 }
 
 /// <summary>
@@ -62,6 +65,7 @@ public sealed class TillKey : Border
             (KeyLook.Primary, true) => (theme.Action, null),
             (KeyLook.Secondary, true) => (theme.Card, theme.Border),
             (KeyLook.Pad, true) => (theme.Tile, null),
+            (KeyLook.Chosen, true) => (theme.Tile, theme.Action),
             _ => ((IBrush?)null, (IBrush?)null),
         };
 
@@ -80,7 +84,7 @@ public sealed class TillKey : Border
         {
             Background = ground,
             BorderBrush = edge,
-            BorderThickness = edge is null ? default : new Thickness(1),
+            BorderThickness = edge is null ? default : new Thickness(look == KeyLook.Chosen ? 2 : 1),
             CornerRadius = new CornerRadius(TillSizes.KeyRadius),
             MinHeight = height,
             Padding = new Thickness(16, 0),

@@ -147,7 +147,7 @@ public sealed class TillWindowTests
         using var till = Till.SignedIn();
         till.Server.SaleAnswer = new SaleAnswer.Unknown("timeout");
         till.ScanMany(2);
-        till.Key(Key.F12, PhysicalKey.F12);
+        till.Pay();
         var chip = till.Window.GetVisualDescendants().OfType<TillKey>()
             .First(key => key.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "Nabil B."));
 
@@ -198,17 +198,17 @@ public sealed class TillWindowTests
         using var till = Till.SignedIn();
         till.Server.SaleAnswer = new SaleAnswer.Unknown("timeout");
         till.ScanMany(1);
-        till.Key(Key.F12, PhysicalKey.F12);
+        till.Pay();
         Assert.Equal(1, till.Server.Sales);
 
         till.Key(Key.Escape, PhysicalKey.Escape);
-        till.Key(Key.F12, PhysicalKey.F12);
+        till.Pay();
         Assert.Equal(1, till.Server.Sales);
 
         var checkedKey = till.Window.GetVisualDescendants().OfType<TillKey>()
             .First(key => key.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == TillText.French.AcknowledgeUnconfirmed));
         till.Tap(checkedKey, new Point(20, 20));
-        till.Key(Key.F12, PhysicalKey.F12);
+        till.Pay();
 
         Assert.Equal(2, till.Server.Sales);
     });
@@ -599,6 +599,135 @@ public sealed class TillWindowTests
         .Single(key => key.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == digit)
             && key.GetVisualAncestors().OfType<Control>().Any(control => control.Tag is Screen.Approval));
 
+    // ================================================================ the payment (B6, D-094, D-095)
+
+    private static Border? PaymentCard(Till till) =>
+        till.Window.GetVisualDescendants().OfType<Border>().SingleOrDefault(border => border.Tag is PaymentPanel);
+
+    private static TillKey KeyReading(Till till, string text) => till.Window.GetVisualDescendants().OfType<TillKey>()
+        .Single(key => key.GetVisualAncestors().OfType<Control>().Any(control => control.Tag is PaymentPanel)
+            && key.GetVisualDescendants().OfType<TextBlock>().Any(block => block.Text == text));
+
+    [Fact]
+    public Task Encaisser_floats_the_payment_over_the_whole_screen_and_entree_pays_it_all_in_cash() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+
+        till.Key(Key.F12, PhysicalKey.F12);
+        var card = PaymentCard(till) ?? throw new InvalidOperationException("No payment panel.");
+        Assert.Equal(0, till.Server.Sales);
+        Assert.Equal(880, card.Bounds.Width);
+        var top = card.TranslatePoint(default, till.Window)!.Value.Y;
+        var bottom = card.TranslatePoint(new Point(0, card.Bounds.Height), till.Window)!.Value.Y;
+        Assert.True(top >= 0 && bottom <= till.Window.Bounds.Height, $"The panel runs from {top:0} to {bottom:0}, outside the window.");
+        Assert.Empty(card.GetVisualAncestors().OfType<ScrollViewer>());
+
+        till.Key(Key.Enter, PhysicalKey.Enter);
+
+        Assert.Equal(1, till.Server.Sales);
+        Assert.Null(till.Server.Requests[0].Tenders);
+        Assert.Null(PaymentCard(till));
+    });
+
+    [Fact]
+    public Task While_the_payment_is_open_a_scan_is_ignored_and_the_notice_says_so() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Key(Key.F12, PhysicalKey.F12);
+        var asked = till.Server.Lookups.Count;
+
+        till.TypeAndEnter(Till.Code(7)); // a scanner's burst, and its Entrée
+        till.WaitFor(() => true);
+
+        Assert.Equal(asked, till.Server.Lookups.Count);
+        Assert.Single(till.Session.Cart.Lines);
+        Assert.Equal(0, till.Server.Sales); // the scanner's Entrée ends its scan: it never pays the ticket
+        Assert.Contains(till.Window.GetVisualDescendants().OfType<TextBlock>(), block => block.Text == TillText.French.PayingNotice);
+    });
+
+    [Fact]
+    public Task The_x_and_echap_close_the_payment_and_nothing_is_sent() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+
+        till.Key(Key.F12, PhysicalKey.F12);
+        till.Tap(till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => Equals(key.Tag, TillViews.PaymentCloseTag)), new Point(10, 10));
+        Assert.Null(PaymentCard(till));
+
+        till.Key(Key.F12, PhysicalKey.F12);
+        till.Key(Key.Escape, PhysicalKey.Escape);
+
+        Assert.Null(PaymentCard(till));
+        Assert.Equal(0, till.Server.Sales);
+        Assert.Single(till.Session.Cart.ActiveLines);
+    });
+
+    [Fact]
+    public Task A_refused_sale_keeps_the_panel_open_and_says_why() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.Server.SaleAnswer = new SaleAnswer.Refused("Le prix a changé.");
+        till.ScanMany(1);
+
+        till.Pay();
+
+        var panel = Assert.IsType<PaymentPanel>(PaymentCard(till)!.Tag);
+        Assert.Equal(("VENTE REFUSÉE · les parts sont gardées", "Le prix a changé."), (panel.Message!.Title, panel.Message.Body));
+    });
+
+    [Fact]
+    public Task A_card_part_typed_on_the_pad_is_added_then_sent_with_the_sale() => Headless.Run(() =>
+    {
+        // Needs Hakim's Tender.Settle: with a part added, the panel asks it for the cash left.
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Key(Key.F12, PhysicalKey.F12);
+
+        till.Tap(till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => key.Tag is MethodChoice { Method: Domain.Enums.PaymentMethod.Card }), new Point(20, 20));
+        foreach (var key in "100")
+        {
+            till.Tap(KeyReading(till, key.ToString()), new Point(10, 10));
+        }
+
+        till.Key(Key.Enter, PhysicalKey.Enter); // Ajouter la part
+        Assert.Single(Assert.IsType<PaymentPanel>(PaymentCard(till)!.Tag).Parts);
+
+        till.Key(Key.Enter, PhysicalKey.Enter); // Valider
+
+        Assert.Equal([new TenderRequest("card", "100.00", null)], till.Server.Requests.Single().Tenders);
+    });
+
+    [Fact]
+    public Task At_its_tallest_two_parts_a_third_typed_and_a_refusal_the_payment_still_fits_the_window() => Headless.Run(() =>
+    {
+        // Needs Hakim's Tender.Settle, as above. The till's smallest window is 1024 × 768.
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        till.Key(Key.F12, PhysicalKey.F12);
+        foreach (var method in new[] { Domain.Enums.PaymentMethod.Card, Domain.Enums.PaymentMethod.MobileWallet, Domain.Enums.PaymentMethod.Card })
+        {
+            till.Tap(till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => key.Tag is MethodChoice choice && choice.Method == method), new Point(20, 20));
+            till.Tap(KeyReading(till, "1"), new Point(10, 10));
+            till.Key(Key.Enter, PhysicalKey.Enter);
+        }
+
+        till.Tap(till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => key.Tag is MethodChoice { Method: Domain.Enums.PaymentMethod.Card }), new Point(20, 20));
+        foreach (var key in "999")
+        {
+            till.Tap(KeyReading(till, key.ToString()), new Point(10, 10));
+        }
+
+        var card = PaymentCard(till)!;
+        var panel = Assert.IsType<PaymentPanel>(card.Tag);
+        Assert.Equal((3, "MONTANT TROP ÉLEVÉ"), (panel.Parts.Count, panel.Message?.Title));
+        var top = card.TranslatePoint(default, till.Window)!.Value.Y;
+        var bottom = card.TranslatePoint(new Point(0, card.Bounds.Height), till.Window)!.Value.Y;
+        Assert.True(top >= 0 && bottom <= till.Window.Bounds.Height, $"The panel runs from {top:0} to {bottom:0}, outside the window ({till.Window.Bounds.Height:0}).");
+    });
+
     [Fact]
     public Task Echap_closes_the_discount_and_nothing_is_given() => Headless.Run(() =>
     {
@@ -721,6 +850,13 @@ public sealed class TillWindowTests
             Pump();
         }
 
+        /// <summary>Encaisser, then Valider with cash chosen: the whole ticket in cash (B6).</summary>
+        public void Pay()
+        {
+            Key(Avalonia.Input.Key.F12, PhysicalKey.F12);
+            Key(Avalonia.Input.Key.Enter, PhysicalKey.Enter);
+        }
+
         public void Key(Key key, PhysicalKey physical)
         {
             Window.KeyPress(key, RawInputModifiers.None, physical, null);
@@ -783,6 +919,9 @@ public sealed class TillWindowTests
         public List<string> Lookups { get; } = [];
 
         public int Sales { get; private set; }
+
+        /// <summary>Every sale sent, as sent (B6).</summary>
+        public List<SaleRequest> Requests { get; } = [];
 
         public SaleAnswer SaleAnswer { get; set; } = new SaleAnswer.Completed(
             new SaleOutcome(SaleOutcomes.Completed, "sale", "0142", "143.00", "22.83", "145.00", "DZD", null));
@@ -848,6 +987,7 @@ public sealed class TillWindowTests
         public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, string sessionToken, CancellationToken cancellationToken = default)
         {
             Sales++;
+            Requests.Add(request);
             return Task.FromResult(SaleAnswer);
         }
 

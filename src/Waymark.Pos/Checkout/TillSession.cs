@@ -200,9 +200,10 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// line is in it. Completed: the cart empties and <see cref="LastSale"/> says what to
     /// collect. Refused or unknown: the cart stays, and <see cref="Notice"/> says why.
     /// </summary>
-    public Task PayAsync()
+    /// <param name="tenders">The card and BaridiMob parts (B6, D-095); none, and the whole ticket is cash.</param>
+    public Task PayAsync(IReadOnlyList<TenderRequest>? tenders = null)
     {
-        _tail = PayAfter(_tail);
+        _tail = PayAfter(_tail, tenders);
         return _tail;
     }
 
@@ -681,7 +682,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
     }
 
-    private async Task PayAfter(Task previous)
+    private async Task PayAfter(Task previous, IReadOnlyList<TenderRequest>? tenders)
     {
         try
         {
@@ -726,7 +727,9 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
                 line.Discount?.ToWire(),
                 line.Override?.ToWire()))],
             // What was given, never what it comes to: the server works the money out (D-091).
-            Cart.TicketDiscount?.ToWire());
+            Cart.TicketDiscount?.ToWire(),
+            // The parts as given; cash is whatever the server finds left (D-095).
+            tenders is { Count: > 0 } ? tenders : null);
 
         switch (await sales.CompleteSaleAsync(request, seller.Token))
         {

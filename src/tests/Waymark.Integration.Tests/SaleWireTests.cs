@@ -1,6 +1,8 @@
 using System.Runtime.Versioning;
 using Waymark.Application.Sales;
 using Waymark.Contracts.Pos;
+using Waymark.Domain.Enums;
+using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
 using Waymark.StoreServer.Sales;
 using Waymark.StoreServer.Security;
@@ -18,7 +20,8 @@ public sealed class SaleWireTests
     public void A_completed_sale_says_the_exact_total_and_the_cash_to_collect()
     {
         var total = Money.FromMinorUnits(40_650, Currency.Dzd);
-        var sale = new CompletedSale("t1", "S-2026-000001", total, Money.FromMinorUnits(4_283, Currency.Dzd), total.ToCashTender());
+        var sale = new CompletedSale(
+            "t1", "S-2026-000001", total, Money.FromMinorUnits(4_283, Currency.Dzd), total.ToCashTender(), [new TenderPart(PaymentMethod.Cash, total)]);
 
         var wire = SaleWire.Completed(sale);
 
@@ -51,6 +54,51 @@ public sealed class SaleWireTests
         Assert.Equal("till-1", command.TerminalId);
         Assert.Equal("staff-1", command.StaffId);
         Assert.Equal([new SaleLineRequest("111", 2), new SaleLineRequest("222", 1)], command.Lines);
+    }
+
+    // ------------------------------------------------ split tender (B6, D-095)
+
+    [Fact]
+    public void Card_and_baridimob_parts_reach_the_command_in_order_and_an_all_cash_sale_has_none()
+    {
+        var split = SaleWire.ToCommand(
+            new SaleRequest("till-1", [new("111", 1)], Tenders: [new(TenderMethods.MobileWallet, "500.00", "88213"), new(TenderMethods.Card, "2000.00")]),
+            "staff-1");
+        var cash = SaleWire.ToCommand(new SaleRequest("till-1", [new("111", 1)], Tenders: []), "staff-1");
+
+        Assert.Equal([new GivenTender(PaymentMethod.MobileWallet, 50_000, "88213"), new GivenTender(PaymentMethod.Card, 200_000, null)], split.Tenders);
+        Assert.Null(cash.Tenders);
+    }
+
+    [Fact]
+    public void A_part_the_server_cannot_read_reaches_the_rule_as_one_it_refuses()
+    {
+        // Never dropped: a part left out would be paid in cash by a customer who already paid by card.
+        var command = SaleWire.ToCommand(
+            new SaleRequest("till-1", [new("111", 1)], Tenders: [new("cheque", "100.00"), new(TenderMethods.Card, "cent")]),
+            "staff-1");
+
+        Assert.Equal([new GivenTender(PaymentMethod.Cash, 10_000, null), new GivenTender(PaymentMethod.Card, 0, null)], command.Tenders);
+    }
+
+    [Fact]
+    public void A_completed_split_lists_its_rows_in_order_with_their_references()
+    {
+        var total = Money.FromMinorUnits(332_080, Currency.Dzd);
+        var sale = new CompletedSale("t1", "S-2026-000002", total, Money.FromMinorUnits(53_021, Currency.Dzd),
+            Money.FromMinorUnits(82_080, Currency.Dzd).ToCashTender(),
+            [
+                new TenderPart(PaymentMethod.Card, Money.FromMinorUnits(200_000, Currency.Dzd), "4417"),
+                new TenderPart(PaymentMethod.MobileWallet, Money.FromMinorUnits(50_000, Currency.Dzd), "88213"),
+                new TenderPart(PaymentMethod.Cash, Money.FromMinorUnits(82_080, Currency.Dzd)),
+            ]);
+
+        var wire = SaleWire.Completed(sale);
+
+        Assert.Equal(
+            [new PaymentLine("card", "2000.00", "4417"), new PaymentLine("mobile_wallet", "500.00", "88213"), new PaymentLine("cash", "820.80", null)],
+            wire.Payments);
+        Assert.Equal("820.00", wire.CashToCollect);
     }
 
     // ------------------------------------------------ who is selling (A5, D-083)

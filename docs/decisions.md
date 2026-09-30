@@ -861,6 +861,39 @@ silence timer** (D-063) can fall due up to a 15.6 ms Windows clock tick early. I
 not yet silent and gave up, so the last character typed waited for the next key; now it waits for
 the rest of the window.
 
+### D-094 — What edits a line stays in the rail; what freezes the ticket floats (Hakim, 30/09)
+**The rule:** a panel that edits a line (discount, price, weight) stays in the rail, beside the
+ticket it changes. A panel that freezes the ticket (the payment, the manager's PIN) floats over the
+whole screen: a card 880 px wide on a dark scrim, its title and a ✕ (Échap) at the top, what is asked
+on the left, the pad and the key that goes on at the right. Both floating panels share that frame
+(`Ui/TillViews.Floating.cs`); D-093's PIN card, 550 px in one column, moved into it. **While one is
+open, scans are ignored**, and the notice slot behind it says so ("ENCAISSEMENT EN COURS", "AUTORISATION
+EN COURS"): a scan under the PIN step used to add a line to a ticket waiting for its approval. A
+scanner's own Entrée ends its scan and is swallowed with it, so it never validates the panel either.
+**Rejected:** everything in the rail (the PIN step ran into the bottom bar, D-093); everything floating
+(a line's discount would hide the line it changes).
+
+### D-095 — B6: split tender: card and BaridiMob parts, the rest in cash, rounded once (Hakim, 30/09)
+**A ticket is paid by card and BaridiMob parts, and whatever is left in cash.** The parts are exact
+and are never rounded: the terminal took 2 000,00, the row says 2 000,00. **Only the cash rest rounds**
+to the 5 DA step (D-034), once, whatever order the parts were typed in; the parts may not come to more
+than the total, since a card gives no change and no cash back. `Tender.Settle` (Domain, Hakim's piece)
+is asked by the till as parts are added and by the server again, on its own total, before anything
+is written; a refusal writes nothing and spends no invoice number. **With no part the ticket is all
+cash** and the rule is not asked, on either side. Rows: one per part in order, then one cash row for
+the exact rest, each with its sequence; `rounding_variance` takes the cash rest's rounding. **A part's
+reference is optional** (the terminal's authorisation number, the last four digits, a transfer id),
+kept in `transaction_payments.reference`; **one that reads as a card number** (13 to 19 digits passing
+the Luhn check, spaces and dashes ignored) is cleared at the till and refused by the server, so it is
+never shown again or stored. **Nothing is taken of the cash handed over and no change is worked out
+(Hakim, 30/09, the second time of asking):** no amount received, no "à rendre", no note keys, on the
+screen or on the row; the board draws them and they are left out. On the wire the till sends the parts
+as given (`tenders`, left out of the JSON for all cash, as `price_override` is); the answer lists the
+rows written. **Not in B6:** store credit (B9), on-account (B7), a terminal or BaridiMob link, the
+drawer (D2). **Rejected:** each part rounding in the order typed (the cash to collect would depend on
+the order); a required reference (a terminal's slip is not always at hand); recording the cash handed
+over (Hakim).
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

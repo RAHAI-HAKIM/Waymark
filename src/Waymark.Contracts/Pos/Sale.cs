@@ -15,10 +15,44 @@ namespace Waymark.Contracts.Pos;
 /// token opened: a field here would be a claim the server had to decide whether to believe.
 /// </remarks>
 /// <param name="TicketDiscount">A discount given on the whole ticket at the counter (B4, D-091), or null.</param>
+/// <param name="Tenders">
+/// The card and BaridiMob parts (B6, D-095), in the order they were added: what was given, never a
+/// price. Cash is never a part: it is whatever the server finds left. Null, and left out of the JSON,
+/// when the whole ticket is cash.
+/// </param>
 public sealed record SaleRequest(
     [property: JsonPropertyName("terminal_id")] string TerminalId,
     [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines,
-    [property: JsonPropertyName("ticket_discount")] DiscountRequest? TicketDiscount = null);
+    [property: JsonPropertyName("ticket_discount")] DiscountRequest? TicketDiscount = null,
+    [property: JsonPropertyName("tenders"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<TenderRequest>? Tenders = null);
+
+/// <summary>A part of the ticket paid by card or BaridiMob (B6).</summary>
+/// <param name="Method">One of <see cref="TenderMethods"/>.</param>
+/// <param name="Amount">Exact decimal text, "2000.00": what the terminal or the phone took.</param>
+/// <param name="Reference">The authorisation number or transfer id, optional; never a card number.</param>
+public sealed record TenderRequest(
+    [property: JsonPropertyName("method")] string Method,
+    [property: JsonPropertyName("amount")] string Amount,
+    [property: JsonPropertyName("reference")] string? Reference = null);
+
+/// <summary>A row of <c>transaction_payments</c> as the till shows it once the sale is written (B6).</summary>
+/// <param name="Method">One of <see cref="TenderMethods"/>, or <c>cash</c>.</param>
+/// <param name="Amount">Exact decimal text. For cash, the exact rest; what the drawer takes is <see cref="SaleOutcome.CashToCollect"/>.</param>
+public sealed record PaymentLine(
+    [property: JsonPropertyName("method")] string Method,
+    [property: JsonPropertyName("amount")] string Amount,
+    [property: JsonPropertyName("reference")] string? Reference);
+
+/// <summary>The payment methods as the wire spells them: <c>transaction_payments.payment_method</c>'s values.</summary>
+public static class TenderMethods
+{
+    public const string Cash = "cash";
+
+    public const string Card = "card";
+
+    /// <summary>BaridiMob, and any transfer made from a phone.</summary>
+    public const string MobileWallet = "mobile_wallet";
+}
 
 /// <summary>One scanned code and how many units of it.</summary>
 /// <param name="Weight">
@@ -50,6 +84,7 @@ public sealed record SaleRequestLine(
 /// <param name="CashToCollect">The total rounded to the cash step: what the customer hands over (D-034).</param>
 /// <param name="Currency">The currency of the figures.</param>
 /// <param name="Reason">Why the sale was refused, in words, when refused.</param>
+/// <param name="Payments">The payment rows written, in order (B6); null when refused, and from a server before B6.</param>
 public sealed record SaleOutcome(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("transaction_id")] string? TransactionId,
@@ -58,7 +93,8 @@ public sealed record SaleOutcome(
     [property: JsonPropertyName("tax_total")] string? TaxTotal,
     [property: JsonPropertyName("cash_to_collect")] string? CashToCollect,
     [property: JsonPropertyName("currency")] string? Currency,
-    [property: JsonPropertyName("reason")] string? Reason);
+    [property: JsonPropertyName("reason")] string? Reason,
+    [property: JsonPropertyName("payments")] IReadOnlyList<PaymentLine>? Payments = null);
 
 /// <summary>The values of <see cref="SaleOutcome.Outcome"/>.</summary>
 public static class SaleOutcomes

@@ -290,6 +290,84 @@ public abstract class TillText
     /// <summary>What the note is for: "Précisez « Autre »".</summary>
     public abstract string NotePrompt(string reason);
 
+    // ------------------------------------------------------------ B6: the payment panel
+
+    /// <summary>The panel's title, "Encaisser".</summary>
+    public abstract string PaymentTitle { get; }
+
+    /// <summary>"Ticket en cours · 14 lignes".</summary>
+    public abstract string PaymentSubtitle(int lines);
+
+    /// <summary>The big figure's label: the cash left, rounded.</summary>
+    public abstract string CashToCollect { get; }
+
+    public abstract string PartsTitle { get; }
+
+    /// <summary>With no part: "Aucune part : tout le ticket en espèces."</summary>
+    public abstract string NoParts { get; }
+
+    public abstract string MethodCash { get; }
+
+    public abstract string MethodCard { get; }
+
+    public abstract string MethodWallet { get; }
+
+    /// <summary>"MONTANT CARTE", "MONTANT BARIDIMOB".</summary>
+    public abstract string PartAmountTitle(string method);
+
+    public abstract string ReferenceTitle { get; }
+
+    public abstract string ReferencePlaceholder { get; }
+
+    /// <summary>"réf 4417", beside a part.</summary>
+    public abstract string PartReference(string reference);
+
+    public abstract string RestAfterPart { get; }
+
+    public abstract string WholeRest { get; }
+
+    public abstract string NoChangeOnCard { get; }
+
+    public abstract string PartPrefilled { get; }
+
+    /// <summary>In cash: how to leave without changing anything.</summary>
+    public abstract string PaymentCloseHint { get; }
+
+    public abstract string AddPart { get; }
+
+    public abstract string PaymentValidate { get; }
+
+    public abstract string AboveRest { get; }
+
+    public abstract string AboveRestDetail(string rest);
+
+    public abstract string PartInvalid { get; }
+
+    public abstract string PartInvalidDetail { get; }
+
+    public abstract string ReferenceRefused { get; }
+
+    public abstract string ReferenceLooksLikeCard { get; }
+
+    public abstract string ReferenceInvalidDetail { get; }
+
+    /// <summary>A refused sale, in the panel: its parts are kept.</summary>
+    public abstract string SaleRefusedInPanel { get; }
+
+    /// <summary>The notice slot behind the payment panel: scans are ignored while it is open.</summary>
+    public abstract string PayingNotice { get; }
+
+    public abstract string PayingNoticeDetail { get; }
+
+    /// <summary>The same behind the manager step.</summary>
+    public abstract string ApprovingNotice { get; }
+
+    public abstract string ApprovingNoticeDetail { get; }
+
+    /// <summary>"Échap", in the ✕ key's corner (Entrée is <see cref="EnterKey"/>).</summary>
+    public abstract string EscapeKey { get; }
+
+
     /// <summary>"AUTORISATION RESPONSABLE".</summary>
     public abstract string ManagerApproval { get; }
 
@@ -601,6 +679,38 @@ public abstract class TillText
         public override string ApproveOverride => "Valider le prix";
         public override string NoteChip => "NOTE";
         public override string NotePrompt(string reason) => $"Précisez « {reason} » dans le champ, puis Entrée";
+        public override string PaymentTitle => "Encaisser";
+        public override string PaymentSubtitle(int lines) => $"Ticket en cours · {lines} ligne{(lines > 1 ? "s" : string.Empty)}";
+        public override string CashToCollect => "Espèces à encaisser";
+        public override string PartsTitle => "PARTS";
+        public override string NoParts => "Aucune part : tout le ticket en espèces.";
+        public override string MethodCash => "Espèces";
+        public override string MethodCard => "Carte";
+        public override string MethodWallet => "BaridiMob";
+        public override string PartAmountTitle(string method) => $"MONTANT {method.ToUpperInvariant()}";
+        public override string ReferenceTitle => "RÉFÉRENCE · FACULTATIF";
+        public override string ReferencePlaceholder => "4 derniers chiffres ou n° d'autorisation";
+        public override string PartReference(string reference) => $"réf {reference}";
+        public override string RestAfterPart => "RESTE APRÈS CETTE PART";
+        public override string WholeRest => "Tout le reste";
+        public override string NoChangeOnCard => "Une carte ne rend pas de monnaie : jamais plus que le reste.";
+        public override string PartPrefilled => "Préremplie avec le reste — tapez pour remplacer. Entrée ajoute la part.";
+        public override string PaymentCloseHint => "Échap ou ✕ ferme sans rien changer au ticket.";
+        public override string AddPart => "Ajouter la part";
+        public override string PaymentValidate => "Valider";
+        public override string AboveRest => "MONTANT TROP ÉLEVÉ";
+        public override string AboveRestDetail(string rest) => $"La part ne peut pas dépasser le reste à payer, {rest} : elle ne rend pas de monnaie.";
+        public override string PartInvalid => "MONTANT INVALIDE";
+        public override string PartInvalidDetail => "Un montant au-dessus de zéro, deux décimales au plus.";
+        public override string ReferenceRefused => "RÉFÉRENCE REFUSÉE";
+        public override string ReferenceLooksLikeCard => "Elle ressemblait à un numéro de carte : elle a été effacée et n'est gardée nulle part. Saisissez les 4 derniers chiffres ou le n° d'autorisation.";
+        public override string ReferenceInvalidDetail => "Lettres, chiffres, espaces et tirets seulement, 32 au plus.";
+        public override string SaleRefusedInPanel => "VENTE REFUSÉE · les parts sont gardées";
+        public override string PayingNotice => "ENCAISSEMENT EN COURS";
+        public override string PayingNoticeDetail => "Les scans sont ignorés tant que le paiement est ouvert.";
+        public override string ApprovingNotice => "AUTORISATION EN COURS";
+        public override string ApprovingNoticeDetail => "Les scans sont ignorés tant que l'autorisation est ouverte.";
+        public override string EscapeKey => "Échap";
         public override string ManagerApproval => "AUTORISATION RESPONSABLE";
         public override string WhoApproves => "QUI AUTORISE";
         public override string ManagerPin => "PIN RESPONSABLE";
@@ -834,6 +944,38 @@ public abstract class TillText
         public override string ApproveOverride => "تأكيد السعر"; // ar: à relire
         public override string NoteChip => "ملاحظة"; // ar: à relire
         public override string NotePrompt(string reason) => $"وضّح «{reason}» في الحقل ثم إدخال"; // ar: à relire
+        public override string PaymentTitle => "تحصيل";
+        public override string PaymentSubtitle(int lines) => $"التذكرة الجارية · {lines} سطرا";
+        public override string CashToCollect => "النقد المطلوب";
+        public override string PartsTitle => "الأجزاء";
+        public override string NoParts => "لا أجزاء: التذكرة كلها نقدا."; // ar: à relire
+        public override string MethodCash => "نقدا";
+        public override string MethodCard => "بطاقة";
+        public override string MethodWallet => "BaridiMob";
+        public override string PartAmountTitle(string method) => $"مبلغ {method}"; // ar: à relire
+        public override string ReferenceTitle => "المرجع · اختياري"; // ar: à relire
+        public override string ReferencePlaceholder => "آخر 4 أرقام أو رقم الترخيص"; // ar: à relire
+        public override string PartReference(string reference) => $"مرجع {reference}";
+        public override string RestAfterPart => "الباقي بعد هذا الجزء"; // ar: à relire
+        public override string WholeRest => "كل الباقي"; // ar: à relire
+        public override string NoChangeOnCard => "البطاقة لا تُرجع الباقي: ليس أكثر من الرصيد المتبقي أبدًا."; // ar: à relire
+        public override string PartPrefilled => "مملوء بالباقي — اضغط للاستبدال. إدخال يضيف الجزء."; // ar: à relire
+        public override string PaymentCloseHint => "Esc أو × يغلق دون أي تغيير على التذكرة";
+        public override string AddPart => "إضافة الجزء"; // ar: à relire
+        public override string PaymentValidate => "تأكيد";
+        public override string AboveRest => "مبلغ مرتفع جدا"; // ar: à relire
+        public override string AboveRestDetail(string rest) => $"لا يتجاوز الجزء الباقي للدفع، {rest}: لا يُرجع الباقي."; // ar: à relire
+        public override string PartInvalid => "مبلغ غير صالح"; // ar: à relire
+        public override string PartInvalidDetail => "مبلغ أكبر من الصفر، برقمين عشريين على الأكثر."; // ar: à relire
+        public override string ReferenceRefused => "مرجع مرفوض"; // ar: à relire
+        public override string ReferenceLooksLikeCard => "كان يشبه رقم بطاقة: حُذف ولم يُحفظ. اكتب آخر 4 أرقام أو رقم الترخيص."; // ar: à relire
+        public override string ReferenceInvalidDetail => "حروف وأرقام ومسافات وشرطات فقط، 32 على الأكثر."; // ar: à relire
+        public override string SaleRefusedInPanel => "البيع مرفوض · الأجزاء محفوظة"; // ar: à relire
+        public override string PayingNotice => "تحصيل جارٍ"; // ar: à relire
+        public override string PayingNoticeDetail => "المسح مُتجاهَل ما دام الدفع مفتوحا."; // ar: à relire
+        public override string ApprovingNotice => "إذن جارٍ"; // ar: à relire
+        public override string ApprovingNoticeDetail => "المسح مُتجاهَل ما دام الإذن مفتوحا."; // ar: à relire
+        public override string EscapeKey => "Esc";
         public override string ManagerApproval => "إذن المسؤول"; // ar: à relire
         public override string WhoApproves => "من يأذن"; // ar: à relire
         public override string ManagerPin => "رمز المسؤول"; // ar: à relire

@@ -1,5 +1,7 @@
 using Waymark.Application.Sales;
 using Waymark.Contracts.Pos;
+using Waymark.Domain.Enums;
+using Waymark.Domain.Sales;
 using Waymark.StoreServer.Security;
 
 namespace Waymark.StoreServer.Sales;
@@ -19,7 +21,32 @@ public static class SaleWire
         sellerId,
         [.. request.Lines.Select(line => new SaleLineRequest(
             line.Barcode, line.Count, Weight(line.Weight), Discount(line.Discount, authorisedBy), Override(line.PriceOverride, overriddenBy)))],
-        Discount(request.TicketDiscount, authorisedBy));
+        Discount(request.TicketDiscount, authorisedBy),
+        request.Tenders is { Count: > 0 } tenders ? [.. tenders.Select(Tender)] : null);
+
+    /// <summary>
+    /// A card or BaridiMob part as the handler reads it (B6). A method it does not know becomes cash,
+    /// and an amount it cannot read becomes zero, which the rule refuses: the sale is refused, never
+    /// written with a part missing.
+    /// </summary>
+    private static GivenTender Tender(TenderRequest tender) => new(
+        tender.Method switch
+        {
+            TenderMethods.Card => PaymentMethod.Card,
+            TenderMethods.MobileWallet => PaymentMethod.MobileWallet,
+            _ => PaymentMethod.Cash,
+        },
+        WireText.TryHundredths(tender.Amount, out var amount) ? amount : 0,
+        tender.Reference);
+
+    /// <summary>How the wire spells a payment row's method.</summary>
+    private static string Method(PaymentMethod method) => method switch
+    {
+        PaymentMethod.Card => TenderMethods.Card,
+        PaymentMethod.MobileWallet => TenderMethods.MobileWallet,
+        PaymentMethod.Cash => TenderMethods.Cash,
+        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "B6 writes cash, card and wallet rows only."),
+    };
 
     /// <summary>
     /// A price override as the handler reads it (B5): the new price in minor units. A price that
@@ -75,7 +102,8 @@ public static class SaleWire
         WireText.Figure(sale.TaxTotal),
         WireText.Figure(sale.Cash.Tendered),
         sale.Total.Currency.Code,
-        Reason: null);
+        Reason: null,
+        [.. sale.Payments.Select(payment => new PaymentLine(Method(payment.Method), WireText.Figure(payment.Amount), payment.Reference))]);
 
     public static SaleOutcome Refused(string reason) =>
         new(SaleOutcomes.Refused, null, null, null, null, null, null, reason);

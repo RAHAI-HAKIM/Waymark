@@ -32,10 +32,12 @@ public sealed class TillTextTests
     [Fact]
     public void Arabic_is_not_French_left_untranslated()
     {
-        // A property overridden with the French words would pass the test above.
+        // A property overridden with the French words would pass the test above. A name is the
+        // same in both: Hakim's Arabic board writes "BaridiMob" in Latin letters (B6).
+        string[] names = [nameof(TillText.MethodWallet)];
         var same = typeof(TillText)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(property => property.PropertyType == typeof(string))
+            .Where(property => property.PropertyType == typeof(string) && !names.Contains(property.Name))
             .Where(property => Equals(property.GetValue(TillText.French), property.GetValue(TillText.Arabic)))
             .Select(property => property.Name)
             .ToList();

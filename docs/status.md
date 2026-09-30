@@ -5,7 +5,8 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 **27/09/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
 weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is done** (§13): a
 discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). **B5 is done** (§14): a
-price typed at the counter, rank 3, within a band (D-092). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+price typed at the counter, rank 3, within a band (D-092). **B6 is built, waiting on Hakim's piece** (§15): card and
+BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -549,4 +550,32 @@ review:** the price panel and the note step have no board (built from the kit); 
   and give up, so the character waited for the next key.
 
 Each fix has a test that failed before the fix, and five mutations are each caught.
+
+## 15. Session B6 — built 30/09, waiting on Hakim's piece (D-094, D-095)
+
+**✍ Hakim's piece:** `Domain/Sales/Tender.cs`, `Tender.Settle`: the parts in order, then the exact cash
+rest, rounded once; refused above the total, at zero or less, or for a method that is not a card or a
+wallet. Its 21 tests are `TenderTests`. **Until it is written**, a sale with a card or BaridiMob part is
+refused by the stub; a sale in cash never asks it, on the till or the server, and works as before.
+Three server tests (`CompleteSaleTests`, split tender), `TillTenderTests.Two_parts_…` and two window
+tests wait on it too; run against a throwaway `Settle`, all of them pass (the stub was put back).
+
+| Where | What |
+| :---- | :---- |
+| `Domain/Sales/PaymentReference.cs` | A part's reference: optional, trimmed, 32 characters at most; a card number (Luhn, 13–19 digits) refused |
+| `Contracts/Pos/Sale.cs` | `tenders` on the request (left out for all cash), `payments` on the answer; `TenderRequest`, `PaymentLine`, `TenderMethods` |
+| `Application/Sales/CompleteSale.cs`, `StoreServer/Sales/SaleWire.cs` | The parts settled on the server's total before an invoice number is taken; a row per part with its reference, then the cash rest |
+| `Pos/Screen/Payment.cs` | The panel's state and rules, tested without a window: prefilled rest, a part above the rest refused as typed, a card number cleared |
+| `Pos/Ui/TillViews.Floating.cs` | The floating frame (D-094): the payment, and the manager's PIN moved into it at 880 px |
+| `Pos/TillWindow.cs` | F12 opens the panel, F12 or Entrée goes on, Échap or ✕ closes; the pad and the keyboard type the part; scans ignored under either panel |
+
+**The keys:** F12 opens "Encaisser" on cash; Entrée (or F12) pays it all in cash: one key more than
+before. Carte or BaridiMob starts a part at the rest; the first key typed replaces it; Tab or a touch
+moves to the reference; Entrée adds the part and cash is chosen again. **Left out of the board, on
+purpose (D-095):** "Espèces reçues", "À rendre", the note keys, "rendez 180,00"; "Réessayer" after no
+answer (D-085: the rail's card takes over); "Ticket imprimé" and the drawer (D1, D2).
+
+**The tests:** `TenderTests`, `PaymentReferenceTests`, `TillTenderTests`, and the B6 sections of
+`CompleteSaleTests`, `SaleWireTests`, `TillWindowTests`. **For Hakim's review:** the panel on screen at
+1024 × 768 and 1366 × 768; the Arabic words are `// ar: à relire` except those from the Arabic board.
 

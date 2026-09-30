@@ -219,7 +219,15 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
     }
 
     /// <summary>A sale of these lines, and a discount on the whole ticket if any (B4).</summary>
-    private async Task<CompletedSale> Sell(Shop shop, GivenDiscount? ticket, params SaleLineRequest[] lines)
+    private async Task<CompletedSale> Sell(Shop shop, GivenDiscount? ticket, params SaleLineRequest[] lines) =>
+        await Execute(shop, new CompleteSale(shop.TerminalId, shop.StaffId, lines, ticket));
+
+    /// <summary>A sale paid with card and BaridiMob parts, the rest in cash (B6).</summary>
+    private async Task<CompletedSale> Paid(Shop shop, IReadOnlyList<GivenTender> tenders, params (Product Product, int Count)[] lines) =>
+        await Execute(shop, new CompleteSale(
+            shop.TerminalId, shop.StaffId, [.. lines.Select(line => new SaleLineRequest(line.Product.Barcode, line.Count))], Tenders: tenders));
+
+    private async Task<CompletedSale> Execute(Shop shop, CompleteSale command)
     {
         await using var context = database.NewContext(storeId: shop.StoreId);
         var clock = new FixedClock();
@@ -231,7 +239,7 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
             new ProductLookup(context, calendar), new SalesLedger(context), unitOfWork, new OutboxSequence(context),
             new NullTier2Writer(), calendar, clock, new Waymark.Persistence.Reference.ReasonCodes(context));
 
-        return await executor.ExecuteAsync(handler, new CompleteSale(shop.TerminalId, shop.StaffId, lines, ticket));
+        return await executor.ExecuteAsync(handler, command);
     }
 
     private WaymarkDbContext Read(Shop shop) => database.NewContext(storeId: shop.StoreId);
@@ -347,6 +355,75 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
         Assert.Equal(expected.Variance, variance.Amount);
         Assert.Equal(VarianceSource.CashTender, variance.Source);
         Assert.Equal(Dzd(40_650), (await read.TransactionPayments.SingleAsync(p => p.TransactionId == sale.TransactionId)).Amount);
+    }
+
+    // ------------------------------------------------------- split tender (B6, D-095)
+
+    [Fact]
+    public async Task A_split_writes_each_part_then_the_cash_rest_and_only_the_rest_rounds()
+    {
+        // 406,50: 200,00 by card and 100,00 by BaridiMob leave 106,50, and 105,00 is collected. The
+        // parts are never rounded: the terminal took 200,00, and the row says 200,00.
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+        shop.Receive(database, shop.Bread, 10, daysAgo: 5);
+
+        var sale = await Paid(shop,
+            [new GivenTender(PaymentMethod.Card, 20_000, "4417"), new GivenTender(PaymentMethod.MobileWallet, 10_000, " 88213 ")],
+            (shop.Milk, 2), (shop.Bread, 1));
+
+        using var read = Read(shop);
+        var rows = await read.TransactionPayments.Where(p => p.TransactionId == sale.TransactionId).OrderBy(p => p.Sequence).ToListAsync();
+        Assert.Equal(
+            [(1, PaymentMethod.Card, Dzd(20_000), "4417"), (2, PaymentMethod.MobileWallet, Dzd(10_000), "88213"), (3, PaymentMethod.Cash, Dzd(10_650), null)],
+            rows.Select(row => (row.Sequence, row.PaymentMethod, row.Amount, row.Reference)));
+        Assert.Equal(new CashTender(Dzd(10_500), Dzd(-150)), sale.Cash);
+        Assert.Equal(Dzd(-150), (await read.RoundingVariances.SingleAsync(v => v.ReferenceId == sale.TransactionId)).Amount);
+    }
+
+    [Fact]
+    public async Task Parts_that_pay_the_whole_ticket_leave_no_cash_row_and_no_variance()
+    {
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+        shop.Receive(database, shop.Bread, 10, daysAgo: 5);
+
+        var sale = await Paid(shop, [new GivenTender(PaymentMethod.Card, 40_650, null)], (shop.Milk, 2), (shop.Bread, 1));
+
+        using var read = Read(shop);
+        Assert.Equal(PaymentMethod.Card, (await read.TransactionPayments.SingleAsync(p => p.TransactionId == sale.TransactionId)).PaymentMethod);
+        Assert.False(await read.RoundingVariances.AnyAsync(v => v.ReferenceId == sale.TransactionId));
+    }
+
+    [Fact]
+    public async Task A_card_for_more_than_the_ticket_is_refused_and_spends_no_invoice_number()
+    {
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+
+        var before = await Sell(shop, (shop.Milk, 1));
+        await Assert.ThrowsAsync<SaleRefusedException>(() => Paid(shop, [new GivenTender(PaymentMethod.Card, 14_301, null)], (shop.Milk, 1)));
+        var after = await Sell(shop, (shop.Milk, 1));
+
+        Assert.Equal(NumberOf(before.InvoiceNumber) + 1, NumberOf(after.InvoiceNumber));
+        using var read = Read(shop);
+        Assert.Equal(2, await read.Transactions.CountAsync());
+    }
+
+    private static long NumberOf(string invoice) => long.Parse(invoice[(invoice.LastIndexOf('-') + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+
+    [Fact]
+    public async Task A_reference_that_reads_as_a_card_number_refuses_the_sale_and_is_written_nowhere()
+    {
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() =>
+            Paid(shop, [new GivenTender(PaymentMethod.Card, 10_000, "4970 1012 3456 7893")], (shop.Milk, 1)));
+
+        using var read = Read(shop);
+        Assert.False(await read.TransactionPayments.AnyAsync());
+        Assert.False(await read.Transactions.AnyAsync());
     }
 
     [Fact]

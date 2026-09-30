@@ -195,6 +195,7 @@ public sealed class StoreServerClientTests
         Assert.Contains("\"barcode\":\"111\"", body, StringComparison.Ordinal);
         Assert.Contains("\"count\":2", body, StringComparison.Ordinal);
         Assert.DoesNotContain("price", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("tenders", body, StringComparison.Ordinal); // all cash: no part, and no empty list either (B6)
     }
 
     [Fact]

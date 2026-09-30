@@ -19,9 +19,16 @@ namespace Waymark.Application.Sales;
 
 /// <summary>A cash sale of the scanned lines, at this terminal, by this staff member (hop 2, D-070).</summary>
 /// <param name="TicketDiscount">A discount given on the whole ticket at the counter (B4, D-091), or null.</param>
+/// <param name="Tenders">The card and BaridiMob parts (B6, D-095), in order; null or empty when the whole ticket is cash.</param>
 public sealed record CompleteSale(
-    string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines, GivenDiscount? TicketDiscount = null)
+    string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines, GivenDiscount? TicketDiscount = null,
+    IReadOnlyList<GivenTender>? Tenders = null)
     : ICommand<CompletedSale>;
+
+/// <summary>A part paid by card or BaridiMob, as the till says it was given (B6).</summary>
+/// <param name="Amount">Minor units of the sale's currency.</param>
+/// <param name="Reference">As typed; read again here, and a card number is refused (D-095).</param>
+public sealed record GivenTender(PaymentMethod Method, long Amount, string? Reference);
 
 /// <summary>Whether a discount is a percent or an amount of money.</summary>
 public enum DiscountForm
@@ -64,7 +71,9 @@ public sealed record SaleLineRequest(
 /// <param name="Total">The TTC total: the sum of the line totals.</param>
 /// <param name="TaxTotal">The TVA in it.</param>
 /// <param name="Cash">What the customer hands over (rounded to the cash step) and the difference.</param>
-public sealed record CompletedSale(string TransactionId, string InvoiceNumber, Money Total, Money TaxTotal, CashTender Cash);
+/// <param name="Payments">The <c>transaction_payments</c> rows, in order: the parts, then the exact cash rest (B6).</param>
+public sealed record CompletedSale(
+    string TransactionId, string InvoiceNumber, Money Total, Money TaxTotal, CashTender Cash, IReadOnlyList<TenderPart> Payments);
 
 /// <summary>The sale cannot be completed, for a reason the cashier is told. Nothing is written.</summary>
 public sealed class SaleRefusedException(string reason) : Exception(reason);
@@ -78,8 +87,9 @@ public sealed class SaleRefusedException(string reason) : Exception(reason);
 /// <item>one <c>transaction_items</c> row per line and batch, the TVA extracted from the TTC total
 /// (D-033) by <see cref="SaleArithmetic"/>, the same code the synthetic store uses;</item>
 /// <item>one <c>stock_movements</c> row per item, and the batch's level lowered to match;</item>
-/// <item>one cash <c>transaction_payments</c> row for the exact total, and the difference the cash
-/// step makes in <c>rounding_variance</c>, never in the drawer's variance (D-034);</item>
+/// <item>a <c>transaction_payments</c> row per card or BaridiMob part, then one cash row for the
+/// exact rest (<see cref="Tender"/>, B6), and the difference the cash step makes to that rest in
+/// <c>rounding_variance</c>, never in the drawer's variance (D-034);</item>
 /// <item>a cash session for the terminal, when it has none open;</item>
 /// <item>the anonymous basket, as an <c>outbox</c> row on the statistics channel (D-043,
 /// D-064, hop 3). <b>It goes in with the sale</b>: both rows or neither (CLAUDE.md §3.6).
@@ -273,6 +283,8 @@ public sealed class CompleteSaleHandler(
             }
         }
 
+        // Settled before a number is taken, so a refusal spends none (B6).
+        var settlement = Settle(total, command.Tenders);
         var invoice = await NextInvoiceNumber(store, today, cancellationToken);
         staging.Add(new Transaction
         {
@@ -297,23 +309,25 @@ public sealed class CompleteSaleHandler(
             UpdatedAt = now,
         });
 
-        var cash = total.ToCashTender();
-        if (!total.IsZero)
+        var cash = settlement.Cash;
+        var sequence = 0;
+        foreach (var payment in settlement.Payments)
         {
             staging.Add(new TransactionPayment
             {
                 PaymentId = context.NewId(),
                 TransactionId = transactionId,
-                Sequence = 1,
-                PaymentMethod = PaymentMethod.Cash,
-                Amount = total,
+                Sequence = ++sequence,
+                PaymentMethod = payment.Method,
+                Amount = payment.Amount,
                 Currency = currency.Code,
+                Reference = payment.Reference,
                 CreatedAt = now,
             });
         }
 
-        // The tender rounds, never the invoice (D-034): the payment is the exact total, and what
-        // the 5 DZD step adds or takes off is recorded here.
+        // The tender rounds, never the invoice (D-034): the cash row is the exact rest, and what
+        // the 5 DZD step adds or takes off it is recorded here.
         if (cash.HasVariance)
         {
             staging.Add(new RoundingVariance
@@ -333,7 +347,43 @@ public sealed class CompleteSaleHandler(
         await EmitBasket(sold, today, context, now, store.StoreId, discounted.IsPositive, cancellationToken);
         tier2.Record(new Tier2Sale(transactionId, today, calendar.HourOfDay, tier2Lines));
 
-        return new CompletedSale(transactionId, invoice, total, tax, cash);
+        return new CompletedSale(transactionId, invoice, total, tax, cash, settlement.Payments);
+    }
+
+    /// <summary>
+    /// How the ticket is paid (B6, D-095), on the server's own total: the till's figure is a preview.
+    /// With no part the ticket is all cash, the first of <see cref="Tender"/>'s rules, and the rule is
+    /// not asked: a sale paid in cash never depends on the parts' rules. A reference that reads as a
+    /// card number refuses the sale, so one is never written.
+    /// </summary>
+    private static Settlement Settle(Money total, IReadOnlyList<GivenTender>? tenders)
+    {
+        if (tenders is not { Count: > 0 })
+        {
+            var all = total.ToCashTender();
+            return new Settlement(TenderVerdict.Settled, total.IsZero ? [] : [new TenderPart(PaymentMethod.Cash, total)], all);
+        }
+
+        var parts = new List<TenderPart>(tenders.Count);
+        foreach (var tender in tenders)
+        {
+            if (PaymentReference.Read(tender.Reference, out var reference) != ReferenceVerdict.Accepted)
+            {
+                throw new SaleRefusedException("A payment reference was refused: it reads as a card number, or no terminal prints it. Nothing was kept.");
+            }
+
+            parts.Add(new TenderPart(tender.Method, Money.FromMinorUnits(tender.Amount, total.Currency), reference));
+        }
+
+        var settled = Tender.Settle(total, parts);
+        return settled.Verdict switch
+        {
+            TenderVerdict.Settled => settled,
+            TenderVerdict.AboveTotal => throw new SaleRefusedException(
+                $"The card and BaridiMob parts come to more than the ticket's {total}: a card gives no change."),
+            TenderVerdict.NotAboveZero => throw new SaleRefusedException("A card or BaridiMob part of zero or less."),
+            _ => throw new SaleRefusedException("Only a card or BaridiMob can be a part; cash is what is left."),
+        };
     }
 
     /// <summary>

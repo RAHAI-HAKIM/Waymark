@@ -2,6 +2,7 @@ using System.Globalization;
 using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
 using Waymark.Contracts.Reference;
+using Waymark.Domain.Enums;
 using Waymark.Domain.Values;
 using Waymark.Pos.Checkout;
 
@@ -37,6 +38,7 @@ public enum Tone
 /// <param name="Tickets">The "Tickets" list, when the rail shows it (B1).</param>
 /// <param name="Weighing">A product sold by weight waiting for its weight (B3).</param>
 /// <param name="Discounting">A discount being given at the counter, on a line or the ticket (B4).</param>
+/// <param name="Paying">The payment panel, while it is open (B6).</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -60,7 +62,8 @@ public sealed record ScreenState(
     PastTicketDetail? Viewing = null,
     TicketsState? Tickets = null,
     PendingWeight? Weighing = null,
-    DiscountState? Discounting = null);
+    DiscountState? Discounting = null,
+    PaymentState? Paying = null);
 
 /// <summary>
 /// A discount being given at the counter (B4, D-091): on which line, or the ticket when
@@ -139,6 +142,7 @@ public sealed record TicketsState(DateOnly Day, bool AllTills, TicketList? List,
 /// <param name="Results">The name search's results, floating over the ticket; null when there is no search (B1).</param>
 /// <param name="Weigh">The weight card, floating where the results float, while a weight is awaited (B3).</param>
 /// <param name="Approval">The manager step, floating over the whole screen while a PIN is asked (B4, 30/09); null otherwise.</param>
+/// <param name="Payment">The payment panel, floating over the frozen ticket (B6, D-094); null otherwise.</param>
 public sealed record TillScreen(
     bool RightToLeft,
     TopBar Top,
@@ -149,7 +153,8 @@ public sealed record TillScreen(
     FieldChip Field,
     ResultsView? Results,
     WeighCard? Weigh = null,
-    Approval? Approval = null)
+    Approval? Approval = null,
+    PaymentPanel? Payment = null)
 {
     /// <summary>The key for "Encaisser". Every action has its F key (G1 kit §9).</summary>
     public const string CollectKey = "F12";
@@ -197,7 +202,8 @@ public sealed record TillScreen(
                     : new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
             state.Weighing is null && state.Discounting is null ? ResultsOf(state) : null,
             WeighOf(state),
-            ApprovalOf(state));
+            ApprovalOf(state),
+            PaymentScreen.Of(state));
     }
 
     /// <summary>
@@ -262,8 +268,17 @@ public sealed record TillScreen(
             Bottom: !Same(drawn.Bottom, next.Bottom),
             Field: drawn.Field != next.Field,
             Results: !Same(drawn.Results, next.Results) || drawn.Weigh != next.Weigh,
-            Approval: !Same(drawn.Approval, next.Approval));
+            Approval: !Same(drawn.Approval, next.Approval),
+            Payment: !Same(drawn.Payment, next.Payment));
     }
+
+    private static bool Same(PaymentPanel? drawn, PaymentPanel? next) => (drawn, next) switch
+    {
+        (null, null) => true,
+        ({ } a, { } b) => a.Figures.SequenceEqual(b.Figures) && a.Parts.SequenceEqual(b.Parts) && a.Methods.SequenceEqual(b.Methods)
+            && a with { Figures = b.Figures, Parts = b.Parts, Methods = b.Methods } == b,
+        _ => false,
+    };
 
     private static bool Same(Approval? drawn, Approval? next) => (drawn, next) switch
     {
@@ -354,6 +369,17 @@ public sealed record TillScreen(
     private static NoticeLine NoticeOf(ScreenState state)
     {
         var text = state.Text;
+
+        // Behind a panel that freezes the ticket (D-094): scans are ignored, and the slot says so.
+        if (state.Paying is not null)
+        {
+            return new NoticeLine(Tone.Neutral, text.PayingNotice, text.PayingNoticeDetail);
+        }
+
+        if (state.Discounting is { Authorising: true })
+        {
+            return new NoticeLine(Tone.Neutral, text.ApprovingNotice, text.ApprovingNoticeDetail);
+        }
 
         switch (state.Notice)
         {
@@ -624,15 +650,35 @@ public sealed record TillScreen(
             var staff = state.Context?.StaffName;
             var when = DisplayFigures.Clock(Local(state, paid.At));
 
+            // One line per card or BaridiMob part (B6), then the cash and its rounding when there was
+            // cash. A server before B6 sends no rows: all cash, the total its exact amount.
+            var figures = new List<Figure> { new(text.TicketTotal, total is { } t ? DisplayFigures.Amount(t) : "?") };
+            var cashRest = outcome.Payments is null ? total : null;
+            foreach (var payment in outcome.Payments ?? [])
+            {
+                if (payment.Method == TenderMethods.Cash)
+                {
+                    cashRest = Money(payment.Amount, outcome.Currency);
+                    continue;
+                }
+
+                var method = PaymentScreen.Label(payment.Method == TenderMethods.MobileWallet ? PaymentMethod.MobileWallet : PaymentMethod.Card, text);
+                figures.Add(new Figure(
+                    payment.Reference is null ? method : $"{method} · {text.PartReference(payment.Reference)}",
+                    Money(payment.Amount, outcome.Currency) is { } part ? DisplayFigures.Amount(part) : "?"));
+            }
+
+            if (outcome.Payments is null || cashRest is not null)
+            {
+                figures.Add(new Figure(text.CashRounding, cashRest is { } a && cash is { } b ? DisplayFigures.Amount(b - a) : "?"));
+                figures.Add(new Figure(text.CashDue, cash is { } c ? DisplayFigures.Amount(c) : "?"));
+            }
+
             return new Rail.Paid(
                 text.SaleRecorded,
                 text.TicketNumber(outcome.InvoiceNumber ?? "?"),
                 staff is null ? when : $"{when} · {staff}",
-                [
-                    new Figure(text.TicketTotal, total is { } t ? DisplayFigures.Amount(t) : "?"),
-                    new Figure(text.CashRounding, total is { } a && cash is { } b ? DisplayFigures.Amount(b - a) : "?"),
-                    new Figure(text.CashDue, cash is { } c ? DisplayFigures.Amount(c) : "?"),
-                ],
+                figures,
                 text.NextScanOpensTicket);
         }
 
@@ -875,7 +921,9 @@ public sealed record TillScreen(
             message,
             discounting.ManagerId is not null && discounting.PinLength >= 4,
             overriding ? text.ApproveOverride : text.ApproveDiscount,
-            text.BackToTicket);
+            text.BackToTicket,
+            text.EnterKey,
+            text.EscapeKey);
     }
 
     // ============================================================ B1: search, tickets, a past ticket
@@ -1229,9 +1277,10 @@ public sealed record TillScreen(
 }
 
 /// <summary>Which regions a frame changed (<see cref="TillScreen.Compare"/>): the ones the window redraws.</summary>
-public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, bool Bottom, bool Field = false, bool Results = false, bool Approval = false)
+public sealed record FrameChanges(
+    bool Top, bool Notice, bool Cart, bool Rail, bool Bottom, bool Field = false, bool Results = false, bool Approval = false, bool Payment = false)
 {
-    public static FrameChanges All { get; } = new(true, true, true, true, true, true, true, true);
+    public static FrameChanges All { get; } = new(true, true, true, true, true, true, true, true, true);
 }
 
 /// <summary>
@@ -1240,7 +1289,7 @@ public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, b
 /// <param name="Close">What the ✕ says to a screen reader: back to the ticket, nothing given.</param>
 public sealed record Approval(
     string Label, string Title, string Summary, string WhoTitle, IReadOnlyList<ApproverRow> Approvers, string PinTitle,
-    int PinLength, string? Message, bool MayValidate, string Validate, string Close);
+    int PinLength, string? Message, bool MayValidate, string Validate, string Close, string EnterKey = "Entrée", string EscapeKey = "Échap");
 
 /// <summary>The chip in the search field (G1 board): "QTÉ × 1", marked when a count was typed.</summary>
 public sealed record FieldChip(string Label, bool Active);

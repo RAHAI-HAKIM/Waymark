@@ -67,8 +67,12 @@ public sealed class TillWindow : Window, IDisposable
     private readonly Border _railHost = new();
     private readonly Border _bottomHost = new();
 
-    // The manager step floats over everything (30/09): hidden, it takes no touch.
-    private readonly Border _approvalHost = new() { IsVisible = false };
+    // The panels that freeze the ticket float over everything (D-094): the payment and the manager's
+    // PIN, never both. Hidden, the host takes no touch.
+    private readonly Border _floatingHost = new() { IsVisible = false };
+
+    /// <summary>The payment panel while it is open (B6); the ticket is frozen under it.</summary>
+    private PaymentState? _payment;
     private readonly List<DispatcherTimer> _timers = [];
     private readonly TillActions _actions;
     private readonly SignInFlow _signIn;
@@ -119,7 +123,8 @@ public sealed class TillWindow : Window, IDisposable
         _scanner.Scanned += (_, scan) =>
         {
             // A scan at the sign-in screen belongs to no sale, and a barcode is not a PIN.
-            if (_session.SignedIn is not null)
+            // Nor while a panel freezes the ticket (D-094): the notice slot says the scan was ignored.
+            if (_session.SignedIn is not null && _payment is null && _discount is not { Authorising: true })
             {
                 Submit(scan.Code);
             }
@@ -132,6 +137,12 @@ public sealed class TillWindow : Window, IDisposable
                 {
                     _signIn.Press(character);
                 }
+            }
+            else if (_payment is { } paying)
+            {
+                // The payment (B6): typed keys go to its amount or its reference, never the field.
+                _payment = text.Aggregate(paying, PaymentScreen.Press);
+                Render();
             }
             else if (_discount is { Authorising: true })
             {
@@ -163,7 +174,7 @@ public sealed class TillWindow : Window, IDisposable
                 Render();
             },
             RemoveSelected: RemoveSelected,
-            Collect: Pay,
+            Collect: OpenPayment,
             NewSale: () => _session.StartNewSale(),
             Accept: (card, option) => Decide(card, "accept", option),
             Dismiss: card => Decide(card, "dismiss", null),
@@ -250,7 +261,16 @@ public sealed class TillWindow : Window, IDisposable
                     Render();
                 },
                 Validate: () => _ = ValidatePinAsync(),
-                Price: OpenPrice));
+                Price: OpenPrice),
+            Payments: new PaymentActions(
+                Choose: method => UpdatePayment(open => PaymentScreen.Choose(open, method)),
+                Key: key => UpdatePayment(open => PaymentScreen.Press(open, key)),
+                Backspace: () => UpdatePayment(PaymentScreen.Backspace),
+                WholeRest: () => UpdatePayment(PaymentScreen.WholeRest),
+                RemovePart: index => UpdatePayment(open => PaymentScreen.RemovePart(open, index)),
+                TypeInReference: reference => UpdatePayment(open => open with { OnReference = reference && open.AddingPart }),
+                Primary: PaymentPrimary,
+                Close: ClosePayment));
 
         _signInActions = new SignInActions(
             Select: _signIn.Select,
@@ -369,7 +389,7 @@ public sealed class TillWindow : Window, IDisposable
             },
         };
 
-        return new Panel { Children = { screen, _approvalHost } };
+        return new Panel { Children = { screen, _floatingHost } };
     }
 
     private DockPanel RailWithDebug()
@@ -506,7 +526,8 @@ public sealed class TillWindow : Window, IDisposable
             _session.Viewing,
             _tickets,
             _session.Weighing,
-            _discount is { } discounting ? discounting with { PinLength = _pin.Length } : null));
+            _discount is { } discounting ? discounting with { PinLength = _pin.Length } : null,
+            _payment));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
@@ -551,10 +572,12 @@ public sealed class TillWindow : Window, IDisposable
                 : null;
         }
 
-        if (changes.Approval)
+        if (changes.Approval || changes.Payment)
         {
-            _approvalHost.Child = screen.Approval is { } approval ? TillViews.Approval(approval, _theme, _actions) : null;
-            _approvalHost.IsVisible = screen.Approval is not null;
+            _floatingHost.Child = screen.Payment is { } payment ? TillViews.Payment(payment, _theme, _actions.Payments)
+                : screen.Approval is { } approval ? TillViews.Approval(approval, _theme, _actions)
+                : null;
+            _floatingHost.IsVisible = _floatingHost.Child is not null;
         }
 
         FollowCart();
@@ -775,6 +798,21 @@ public sealed class TillWindow : Window, IDisposable
                 {
                     e.Handled = true;
                 }
+                else if (_payment is { } paying)
+                {
+                    // The payment (B6): Entrée is its key that goes on; Tab moves between amount and reference.
+                    if (e.Key == Key.Enter)
+                    {
+                        PaymentPrimary();
+                    }
+                    else if (paying.AddingPart)
+                    {
+                        _payment = paying with { OnReference = !paying.OnReference };
+                        Render();
+                    }
+
+                    e.Handled = true;
+                }
                 else if (e.Key == Key.Enter && Focused() is TextBox { Tag: LineActions line } quantity)
                 {
                     // A count typed between − and + (B2).
@@ -790,9 +828,14 @@ public sealed class TillWindow : Window, IDisposable
                 break;
 
             case Key.F12:
-                if (_screen?.Bottom.Primary is { Enabled: true } && _session.Paid is null && _session.Viewing is null)
+                // Encaisser opens the payment (B6); with it open, F12 is its key that goes on, as Entrée.
+                if (_payment is not null)
                 {
-                    Pay();
+                    PaymentPrimary();
+                }
+                else
+                {
+                    OpenPayment();
                 }
 
                 e.Handled = true;
@@ -827,7 +870,12 @@ public sealed class TillWindow : Window, IDisposable
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_discount is not null)
+                if (_payment is not null)
+                {
+                    // Not paid after all (B6): the ticket is as it was.
+                    ClosePayment();
+                }
+                else if (_discount is not null)
                 {
                     // A discount not given after all (B4): nothing changes on the ticket.
                     CloseDiscount();
@@ -867,6 +915,14 @@ public sealed class TillWindow : Window, IDisposable
                 _scanner.Flush();
                 var step = e.Key == Key.Down ? 1 : -1;
                 _search = _search with { Highlighted = Math.Clamp(_search.Highlighted + step, 0, found.Results.Count - 1) };
+                Render();
+                e.Handled = true;
+                break;
+
+            case Key.Back or Key.Delete when _payment is not null:
+                // The payment's fields are not text boxes: ⌫ takes from whichever has the keys.
+                _scanner.Flush();
+                _payment = PaymentScreen.Backspace(_payment);
                 Render();
                 e.Handled = true;
                 break;
@@ -1562,12 +1618,81 @@ public sealed class TillWindow : Window, IDisposable
         _input.Focus();
     }
 
-    private async void Pay()
+    // ============================================================ B6: the payment
+
+    /// <summary>
+    /// Encaisser (F12, or the bar's key): the payment panel floats over the ticket, which is frozen
+    /// under it (D-094). Only when Encaisser is available, as before: a ticket with lines, nothing
+    /// unconfirmed, no past ticket open, no weight awaited, no discount being given.
+    /// </summary>
+    private void OpenPayment()
+    {
+        if (_payment is not null || _screen?.Bottom.Primary is not { Enabled: true } || _session.Paid is not null || _session.Viewing is not null)
+        {
+            return;
+        }
+
+        _search = null;
+        _selected = null;
+        _payment = PaymentState.Open;
+        Render();
+    }
+
+    private void ClosePayment()
+    {
+        if (_payment is { Sending: true })
+        {
+            return;
+        }
+
+        _payment = null;
+        Render();
+        _input.Focus();
+    }
+
+    private void UpdatePayment(Func<PaymentState, PaymentState> change)
+    {
+        if (_payment is { Sending: false } open)
+        {
+            _payment = change(open);
+            Render();
+        }
+    }
+
+    /// <summary>
+    /// The key that goes on: "Ajouter la part" while a card or BaridiMob part is typed, "Valider"
+    /// with cash chosen, which sends the sale with its parts. A refusal keeps the panel and its
+    /// parts; a sale with no usable answer closes it, and the rail's card takes over (D-085).
+    /// </summary>
+    private void PaymentPrimary()
+    {
+        if (_payment is not { Sending: false } open || _session.Cart.Total is not { } total)
+        {
+            return;
+        }
+
+        if (open.AddingPart)
+        {
+            _payment = PaymentScreen.AddPart(open, total);
+            Render();
+            return;
+        }
+
+        _payment = open with { Sending = true, Refused = null };
+        Render();
+        Pay([.. open.Parts.Select(part => part.ToWire())]);
+    }
+
+    private async void Pay(IReadOnlyList<TenderRequest> tenders)
     {
         // async void, as an event handler must be: so nothing may escape it.
         try
         {
-            await _session.PayAsync();
+            await _session.PayAsync(tenders);
+            _payment = _session.Paid is null && _session.Unconfirmed is null && _session.SignedIn is not null && _payment is { } kept
+                ? kept with { Sending = false, Refused = _session.Notice is { Kind: TillNoticeKind.SaleRefused } refused ? refused.Detail : null }
+                : null;
+            Render();
             if (_session.SignedIn is null)
             {
                 // The server held no session for this till: back to the PIN, the ticket kept.
@@ -1582,7 +1707,9 @@ public sealed class TillWindow : Window, IDisposable
         }
         catch (Exception)
         {
+            _payment = null;
             _session.ReportHealth(reachable: false);
+            Render();
         }
 
         _input.Focus();

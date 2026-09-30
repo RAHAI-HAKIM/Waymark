@@ -29,7 +29,8 @@ public sealed record TillActions(
     Action TicketsScope,
     Action CloseTickets,
     Action<string>? Reweigh = null,
-    DiscountActions? Discounts = null);
+    DiscountActions? Discounts = null,
+    PaymentActions? Payments = null);
 
 /// <summary>What the discount panel and the manager step do (B4). The window holds their state.</summary>
 /// <param name="Open">"Remise" under a line (its id), or "Remise ticket" (null).</param>
@@ -804,145 +805,6 @@ public static partial class TillViews
         card.VerticalAlignment = VerticalAlignment.Stretch;
         card.Tag = panel;
         return card;
-    }
-
-    /// <summary>
-    /// The manager step (B4), as the board's 09-pin draws it: what is asked on the tile ground, who
-    /// authorises it, the PIN as dots, the pad, then Valider. The digits never reach the screen.
-    ///
-    /// <para>
-    /// A card floating over the whole screen, on a scrim (Hakim, 30/09): in the rail it ran into the
-    /// bottom bar at the till's smallest window. The scrim takes the touches meant for the ticket
-    /// under it, so nothing else is pressed while a PIN is asked; the ✕ closes it and nothing is
-    /// given, as Échap does. Never in a scroll viewer: each digit redraws it (29/09).
-    /// </para>
-    /// </summary>
-    public static Control Approval(Approval approval, TillTheme theme, TillActions actions)
-    {
-        var discounts = actions.Discounts;
-        var body = new StackPanel { Spacing = 8 };
-
-        var close = new TillKey(theme, KeyLook.Ghost, TillTheme.Icon(LucideIcons.X, theme.TextSecondary, 20), () => discounts?.Close(), height: ApprovalKey)
-        {
-            Tag = ApprovalCloseTag,
-        };
-        Avalonia.Automation.AutomationProperties.SetName(close, approval.Close);
-        var head = new DockPanel();
-        head.Children.Add(Docked(close, Dock.Right));
-        head.Children.Add(new StackPanel
-        {
-            Spacing = 4,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children =
-            {
-                theme.Label(approval.Label, theme.TextSecondary),
-                Wrapped(Words(approval.Title, 18, FontWeight.SemiBold, theme.Text, theme)),
-            },
-        });
-        body.Children.Add(head);
-        body.Children.Add(new Border
-        {
-            Background = theme.Tile,
-            CornerRadius = new CornerRadius(TillSizes.KeyRadius),
-            Padding = new Thickness(10, 6),
-            Child = Wrapped(theme.BodySmall(approval.Summary, theme.TextSecondary)),
-        });
-
-        body.Children.Add(theme.Label(approval.WhoTitle, theme.TextSecondary));
-        var who = new WrapPanel();
-        foreach (var person in approval.Approvers)
-        {
-            var id = person.StaffId;
-            who.Children.Add(new TillKey(
-                theme,
-                person.Selected ? KeyLook.Primary : KeyLook.Secondary,
-                Words(person.Name, 14, FontWeight.SemiBold, person.Selected ? theme.ActionLabel : person.Available ? theme.Text : theme.DisabledLabel, theme),
-                () => discounts?.Approver(id),
-                person.Available,
-                ApprovalKey)
-            { Margin = new Thickness(0, 0, 6, 4), Tag = person });
-        }
-
-        body.Children.Add(who);
-        body.Children.Add(theme.Label(approval.PinTitle, theme.TextSecondary));
-
-        // The dots: one filled per digit typed, never the digit (as at sign-in).
-        var dots = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, FlowDirection = FlowDirection.LeftToRight };
-        for (var i = 0; i < Math.Max(4, approval.PinLength); i++)
-        {
-            dots.Children.Add(new Ellipse
-            {
-                Width = 12,
-                Height = 12,
-                Fill = i < approval.PinLength ? theme.Text : null,
-                Stroke = i < approval.PinLength ? null : theme.TextSecondary,
-                StrokeThickness = 2,
-            });
-        }
-
-        body.Children.Add(new Border
-        {
-            Height = ApprovalKey,
-            Background = theme.Card,
-            BorderBrush = theme.FocusRing,
-            BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(TillSizes.FieldRadius + 2),
-            Child = new Border { VerticalAlignment = VerticalAlignment.Center, Child = dots },
-        });
-
-        // A phone pad reads 1 2 3 from the left in Arabic too: the digits are not text.
-        var pad = new UniformGrid { Columns = 3, FlowDirection = FlowDirection.LeftToRight };
-        foreach (var digit in "123456789")
-        {
-            pad.Children.Add(ApprovalPadKey(TillTheme.Figure(digit.ToString(), 20, theme.Text), () => discounts?.Digit(digit), theme));
-        }
-
-        pad.Children.Add(ApprovalPadKey(TillTheme.Icon(LucideIcons.RotateCw, theme.Text, 18), () => discounts?.Clear(), theme));
-        pad.Children.Add(ApprovalPadKey(TillTheme.Figure("0", 20, theme.Text), () => discounts?.Digit('0'), theme));
-        pad.Children.Add(ApprovalPadKey(TillTheme.Icon(LucideIcons.Delete, theme.Text, 22), () => discounts?.Backspace(), theme));
-        body.Children.Add(pad);
-
-        if (approval.Message is { } message)
-        {
-            var (_, refusedInk, _) = theme.ToneOnSurface(Tone.Critical);
-            body.Children.Add(Wrapped(theme.BodySmall(message, refusedInk)));
-        }
-
-        body.Children.Add(new TillKey(
-            theme,
-            KeyLook.Primary,
-            Centred(Words(approval.Validate, 15, FontWeight.SemiBold, approval.MayValidate ? theme.ActionLabel : theme.DisabledLabel, theme)),
-            () => discounts?.Validate(),
-            approval.MayValidate,
-            ApprovalKey)
-        { Margin = new Thickness(0, 4, 0, 0) });
-
-        var card = Card(theme, null, body);
-        card.Width = ApprovalWidth;
-        card.HorizontalAlignment = HorizontalAlignment.Center;
-        card.VerticalAlignment = VerticalAlignment.Center;
-        card.Tag = approval;
-
-        return new Border { Background = theme.Scrim, Child = card };
-    }
-
-    /// <summary>The ✕ on the floating manager step, tagged so its tests find it.</summary>
-    public const string ApprovalCloseTag = "approval-close";
-
-    /// <summary>The floating manager step: narrower than the rail, and its keys between the rail's and the sign-in pad's.</summary>
-    private const double ApprovalWidth = 550;
-
-    private const double ApprovalKey = 52;
-
-    private static TillKey ApprovalPadKey(Control face, Action pressed, TillTheme theme)
-    {
-        if (face is Layoutable layoutable)
-        {
-            layoutable.HorizontalAlignment = HorizontalAlignment.Center;
-            layoutable.VerticalAlignment = VerticalAlignment.Center;
-        }
-
-        return new TillKey(theme, KeyLook.Pad, face, pressed, true, ApprovalKey) { Margin = new Thickness(2) };
     }
 
     // ============================================================ B1: search, tickets, a past ticket

@@ -304,6 +304,8 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(AuthoriseAnswer),       // StoreServer -> till; an authorisation lives in the server's memory, not a table (B4)
             nameof(PriceOverrideRequest),  // an element of a sale request: a price typed, checked again by the server (B5)
             nameof(DiscountRequest),       // an element of a sale request: what was given, never the money it comes to (B4)
+            nameof(TenderRequest),         // an element of a sale request: a card or BaridiMob part as given; the row is the server's (B6)
+            nameof(PaymentLine),           // an element of a sale's answer: transaction_payments as written, without its keys (B6)
             nameof(SignInAnswer),          // StoreServer → till; a session lives in the server's memory, not a table (D-083)
             nameof(BoardAnswer),           // the board: a person's cards and a withheld count, computed per request
             nameof(DecisionAnswer),        // what a decision answers with; the row it records is recommendation_decisions

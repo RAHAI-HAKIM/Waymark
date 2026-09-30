@@ -70,7 +70,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **A scale label's price is exact** (D-090): the weight is worked back from it, `quantity_source` says which figure a row keeps exact, and a weight is priced by the server, never the till.
-- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034).
+- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034). Card and BaridiMob parts are exact and the cash rest rounds once; a payment reference is never a card number (D-095).
 - **The TVA rate comes from `TvaRate.Resolve`**, never from a query (D-075): categories that agree give their rate; none, a null, or a disagreement gives 19% marked `StandardFallback`.
 - **Reasons come from `IReasonCodes`** (D-079): active only, ordered, and the list is what the foreign key will accept. `requires_manager` is carried, never enforced — rank is `StaffPermissions`.
 - **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero. The `promotions` tables are B4's.
@@ -203,7 +203,7 @@ figures round `HalfEven` whatever the store's own policy is.
 - **Two semantic colours only**, critical and warning. **There is no positive state** — a shelf that is fine gets no card.
 - Archivo for text, IBM Plex Mono for labels, SKUs, quantities and figures, IBM Plex Sans Arabic for Arabic: static TTFs in `Waymark.Pos/Assets/Fonts`, OFL (D-080).
 - **Admin's tokens are at the top of `waymark-admin/src/index.css`; the till's are `Waymark.Pos/Ui/TillPalette.cs`**, the only till file that names a colour (D-082), and Fluent's accent is
-  pinned to it: no colour reaches the till from Windows (D-084). **No screen is built before its design exists** (`docs/phase-1-plan.md` §3).
+  pinned to it: no colour reaches the till from Windows (D-084). **No screen is built before its design exists** (`docs/phase-1-plan.md` §3). What edits a line stays in the rail; what freezes the ticket floats, and scans are ignored under it (D-094).
 - Voice: *"Suggested reorder: 240 units"*, never *"Reorder 240 units"*. Admit the range.
 
 ---
