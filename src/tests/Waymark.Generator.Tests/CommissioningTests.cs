@@ -61,7 +61,7 @@ public sealed class CommissioningTests(GrocerySalesRun grocery) : IClassFixture<
         using var db = grocery.Open();
 
         Assert.Empty(Column(db, "SELECT \"table\" FROM pragma_foreign_key_check"));
-        Assert.Equal(29, Scalar(db, "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger'"));
+        Assert.Equal(32, Scalar(db, "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger'")); // credit_limit_events' three (B7)
     }
 
     [Fact]

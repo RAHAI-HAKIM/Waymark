@@ -34,6 +34,9 @@ public sealed class AppendOnlyTests : IClassFixture<MigratedDatabaseFixture>
 
     [Theory]
     [InlineData("trg_consent_events_no_update")]
+    [InlineData("trg_credit_limit_events_no_update")]
+    [InlineData("trg_credit_limit_events_no_delete")]
+    [InlineData("trg_credit_limit_events_no_replace")]
     [InlineData("trg_consent_events_no_delete")]
     [InlineData("trg_stock_movements_no_update")]
     [InlineData("trg_stock_movements_no_delete")]

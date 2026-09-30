@@ -200,10 +200,12 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// line is in it. Completed: the cart empties and <see cref="LastSale"/> says what to
     /// collect. Refused or unknown: the cart stays, and <see cref="Notice"/> says why.
     /// </summary>
-    /// <param name="tenders">The card and BaridiMob parts (B6, D-095); none, and the whole ticket is cash.</param>
-    public Task PayAsync(IReadOnlyList<TenderRequest>? tenders = null)
+    /// <param name="tenders">The card, BaridiMob and tab parts (B6, B7); none, and the whole ticket is cash.</param>
+    /// <param name="customerId">The customer the ticket is recorded against (B7, D-096); needed for a tab part.</param>
+    /// <param name="tabOverride">An owner's authorisation letting the tab part past the limit (B7).</param>
+    public Task PayAsync(IReadOnlyList<TenderRequest>? tenders = null, string? customerId = null, string? tabOverride = null)
     {
-        _tail = PayAfter(_tail, tenders);
+        _tail = PayAfter(_tail, tenders, customerId, tabOverride);
         return _tail;
     }
 
@@ -682,7 +684,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
     }
 
-    private async Task PayAfter(Task previous, IReadOnlyList<TenderRequest>? tenders)
+    private async Task PayAfter(Task previous, IReadOnlyList<TenderRequest>? tenders, string? customerId, string? tabOverride)
     {
         try
         {
@@ -729,7 +731,9 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             // What was given, never what it comes to: the server works the money out (D-091).
             Cart.TicketDiscount?.ToWire(),
             // The parts as given; cash is whatever the server finds left (D-095).
-            tenders is { Count: > 0 } ? tenders : null);
+            tenders is { Count: > 0 } ? tenders : null,
+            customerId,
+            tabOverride);
 
         switch (await sales.CompleteSaleAsync(request, seller.Token))
         {

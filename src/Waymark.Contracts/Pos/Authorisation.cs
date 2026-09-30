@@ -65,6 +65,12 @@ public static class Capabilities
 
     /// <summary>A unit price typed in place of the price in force (B5).</summary>
     public const string OverridePrice = "override_price";
+
+    /// <summary>A customer created at the till (B7).</summary>
+    public const string CreateCustomer = "create_customer";
+
+    /// <summary>A tab's limit changed, frozen or unfrozen, or one charge let past it (B7).</summary>
+    public const string ManageCredit = "manage_credit";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

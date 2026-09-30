@@ -2,11 +2,12 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**27/09/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
+**30/09/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
 weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is done** (§13): a
 discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). **B5 is done** (§14): a
-price typed at the counter, rank 3, within a band (D-092). **B6 is built, waiting on Hakim's piece** (§15): card and
-BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+price typed at the counter, rank 3, within a band (D-092). **B6 is done** (§15): card and
+BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). **B7's server is
+built, waiting on the board** (§16): the tab, le carnet, and the tenant's customer module (D-096). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -17,7 +18,7 @@ BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen t
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
 | Tests | **1864**, all green in Debug and Release (Integration 652 · Pos 528 · Domain 341 · Generator 237 · Hardware 65 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
-| Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, **8 migrations**: `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
+| Schema | 62 tables (all STRICT), 89 indexes, 32 triggers, **9 migrations**: `CustomersAndTab` (B7: `credit_limit_events`, append-only; the charge's override, the tab's freeze and the customer's collection notice; the `information` notice type), `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
 | Recaps | `recaps/phase-0.md` and `recaps/phase-0.5.md`. Read one only when a question reaches back into a finished phase |
@@ -551,7 +552,7 @@ review:** the price panel and the note step have no board (built from the kit); 
 
 Each fix has a test that failed before the fix, and five mutations are each caught.
 
-## 15. Session B6 — built 30/09, waiting on Hakim's piece (D-094, D-095)
+## 15. Session B6 — done 30/09 (D-094, D-095)
 
 **✍ Hakim's piece:** `Domain/Sales/Tender.cs`, `Tender.Settle`: the parts in order, then the exact cash
 rest, rounded once; refused above the total, at zero or less, or for a method that is not a card or a
@@ -578,4 +579,32 @@ answer (D-085: the rail's card takes over); "Ticket imprimé" and the drawer (D1
 **The tests:** `TenderTests`, `PaymentReferenceTests`, `TillTenderTests`, and the B6 sections of
 `CompleteSaleTests`, `SaleWireTests`, `TillWindowTests`. **For Hakim's review:** the panel on screen at
 1024 × 768 and 1366 × 768; the Arabic words are `// ar: à relire` except those from the Arabic board.
+
+## 16. Session B7 — server built 30/09, waiting on the board (D-096)
+
+**✍ Hakim's piece:** `Domain/Customers/Tab.cs`: `Age` (the balance, repayments paying the oldest
+charges first), `Check` (a charge: no tab, frozen, overdue, past the limit), `MayLimit`, `MayRepay`; its
+tests are `TabTests`. And **the tab part of your `Tender.Settle`**: `OnAccount` is a part, once per ticket,
+and the whole ticket when `tabMayBePart` is false (new cases at the end of `TenderTests`). **Written by
+Claude at Hakim's request (30/09)**, the oldest-first matching explained in `Tab.Age`'s comments; the
+tests and the build are Hakim's to run. Against throwaway rules every test passed (the rules were put back). Of 16 mutations of the rest, 14
+were each caught; two ("no limit event", "past the limit without an override") were stopped by the
+compiler, which proves nothing, and are to be rewritten so they compile.
+
+| Where | What |
+| :---- | :---- |
+| Migration `CustomersAndTab` | `credit_limit_events`; `customers.tab_frozen_at`, `collection_notice_version`; `receivable_movements.override_authorised_by`; `notice_type` `information` |
+| `Domain/Organisation/TenantConfiguration.cs`, `Persistence/Organisation/TenantConfigurationStore.cs` | The four settings as `system_config` keys; a missing key is its default |
+| `Domain/Customers/PhoneNumber.cs` | A number in one form, +213 and nine digits |
+| `Application/Customers/` | Find, create, open a tab, change a limit, repay in cash; `TabCharges`, the sale's customer and tab part |
+| `Application/Sales/CompleteSale.cs`, `CashSessions.cs` | The tab part charged with its payment row, the override named; the drawer's session shared with repayments |
+| `StoreServer/Customers/CustomerEndpoints.cs` | `GET /api/customers?phone=`, `POST /api/customers`, `GET …/tab`, `POST …/repayments`, `POST …/limit`; the actor is the seller if their rank allows, else a cited authorisation |
+| `StoreServer/Organisation/TenantSwitch.cs` | `--customer-module`, `--max-credit-limit`, `--credit-overdue-days`, `--tab-as-part`, `--publish-information-notice` |
+| `Pos/Server/StoreServerClient.cs` | The five calls, and a sale's `customer_id` and `tab_override`; no screen yet |
+
+**Waiting on the board** (G1 gate): finding a customer, creating one, the customer on the ticket, Carnet
+in the payment panel, the tab view with Rembourser, the paid rail. **For Hakim to decide:** the tenant key
+is opened, or made the first time, when StoreServer first names a customer; a store that already has
+data gets one then. And a repayment takes a `cash_movement` reason chosen at the till, since
+`reason_codes` carries no "this one is the repayment".
 

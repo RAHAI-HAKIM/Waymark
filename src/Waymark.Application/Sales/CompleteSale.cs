@@ -6,6 +6,7 @@ using Waymark.Domain;
 using Waymark.Domain.Catalogue;
 using Waymark.Domain.Enums;
 using Waymark.Domain.Inventory;
+using Waymark.Domain.Ledgers;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Pricing;
 using Waymark.Domain.Reference;
@@ -19,13 +20,18 @@ namespace Waymark.Application.Sales;
 
 /// <summary>A cash sale of the scanned lines, at this terminal, by this staff member (hop 2, D-070).</summary>
 /// <param name="TicketDiscount">A discount given on the whole ticket at the counter (B4, D-091), or null.</param>
-/// <param name="Tenders">The card and BaridiMob parts (B6, D-095), in order; null or empty when the whole ticket is cash.</param>
+/// <param name="Tenders">The card, BaridiMob and tab parts (B6, B7), in order; null or empty when the whole ticket is cash.</param>
+/// <param name="CustomerId">The customer the sale is recorded against (B7, D-096); needed for a tab part.</param>
+/// <param name="TabOverrideBy">
+/// The person of <c>ManageCredit</c> who let the tab part past the limit, resolved by the host from the
+/// till's authorisation; null when none was cited.
+/// </param>
 public sealed record CompleteSale(
     string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines, GivenDiscount? TicketDiscount = null,
-    IReadOnlyList<GivenTender>? Tenders = null)
+    IReadOnlyList<GivenTender>? Tenders = null, string? CustomerId = null, string? TabOverrideBy = null)
     : ICommand<CompletedSale>;
 
-/// <summary>A part paid by card or BaridiMob, as the till says it was given (B6).</summary>
+/// <summary>A part paid by card, BaridiMob or on the customer's tab, as the till says it was given (B6, B7).</summary>
 /// <param name="Amount">Minor units of the sale's currency.</param>
 /// <param name="Reference">As typed; read again here, and a card number is refused (D-095).</param>
 public sealed record GivenTender(PaymentMethod Method, long Amount, string? Reference);
@@ -116,7 +122,8 @@ public sealed class CompleteSaleHandler(
     ITier2Writer tier2,
     IStoreCalendar calendar,
     TimeProvider clock,
-    IReasonCodes reasons) : ICommandHandler<CompleteSale, CompletedSale>
+    IReasonCodes reasons,
+    Waymark.Application.Customers.TabCharges tabs) : ICommandHandler<CompleteSale, CompletedSale>
 {
     public async Task<CompletedSale> HandleAsync(
         CompleteSale command, CommandContext context, CancellationToken cancellationToken = default)
@@ -146,7 +153,7 @@ public sealed class CompleteSaleHandler(
         var currency = priced[0].Product.PriceTtc.Currency;
         var zero = Money.Zero(currency);
         await CheckReasonsAsync(command, cancellationToken);
-        var sessionId = await CashSession(command, store, now, context, cancellationToken);
+        var sessionId = await CashSessions.OpenAsync(ledger, staging, context, store, command.TerminalId, command.StaffId, now, cancellationToken);
         var transactionId = context.NewId();
         var (net, tax, total, discounted) = (zero, zero, zero, zero);
         var sold = new List<SoldLine>();
@@ -283,8 +290,11 @@ public sealed class CompleteSaleHandler(
             }
         }
 
-        // Settled before a number is taken, so a refusal spends none (B6).
-        var settlement = Settle(total, command.Tenders);
+        // Settled, and the tab asked, before a number is taken, so a refusal spends none (B6, B7).
+        var settings = await tabs.SettingsAsync(cancellationToken);
+        var settlement = Settle(total, command.Tenders, settings.TabAsPart);
+        var tabPart = settlement.Payments.FirstOrDefault(payment => payment.Method == PaymentMethod.OnAccount)?.Amount;
+        var tabSale = await tabs.PrepareAsync(settings, command.CustomerId, tabPart, command.TabOverrideBy, now, cancellationToken);
         var invoice = await NextInvoiceNumber(store, today, cancellationToken);
         staging.Add(new Transaction
         {
@@ -293,6 +303,7 @@ public sealed class CompleteSaleHandler(
             TerminalId = command.TerminalId,
             CashSessionId = sessionId,
             StaffId = command.StaffId,
+            CustomerId = tabSale.CustomerId,
             InvoiceNumber = invoice,
             OccurredAt = now,
             RoundingPolicy = policy,
@@ -313,7 +324,7 @@ public sealed class CompleteSaleHandler(
         var sequence = 0;
         foreach (var payment in settlement.Payments)
         {
-            staging.Add(new TransactionPayment
+            var row = new TransactionPayment
             {
                 PaymentId = context.NewId(),
                 TransactionId = transactionId,
@@ -323,7 +334,31 @@ public sealed class CompleteSaleHandler(
                 Currency = currency.Code,
                 Reference = payment.Reference,
                 CreatedAt = now,
-            });
+            };
+            staging.Add(row);
+
+            // The tab part (B7, D-055): its charge, the same amount, pointing at its payment row;
+            // both go in with the sale or neither does.
+            if (payment.Method == PaymentMethod.OnAccount)
+            {
+                staging.Add(new ReceivableMovement
+                {
+                    MovementId = context.NewId(),
+                    StoreId = store.StoreId,
+                    CustomerId = tabSale.CustomerId!,
+                    MovementType = ReceivableMovementType.Charge,
+                    Amount = payment.Amount,
+                    OccurredAt = now,
+                    PaymentId = row.PaymentId,
+                    StaffId = command.StaffId,
+                    OverrideAuthorisedBy = tabSale.OverrideAuthorisedBy,
+                });
+            }
+        }
+
+        if (tabSale.CustomerId is { } customerId)
+        {
+            tabs.Log(context, customerId, command.StaffId, command.TerminalId, tabPart is not null);
         }
 
         // The tender rounds, never the invoice (D-034): the cash row is the exact rest, and what
@@ -356,7 +391,7 @@ public sealed class CompleteSaleHandler(
     /// not asked: a sale paid in cash never depends on the parts' rules. A reference that reads as a
     /// card number refuses the sale, so one is never written.
     /// </summary>
-    private static Settlement Settle(Money total, IReadOnlyList<GivenTender>? tenders)
+    private static Settlement Settle(Money total, IReadOnlyList<GivenTender>? tenders, bool tabMayBePart)
     {
         if (tenders is not { Count: > 0 })
         {
@@ -375,14 +410,16 @@ public sealed class CompleteSaleHandler(
             parts.Add(new TenderPart(tender.Method, Money.FromMinorUnits(tender.Amount, total.Currency), reference));
         }
 
-        var settled = Tender.Settle(total, parts);
+        var settled = Tender.Settle(total, parts, tabMayBePart);
         return settled.Verdict switch
         {
             TenderVerdict.Settled => settled,
             TenderVerdict.AboveTotal => throw new SaleRefusedException(
-                $"The card and BaridiMob parts come to more than the ticket's {total}: a card gives no change."),
-            TenderVerdict.NotAboveZero => throw new SaleRefusedException("A card or BaridiMob part of zero or less."),
-            _ => throw new SaleRefusedException("Only a card or BaridiMob can be a part; cash is what is left."),
+                $"The parts come to more than the ticket's {total}: a card gives no change."),
+            TenderVerdict.NotAboveZero => throw new SaleRefusedException("A part of zero or less."),
+            TenderVerdict.TabTwice => throw new SaleRefusedException("A ticket goes on the tab once."),
+            TenderVerdict.TabNotWhole => throw new SaleRefusedException("This shop puts a ticket on the tab whole, or not at all."),
+            _ => throw new SaleRefusedException("Only a card, BaridiMob or the tab can be a part; cash is what is left."),
         };
     }
 
@@ -509,33 +546,6 @@ public sealed class CompleteSaleHandler(
         }
 
         return (found.Product, line.Count, found.Weighed);
-    }
-
-    /// <summary>
-    /// The terminal's open session, or a new one opened by this sale's staff member with no float.
-    /// Opening a session with a counted float is a cashier's action, and comes in Phase 1.
-    /// </summary>
-    private async Task<string> CashSession(
-        CompleteSale command, Store store, DateTimeOffset now, CommandContext context, CancellationToken cancellationToken)
-    {
-        if (await ledger.OpenCashSessionAsync(command.TerminalId, cancellationToken) is { } open)
-        {
-            return open.SessionId;
-        }
-
-        var session = new CashSession
-        {
-            SessionId = context.NewId(),
-            StoreId = store.StoreId,
-            TerminalId = command.TerminalId,
-            OpenedBy = command.StaffId,
-            OpenedAt = now,
-            OpeningFloat = Money.Zero(Currency.FromCode(store.Currency)),
-            CreatedAt = now,
-            UpdatedAt = now,
-        };
-        staging.Add(session);
-        return session.SessionId;
     }
 
     /// <summary>

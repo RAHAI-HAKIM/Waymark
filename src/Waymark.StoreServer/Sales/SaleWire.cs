@@ -15,14 +15,19 @@ public static class SaleWire
     /// did. A discount citing nothing valid reaches the handler with nobody, and is refused there.
     /// </param>
     /// <param name="overriddenBy">The same for a price override (B5), rank 3's authorisation.</param>
+    /// <param name="tabOverrideBy">The same for a tab part let past its limit (B7), <c>ManageCredit</c>'s authorisation.</param>
     public static CompleteSale ToCommand(
-        SaleRequest request, string sellerId, Func<string?, string?>? authorisedBy = null, Func<string?, string?>? overriddenBy = null) => new(
+        SaleRequest request, string sellerId, Func<string?, string?>? authorisedBy = null, Func<string?, string?>? overriddenBy = null,
+        Func<string?, string?>? tabOverrideBy = null) => new(
         request.TerminalId,
         sellerId,
         [.. request.Lines.Select(line => new SaleLineRequest(
             line.Barcode, line.Count, Weight(line.Weight), Discount(line.Discount, authorisedBy), Override(line.PriceOverride, overriddenBy)))],
         Discount(request.TicketDiscount, authorisedBy),
-        request.Tenders is { Count: > 0 } tenders ? [.. tenders.Select(Tender)] : null);
+        request.Tenders is { Count: > 0 } tenders ? [.. tenders.Select(Tender)] : null,
+        string.IsNullOrWhiteSpace(request.CustomerId) ? null : request.CustomerId,
+        // Who let the tab part past the limit is the server's, from an authorisation of this session (B7).
+        tabOverrideBy?.Invoke(request.TabOverride));
 
     /// <summary>
     /// A card or BaridiMob part as the handler reads it (B6). A method it does not know becomes cash,
@@ -34,6 +39,7 @@ public static class SaleWire
         {
             TenderMethods.Card => PaymentMethod.Card,
             TenderMethods.MobileWallet => PaymentMethod.MobileWallet,
+            TenderMethods.OnAccount => PaymentMethod.OnAccount,
             _ => PaymentMethod.Cash,
         },
         WireText.TryHundredths(tender.Amount, out var amount) ? amount : 0,
@@ -45,7 +51,8 @@ public static class SaleWire
         PaymentMethod.Card => TenderMethods.Card,
         PaymentMethod.MobileWallet => TenderMethods.MobileWallet,
         PaymentMethod.Cash => TenderMethods.Cash,
-        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "B6 writes cash, card and wallet rows only."),
+        PaymentMethod.OnAccount => TenderMethods.OnAccount,
+        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "A sale writes cash, card, wallet and tab rows only (B6, B7)."),
     };
 
     /// <summary>

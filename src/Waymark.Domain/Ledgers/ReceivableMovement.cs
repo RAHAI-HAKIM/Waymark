@@ -50,4 +50,11 @@ public sealed class ReceivableMovement : IStoreScoped
     public string? ReasonCode { get; init; }
 
     public string? StaffId { get; init; }
+
+    /// <summary>
+    /// Who let this charge past the customer's limit (B7, D-096): a person with
+    /// <c>ManageCredit</c>, cited through the till's authorisation. Only on a charge; null when the
+    /// charge fitted.
+    /// </summary>
+    public string? OverrideAuthorisedBy { get; init; }
 }

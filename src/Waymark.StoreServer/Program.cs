@@ -36,6 +36,7 @@ using Waymark.Persistence.Sales;
 using Waymark.Persistence.Sync;
 using Waymark.Pseudonymisation;
 using Waymark.StoreServer.Catalogue;
+using Waymark.StoreServer.Customers;
 using Waymark.StoreServer.Organisation;
 using Waymark.StoreServer.Reference;
 using Waymark.StoreServer.Engine;
@@ -120,6 +121,21 @@ builder.Services.AddScoped<SetStaffPinHandler>();
 // How the store's scale labels are read (B3, D-090), set by --scale-format= until H2.
 builder.Services.AddScoped<IStoreSettings, Waymark.Persistence.Organisation.StoreSettings>();
 builder.Services.AddScoped<SetScaleLabelFormatHandler>();
+
+// B7 (D-096): the tenant's settings in system_config, the customers and their tabs. The
+// pseudonymiser names a customer in processing_log (D-045, D-061): the tenant key is opened, or made
+// the first time, from the keys directory, which the startup checks below have passed by then.
+builder.Services.AddScoped<ITenantConfiguration, Waymark.Persistence.Organisation.TenantConfigurationStore>();
+builder.Services.AddScoped<SetTenantSettingsHandler>();
+builder.Services.AddScoped<PublishInformationNoticeHandler>();
+builder.Services.AddScoped<Waymark.Domain.Customers.ICustomerLedger, Waymark.Persistence.Customers.CustomerLedger>();
+builder.Services.AddSingleton<IPseudonymiser>(_ => TenantKeyStore.OpenOrCreate(keysDirectory, new DpapiKeyProtector()));
+builder.Services.AddScoped<Waymark.Application.Customers.TabCharges>();
+builder.Services.AddScoped<Waymark.Application.Customers.FindCustomersHandler>();
+builder.Services.AddScoped<Waymark.Application.Customers.CreateCustomerHandler>();
+builder.Services.AddScoped<Waymark.Application.Customers.OpenTabHandler>();
+builder.Services.AddScoped<Waymark.Application.Customers.ChangeCreditLimitHandler>();
+builder.Services.AddScoped<Waymark.Application.Customers.RepayTabHandler>();
 
 // Commands (D-050): one unit of work per request, which stages every row and the executor
 // commits once. The same instance is the staging side and the committing side.
@@ -282,6 +298,20 @@ if (app.Configuration[ScaleFormatSwitch.Setting] is { } scaleFormat)
         scope.ServiceProvider.GetRequiredService<SetScaleLabelFormatHandler>());
 }
 
+// --customer-module, --max-credit-limit, --credit-overdue-days, --tab-as-part and
+// --publish-information-notice (B7, D-096): the tenant's settings, then exit. After the startup
+// checks, like --scale-format.
+if (TenantSwitch.Asked(app.Configuration))
+{
+    using var scope = app.Services.CreateScope();
+    return await TenantSwitch.RunAsync(
+        app.Configuration,
+        Console.Out,
+        scope.ServiceProvider.GetRequiredService<CommandExecutor>(),
+        scope.ServiceProvider.GetRequiredService<SetTenantSettingsHandler>(),
+        scope.ServiceProvider.GetRequiredService<PublishInformationNoticeHandler>());
+}
+
 // The POS uses this to decide whether the server is reachable before falling
 // back to its Level-2 cache.
 app.MapGet("/health", () => Results.Ok(new
@@ -416,6 +446,8 @@ app.MapPost("/api/till/authorise", async (
     {
         Capabilities.ApplyDiscount => Capability.ApplyDiscount,
         Capabilities.OverridePrice => Capability.OverridePrice,
+        Capabilities.CreateCustomer => Capability.CreateCustomer,
+        Capabilities.ManageCredit => Capability.ManageCredit,
         _ => null,
     };
     if (asked is not { } capability)
@@ -489,7 +521,8 @@ app.MapPost("/api/sales", async (
             request,
             seller,
             cited => sessions.AuthorisedBy(token, cited, Capability.ApplyDiscount),
-            cited => sessions.AuthorisedBy(token, cited, Capability.OverridePrice));
+            cited => sessions.AuthorisedBy(token, cited, Capability.OverridePrice),
+            cited => sessions.AuthorisedBy(token, cited, Capability.ManageCredit));
         var sale = await executor.ExecuteAsync(handler, command, cancellationToken);
         return Results.Ok(SaleWire.Completed(sale));
     }
@@ -502,6 +535,9 @@ app.MapPost("/api/sales", async (
         oneSaleAtATime.Release();
     }
 });
+
+// B7 (D-096): the customers and their tabs.
+app.MapCustomers();
 
 // Hop 6 (D-073): the expiry evaluator, run on request rather than on a schedule. The engine
 // "ran last night" (CLAUDE.md §5) and a nightly job is Phase 1's; what the skeleton has to prove

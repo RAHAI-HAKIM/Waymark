@@ -131,7 +131,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | B4 | Line and transaction discounts given at the counter, with a reason, rank 2 (D-091) | **`SaleArithmetic.Line`'s `discount` parameter — already there, never used** | **H** | M |
 | B5 | Price override behind a manager PIN | A2 | **H** | S |
 | B6 | Split tender: card and BaridiMob parts, the rest in cash, rounded once; no cash received or change taken (D-095) | `CompleteSale`'s single cash payment, `CashTender` (D-034) | **H** | M |
-| B7 | Customer by phone; on-account and the credit limit | `receivable_movements` (D-055) — **schema exists, never exercised** | **H** | M |
+| B7 | Customer by phone; on-account and the credit limit; the tenant's customer module and carnet settings (D-096) | `receivable_movements` (D-055) — **schema exists, never exercised** | **H** | M |
 | B8 | Line and transaction voids; no-sale, audited. **What a cancelled ticket leaves behind** (D-087: B2 keeps it in the drafts with no record) and the board's manager PIN for "Annuler ticket" | `CompleteSale` atomicity (D-070) | **H** | M |
 | B9 | Refunds linked to the original; store credit | `SaleArithmetic`, `BatchAllocation` (D-070) | **H** | L |
 | B10 | Paid-in and paid-out; clock in and out | `CashSession` auto-open (D-070, provisional) | C | S |

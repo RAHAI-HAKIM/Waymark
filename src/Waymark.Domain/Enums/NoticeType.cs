@@ -19,5 +19,11 @@ public enum NoticeType
     Marketing,
 
     /// <summary>Stored as <c>staff</c>.</summary>
-    Staff
+    Staff,
+
+    /// <summary>
+    /// Stored as <c>information</c>: what a customer is told when their data is collected (Art. 32),
+    /// whatever the legal basis; the tab's is a contract (DPIA P6), so it asks no consent (B7).
+    /// </summary>
+    Information
 }

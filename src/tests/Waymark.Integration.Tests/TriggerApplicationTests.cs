@@ -84,11 +84,12 @@ public sealed class TriggerApplicationTests : IDisposable
         // which is frozen. Later additions: processing_log's UPDATE guard
         // (D-045), rounding_variance (D-034), receivable_movements (F-16), and a
         // no-replace guard on each of the nine ledgers (Phase 0 final test), and
-        // erasure_ledger's four fact and time-flow guards (D-060).
+        // erasure_ledger's four fact and time-flow guards (D-060), and credit_limit_events' three
+        // (B7, D-096).
         // A change to this count is a change to what the database promises.
         var declared = TriggerScript.DeclaredNames();
 
-        Assert.Equal(29, declared.Count);
+        Assert.Equal(32, declared.Count);
         Assert.Contains("trg_consent_events_no_update", declared);
         Assert.Contains("trg_erasure_ledger_no_delete", declared);
         Assert.Equal(declared.Count, declared.Distinct(StringComparer.Ordinal).Count());

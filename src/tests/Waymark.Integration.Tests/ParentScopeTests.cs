@@ -53,6 +53,7 @@ public sealed class ParentScopeTests : IClassFixture<MigratedDatabaseFixture>
         ["suppliers"] = "suppliers serve the tenant",
         ["supplier_variant"] = "supplier terms, per tenant",
         ["customers"] = "a customer is the tenant's, served at any of its stores",
+        ["credit_limit_events"] = "a customer's tab limit holds in every store of the tenant (D-096)",
         ["consent_events"] = "a customer's consent, per tenant",
         ["credit_movements"] = "store credit is spent at any store of the tenant",
         ["loyalty_movements"] = "loyalty is the tenant's",

@@ -30,7 +30,7 @@ namespace Waymark.Integration.Tests;
 /// A half-written sale is the silent kind of wrong: a transaction with no stock movement, or
 /// an invoice number used by a sale that never happened.
 /// </summary>
-public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClassFixture<MigratedDatabaseFixture>
+public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) : IClassFixture<MigratedDatabaseFixture>
 {
     private static readonly DateOnly Today = new(2026, 9, 19);
     private static readonly DateTimeOffset Now = new(2026, 9, 19, 9, 30, 0, TimeSpan.Zero);
@@ -211,7 +211,7 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
             tier2,
             calendar,
             clock,
-            new Waymark.Persistence.Reference.ReasonCodes(context));
+            new Waymark.Persistence.Reference.ReasonCodes(context), TabChargesFor.Context(context));
 
         return await executor.ExecuteAsync(
             handler,
@@ -237,7 +237,7 @@ public sealed class CompleteSaleTests(MigratedDatabaseFixture database) : IClass
         var executor = new CommandExecutor(unitOfWork, ids, new ProcessingLogWriter(context, ids, new FixedCurrentStore(shop.StoreId), clock));
         var handler = new CompleteSaleHandler(
             new ProductLookup(context, calendar), new SalesLedger(context), unitOfWork, new OutboxSequence(context),
-            new NullTier2Writer(), calendar, clock, new Waymark.Persistence.Reference.ReasonCodes(context));
+            new NullTier2Writer(), calendar, clock, new Waymark.Persistence.Reference.ReasonCodes(context), TabChargesFor.Context(context));
 
         return await executor.ExecuteAsync(handler, command);
     }

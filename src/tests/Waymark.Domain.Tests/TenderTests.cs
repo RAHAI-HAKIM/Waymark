@@ -20,6 +20,8 @@ public sealed class TenderTests
 
     private static TenderPart Cash(long centimes) => new(PaymentMethod.Cash, Dzd(centimes));
 
+    private static TenderPart OnTab(long centimes) => new(PaymentMethod.OnAccount, Dzd(centimes));
+
     // ------------------------------------------------------------------ settled
 
     [Fact]
@@ -132,8 +134,7 @@ public sealed class TenderTests
     [Theory]
     [InlineData(PaymentMethod.Cash)]
     [InlineData(PaymentMethod.StoreCredit)]
-    [InlineData(PaymentMethod.OnAccount)]
-    public void Only_a_card_or_a_wallet_is_a_part(PaymentMethod method)
+    public void Only_a_card_a_wallet_or_the_tab_is_a_part(PaymentMethod method)
     {
         var refused = Tender.Settle(Dzd(332_080), [new TenderPart(method, Dzd(10_000))]);
 
@@ -160,5 +161,62 @@ public sealed class TenderTests
     {
         Assert.Throws<InvalidOperationException>(() =>
             Tender.Settle(Dzd(100_000), [new TenderPart(PaymentMethod.Card, Money.FromMinorUnits(1_000, Currency.Eur))]));
+    }
+
+    // ------------------------------------------------------------------ B7: the tab as a part
+
+    [Fact]
+    public void The_tab_is_a_part_exact_like_a_card_and_the_rest_is_cash()
+    {
+        var settled = Tender.Settle(Dzd(332_080), [OnTab(200_000)]);
+
+        Assert.Equal(TenderVerdict.Settled, settled.Verdict);
+        Assert.Equal([OnTab(200_000), Cash(132_080)], settled.Payments);
+        Assert.Equal(new CashTender(Dzd(132_000), Dzd(-80)), settled.Cash);
+    }
+
+    [Fact]
+    public void The_tab_may_take_the_whole_ticket_never_rounded()
+    {
+        var settled = Tender.Settle(Dzd(332_080), [OnTab(332_080)]);
+
+        Assert.Equal([OnTab(332_080)], settled.Payments);
+        Assert.Equal(new CashTender(Dzd(0), Dzd(0)), settled.Cash);
+    }
+
+    [Fact]
+    public void A_ticket_goes_on_the_tab_once()
+    {
+        var refused = Tender.Settle(Dzd(332_080), [OnTab(100_000), Card(50_000), OnTab(100_000)]);
+
+        Assert.Equal(TenderVerdict.TabTwice, refused.Verdict);
+        Assert.Empty(refused.Payments);
+    }
+
+    [Fact]
+    public void With_the_tab_not_a_part_it_takes_the_whole_ticket_alone()
+    {
+        Assert.Equal(TenderVerdict.Settled, Tender.Settle(Dzd(332_080), [OnTab(332_080)], tabMayBePart: false).Verdict);
+        Assert.Equal(TenderVerdict.TabNotWhole, Tender.Settle(Dzd(332_080), [OnTab(200_000)], tabMayBePart: false).Verdict);
+        Assert.Equal(TenderVerdict.TabNotWhole, Tender.Settle(Dzd(332_080), [Card(32_080), OnTab(300_000)], tabMayBePart: false).Verdict);
+    }
+
+    [Fact]
+    public void With_the_tab_not_a_part_cards_and_wallets_still_are()
+    {
+        Assert.Equal(TenderVerdict.Settled, Tender.Settle(Dzd(332_080), [Card(200_000), Wallet(50_000)], tabMayBePart: false).Verdict);
+    }
+
+    [Fact]
+    public void The_tab_refusals_come_in_their_order()
+    {
+        // Two tab parts that also pass the total: two tab parts is what the cashier is told.
+        Assert.Equal(TenderVerdict.TabTwice, Tender.Settle(Dzd(100_000), [OnTab(90_000), OnTab(90_000)]).Verdict);
+
+        // Past the total and not whole: past the total.
+        Assert.Equal(TenderVerdict.AboveTotal, Tender.Settle(Dzd(100_000), [OnTab(150_000)], tabMayBePart: false).Verdict);
+
+        // A tab part of zero: each part is judged first.
+        Assert.Equal(TenderVerdict.NotAboveZero, Tender.Settle(Dzd(100_000), [OnTab(0), OnTab(0)]).Verdict);
     }
 }

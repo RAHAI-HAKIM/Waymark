@@ -43,6 +43,11 @@ internal sealed class ReceivableMovementConfiguration : IEntityTypeConfiguration
             table.HasCheckConstraint(
                 "ck_receivable_movements_reason_code",
                 "movement_type NOT IN ('adjustment','write_off') OR reason_code IS NOT NULL");
+
+            // B7 (D-096): only a charge can be let past the limit.
+            table.HasCheckConstraint(
+                "ck_receivable_movements_override",
+                "override_authorised_by IS NULL OR movement_type = 'charge'");
         });
 
         builder.HasKey(x => x.MovementId);
@@ -69,6 +74,8 @@ internal sealed class ReceivableMovementConfiguration : IEntityTypeConfiguration
             .HasColumnName("reason_code");
         builder.Property(x => x.StaffId)
             .HasColumnName("staff_id");
+        builder.Property(x => x.OverrideAuthorisedBy)
+            .HasColumnName("override_authorised_by");
 
         // The balance is a sum over this index, never a cached column.
         builder.HasIndex(x => new { x.CustomerId, x.OccurredAt })
@@ -112,6 +119,11 @@ internal sealed class ReceivableMovementConfiguration : IEntityTypeConfiguration
         builder.HasOne<Staff>()
             .WithMany()
             .HasForeignKey(x => x.StaffId)
+            .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Staff>()
+            .WithMany()
+            .HasForeignKey(x => x.OverrideAuthorisedBy)
             .HasPrincipalKey(x => x.StaffId)
             .OnDelete(DeleteBehavior.NoAction);
     }

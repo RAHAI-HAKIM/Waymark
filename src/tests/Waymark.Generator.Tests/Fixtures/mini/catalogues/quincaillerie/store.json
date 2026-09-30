@@ -37,6 +37,7 @@
   "notices": [
     { "code": "proc-fr-v1", "type": "processing", "language": "fr", "body": "Notice de test." },
     { "code": "mkt-fr-v1", "type": "marketing", "language": "fr", "body": "Notice de test." },
-    { "code": "staff-fr-v1", "type": "staff", "language": "fr", "body": "Notice de test." }
+    { "code": "staff-fr-v1", "type": "staff", "language": "fr", "body": "Notice de test." },
+    { "code": "information-fr-v1", "type": "information", "language": "fr", "body": "Notice de test." }
   ]
 }

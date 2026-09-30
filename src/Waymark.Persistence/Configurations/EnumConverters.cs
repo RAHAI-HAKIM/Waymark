@@ -188,6 +188,9 @@ internal static class EnumConverters
     public static readonly ValueConverter<ReasonCodeAppliesTo, string> ReasonCodeAppliesToConverter =
         new(value => ToDatabase(value), text => ToReasonCodeAppliesTo(text));
 
+    public static readonly ValueConverter<Waymark.Domain.Customers.CreditLimitEventType, string> CreditLimitEventTypeConverter =
+        new(value => ToDatabase(value), text => ToCreditLimitEventType(text));
+
     public static readonly ValueConverter<ReceivableMovementType, string> ReceivableMovementTypeConverter =
         new(value => ToDatabase(value), text => ToReceivableMovementType(text));
 
@@ -905,6 +908,7 @@ internal static class EnumConverters
         NoticeType.Processing => "processing",
         NoticeType.Marketing => "marketing",
         NoticeType.Staff => "staff",
+        NoticeType.Information => "information",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped NoticeType.")
     };
@@ -914,6 +918,7 @@ internal static class EnumConverters
         "processing" => NoticeType.Processing,
         "marketing" => NoticeType.Marketing,
         "staff" => NoticeType.Staff,
+        "information" => NoticeType.Information,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown NoticeType value in the database.")
     };
@@ -1306,6 +1311,24 @@ internal static class EnumConverters
         "write_off" => ReasonCodeAppliesTo.WriteOff,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown ReasonCodeAppliesTo value in the database.")
+    };
+
+    private static string ToDatabase(Waymark.Domain.Customers.CreditLimitEventType value) => value switch
+    {
+        Waymark.Domain.Customers.CreditLimitEventType.Set => "set",
+        Waymark.Domain.Customers.CreditLimitEventType.Frozen => "frozen",
+        Waymark.Domain.Customers.CreditLimitEventType.Unfrozen => "unfrozen",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped CreditLimitEventType.")
+    };
+
+    private static Waymark.Domain.Customers.CreditLimitEventType ToCreditLimitEventType(string text) => text switch
+    {
+        "set" => Waymark.Domain.Customers.CreditLimitEventType.Set,
+        "frozen" => Waymark.Domain.Customers.CreditLimitEventType.Frozen,
+        "unfrozen" => Waymark.Domain.Customers.CreditLimitEventType.Unfrozen,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown CreditLimitEventType value in the database.")
     };
 
     private static string ToDatabase(ReceivableMovementType value) => value switch

@@ -101,6 +101,44 @@ public sealed class SaleWireTests
         Assert.Equal("820.00", wire.CashToCollect);
     }
 
+    // ------------------------------------------------ the tab (B7, D-096)
+
+    [Fact]
+    public void A_tab_part_its_customer_and_the_override_reach_the_command_and_who_overrode_is_the_servers()
+    {
+        string? cited = null;
+        var command = SaleWire.ToCommand(
+            new SaleRequest("till-1", [new("111", 1)], Tenders: [new(TenderMethods.OnAccount, "143.00")], CustomerId: "karim", TabOverride: "auth-9"),
+            "staff-1",
+            tabOverrideBy: authorisation =>
+            {
+                cited = authorisation;
+                return "owner-1";
+            });
+
+        Assert.Equal([new GivenTender(PaymentMethod.OnAccount, 14_300, null)], command.Tenders);
+        Assert.Equal(("karim", "owner-1", "auth-9"), (command.CustomerId, command.TabOverrideBy, cited));
+    }
+
+    [Fact]
+    public void An_override_nobody_in_this_session_gave_lets_nothing_past_the_limit()
+    {
+        var command = SaleWire.ToCommand(
+            new SaleRequest("till-1", [new("111", 1)], CustomerId: " ", TabOverride: "forged"), "staff-1", tabOverrideBy: _ => null);
+
+        Assert.Equal(((string?)null, (string?)null), (command.CustomerId, command.TabOverrideBy));
+    }
+
+    [Fact]
+    public void A_tab_row_is_named_on_the_wire_as_the_column_names_it()
+    {
+        var total = Money.FromMinorUnits(14_300, Currency.Dzd);
+        var sale = new CompletedSale("t1", "S-2026-000003", total, Money.FromMinorUnits(2_283, Currency.Dzd),
+            Money.Zero(Currency.Dzd).ToCashTender(), [new TenderPart(PaymentMethod.OnAccount, total)]);
+
+        Assert.Equal([new PaymentLine("on_account", "143.00", null)], SaleWire.Completed(sale).Payments);
+    }
+
     // ------------------------------------------------ who is selling (A5, D-083)
 
     private static readonly SaleRequest AtTillOne = new("till-1", [new("111", 1)]);

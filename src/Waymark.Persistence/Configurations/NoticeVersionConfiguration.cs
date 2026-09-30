@@ -28,7 +28,7 @@ internal sealed class NoticeVersionConfiguration : IEntityTypeConfiguration<Noti
             // it does not know about (decisions.md D-022).
             table.HasCheckConstraint(
                 "ck_notice_versions_notice_type",
-                @"notice_type IN ('processing','marketing','staff')");
+                @"notice_type IN ('processing','marketing','staff','information')");
             table.HasCheckConstraint(
                 "ck_notice_versions_language",
                 @"language IN ('ar','fr','en')");

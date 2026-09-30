@@ -141,12 +141,23 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(x => x.UpdatedAt)
             .HasColumnName("updated_at")
             .HasConversion(WaymarkConverters.Timestamp);
+        builder.Property(x => x.TabFrozenAt)
+            .HasColumnName("tab_frozen_at")
+            .HasConversion(WaymarkConverters.Timestamp);
+        builder.Property(x => x.CollectionNoticeVersion)
+            .HasColumnName("collection_notice_version");
 
-        // A rebuild recreates only the indexes the model declares.
+        // A rebuild recreates only the indexes the model declares. B7 (D-096) finds a customer by
+        // this, the number stored in one form (PhoneNumber).
         builder.HasIndex(x => x.ContactPhone)
             .HasDatabaseName("ix_customers_phone");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
+        builder.HasOne<NoticeVersion>()
+            .WithMany()
+            .HasForeignKey(x => x.CollectionNoticeVersion)
+            .HasPrincipalKey(x => x.VersionCode)
+            .OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<NoticeVersion>()
             .WithMany()
             .HasForeignKey(x => x.ConsentMarketingNoticeVersion)

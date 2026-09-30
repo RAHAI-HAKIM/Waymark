@@ -46,6 +46,18 @@ public sealed class Customer
     /// </summary>
     public Money? CreditLimit { get; init; }
 
+    /// <summary>
+    /// When the tab was frozen (B7): no new charge, whatever the limit, and the limit and the
+    /// history kept. Null: not frozen. Every freeze and unfreeze is a <see cref="CreditLimitEvent"/>.
+    /// </summary>
+    public DateTimeOffset? TabFrozenAt { get; init; }
+
+    /// <summary>
+    /// The information notice (Art. 32) the customer was given when the till created them (B7):
+    /// a <c>notice_versions</c> row of type <c>information</c>. Null for a customer from before B7.
+    /// </summary>
+    public string? CollectionNoticeVersion { get; init; }
+
     public long Discount { get; init; }
 
     public string? TierRanking { get; init; }

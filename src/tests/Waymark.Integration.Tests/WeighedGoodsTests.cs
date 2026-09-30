@@ -243,7 +243,7 @@ public sealed class WeighedGoodsTests(MigratedDatabaseFixture database) : IClass
         var executor = new CommandExecutor(unitOfWork, ids, new ProcessingLogWriter(context, ids, new FixedCurrentStore(shop.StoreId), clock));
         var handler = new CompleteSaleHandler(
             new ProductLookup(context, calendar), new SalesLedger(context), unitOfWork, new OutboxSequence(context),
-            new NullTier2Writer(), calendar, clock, new Waymark.Persistence.Reference.ReasonCodes(context));
+            new NullTier2Writer(), calendar, clock, new Waymark.Persistence.Reference.ReasonCodes(context), TabChargesFor.Context(context));
 
         return await executor.ExecuteAsync(handler, new CompleteSale(shop.TerminalId, shop.StaffId, lines));
     }

@@ -62,6 +62,7 @@
   "notices": [
     { "code": "processing-ar-v1", "type": "processing", "language": "ar", "body": "نص إشعار تركيبي لبيانات العرض فقط." },
     { "code": "marketing-ar-v1", "type": "marketing", "language": "ar", "body": "نص إشعار تركيبي لبيانات العرض فقط." },
-    { "code": "staff-fr-v1", "type": "staff", "language": "fr", "body": "Texte de notice synthétique, pour les données de démonstration uniquement." }
+    { "code": "staff-fr-v1", "type": "staff", "language": "fr", "body": "Texte de notice synthétique, pour les données de démonstration uniquement." },
+    { "code": "information-ar-v1", "type": "information", "language": "ar", "body": "نص إشعار تركيبي لبيانات العرض فقط." }
   ]
 }

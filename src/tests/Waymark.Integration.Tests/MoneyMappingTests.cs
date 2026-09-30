@@ -49,6 +49,7 @@ public sealed class MoneyMappingTests : IClassFixture<MigratedDatabaseFixture>
         "stock_counts.total_variance_value",
         "stock_count_items.unit_cost", "stock_count_items.variance_value",
         "customers.credit", "customers.credit_limit",
+        "credit_limit_events.previous_limit", "credit_limit_events.new_limit",
         "transactions.subtotal", "transactions.discount_total",
         "transactions.tax_total", "transactions.total_amount",
         "transaction_items.sell_price", "transaction_items.unit_cost_at_sale", "transaction_items.list_price",

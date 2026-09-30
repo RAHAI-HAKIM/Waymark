@@ -254,6 +254,28 @@ BEGIN
     SELECT RAISE(ABORT, 'receivable_movements is append-only: a row is never replaced');
 END;
 
+DROP TRIGGER IF EXISTS trg_credit_limit_events_no_update;
+CREATE TRIGGER trg_credit_limit_events_no_update
+BEFORE UPDATE ON credit_limit_events
+BEGIN
+    SELECT RAISE(ABORT, 'credit_limit_events is append-only: a change to a limit is a new event');
+END;
+
+DROP TRIGGER IF EXISTS trg_credit_limit_events_no_delete;
+CREATE TRIGGER trg_credit_limit_events_no_delete
+BEFORE DELETE ON credit_limit_events
+BEGIN
+    SELECT RAISE(ABORT, 'credit_limit_events is append-only');
+END;
+
+DROP TRIGGER IF EXISTS trg_credit_limit_events_no_replace;
+CREATE TRIGGER trg_credit_limit_events_no_replace
+BEFORE INSERT ON credit_limit_events
+    WHEN EXISTS (SELECT 1 FROM credit_limit_events WHERE event_id = NEW.event_id)
+BEGIN
+    SELECT RAISE(ABORT, 'credit_limit_events is append-only: a row is never replaced');
+END;
+
 DROP TRIGGER IF EXISTS trg_recommendation_decisions_no_replace;
 CREATE TRIGGER trg_recommendation_decisions_no_replace
 BEFORE INSERT ON recommendation_decisions

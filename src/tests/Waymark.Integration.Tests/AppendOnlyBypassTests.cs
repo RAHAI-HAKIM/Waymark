@@ -72,6 +72,13 @@ public sealed class AppendOnlyBypassTests : IClassFixture<MigratedDatabaseFixtur
             + "VALUES ('{0}', 's', 'c', 'charge', {2}, '2026-09-17 10:00:00', '{0}-payment')"
         },
         {
+            // B7 (D-096). The staff column, not the limit: a rewritten limit of -7 would be refused by
+            // its CHECK, and the test would pass for a reason that is not the trigger.
+            "credit_limit_events", "event_id", "staff_id",
+            "INSERT {verb} INTO credit_limit_events (event_id, customer_id, event_type, previous_limit, new_limit, staff_id, occurred_at) "
+            + "VALUES ('{0}', 'c', 'set', NULL, 5000, '{3}', '2026-09-17 10:00:00')"
+        },
+        {
             "recommendation_decisions", "decision_id", "decision",
             "INSERT {verb} INTO recommendation_decisions (decision_id, recommendation_id, decision, origin, decided_at, applied_at) "
             + "VALUES ('{0}', 'r', '{3}', 'store', '2026-09-17 10:00:00', '2026-09-17 10:00:00')"

@@ -199,6 +199,21 @@ CREATE TABLE "consent_events" (
     CONSTRAINT "FK_consent_events_terminals_terminal_id" FOREIGN KEY ("terminal_id") REFERENCES "terminals" ("terminal_id")
 ) STRICT;
 
+CREATE TABLE "credit_limit_events" (
+    "event_id" TEXT NOT NULL CONSTRAINT "PK_credit_limit_events" PRIMARY KEY,
+    "customer_id" TEXT NOT NULL,
+    "event_type" TEXT NOT NULL,
+    "previous_limit" INTEGER NULL,
+    "new_limit" INTEGER NULL,
+    "staff_id" TEXT NOT NULL,
+    "occurred_at" TEXT NOT NULL,
+    CONSTRAINT "ck_credit_limit_events_event_type" CHECK (event_type IN ('set','frozen','unfrozen')),
+    CONSTRAINT "ck_credit_limit_events_limits" CHECK (event_type = 'set' OR (previous_limit IS NULL AND new_limit IS NULL)),
+    CONSTRAINT "ck_credit_limit_events_new_limit" CHECK (new_limit IS NULL OR new_limit >= 0),
+    CONSTRAINT "FK_credit_limit_events_customers_customer_id" FOREIGN KEY ("customer_id") REFERENCES "customers" ("customer_id"),
+    CONSTRAINT "FK_credit_limit_events_staff_staff_id" FOREIGN KEY ("staff_id") REFERENCES "staff" ("staff_id")
+) STRICT;
+
 CREATE TABLE "credit_movements" (
     "movement_id" TEXT NOT NULL CONSTRAINT "PK_credit_movements" PRIMARY KEY,
     "customer_id" TEXT NOT NULL,
@@ -225,29 +240,32 @@ CREATE TABLE "credit_movements" (
 
 CREATE TABLE "customers" (
     "customer_id" TEXT NOT NULL CONSTRAINT "PK_customers" PRIMARY KEY,
-    "customer_name" TEXT NOT NULL,
-    "contact_phone" TEXT NULL,
-    "email" TEXT NULL,
-    "preferred_language" TEXT NOT NULL DEFAULT 'ar',
-    "join_date" TEXT NOT NULL,
-    "last_order_date" TEXT NULL,
-    "points" INTEGER NOT NULL DEFAULT 0,
-    "credit" INTEGER NOT NULL DEFAULT 0,
-    "discount" INTEGER NOT NULL DEFAULT 0,
-    "tier_ranking" TEXT NULL,
-    "ecommerce_flag" INTEGER NOT NULL DEFAULT 0,
-    "legal_basis" TEXT NOT NULL DEFAULT 'contract',
-    "consent_profiling" INTEGER NOT NULL DEFAULT 0,
-    "consent_profiling_at" TEXT NULL,
-    "consent_profiling_notice_version" TEXT NULL,
+    "collection_notice_version" TEXT NULL,
     "consent_marketing" INTEGER NOT NULL DEFAULT 0,
     "consent_marketing_at" TEXT NULL,
     "consent_marketing_notice_version" TEXT NULL,
-    "objection_flag" INTEGER NOT NULL DEFAULT 0,
-    "deletion_requested_at" TEXT NULL,
-    "status" TEXT NOT NULL DEFAULT 'active',
+    "consent_profiling" INTEGER NOT NULL DEFAULT 0,
+    "consent_profiling_at" TEXT NULL,
+    "consent_profiling_notice_version" TEXT NULL,
+    "contact_phone" TEXT NULL,
     "created_at" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL, "credit_limit" INTEGER NULL,
+    "credit" INTEGER NOT NULL DEFAULT 0,
+    "credit_limit" INTEGER NULL,
+    "customer_name" TEXT NOT NULL,
+    "deletion_requested_at" TEXT NULL,
+    "discount" INTEGER NOT NULL DEFAULT 0,
+    "ecommerce_flag" INTEGER NOT NULL DEFAULT 0,
+    "email" TEXT NULL,
+    "join_date" TEXT NOT NULL,
+    "last_order_date" TEXT NULL,
+    "legal_basis" TEXT NOT NULL DEFAULT 'contract',
+    "objection_flag" INTEGER NOT NULL DEFAULT 0,
+    "points" INTEGER NOT NULL DEFAULT 0,
+    "preferred_language" TEXT NOT NULL DEFAULT 'ar',
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "tab_frozen_at" TEXT NULL,
+    "tier_ranking" TEXT NULL,
+    "updated_at" TEXT NOT NULL,
     CONSTRAINT "ck_customers_consent_marketing" CHECK (consent_marketing IN (0,1)),
     CONSTRAINT "ck_customers_consent_marketing_2" CHECK (consent_marketing = 0 OR consent_marketing_at IS NOT NULL),
     CONSTRAINT "ck_customers_consent_profiling" CHECK (consent_profiling IN (0,1)),
@@ -258,6 +276,7 @@ CREATE TABLE "customers" (
     CONSTRAINT "ck_customers_objection_flag" CHECK (objection_flag IN (0,1)),
     CONSTRAINT "ck_customers_preferred_language" CHECK (preferred_language IN ('ar','fr','en')),
     CONSTRAINT "ck_customers_status" CHECK (status IN ('active','inactive','erased')),
+    CONSTRAINT "FK_customers_notice_versions_collection_notice_version" FOREIGN KEY ("collection_notice_version") REFERENCES "notice_versions" ("version_code"),
     CONSTRAINT "FK_customers_notice_versions_consent_marketing_notice_version" FOREIGN KEY ("consent_marketing_notice_version") REFERENCES "notice_versions" ("version_code"),
     CONSTRAINT "FK_customers_notice_versions_consent_profiling_notice_version" FOREIGN KEY ("consent_profiling_notice_version") REFERENCES "notice_versions" ("version_code")
 ) STRICT;
@@ -375,15 +394,15 @@ CREATE TABLE "loyalty_movements" (
 
 CREATE TABLE "notice_versions" (
     "version_code" TEXT NOT NULL CONSTRAINT "PK_notice_versions" PRIMARY KEY,
-    "notice_type" TEXT NOT NULL,
-    "language" TEXT NOT NULL,
     "body_text" TEXT NOT NULL,
     "effective_from" TEXT NOT NULL,
     "effective_to" TEXT NULL,
+    "language" TEXT NOT NULL,
+    "notice_type" TEXT NOT NULL,
     "published_at" TEXT NOT NULL,
     CONSTRAINT "ck_notice_versions_effective_to" CHECK (effective_to IS NULL OR effective_to > effective_from),
     CONSTRAINT "ck_notice_versions_language" CHECK (language IN ('ar','fr','en')),
-    CONSTRAINT "ck_notice_versions_notice_type" CHECK (notice_type IN ('processing','marketing','staff'))
+    CONSTRAINT "ck_notice_versions_notice_type" CHECK (notice_type IN ('processing','marketing','staff','information'))
 ) STRICT;
 
 CREATE TABLE "outbox" (
@@ -676,24 +695,27 @@ CREATE TABLE "reason_codes" (
 
 CREATE TABLE "receivable_movements" (
     "movement_id" TEXT NOT NULL CONSTRAINT "PK_receivable_movements" PRIMARY KEY,
-    "store_id" TEXT NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "cash_movement_id" TEXT NULL,
     "customer_id" TEXT NOT NULL,
     "movement_type" TEXT NOT NULL,
-    "amount" INTEGER NOT NULL,
     "occurred_at" TEXT NOT NULL,
+    "override_authorised_by" TEXT NULL,
     "payment_id" TEXT NULL,
-    "cash_movement_id" TEXT NULL,
     "reason_code" TEXT NULL,
     "staff_id" TEXT NULL,
+    "store_id" TEXT NOT NULL,
     CONSTRAINT "ck_receivable_movements_amount" CHECK (amount <> 0),
     CONSTRAINT "ck_receivable_movements_cash_movement_id" CHECK (cash_movement_id IS NULL OR movement_type = 'payment'),
     CONSTRAINT "ck_receivable_movements_movement_type" CHECK (movement_type IN ('charge','payment','adjustment','write_off')),
+    CONSTRAINT "ck_receivable_movements_override" CHECK (override_authorised_by IS NULL OR movement_type = 'charge'),
     CONSTRAINT "ck_receivable_movements_payment_id" CHECK ((movement_type = 'charge') = (payment_id IS NOT NULL)),
     CONSTRAINT "ck_receivable_movements_reason_code" CHECK (movement_type NOT IN ('adjustment','write_off') OR reason_code IS NOT NULL),
     CONSTRAINT "ck_receivable_movements_sign" CHECK (movement_type IN ('charge','adjustment') OR amount < 0),
     CONSTRAINT "FK_receivable_movements_cash_movements_cash_movement_id" FOREIGN KEY ("cash_movement_id") REFERENCES "cash_movements" ("movement_id"),
     CONSTRAINT "FK_receivable_movements_customers_customer_id" FOREIGN KEY ("customer_id") REFERENCES "customers" ("customer_id"),
     CONSTRAINT "FK_receivable_movements_reason_codes_reason_code" FOREIGN KEY ("reason_code") REFERENCES "reason_codes" ("reason_code"),
+    CONSTRAINT "FK_receivable_movements_staff_override_authorised_by" FOREIGN KEY ("override_authorised_by") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_receivable_movements_staff_staff_id" FOREIGN KEY ("staff_id") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_receivable_movements_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id"),
     CONSTRAINT "FK_receivable_movements_transaction_payments_payment_id" FOREIGN KEY ("payment_id") REFERENCES "transaction_payments" ("payment_id")
@@ -1275,6 +1297,8 @@ CREATE INDEX "ix_count_items_count" ON "stock_count_items" ("count_id");
 
 CREATE INDEX "ix_credit_customer" ON "credit_movements" ("customer_id", "occurred_at");
 
+CREATE INDEX "ix_credit_limit_events_customer" ON "credit_limit_events" ("customer_id", "occurred_at");
+
 CREATE INDEX "ix_customers_phone" ON "customers" ("contact_phone");
 
 CREATE INDEX "ix_dsr_customer" ON "data_subject_requests" ("customer_id");
@@ -1421,6 +1445,25 @@ CREATE TRIGGER trg_consent_events_no_update
 BEFORE UPDATE ON consent_events
 BEGIN
     SELECT RAISE(ABORT, 'consent_events is append-only: withdrawal is a new event');
+END;
+
+CREATE TRIGGER trg_credit_limit_events_no_delete
+BEFORE DELETE ON credit_limit_events
+BEGIN
+    SELECT RAISE(ABORT, 'credit_limit_events is append-only');
+END;
+
+CREATE TRIGGER trg_credit_limit_events_no_replace
+BEFORE INSERT ON credit_limit_events
+    WHEN EXISTS (SELECT 1 FROM credit_limit_events WHERE event_id = NEW.event_id)
+BEGIN
+    SELECT RAISE(ABORT, 'credit_limit_events is append-only: a row is never replaced');
+END;
+
+CREATE TRIGGER trg_credit_limit_events_no_update
+BEFORE UPDATE ON credit_limit_events
+BEGIN
+    SELECT RAISE(ABORT, 'credit_limit_events is append-only: a change to a limit is a new event');
 END;
 
 CREATE TRIGGER trg_credit_movements_no_delete

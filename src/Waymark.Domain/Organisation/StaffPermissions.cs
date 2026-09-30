@@ -35,6 +35,15 @@ public enum Capability
     /// till need no rank: the cashier sold them.
     /// </summary>
     ViewOtherTickets,
+
+    /// <summary>Create a customer at the till (B7, D-096): collecting a person's data, the notice handed over.</summary>
+    CreateCustomer,
+
+    /// <summary>
+    /// Give, change, freeze or take away a customer's tab limit, and let one charge past it (B7,
+    /// D-096). Every limit change is a <c>credit_limit_events</c> row with who made it.
+    /// </summary>
+    ManageCredit,
 }
 
 /// <summary>
@@ -84,6 +93,8 @@ public static class StaffPermissions
         { Capability.OverridePrice, 3 },
         { Capability.VoidTransaction, 2 },
         { Capability.ViewOtherTickets, 2 },
+        { Capability.CreateCustomer, 2 },
+        { Capability.ManageCredit, 3 },
     };
 
     /// <summary>

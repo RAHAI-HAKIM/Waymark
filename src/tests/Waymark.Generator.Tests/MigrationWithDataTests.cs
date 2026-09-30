@@ -24,6 +24,21 @@ public sealed class MigrationWithDataTests(MiniSalesRun mini) : IClassFixture<Mi
         "receivable_movements", "rounding_variance", "processing_counters", "__EFMigrationsHistory",
     };
 
+    /// <summary>
+    /// A published information notice (B7, D-096) is a type the schema before <c>CustomersAndTab</c>
+    /// cannot hold: rolling back past it is refused, whole, like the tab refund before
+    /// <c>AddReceivables</c>. The mini store's customers were not handed it (the generator records no
+    /// collection notice), so taking it out leaves a history the older schemas can hold.
+    /// </summary>
+    private static void WithoutInformationNotices(string path)
+    {
+        using var db = new SqliteConnection($"Data Source={path};Pooling=False");
+        db.Open();
+        using var command = db.CreateCommand();
+        command.CommandText = "DELETE FROM notice_versions WHERE notice_type = 'information'";
+        command.ExecuteNonQuery();
+    }
+
     private string Copy()
     {
         var path = Path.Combine(_scratch.Path, Guid.NewGuid().ToString("N") + ".db");
@@ -70,6 +85,7 @@ public sealed class MigrationWithDataTests(MiniSalesRun mini) : IClassFixture<Mi
         // The mini store refunded a sale to the tab, which the schema before AddReceivables
         // cannot hold. Refusing is right; what matters is that the refusal changes nothing.
         var path = Copy();
+        WithoutInformationNotices(path);
         var before = Counts(path);
         using (var db = Open(path))
         {
@@ -100,6 +116,40 @@ public sealed class MigrationWithDataTests(MiniSalesRun mini) : IClassFixture<Mi
     }
 
     [Fact]
+    public void Rolling_back_past_a_published_information_notice_is_refused_and_leaves_the_store_as_it_was()
+    {
+        // B7 (D-096): the schema before CustomersAndTab has no 'information' notice type. A rollback
+        // that deleted the notice to fit would quietly lose what customers were told; refusing is
+        // right, and the refusal must change nothing.
+        var path = Copy();
+        using (var db = Open(path))
+        {
+            Assert.True(Scalar(db, "SELECT count(*) FROM notice_versions WHERE notice_type = 'information'") > 0);
+        }
+
+        var before = Counts(path);
+        List<string> migrations;
+        int customers;
+        using (var context = Context(path))
+        {
+            migrations = [.. context.Database.GetMigrations()];
+            customers = migrations.FindIndex(m => m.EndsWith("_CustomersAndTab", StringComparison.Ordinal));
+            Assert.ThrowsAny<SqliteException>(() => context.Database.GetService<IMigrator>().Migrate(migrations[customers - 1]));
+        }
+
+        using (var context = Context(path))
+        {
+            Assert.Contains(migrations[customers], context.Database.GetAppliedMigrations());
+            Assert.Equal(migrations.Skip(customers + 1), context.Database.GetPendingMigrations());
+            context.MigrateAndApplyTriggers();
+            Assert.Empty(context.FindMissingTriggers());
+        }
+
+        Assert.Equal(before, Counts(path));
+        AssertIntact(path, before, "after the refused rollback of CustomersAndTab");
+    }
+
+    [Fact]
     public void Every_migration_rolls_back_and_forward_over_a_real_history_without_losing_a_row()
     {
         var path = Copy();
@@ -112,6 +162,8 @@ public sealed class MigrationWithDataTests(MiniSalesRun mini) : IClassFixture<Mi
             command.CommandText = "UPDATE returns SET refund_method = 'store_credit' WHERE refund_method = 'on_account'";
             command.ExecuteNonQuery();
         }
+
+        WithoutInformationNotices(path);
 
         var before = Counts(path);
         string[] migrations;

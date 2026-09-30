@@ -894,6 +894,37 @@ drawer (D2). **Rejected:** each part rounding in the order typed (the cash to co
 the order); a required reference (a terminal's slip is not always at hand); recording the cash handed
 over (Hakim).
 
+### D-096 — B7: the tab (le carnet): tenant settings, customers at the till, a limit with its history (Hakim, 30/09)
+**The customer module is the tenant's switch, not a store's** (DPIA P6): customers are the tenant's
+(`customers` has no `store_id`), and an Enterprise chain has the bundle in every store or none. It and
+the three carnet settings are keys of the reviewed `system_config`, not a new table:
+`customer_module` (off when absent), `max_credit_limit` (money in minor units; absent: no ceiling),
+`credit_overdue_days` (absent: the rule is off), `tab_as_part` (on when absent). Set by
+`--customer-module`, `--max-credit-limit`, `--credit-overdue-days`, `--tab-as-part` until H2; pushed
+down by the cloud once there is sync. There is no default limit: the owner gives each tab its own. The
+paid bundle (Phase 2's customer intelligence) will gate through `store_entitlements`; no licensing now.
+**The rules are `Tab`** (Domain, Hakim's piece): the balance is the sum of the ledger, never a column;
+repayments pay the oldest charges first, so the till can say how old a debt is; a charge is refused
+with no tab, on a frozen tab, when the oldest unpaid charge is past the overdue days, or past the limit,
+**and only past the limit may an owner (`ManageCredit`, rank 3) let one charge through**, named on the
+charge (`receivable_movements.override_authorised_by`); a limit is at least zero and at most the
+ceiling; a repayment is never more than is owed. **The tab is a tender part** (D-095): exact, once per
+ticket, and, with `tab_as_part` off, the whole ticket or nothing. **Every limit set, freeze and unfreeze
+is a row of `credit_limit_events`**, append-only with its three guards, the tenant's like the customer.
+**A customer is created at the till** by rank 2 (`CreateCustomer`): a name, a number stored in one form
+(`PhoneNumber`: +213 and nine digits; one number may have several customers, since households share
+one), and the information notice in force (Art. 32; a new `notice_type` `information`, published by
+`--publish-information-notice`, the one piece of G2 brought forward). **Every look at or change to a
+named customer is a `processing_log` row under their pseudonym** (D-061): each one a search lists, each
+tab opened, a creation, a limit change, a sale recorded against them; purpose `credit_management`, or
+`pos_sale` for a sale with no tab part. A cash repayment is a `paid_in` on the terminal's session and a
+`payment` pointing at it (D-055), under a `cash_movement` reason the till chooses. **Not in B7:**
+adjustments and write-offs (G5), repayment by card or BaridiMob, full customer editing (G1), consents
+(G3). **Rejected:** a per-store switch (a customer would exist in one shop of a chain and not the next);
+a `tenant_configuration` table (`system_config` is the reviewed place for installation settings);
+warning past the limit instead of refusing (the limit would enforce nothing); an override for a frozen
+or overdue tab.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

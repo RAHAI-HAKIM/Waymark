@@ -230,6 +230,54 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         }
     }
 
+    // ---------------------------------------------------------- B7: customers and their tabs (D-096)
+
+    /// <summary>The customers with this number, as typed: the server puts it in its one form. Null when the server could not say.</summary>
+    public Task<CustomerSearchAnswer?> FindCustomersAsync(string phone, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<CustomerSearchAnswer>(
+            HttpMethod.Get, $"api/customers?phone={Uri.EscapeDataString(phone)}&terminal={Uri.EscapeDataString(terminalId)}", null, sessionToken, cancellationToken);
+
+    /// <summary>A customer created at the till. Null when the server could not say: the till then does not know whether one was made.</summary>
+    public Task<CustomerAnswer?> CreateCustomerAsync(CreateCustomerRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<CustomerAnswer>(HttpMethod.Post, "api/customers", request, sessionToken, cancellationToken);
+
+    /// <summary>A customer's tab: the server's figures. Null when the server could not say.</summary>
+    public Task<TabAnswer?> TabAsync(string customerId, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<TabAnswer>(
+            HttpMethod.Get, $"api/customers/{Uri.EscapeDataString(customerId)}/tab?terminal={Uri.EscapeDataString(terminalId)}", null, sessionToken, cancellationToken);
+
+    /// <summary>A repayment in cash. Null when the server could not say: the till then does not know whether it was recorded.</summary>
+    public Task<TabAnswer?> RepayAsync(string customerId, RepaymentRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<TabAnswer>(HttpMethod.Post, $"api/customers/{Uri.EscapeDataString(customerId)}/repayments", request, sessionToken, cancellationToken);
+
+    /// <summary>A change to a tab's limit, or a freeze. Null when the server could not say.</summary>
+    public Task<TabAnswer?> ChangeLimitAsync(string customerId, LimitRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<TabAnswer>(HttpMethod.Post, $"api/customers/{Uri.EscapeDataString(customerId)}/limit", request, sessionToken, cancellationToken);
+
+    /// <summary>A request carrying the session's token, answered in JSON; null for an outage or an answer that is not a 200.</summary>
+    private async Task<T?> SendAsync<T>(HttpMethod method, string path, object? body, string sessionToken, CancellationToken cancellationToken)
+        where T : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionToken);
+
+        try
+        {
+            using var message = new HttpRequestMessage(method, new Uri(path, UriKind.Relative));
+            if (body is not null)
+            {
+                message.Content = JsonContent.Create(body, body.GetType());
+            }
+
+            message.Headers.Add(TillSessionHeader.Name, sessionToken);
+            using var response = await http.SendAsync(message, cancellationToken);
+            return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<T>(cancellationToken) : null;
+        }
+        catch (Exception exception) when (IsOutage(exception, cancellationToken))
+        {
+            return null;
+        }
+    }
+
     /// <summary>Who may open this till (A5). Null when the server could not say.</summary>
     public async Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default)
     {
@@ -436,6 +484,26 @@ public interface ITillServer
     /// <summary>May the seller give a discount, or the manager whose PIN is typed (B4)? Null when the server could not say.</summary>
     Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         Task.FromResult<AuthoriseAnswer?>(null);
+
+    /// <summary>The customers with a number (B7). Null when the server could not say.</summary>
+    Task<CustomerSearchAnswer?> FindCustomersAsync(string phone, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CustomerSearchAnswer?>(null);
+
+    /// <summary>A customer created at the till (B7). Null when the server could not say.</summary>
+    Task<CustomerAnswer?> CreateCustomerAsync(CreateCustomerRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CustomerAnswer?>(null);
+
+    /// <summary>A customer's tab (B7). Null when the server could not say.</summary>
+    Task<TabAnswer?> TabAsync(string customerId, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<TabAnswer?>(null);
+
+    /// <summary>A repayment in cash (B7). Null when the server could not say.</summary>
+    Task<TabAnswer?> RepayAsync(string customerId, RepaymentRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<TabAnswer?>(null);
+
+    /// <summary>A change to a tab's limit (B7). Null when the server could not say.</summary>
+    Task<TabAnswer?> ChangeLimitAsync(string customerId, LimitRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<TabAnswer?>(null);
 }
 
 public interface IProductSource

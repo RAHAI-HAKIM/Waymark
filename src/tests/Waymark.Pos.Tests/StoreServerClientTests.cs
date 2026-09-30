@@ -274,4 +274,58 @@ public sealed class StoreServerClientTests
 
         Assert.IsType<SaleAnswer.Unknown>(await client.CompleteSaleAsync(ASale, Token));
     }
+
+    // ----------------------------------------------------------------- customers (B7, D-096)
+
+    [Fact]
+    public async Task A_customer_search_carries_the_session_token_and_the_number_escaped()
+    {
+        string? header = null;
+        var (client, server) = Build((request, _) =>
+        {
+            header = request.Headers.GetValues(TillSessionHeader.Name).Single();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"outcome":"ok","customers":[{"customer_id":"c1","name":"Karim","phone":"+213550123456"}]}""", Encoding.UTF8, "application/json"),
+            });
+        });
+
+        var answer = await client.FindCustomersAsync("+213 550 12 34 56", "till-1", Token);
+
+        Assert.Equal(Token, header);
+        Assert.Equal("/api/customers", server.Asked.Single().AbsolutePath);
+        Assert.Contains("phone=%2B213%20550%2012%2034%2056", server.Asked.Single().Query, StringComparison.Ordinal);
+        Assert.Equal("Karim", Assert.Single(answer!.Customers!).Name);
+    }
+
+    [Fact]
+    public async Task A_tab_the_server_could_not_answer_is_null_never_an_empty_tab()
+    {
+        // Read as a tab owing nothing, it would look like a customer who may be charged.
+        var (client, _) = Replying("{}", HttpStatusCode.InternalServerError);
+
+        Assert.Null(await client.TabAsync("c1", "till-1", Token));
+    }
+
+    [Fact]
+    public async Task A_sale_to_no_customer_names_none_and_one_to_a_customer_names_them()
+    {
+        var bodies = new List<string>();
+        var (client, _) = Build(async (request, token) =>
+        {
+            bodies.Add(await request.Content!.ReadAsStringAsync(token));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"outcome":"refused","reason":"x"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await client.CompleteSaleAsync(ASale, Token);
+        await client.CompleteSaleAsync(ASale with { CustomerId = "c1", TabOverride = "auth-1" }, Token);
+
+        Assert.DoesNotContain("customer_id", bodies[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("tab_override", bodies[0], StringComparison.Ordinal);
+        Assert.Contains("\"customer_id\":\"c1\"", bodies[1], StringComparison.Ordinal);
+        Assert.Contains("\"tab_override\":\"auth-1\"", bodies[1], StringComparison.Ordinal);
+    }
 }

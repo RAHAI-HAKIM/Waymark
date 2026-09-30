@@ -100,6 +100,9 @@ public sealed class WaymarkDbContext(
     public DbSet<LoyaltyMovement> LoyaltyMovements => Set<LoyaltyMovement>();
     public DbSet<ReceivableMovement> ReceivableMovements => Set<ReceivableMovement>();
 
+    /// <summary>Every change to a customer's tab limit (B7, D-096); append-only.</summary>
+    public DbSet<CreditLimitEvent> CreditLimitEvents => Set<CreditLimitEvent>();
+
     // Organisation
     public DbSet<CashMovement> CashMovements => Set<CashMovement>();
     public DbSet<CashSession> CashSessions => Set<CashSession>();

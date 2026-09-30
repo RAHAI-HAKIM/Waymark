@@ -15,6 +15,8 @@ namespace Waymark.Contracts.Pos;
 /// token opened: a field here would be a claim the server had to decide whether to believe.
 /// </remarks>
 /// <param name="TicketDiscount">A discount given on the whole ticket at the counter (B4, D-091), or null.</param>
+/// <param name="CustomerId">The customer the ticket is recorded against (B7, D-096); needed for a tab part. Left out when there is none.</param>
+/// <param name="TabOverride">An authorisation for <see cref="Capabilities.ManageCredit"/> letting the tab part past the limit (B7); left out when none.</param>
 /// <param name="Tenders">
 /// The card and BaridiMob parts (B6, D-095), in the order they were added: what was given, never a
 /// price. Cash is never a part: it is whatever the server finds left. Null, and left out of the JSON,
@@ -24,7 +26,9 @@ public sealed record SaleRequest(
     [property: JsonPropertyName("terminal_id")] string TerminalId,
     [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines,
     [property: JsonPropertyName("ticket_discount")] DiscountRequest? TicketDiscount = null,
-    [property: JsonPropertyName("tenders"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<TenderRequest>? Tenders = null);
+    [property: JsonPropertyName("tenders"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<TenderRequest>? Tenders = null,
+    [property: JsonPropertyName("customer_id"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CustomerId = null,
+    [property: JsonPropertyName("tab_override"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TabOverride = null);
 
 /// <summary>A part of the ticket paid by card or BaridiMob (B6).</summary>
 /// <param name="Method">One of <see cref="TenderMethods"/>.</param>
@@ -52,6 +56,9 @@ public static class TenderMethods
 
     /// <summary>BaridiMob, and any transfer made from a phone.</summary>
     public const string MobileWallet = "mobile_wallet";
+
+    /// <summary>On the customer's tab, le carnet (B7).</summary>
+    public const string OnAccount = "on_account";
 }
 
 /// <summary>One scanned code and how many units of it.</summary>

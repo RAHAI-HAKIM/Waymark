@@ -306,6 +306,14 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(DiscountRequest),       // an element of a sale request: what was given, never the money it comes to (B4)
             nameof(TenderRequest),         // an element of a sale request: a card or BaridiMob part as given; the row is the server's (B6)
             nameof(PaymentLine),           // an element of a sale's answer: transaction_payments as written, without its keys (B6)
+            nameof(CustomerSummaryWire),   // StoreServer -> till; a customer as listed: id, name, number, nothing more (B7)
+            nameof(CustomerSearchAnswer),  // StoreServer -> till; the customers with a number, or why not (B7)
+            nameof(CreateCustomerRequest), // till -> StoreServer; a name and a number; the notice and the dates are the server's (B7)
+            nameof(CustomerAnswer),        // StoreServer -> till; the customer created, or why not (B7)
+            nameof(TabAnswer),             // StoreServer -> till; a tab worked out by the rule over receivable_movements (B7)
+            nameof(TabMovementWire),       // an element of that answer: a movement as the statement shows it (B7)
+            nameof(RepaymentRequest),      // till -> StoreServer; an amount and a reason; the rows are the server's (B7)
+            nameof(LimitRequest),          // till -> StoreServer; what to do to the limit; the event row is the server's (B7)
             nameof(SignInAnswer),          // StoreServer → till; a session lives in the server's memory, not a table (D-083)
             nameof(BoardAnswer),           // the board: a person's cards and a withheld count, computed per request
             nameof(DecisionAnswer),        // what a decision answers with; the row it records is recommendation_decisions
