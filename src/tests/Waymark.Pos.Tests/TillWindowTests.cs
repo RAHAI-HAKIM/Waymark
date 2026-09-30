@@ -472,7 +472,7 @@ public sealed class TillWindowTests
 
         till.Tap(Keyed<ApproverRow>(till, row => row.StaffId == "samia"), new Point(20, 20));
         till.Window.KeyTextInput("1357");
-        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Rail.Authorise { PinLength: 4 }));
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Approval { PinLength: 4 }));
         Assert.DoesNotContain("1357", till.SearchField.Text ?? string.Empty, StringComparison.Ordinal); // the PIN went to the dots, never the field
 
         till.Key(Key.Enter, PhysicalKey.Enter);
@@ -498,7 +498,7 @@ public sealed class TillWindowTests
         till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ApproverRow));
         till.Tap(Keyed<ApproverRow>(till, row => row.StaffId == "samia"), new Point(20, 20));
         till.Window.KeyTextInput("1357");
-        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Rail.Authorise { PinLength: 4 }));
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Approval { PinLength: 4 }));
         till.Key(Key.Enter, PhysicalKey.Enter);
         till.WaitFor(() => till.Session.Cart.Lines[0].Override is not null);
 
@@ -527,27 +527,77 @@ public sealed class TillWindowTests
     });
 
     [Fact]
-    public Task The_manager_step_fits_the_rail_and_does_not_scroll_as_digits_are_typed() => Headless.Run(() =>
+    public Task The_manager_step_floats_over_the_screen_whole_and_does_not_scroll_as_digits_are_typed() => Headless.Run(() =>
     {
         using var till = Till.SignedIn();
         till.ScanMany(1);
+        OpenManagerStep(till);
+
+        till.Window.KeyTextInput("13");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Approval { PinLength: 2 }));
+
+        // Hakim, 29/09: each digit redraws the step, and a scroll viewer rebuilt each time jumped to
+        // the top. 30/09: in the rail it ran into the bottom bar, so it floats over the whole screen.
+        var card = till.Window.GetVisualDescendants().OfType<Border>().Single(border => border.Tag is Screen.Approval);
+        Assert.Empty(card.GetVisualAncestors().OfType<ScrollViewer>());
+        Assert.Empty(card.GetVisualDescendants().OfType<ScrollViewer>());
+        var top = card.TranslatePoint(default, till.Window)!.Value.Y;
+        var bottom = card.TranslatePoint(new Point(0, card.Bounds.Height), till.Window)!.Value.Y;
+        Assert.True(top >= 0 && bottom <= till.Window.Bounds.Height, $"The step runs from {top:0} to {bottom:0}, outside the window ({till.Window.Bounds.Height:0}).");
+
+        // The scrim covers the whole window, so a touch meant for the ticket under it lands on nothing.
+        var scrim = Assert.IsType<Border>(card.Parent);
+        Assert.Equal(till.Window.Bounds.Size, scrim.Bounds.Size);
+        till.Tap(till.Rows()[0], new Point(200, 10));
+        Assert.DoesNotContain(till.Window.GetVisualDescendants().OfType<Control>(), control => control.Tag is LineActions);
+    });
+
+    [Fact]
+    public Task The_x_closes_the_manager_step_and_nothing_is_given() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        OpenManagerStep(till);
+
+        till.Tap(till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => Equals(key.Tag, TillViews.ApprovalCloseTag)), new Point(10, 10));
+
+        Assert.DoesNotContain(till.Window.GetVisualDescendants().OfType<Control>(), control => control.Tag is Screen.Approval);
+        Assert.Null(till.Session.Cart.TicketDiscount);
+        Assert.Equal(string.Empty, till.SearchField.Text);
+    });
+
+    /// <summary>"Remise ticket" of 50 %, a reason, Entrée: a cashier may not, so the manager step opens.</summary>
+    private static void OpenManagerStep(Till till)
+    {
         till.Key(Key.F6, PhysicalKey.F6);
         till.Type("50");
         till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ReasonRow));
         till.Tap(Keyed<ReasonRow>(till, row => row.Code == "geste_commercial"), new Point(20, 20));
         till.Key(Key.Enter, PhysicalKey.Enter);
         till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ApproverRow));
+    }
 
-        till.Window.KeyTextInput("13");
-        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Rail.Authorise { PinLength: 2 }));
+    [Fact]
+    public Task A_pad_key_touched_twice_quickly_types_two_digits() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(1);
+        OpenManagerStep(till);
+        till.Tap(Keyed<ApproverRow>(till, row => row.StaffId == "samia"), new Point(20, 20));
 
-        // Hakim, 29/09: each digit redraws the rail, and a scroll viewer rebuilt each time jumped to the top.
-        var panel = till.Window.GetVisualDescendants().OfType<Border>().Single(border => border.Tag is Screen.Rail.Authorise);
-        Assert.Empty(panel.GetVisualAncestors().OfType<ScrollViewer>());
-        Assert.Empty(panel.GetVisualDescendants().OfType<ScrollViewer>());
-        var bottom = panel.TranslatePoint(new Point(0, panel.Bounds.Height), till.Window)!.Value.Y;
-        Assert.True(bottom <= till.Window.Bounds.Height, $"The panel ends at {bottom:0}, below the window ({till.Window.Bounds.Height:0}).");
+        // Hakim, 30/09: a second touch inside the double-tap time was a DoubleTapped, never a Tapped,
+        // so the cashier waited between digits. Four touches of "1", as fast as the pad is touched.
+        for (var i = 0; i < 4; i++)
+        {
+            till.Tap(PadKey(till, "1"), new Point(10, 10));
+        }
+
+        Assert.Equal(4, till.Window.GetVisualDescendants().OfType<Control>().Select(control => control.Tag).OfType<Screen.Approval>().Single().PinLength);
     });
+
+    private static TillKey PadKey(Till till, string digit) => till.Window.GetVisualDescendants().OfType<TillKey>()
+        .Single(key => key.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == digit)
+            && key.GetVisualAncestors().OfType<Control>().Any(control => control.Tag is Screen.Approval));
 
     [Fact]
     public Task Echap_closes_the_discount_and_nothing_is_given() => Headless.Run(() =>
@@ -701,14 +751,14 @@ public sealed class TillWindowTests
         /// <summary>Pumps the dispatcher, in real time, until the condition holds: the scanner's and the search's timers run on the clock.</summary>
         public void WaitFor(Func<bool> condition)
         {
-            var until = DateTime.UtcNow.AddSeconds(3);
+            var until = DateTime.UtcNow.AddSeconds(5);
             while (!condition() && DateTime.UtcNow < until)
             {
                 Thread.Sleep(20);
                 Pump();
             }
 
-            Assert.True(condition(), "Waited three seconds for the window.");
+            Assert.True(condition(), "Waited five seconds for the window.");
         }
 
         public List<ResultRow> ResultRows() =>

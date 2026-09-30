@@ -15,7 +15,7 @@ price typed at the counter, rank 3, within a band (D-092). Phase 0.5's recap is 
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1861**, all green in Debug and Release (Integration 652 · Pos 526 · Domain 341 · Generator 237 · Hardware 64 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Tests | **1864**, all green in Debug and Release (Integration 652 · Pos 528 · Domain 341 · Generator 237 · Hardware 65 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
 | Schema | 61 tables (all STRICT), 88 indexes, 29 triggers, **8 migrations**: `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -48,7 +48,7 @@ usually an `O-` entry). Close an item by deleting its row.
 | F-27 | Low | **Two B3 pieces of the G1 board are not built**: the "Poids / PLU · saisie manuelle" key (F2) beside the field, and the rail's "Articles sans code-barres" grid (Tomates 180,00 /kg, Œufs 25,00 /u… and "Nouvel article"). B3 sells them by PLU typed in the field | G1 board, `Pos/Ui/TillViews.cs` | **Hakim brings the design**: what F2 does beyond focusing the field, which products the grid shows and in what order, and what "Nouvel article" is (O-25) |
 | F-25 | Low | **The Almanac card's "1 / 3" takes a touch only on its 12 px figures**, the defect D-084 fixed for keys. It is a label that acts, not a key | `Pos/Ui/TillViews.cs`, `Almanac` | **Decide** at the next rail design: a key, or a larger target |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
-| F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` **29/09: a second suspect.** `StoreServerStartupTests.A_generated_store_is_imported_served_and_reopened_after_a_restart` failed in two full runs (28/09 Debug, after 3 min; 29/09 Release) and passed alone every time (36–48 s): a real process under the whole suite's load, likely its startup deadline | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
+| F-15 | Low | **One unexplained integration failure.** On 14/09 a full-solution `dotnet test`, run straight after a build, failed one integration test, and the name was not captured. Every run since has been green. **New lead, 22/09:** a stale test assembly can do exactly this. Restoring a source file with `mv` (or any copy that keeps the original mtime) leaves it older than the built DLL, MSBuild skips the project, and `dotnet test` runs the *previous* code — a failure with no matching source. Cost an hour in A1 | `Waymark.Integration.Tests` **29/09: a second suspect.** `StoreServerStartupTests.A_generated_store_is_imported_served_and_reopened_after_a_restart` failed in two full runs (28/09 Debug, after 3 min; 29/09 Release) and passed alone every time (36–48 s): a real process under the whole suite's load, likely its startup deadline. **30/09:** its sibling `It_refuses_a_store_whose_currency_disagrees_with_its_configuration` failed once in a full Debug run and passed alone. The same day a full Release run failed 440 integration tests at 1 ms each, and Pos reported nothing; both projects were green on the rerun, and the error was not captured | **Watch**: if it recurs, capture the test name (`--logger "console;verbosity=detailed"`) before anything else, and check the DLL is newer than the source |
 
 Phase 0.5's own findings were all closed inside the phase; `recaps/phase-0.5.md` §5 lists
 them and what settled each.
@@ -539,4 +539,14 @@ rebuilt on each digit jumped back to the top; a window test holds it.
 `SaleWireTests`, `TillWindowTests`. **Broken on purpose**, 11 mutations, each caught. **For Hakim's
 review:** the price panel and the note step have no board (built from the kit); the Arabic words are
 `// ar: à relire`.
+
+**Three fixes, 30/09, before B6** (D-093):
+- **The manager step floats** over the screen on a scrim, closed by a ✕. It no longer runs into
+  the bottom bar.
+- **A PIN is typed at the pace it is touched.** A second touch inside the double-tap time was
+  a `DoubleTapped`, and was lost. `TillKey` now reads the touch itself.
+- **The last character typed shows at once.** The scanner's silence timer could fire early
+  and give up, so the character waited for the next key.
+
+Each fix has a test that failed before the fix, and five mutations are each caught.
 

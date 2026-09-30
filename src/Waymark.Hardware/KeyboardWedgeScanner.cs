@@ -189,10 +189,22 @@ public sealed class KeyboardWedgeScanner : IBarcodeScanner, IDisposable
     {
         // A posted callback can arrive after a keystroke that extended the
         // burst and rearmed the timer. Only real silence ends it.
-        if (_buffer.Length > 0 && _clock.GetUtcNow() - _lastCharacterAt >= Window)
+        if (_buffer.Length == 0)
+        {
+            return;
+        }
+
+        var quiet = _clock.GetUtcNow() - _lastCharacterAt;
+        if (quiet >= Window)
         {
             EndBurst(_lastCharacterAt);
+            return;
         }
+
+        // Early: Windows runs timers on its 15.6 ms tick, so one can fall due
+        // before the window has passed by the precise clock. Waiting for the
+        // rest, or the last character typed waits for the next key (30/09).
+        _silence?.Change(Window - quiet, Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>Classifies the burst. True when it was a scan.</summary>

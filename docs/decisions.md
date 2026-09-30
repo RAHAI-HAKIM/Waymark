@@ -847,6 +847,20 @@ per kilo, and a correction there waits for a need. A sale sends a price only whe
 asked in the field after the reason when that reason says `requires_note`; an override reason's note
 has no column and is not asked.
 
+### D-093 — The manager step floats over the screen; a key reads its own touch; a silence timer that fires early waits again (Hakim, 30/09)
+**The manager step** (B4, B5) is a card floating over the whole screen on a scrim, closed by a ✕,
+not a panel in the rail: in the rail it ran into the bottom bar at the smallest window. It lives
+in its own slot, `TillScreen.Approval`; the discount or price panel stays in the rail under it. The
+scrim takes the touches meant for the ticket, so nothing else is pressed while a PIN is asked; the ✕
+closes it and nothing is given, as Échap does. Rejected: a second OS window, because keystrokes and
+the scanner would go to it and not to the till. **A key acts on a press released over it**, read
+from the pointer, not from Avalonia's `Tapped`: a second touch within the double-tap time is a
+`DoubleTapped` and never a `Tapped`, so a PIN typed at a cashier's pace lost every other digit.
+A key still takes `Tapped`, so a touch on it never also selects the row under it. **The scanner's
+silence timer** (D-063) can fall due up to a 15.6 ms Windows clock tick early. It found the window
+not yet silent and gave up, so the last character typed waited for the next key; now it waits for
+the rest of the window.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

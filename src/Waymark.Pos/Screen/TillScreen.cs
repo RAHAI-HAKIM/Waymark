@@ -138,6 +138,7 @@ public sealed record TicketsState(DateOnly Day, bool AllTills, TicketList? List,
 /// <param name="Field">The chip in the search field: "QTÉ × 1", or the n typed before a scan (B1).</param>
 /// <param name="Results">The name search's results, floating over the ticket; null when there is no search (B1).</param>
 /// <param name="Weigh">The weight card, floating where the results float, while a weight is awaited (B3).</param>
+/// <param name="Approval">The manager step, floating over the whole screen while a PIN is asked (B4, 30/09); null otherwise.</param>
 public sealed record TillScreen(
     bool RightToLeft,
     TopBar Top,
@@ -147,7 +148,8 @@ public sealed record TillScreen(
     BottomBar Bottom,
     FieldChip Field,
     ResultsView? Results,
-    WeighCard? Weigh = null)
+    WeighCard? Weigh = null,
+    Approval? Approval = null)
 {
     /// <summary>The key for "Encaisser". Every action has its F key (G1 kit §9).</summary>
     public const string CollectKey = "F12";
@@ -194,7 +196,8 @@ public sealed record TillScreen(
                         Active: true)
                     : new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
             state.Weighing is null && state.Discounting is null ? ResultsOf(state) : null,
-            WeighOf(state));
+            WeighOf(state),
+            ApprovalOf(state));
     }
 
     /// <summary>
@@ -258,8 +261,16 @@ public sealed record TillScreen(
             Rail: !Same(drawn.Rail, next.Rail),
             Bottom: !Same(drawn.Bottom, next.Bottom),
             Field: drawn.Field != next.Field,
-            Results: !Same(drawn.Results, next.Results) || drawn.Weigh != next.Weigh);
+            Results: !Same(drawn.Results, next.Results) || drawn.Weigh != next.Weigh,
+            Approval: !Same(drawn.Approval, next.Approval));
     }
+
+    private static bool Same(Approval? drawn, Approval? next) => (drawn, next) switch
+    {
+        (null, null) => true,
+        ({ } a, { } b) => a.Approvers.SequenceEqual(b.Approvers) && a with { Approvers = b.Approvers } == b,
+        _ => false,
+    };
 
     private static bool Same(ResultsView? drawn, ResultsView? next) => (drawn, next) switch
     {
@@ -627,8 +638,8 @@ public sealed record TillScreen(
 
         if (state.Discounting is { } discounting)
         {
-            return discounting.Authorising ? AuthoriseOf(state, discounting)
-                : discounting.Kind == CounterKind.PriceOverride ? OverridePanelOf(state, discounting)
+            // At the manager step the panel stays in the rail, under the step floating over it.
+            return discounting.Kind == CounterKind.PriceOverride ? OverridePanelOf(state, discounting)
                 : DiscountPanelOf(state, discounting);
         }
 
@@ -821,9 +832,15 @@ public sealed record TillScreen(
     /// <summary>
     /// The manager step (B4), as the board draws "Annuler le ticket" (09-pin): what is asked, who
     /// authorises it, their PIN as dots, and the pad. The PIN is checked by StoreServer only (§3.10).
+    /// It floats over the screen (Hakim, 30/09): in the rail it ran into the bottom bar.
     /// </summary>
-    private static Rail.Authorise AuthoriseOf(ScreenState state, DiscountState discounting)
+    private static Approval? ApprovalOf(ScreenState state)
     {
+        if (state.Discounting is not { Authorising: true } discounting)
+        {
+            return null;
+        }
+
         var text = state.Text;
         var overriding = discounting.Kind == CounterKind.PriceOverride;
         var form = overriding ? DiscountForms.Amount : discounting.Form;
@@ -845,7 +862,7 @@ public sealed record TillScreen(
             _ => null,
         };
 
-        return new Rail.Authorise(
+        return new Approval(
             text.ManagerApproval,
             $"{(overriding ? text.PriceOverrideLabel : line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
             $"{(line is null ? text.CurrentTicket : Article(line))} · {(reason is null ? string.Empty : text.RightToLeft ? reason.LabelAr : reason.LabelFr)}",
@@ -1212,10 +1229,18 @@ public sealed record TillScreen(
 }
 
 /// <summary>Which regions a frame changed (<see cref="TillScreen.Compare"/>): the ones the window redraws.</summary>
-public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, bool Bottom, bool Field = false, bool Results = false)
+public sealed record FrameChanges(bool Top, bool Notice, bool Cart, bool Rail, bool Bottom, bool Field = false, bool Results = false, bool Approval = false)
 {
-    public static FrameChanges All { get; } = new(true, true, true, true, true, true, true);
+    public static FrameChanges All { get; } = new(true, true, true, true, true, true, true, true);
 }
+
+/// <summary>
+/// The manager step (B4), floating over the screen: who authorises, their PIN as dots, the pad.
+/// </summary>
+/// <param name="Close">What the ✕ says to a screen reader: back to the ticket, nothing given.</param>
+public sealed record Approval(
+    string Label, string Title, string Summary, string WhoTitle, IReadOnlyList<ApproverRow> Approvers, string PinTitle,
+    int PinLength, string? Message, bool MayValidate, string Validate, string Close);
 
 /// <summary>The chip in the search field (G1 board): "QTÉ × 1", marked when a count was typed.</summary>
 public sealed record FieldChip(string Label, bool Active);
@@ -1346,10 +1371,6 @@ public abstract record Rail
         string Label, string Title, string Detail, IReadOnlyList<DiscountFormChoice> Forms, string? Preview, string ReasonTitle,
         IReadOnlyList<ReasonRow> Reasons, string? Message, bool Refused, bool MayContinue, string Continue, string Back, string? Remove) : Rail;
 
-    /// <summary>The manager step (B4): who authorises, their PIN as dots, the pad.</summary>
-    public sealed record Authorise(
-        string Label, string Title, string Summary, string WhoTitle, IReadOnlyList<ApproverRow> Approvers, string PinTitle,
-        int PinLength, string? Message, bool MayValidate, string Validate, string Back) : Rail;
 
     /// <summary>No answer to a sale. Critical, and in the rail because it needs room to say what to do.</summary>
     /// <param name="Acknowledge">The one way on: the cashier has checked (D-085).</param>

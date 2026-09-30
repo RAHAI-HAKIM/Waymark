@@ -373,6 +373,57 @@ public sealed class KeyboardWedgeScannerTests
         Assert.Equal(["999"], typed);
     }
 
+    [Fact]
+    public void A_silence_timer_that_falls_due_early_still_releases_the_last_character()
+    {
+        // Hakim, 30/09: "1" then "5" showed "1", and the 5 only arrived with the next key. Windows
+        // runs timers on its 15.6 ms clock tick, so a 50 ms timer can fire at 35 ms by the precise
+        // clock; the callback found the window not yet silent, did nothing, and nothing armed it again.
+        var clock = new HandCrankedClock();
+        using var scanner = Under(null, () => new KeyboardWedgeScanner(new EarlyTimers(clock, TimeSpan.FromMilliseconds(15))));
+        var typed = new List<string>();
+        scanner.Typed += (_, text) => typed.Add(text);
+
+        clock.Advance(Human);
+        scanner.Accept('1');
+        clock.Advance(Human);
+        scanner.Accept('5');
+        clock.Advance(scanner.Window);
+
+        Assert.Equal(["1", "5"], typed);
+    }
+
+    /// <summary>The same clock, with timers that fall due early by up to a Windows clock tick, never sooner than a millisecond on.</summary>
+    private sealed class EarlyTimers(HandCrankedClock clock, TimeSpan early) : TimeProvider
+    {
+        private static readonly TimeSpan Soonest = TimeSpan.FromMilliseconds(1);
+
+        public override DateTimeOffset GetUtcNow() => clock.GetUtcNow();
+
+        public override ITimer CreateTimer(
+            TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            new Early(clock.CreateTimer(callback, state, Timeout.InfiniteTimeSpan, period), early, dueTime, period);
+
+        private sealed class Early : ITimer
+        {
+            private readonly ITimer _inner;
+            private readonly TimeSpan _early;
+
+            public Early(ITimer inner, TimeSpan early, TimeSpan dueTime, TimeSpan period)
+            {
+                (_inner, _early) = (inner, early);
+                Change(dueTime, period);
+            }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period) => _inner.Change(
+                dueTime == Timeout.InfiniteTimeSpan ? dueTime : (dueTime - _early > Soonest ? dueTime - _early : Soonest), period);
+
+            public void Dispose() => _inner.Dispose();
+
+            public ValueTask DisposeAsync() => _inner.DisposeAsync();
+        }
+    }
+
     /// <summary>The same clock, with timers that never fire.</summary>
     private sealed class FrozenTimers(HandCrankedClock clock) : TimeProvider
     {

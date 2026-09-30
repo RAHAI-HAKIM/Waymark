@@ -151,6 +151,9 @@ public static class LucideIcons
     /// <summary>Lucide <c>rotate-cw</c>.</summary>
     public const string RotateCw = "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8 M21 3v5h-5";
 
+    /// <summary>Lucide <c>x</c>: closes a step floating over the screen.</summary>
+    public const string X = "M18 6 6 18 M6 6l12 12";
+
     /// <summary>Lucide <c>check</c>.</summary>
     public const string Check = "M20 6 9 17l-5-5";
 }

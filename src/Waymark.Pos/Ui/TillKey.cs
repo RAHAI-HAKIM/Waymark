@@ -46,6 +46,7 @@ public enum KeyLook
 public sealed class TillKey : Border
 {
     private readonly Action? _pressed;
+    private bool _down;
 
     public TillKey(TillTheme theme, KeyLook look, Control content, Action? pressed, bool available = true, double height = TillSizes.Key)
     {
@@ -88,11 +89,39 @@ public sealed class TillKey : Border
 
         GotFocus += (_, _) => BorderBrush = theme.FocusRing;
         LostFocus += (_, _) => BorderBrush = Brushes.Transparent;
-        Tapped += (_, e) =>
+
+        // Pressed on the release over the key, read from the pointer itself, not from Tapped: a
+        // second touch inside the double-tap time is a DoubleTapped and never a Tapped, so a PIN
+        // typed at a cashier's pace lost every other digit (Hakim, 30/09).
+        PointerPressed += (_, e) =>
         {
-            _pressed?.Invoke();
-            e.Handled = true;
+            if (_pressed is not null && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            {
+                _down = true;
+                e.Pointer.Capture(this);
+                e.Handled = true;
+            }
         };
+        PointerReleased += (_, e) =>
+        {
+            if (!_down)
+            {
+                return;
+            }
+
+            _down = false;
+            e.Pointer.Capture(null);
+            e.Handled = true;
+            if (new Rect(Bounds.Size).Contains(e.GetPosition(this)))
+            {
+                _pressed?.Invoke();
+            }
+        };
+        PointerCaptureLost += (_, _) => _down = false;
+
+        // Still taken here, so a touch on a key never also selects the line or row it sits on.
+        Tapped += (_, e) => e.Handled = true;
+        DoubleTapped += (_, e) => e.Handled = true;
         KeyDown += (_, e) =>
         {
             if (e.Key is Key.Enter or Key.Space && _pressed is not null)

@@ -66,11 +66,14 @@ public sealed class TillWindow : Window, IDisposable
     private readonly Border _cartEmptyHost = new();
     private readonly Border _railHost = new();
     private readonly Border _bottomHost = new();
+
+    // The manager step floats over everything (30/09): hidden, it takes no touch.
+    private readonly Border _approvalHost = new() { IsVisible = false };
     private readonly List<DispatcherTimer> _timers = [];
     private readonly TillActions _actions;
     private readonly SignInFlow _signIn;
     private readonly SignInActions _signInActions;
-    private readonly DockPanel _layout;
+    private readonly Panel _layout;
 
     private TillContext? _context;
     private BoardAnswer? _board;
@@ -283,7 +286,7 @@ public sealed class TillWindow : Window, IDisposable
 
     // =================================================================== layout
 
-    private DockPanel Layout()
+    private Panel Layout()
     {
         // The search strip: the field, then the notice slot under it (G1, "Avis").
         var searchIcon = TillTheme.Icon(LucideIcons.Search, _theme.TextMuted, 20);
@@ -356,7 +359,7 @@ public sealed class TillWindow : Window, IDisposable
         middle.Children.Add(cartCard);
         middle.Children.Add(RailWithDebug());
 
-        return new DockPanel
+        var screen = new DockPanel
         {
             Children =
             {
@@ -365,6 +368,8 @@ public sealed class TillWindow : Window, IDisposable
                 middle,
             },
         };
+
+        return new Panel { Children = { screen, _approvalHost } };
     }
 
     private DockPanel RailWithDebug()
@@ -544,6 +549,12 @@ public sealed class TillWindow : Window, IDisposable
             _resultsHost.Child = screen.Weigh is { } weigh ? TillViews.Weigh(weigh, _theme)
                 : screen.Results is { } results ? TillViews.Results(results, _theme, _actions)
                 : null;
+        }
+
+        if (changes.Approval)
+        {
+            _approvalHost.Child = screen.Approval is { } approval ? TillViews.Approval(approval, _theme, _actions) : null;
+            _approvalHost.IsVisible = screen.Approval is not null;
         }
 
         FollowCart();

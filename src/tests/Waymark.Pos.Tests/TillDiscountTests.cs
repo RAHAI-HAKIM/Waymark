@@ -222,7 +222,10 @@ public sealed class TillDiscountTests
         var step = new DiscountState(null, "percent", "10", Reasons, false, "geste_commercial", Authorising: true, Staff: staff,
             ManagerId: "samia", PinLength: 4, Problem: DiscountProblem.WrongPin, AttemptsLeft: 3);
 
-        var panel = Assert.IsType<Rail.Authorise>(TillScreen.Build(State(cart, step)).Rail);
+        var screen = TillScreen.Build(State(cart, step));
+        var panel = Assert.IsType<Approval>(screen.Approval);
+
+        Assert.IsType<Rail.Discount>(screen.Rail); // under the step floating over it
 
         Assert.Equal(4, panel.PinLength);
         Assert.True(panel.MayValidate);

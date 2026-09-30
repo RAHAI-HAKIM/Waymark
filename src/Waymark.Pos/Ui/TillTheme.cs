@@ -84,6 +84,7 @@ public sealed partial class TillTheme
         BarDisabledLabel = Brush(palette.BarDisabledLabel);
         AlmanacMark = Brush(palette.Almanac.Mark);
         AlmanacText = Brush(palette.Almanac.Text);
+        Scrim = new SolidColorBrush(Color.Parse(palette.Scrim), ScrimOpacity);
     }
 
     public TillPalette Palette { get; }
@@ -91,6 +92,12 @@ public sealed partial class TillTheme
     public TillLanguage Language { get; }
 
     public IBrush Page { get; }
+
+    /// <summary>Laid over the screen under a floating step: it dims, and it takes the touches meant for what it covers.</summary>
+    public IBrush Scrim { get; }
+
+    /// <summary>How much of the screen the scrim hides: enough to say the screen waits, not so much that the ticket is lost.</summary>
+    public const double ScrimOpacity = 0.55;
     public IBrush Card { get; }
     public IBrush Tile { get; }
     public IBrush Border { get; }
