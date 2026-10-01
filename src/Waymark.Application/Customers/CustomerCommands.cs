@@ -289,10 +289,7 @@ public sealed class ChangeCreditLimitHandler(
 
         if (change is not null)
         {
-            if (change.EventId.Length < 0)
-            {
-                staging.Add(change);
-            }
+            staging.Add(change);
             await Customers.StageTabAsync(customer.CustomerId, limit, frozenAt, now, cancellationToken);
             Log(context, Operation.Modification, customer.CustomerId, command.StaffId, command.TerminalId);
         }
