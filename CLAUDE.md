@@ -152,7 +152,7 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 - **Every `on_account` payment row has exactly one `charge`** of the same amount (`payment_id`, unique): a refund of an on-account sale is a negative charge, never cash out of the drawer.
 - **A cash repayment is also a `paid_in`** on the open session (`cash_movement_id`), or the drawer stops reconciling.
 - **No tab without `customers.credit_limit`**, and none beyond it but by an owner's override, named on the charge; every limit change is a `credit_limit_events` row (D-096). Null means no tab.
-- **Outstanding debt never reaches the outbox**: not banded, not flagged (D-043). **The customer module and the carnet settings are the tenant's**, in `system_config`, never a store's (D-096).
+- **Outstanding debt never reaches the outbox**: not banded, not flagged (D-043). **The customer module and the carnet settings are the tenant's**, in `system_config`, never a store's (D-096). **A cancelled ticket and a struck line are recorded before the till lets them go**, and never counted in a total (D-097).
 
 ### 3.10 Access — D-074, D-077, D-083
 

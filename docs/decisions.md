@@ -925,6 +925,27 @@ a `tenant_configuration` table (`system_config` is the reviewed place for instal
 warning past the limit instead of refusing (the limit would enforce nothing); an override for a frozen
 or overdue tab.
 
+### D-097 — B8: a cancelled ticket is recorded, not prevented; a PIN only after "Encaisser" (Hakim, 01/10)
+**Record, then review, rather than a PIN on every cancel:** a PIN asked every time is a PIN that gets
+shared. Every cancel is recorded, by everyone, with a reason (`void` reason codes): a `transactions`
+row `voided`, priced as its sale would have been (one pricing, `CompleteSaleHandler`), its lines with no
+batch, and no stock movement, payment, invoice number, outbox row or tier-2 record. **The record comes
+first**: the till lets the ticket go to the drafts only once the server has written it, and with no
+answer the ticket stays ("put it on hold"), so pulling the cable hides nothing. **A manager's PIN is
+asked only of a cashier** (below `VoidTransaction`, rank 2) **cancelling after the payment panel was
+opened on the ticket**: the customer may have paid, the classic theft at a till. The till keeps when
+"Encaisser" was first opened on a ticket; the row keeps it (`payment_opened_at`) and who authorised
+(`void_authorised_by`). **Lines struck before a sale is paid are recorded with it**: rows with
+`removed_at` and `removed_by`, no batch, priced at the price in force, outside every total; the
+till's past-ticket view leaves them out, and a cancelled ticket, which has no number, is not listed
+among the tickets. **The owner's flags are a rule, `Voids.Flags`** (Domain, Hakim's piece): after
+"Encaisser", always; more than `void_alert_count` cancels by one person in one cash session; a ticket
+worth more than `void_alert_value`; both `system_config` keys like D-096's, absent unless the owner sets
+them. **Shown in the Z-report (C2) and Admin's review queue, never on the till** (Hakim: not while the
+owner works). **Not in B8:** no-sale (the drawer is D2's), showing the flags (C2, E). **Rejected:** a
+manager's PIN on every cancel (the G1 board's first drawing); a card on the owner's board at the till;
+cancelling offline and sending it later (a cancel nobody can see until the cable is back).
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

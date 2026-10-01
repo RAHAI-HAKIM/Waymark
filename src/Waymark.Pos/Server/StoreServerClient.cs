@@ -186,6 +186,20 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     }
 
     /// <summary>The shop's active price override reasons (B5). Null when the server could not say.</summary>
+    /// <summary>The shop's active reasons for cancelling a ticket (B8). Null when the server could not say.</summary>
+    public async Task<ReasonCodeList?> VoidReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=void", cancellationToken);
+        return list?.ReasonCodes is null ? null : list;
+    }
+
+    /// <summary>
+    /// A cancel, recorded before the till lets the ticket go (B8, D-097). Null when the server could
+    /// not say: the ticket stays, since nothing says the cancel was recorded.
+    /// </summary>
+    public Task<VoidAnswer?> VoidAsync(VoidRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<VoidAnswer>(HttpMethod.Post, "api/sales/void", request, sessionToken, cancellationToken);
+
     public async Task<ReasonCodeList?> OverrideReasonsAsync(CancellationToken cancellationToken = default)
     {
         var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=price_override", cancellationToken);
@@ -484,6 +498,13 @@ public interface ITillServer
     /// <summary>May the seller give a discount, or the manager whose PIN is typed (B4)? Null when the server could not say.</summary>
     Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         Task.FromResult<AuthoriseAnswer?>(null);
+
+    /// <summary>The shop's active reasons for cancelling a ticket (B8). Null when the server could not say.</summary>
+    Task<ReasonCodeList?> VoidReasonsAsync(CancellationToken cancellationToken = default) => Task.FromResult<ReasonCodeList?>(null);
+
+    /// <summary>A cancel recorded (B8). Null when the server could not say.</summary>
+    Task<VoidAnswer?> VoidAsync(VoidRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<VoidAnswer?>(null);
 
     /// <summary>The customers with a number (B7). Null when the server could not say.</summary>
     Task<CustomerSearchAnswer?> FindCustomersAsync(string phone, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>

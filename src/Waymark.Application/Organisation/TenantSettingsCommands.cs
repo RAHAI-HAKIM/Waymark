@@ -24,7 +24,11 @@ public sealed record SetTenantSettings(
     bool NoCeiling = false,
     int? CreditOverdueDays = null,
     bool OverdueOff = false,
-    bool? TabAsPart = null) : ICommand<TenantSettings>;
+    bool? TabAsPart = null,
+    int? VoidAlertCount = null,
+    bool VoidCountOff = false,
+    long? VoidAlertValue = null,
+    bool VoidValueOff = false) : ICommand<TenantSettings>;
 
 public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration, ILedgerCurrency ledgerCurrency, TimeProvider clock)
     : ICommandHandler<SetTenantSettings, TenantSettings>
@@ -35,6 +39,11 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
         if (command.MaxCreditLimit is < 0)
         {
             throw new TenantSettingRefusedException("A ceiling is zero or more.");
+        }
+
+        if (command.VoidAlertCount is <= 0 || command.VoidAlertValue is < 0)
+        {
+            throw new TenantSettingRefusedException("A cancel threshold is one or more, an amount zero or more; switch it off instead.");
         }
 
         if (command.CreditOverdueDays is <= 0)
@@ -51,6 +60,10 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
                 : current.MaxCreditLimit,
             CreditOverdueDays = command.OverdueOff ? null : command.CreditOverdueDays ?? current.CreditOverdueDays,
             TabAsPart = command.TabAsPart ?? current.TabAsPart,
+            VoidAlertCount = command.VoidCountOff ? null : command.VoidAlertCount ?? current.VoidAlertCount,
+            VoidAlertValue = command.VoidValueOff ? null
+                : command.VoidAlertValue is { } worth ? Money.FromMinorUnits(worth, ledgerCurrency.Currency)
+                : current.VoidAlertValue,
         };
 
         await configuration.StageAsync(next, null, clock.GetUtcNow(), cancellationToken);

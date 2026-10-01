@@ -27,7 +27,36 @@ public static class SaleWire
         request.Tenders is { Count: > 0 } tenders ? [.. tenders.Select(Tender)] : null,
         string.IsNullOrWhiteSpace(request.CustomerId) ? null : request.CustomerId,
         // Who let the tab part past the limit is the server's, from an authorisation of this session (B7).
-        tabOverrideBy?.Invoke(request.TabOverride));
+        tabOverrideBy?.Invoke(request.TabOverride),
+        Removed(request.Removed));
+
+    /// <summary>
+    /// A cancel as the handler reads it (B8, D-097). Whether the seller may cancel alone is the
+    /// server's (their rank, through <c>StaffPermissions</c>); who authorised it, from this session.
+    /// </summary>
+    public static VoidTicket ToVoid(
+        VoidRequest request, string sellerId, bool sellerMayVoid, Func<string?, string?>? authorisedBy = null, Func<string?, string?>? discountBy = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return new VoidTicket(
+            request.TerminalId,
+            sellerId,
+            [.. request.Lines.Select(line => new SaleLineRequest(line.Barcode, line.Count, Weight(line.Weight), Discount(line.Discount, discountBy)))],
+            Discount(request.TicketDiscount, discountBy),
+            request.ReasonCode,
+            sellerMayVoid,
+            request.PaymentOpenedAt,
+            authorisedBy?.Invoke(request.Authorisation),
+            Removed(request.Removed));
+    }
+
+    /// <summary>Struck lines as the handler reads them; a weight that cannot be read is zero, which the lookup refuses.</summary>
+    private static IReadOnlyList<RemovedLine>? Removed(IReadOnlyList<RemovedLineRequest>? removed) => removed is { Count: > 0 }
+        ? [.. removed.Select(line => new RemovedLine(line.Barcode, line.Count, Weight(line.Weight), line.RemovedAt))]
+        : null;
+
+    public static VoidAnswer Voided(VoidedTicket ticket) =>
+        new(VoidOutcomes.Voided, ticket.TransactionId, WireText.Figure(ticket.Total), null);
 
     /// <summary>
     /// A card or BaridiMob part as the handler reads it (B6). A method it does not know becomes cash,

@@ -718,22 +718,15 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
 
         var request = new SaleRequest(
             till.TerminalId,
-            // Only what is still in the sale. A line taken out stays on screen, struck, and must
-            // never be charged: sending it would put back what the cashier removed.
-            // A weight typed by hand travels as text; a label's travels in its code, which the
-            // server reads again (D-090).
-            [.. Cart.ActiveLines.Select(line => new SaleRequestLine(
-                line.Barcode,
-                line.Count,
-                line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null,
-                line.Discount?.ToWire(),
-                line.Override?.ToWire()))],
+            SaleLines(),
             // What was given, never what it comes to: the server works the money out (D-091).
             Cart.TicketDiscount?.ToWire(),
             // The parts as given; cash is whatever the server finds left (D-095).
             tenders is { Count: > 0 } ? tenders : null,
             customerId,
-            tabOverride);
+            tabOverride,
+            // The struck lines, recorded and never charged (B8, D-097).
+            RemovedLines());
 
         switch (await sales.CompleteSaleAsync(request, seller.Token))
         {
@@ -770,6 +763,49 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         }
 
         Raise();
+    }
+
+    /// <summary>
+    /// Only what is still in the sale. A line taken out stays on screen, struck, and must never be
+    /// charged: sending it as a line would put back what the cashier removed. A weight typed by hand
+    /// travels as text; a label's travels in its code, which the server reads again (D-090).
+    /// </summary>
+    private List<SaleRequestLine> SaleLines() =>
+        [.. Cart.ActiveLines.Select(line => new SaleRequestLine(
+            line.Barcode,
+            line.Count,
+            line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null,
+            line.Discount?.ToWire(),
+            line.Override?.ToWire()))];
+
+    /// <summary>The struck lines, with when they were struck (B8, D-097); null with none, and left out of the JSON.</summary>
+    private List<RemovedLineRequest>? RemovedLines()
+    {
+        List<RemovedLineRequest> removed = [.. Cart.Lines.Where(line => line.IsRemoved).Select(line => new RemovedLineRequest(
+            line.Barcode,
+            line.Count,
+            line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null,
+            line.RemovedAt!.Value))];
+        return removed.Count > 0 ? removed : null;
+    }
+
+    /// <summary>The payment panel opened on the ticket on screen (B8): kept on the ticket for its cancel.</summary>
+    public void MarkPaymentOpened() => Cart.MarkPaymentOpened(_clock.GetUtcNow());
+
+    /// <summary>
+    /// The ticket on screen as a cancel to record (B8, D-097): its lines as its sale would send them,
+    /// the reason, whether "Encaisser" had been opened, the authorisation if one was needed, the struck
+    /// lines. Null when there is nothing to cancel, or no terminal.
+    /// </summary>
+    public VoidRequest? VoidRequestFor(string reasonCode, string? authorisation)
+    {
+        if (!MayPutAside || string.IsNullOrWhiteSpace(till.TerminalId))
+        {
+            return null;
+        }
+
+        return new VoidRequest(
+            till.TerminalId, SaleLines(), reasonCode, Cart.TicketDiscount?.ToWire(), Cart.PaymentOpenedAt, authorisation, RemovedLines());
     }
 
     private async Task<TillNotice?> Handle(string code)

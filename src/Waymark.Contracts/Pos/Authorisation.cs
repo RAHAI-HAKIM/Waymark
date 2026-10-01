@@ -71,6 +71,9 @@ public static class Capabilities
 
     /// <summary>A tab's limit changed, frozen or unfrozen, or one charge let past it (B7).</summary>
     public const string ManageCredit = "manage_credit";
+
+    /// <summary>A ticket cancelled after "Encaisser" was opened on it, by a cashier (B8).</summary>
+    public const string VoidTransaction = "void_transaction";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

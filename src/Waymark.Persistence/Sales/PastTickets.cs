@@ -47,8 +47,9 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
     {
         // The window and the status in SQL: occurred_at is sortable UTC text, so >= and < compare
         // instants. A null terminal means every till, so the condition is added only when there is one.
+        // A ticket cancelled before it was paid (B8) has no number and was never a ticket: not listed.
         var query = _context.Transactions
-            .Where(sale => sale.OccurredAt >= since && sale.OccurredAt < until && Finished.Contains(sale.Status));
+            .Where(sale => sale.OccurredAt >= since && sale.OccurredAt < until && Finished.Contains(sale.Status) && sale.InvoiceNumber != null);
         if (terminalId is not null)
         {
             query = query.Where(sale => sale.TerminalId == terminalId);
@@ -60,8 +61,9 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
         // distinct (variant, price) pairs per sale, counted in memory. Money cannot be grouped in
         // SQL (it is an INTEGER behind a converter), and a day's items are few.
         var ids = sales.Select(sale => sale.TransactionId).ToList();
+        // A struck line (B8) was never part of the ticket the customer paid: not counted.
         var items = await _context.TransactionItems
-            .Where(item => ids.Contains(item.TransactionId))
+            .Where(item => ids.Contains(item.TransactionId) && item.RemovedAt == null)
             .Select(item => new { item.TransactionId, item.VariantId, item.SellPrice })
             .ToListAsync(cancellationToken);
         var lineCounts = items
@@ -82,7 +84,7 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
     public async Task<PastTicket?> FindAsync(string idOrInvoiceNumber, CancellationToken cancellationToken = default)
     {
         var sale = await _context.Transactions.FirstOrDefaultAsync(
-            t => (t.TransactionId == idOrInvoiceNumber || t.InvoiceNumber == idOrInvoiceNumber) && Finished.Contains(t.Status),
+            t => (t.TransactionId == idOrInvoiceNumber || t.InvoiceNumber == idOrInvoiceNumber) && Finished.Contains(t.Status) && t.InvoiceNumber != null,
             cancellationToken);
         if (sale is null)
         {
@@ -98,7 +100,7 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
         // Every row the sale wrote, in the order it wrote them, with today's names. The merge is done
         // in memory: Money sums with +, which SQL cannot do on a converted column.
         var rows = await _context.TransactionItems
-            .Where(item => item.TransactionId == sale.TransactionId)
+            .Where(item => item.TransactionId == sale.TransactionId && item.RemovedAt == null)
             .OrderBy(item => item.CreatedAt).ThenBy(item => item.TransactionItemId)
             .Join(_context.Variants, item => item.VariantId, variant => variant.VariantId, (item, variant) => new { item, variant })
             .Join(_context.Products, row => row.variant.ProductId, product => product.ProductId,

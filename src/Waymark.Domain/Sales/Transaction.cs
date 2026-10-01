@@ -76,6 +76,10 @@ public sealed class Transaction : IStoreScoped
 
     public TransactionStatus Status { get; init; } = TransactionStatus.Open;
 
+    public DateTimeOffset? PaymentOpenedAt { get; init; }
+
+    public string? VoidAuthorisedBy { get; init; }
+
     public DateTimeOffset? VoidedAt { get; init; }
 
     public string? VoidedBy { get; init; }

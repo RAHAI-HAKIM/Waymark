@@ -26,10 +26,32 @@ namespace Waymark.Application.Sales;
 /// The person of <c>ManageCredit</c> who let the tab part past the limit, resolved by the host from the
 /// till's authorisation; null when none was cited.
 /// </param>
+/// <param name="Removed">Lines struck on the ticket before it was paid (B8, D-097): recorded, never charged.</param>
 public sealed record CompleteSale(
     string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines, GivenDiscount? TicketDiscount = null,
-    IReadOnlyList<GivenTender>? Tenders = null, string? CustomerId = null, string? TabOverrideBy = null)
+    IReadOnlyList<GivenTender>? Tenders = null, string? CustomerId = null, string? TabOverrideBy = null,
+    IReadOnlyList<RemovedLine>? Removed = null)
     : ICommand<CompletedSale>;
+
+/// <summary>A line struck before the ticket was paid or cancelled (B8, D-097): what it was, and when.</summary>
+/// <param name="WeightThousandths">For a typed weight, as on <see cref="SaleLineRequest"/>.</param>
+public sealed record RemovedLine(string Barcode, int Count, long? WeightThousandths, DateTimeOffset RemovedAt);
+
+/// <summary>
+/// A ticket cancelled at the till (B8, D-097): recorded as a <c>voided</c> transaction, priced as its
+/// sale would have been, with no batch, no stock moved, no payment, no invoice number and nothing sent.
+/// </summary>
+/// <param name="ReasonCode">An active <c>void</c> reason.</param>
+/// <param name="SellerMayVoid">The seller's rank reaches <c>VoidTransaction</c>, as the host asked <c>StaffPermissions</c>.</param>
+/// <param name="PaymentOpenedAt">When the payment panel was opened on the ticket; null when it never was.</param>
+/// <param name="AuthorisedBy">The person of <c>VoidTransaction</c> whose PIN the till cited, resolved by the host; null when none.</param>
+public sealed record VoidTicket(
+    string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines, GivenDiscount? TicketDiscount,
+    string ReasonCode, bool SellerMayVoid, DateTimeOffset? PaymentOpenedAt, string? AuthorisedBy, IReadOnlyList<RemovedLine>? Removed = null)
+    : ICommand<VoidedTicket>;
+
+/// <summary>A cancelled ticket as recorded: its row and what it came to.</summary>
+public sealed record VoidedTicket(string TransactionId, Money Total);
 
 /// <summary>A part paid by card, BaridiMob or on the customer's tab, as the till says it was given (B6, B7).</summary>
 /// <param name="Amount">Minor units of the sale's currency.</param>
@@ -126,7 +148,12 @@ public sealed class CompleteSaleHandler(
     Waymark.Application.Customers.TabCharges tabs) : ICommandHandler<CompleteSale, CompletedSale>
 {
     public async Task<CompletedSale> HandleAsync(
-        CompleteSale command, CommandContext context, CancellationToken cancellationToken = default)
+        CompleteSale command, CommandContext context, CancellationToken cancellationToken = default) =>
+        await RecordAsync(command, null, context, cancellationToken);
+
+    /// <param name="voiding">The cancel, when the ticket is recorded as cancelled rather than sold (B8).</param>
+    internal async Task<CompletedSale> RecordAsync(
+        CompleteSale command, VoidTicket? voiding, CommandContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(context);
@@ -190,13 +217,23 @@ public sealed class CompleteSaleHandler(
             // counted one its count (D-090).
             var wanted = weighed?.Quantity ?? product.Unit.Whole(count);
             var source = weighed?.Source ?? QuantitySource.Count;
-            var batches = await ledger.BatchesAsync(product.VariantId, product.Unit.Code, cancellationToken);
-            if (batches.Count == 0)
-            {
-                throw new SaleRefusedException($"{product.ProductName} has never been received: there is no batch to sell it from.");
-            }
 
-            var takes = BatchAllocation.Take(batches, wanted, today);
+            // A cancelled ticket takes nothing from the shelf (B8): one row per line, with no batch.
+            IReadOnlyList<(BatchLevel? Batch, Quantity Taken)> takes;
+            if (voiding is not null)
+            {
+                takes = [(null, wanted)];
+            }
+            else
+            {
+                var batches = await ledger.BatchesAsync(product.VariantId, product.Unit.Code, cancellationToken);
+                if (batches.Count == 0)
+                {
+                    throw new SaleRefusedException($"{product.ProductName} has never been received: there is no batch to sell it from.");
+                }
+
+                takes = [.. BatchAllocation.Take(batches, wanted, today).Select(take => ((BatchLevel?)take.Batch, take.Taken))];
+            }
 
             // A price label's price is exact, so it is split over the batches with Allocate and
             // sums back to the label (O-26). Every other line is priced per batch, as D-070 does:
@@ -213,7 +250,10 @@ public sealed class CompleteSaleHandler(
             // levels the first left.
             foreach (var (batch, taken) in takes)
             {
-                ledger.AdjustLevel(product.VariantId, batch.BatchId, QuantityDelta.Decrease(taken), now);
+                if (batch is not null)
+                {
+                    ledger.AdjustLevel(product.VariantId, batch.BatchId, QuantityDelta.Decrease(taken), now);
+                }
             }
         }
 
@@ -250,11 +290,11 @@ public sealed class CompleteSaleHandler(
                     TransactionItemId = context.NewId(),
                     TransactionId = transactionId,
                     VariantId = product.VariantId,
-                    BatchId = batch.BatchId,
+                    BatchId = batch?.BatchId,
                     Quantity = taken.Thousandths,
                     UnitCode = product.Unit.Code,
                     SellPrice = product.PriceTtc,
-                    UnitCostAtSale = batch.UnitCost,
+                    UnitCostAtSale = batch?.UnitCost,
                     DiscountAmount = part,
                     DiscountReasonCode = part.IsZero ? null : why?.ReasonCode,
                     AuthorisedBy = part.IsZero ? null : why?.AuthorisedBy,
@@ -267,6 +307,12 @@ public sealed class CompleteSaleHandler(
                     CreatedAt = now,
                     QuantitySource = source,
                 });
+
+                // Stock moves only for a sale: a cancelled ticket's row has no batch.
+                if (batch is null)
+                {
+                    continue;
+                }
 
                 staging.Add(new StockMovement
                 {
@@ -288,6 +334,64 @@ public sealed class CompleteSaleHandler(
                 sold.Add(new SoldLine(product.ProductId, taken, amounts.LineTotal));
                 tier2Lines.Add(new Tier2Line(product.VariantId, taken, amounts.LineTotal));
             }
+        }
+
+        // Lines struck before the ticket was paid or cancelled (B8, D-097): each a row priced at the
+        // price in force, with who struck it and when, no batch, and outside every total.
+        foreach (var removed in command.Removed ?? [])
+        {
+            var (product, count, weighed) = await Price(new SaleLineRequest(removed.Barcode, removed.Count, removed.WeightThousandths), cancellationToken);
+            var quantity = weighed?.Quantity ?? product.Unit.Whole(count);
+            var amounts = weighed?.Amounts ?? SaleArithmetic.Line(product.PriceTtc, quantity, zero, product.TvaRate, policy);
+            staging.Add(new TransactionItem
+            {
+                TransactionItemId = context.NewId(),
+                TransactionId = transactionId,
+                VariantId = product.VariantId,
+                Quantity = quantity.Thousandths,
+                UnitCode = product.Unit.Code,
+                SellPrice = product.PriceTtc,
+                DiscountAmount = zero,
+                TaxAmount = amounts.Split.Tax,
+                LineTotal = amounts.LineTotal,
+                CreatedAt = now,
+                QuantitySource = weighed?.Source ?? QuantitySource.Count,
+                RemovedAt = removed.RemovedAt,
+                RemovedBy = command.StaffId,
+            });
+        }
+
+        if (voiding is not null)
+        {
+            staging.Add(new Transaction
+            {
+                TransactionId = transactionId,
+                StoreId = store.StoreId,
+                TerminalId = command.TerminalId,
+                CashSessionId = sessionId,
+                StaffId = command.StaffId,
+                OccurredAt = now,
+                RoundingPolicy = policy,
+                Subtotal = net,
+                DiscountTotal = discounted,
+                DiscountReasonCode = command.TicketDiscount?.ReasonCode,
+                DiscountAuthorisedBy = command.TicketDiscount?.AuthorisedBy,
+                DiscountNote = command.TicketDiscount?.Note,
+                TaxTotal = tax,
+                TotalAmount = total,
+                Currency = currency.Code,
+                Status = TransactionStatus.Voided,
+                VoidedAt = now,
+                VoidedBy = command.StaffId,
+                VoidReasonCode = voiding.ReasonCode,
+                PaymentOpenedAt = voiding.PaymentOpenedAt,
+                VoidAuthorisedBy = voiding.AuthorisedBy,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+
+            // No payment, no number, no basket, nothing for tier 2: nothing was sold.
+            return new CompletedSale(transactionId, string.Empty, total, tax, zero.ToCashTender(), []);
         }
 
         // Settled, and the tab asked, before a number is taken, so a refusal spends none (B6, B7).
@@ -462,7 +566,7 @@ public sealed class CompleteSaleHandler(
     private sealed record LinePlan(
         ProductForSale Product,
         QuantitySource Source,
-        IReadOnlyList<(BatchLevel Batch, Quantity Taken)> Takes,
+        IReadOnlyList<(BatchLevel? Batch, Quantity Taken)> Takes,
         IReadOnlyList<Money> RowGross,
         GivenDiscount? Given,
         Money? ListPrice,
@@ -560,5 +664,33 @@ public sealed class CompleteSaleHandler(
         var last = await ledger.LastInvoiceNumberAsync(prefix, cancellationToken);
         var next = last is null ? 1 : int.Parse(last.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture) + 1;
         return string.Create(CultureInfo.InvariantCulture, $"{prefix}{next:D6}");
+    }
+}
+
+/// <summary>
+/// A ticket cancelled (B8, D-097). A cashier's cancel after the payment panel was opened needs a
+/// manager's authorisation (<see cref="Voids.NeedsAuthorisation"/>); every cancel needs a reason. Then
+/// it is written as the sale would have been, voided, by <see cref="CompleteSaleHandler"/>: one pricing,
+/// never two. Refused, nothing is written.
+/// </summary>
+public sealed class VoidTicketHandler(CompleteSaleHandler sales, IReasonCodes reasons) : ICommandHandler<VoidTicket, VoidedTicket>
+{
+    public async Task<VoidedTicket> HandleAsync(VoidTicket command, CommandContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        if (Voids.NeedsAuthorisation(command.SellerMayVoid, command.PaymentOpenedAt is not null) && string.IsNullOrWhiteSpace(command.AuthorisedBy))
+        {
+            throw new SaleRefusedException("This ticket was being paid: a manager authorises its cancellation.");
+        }
+
+        if ((await reasons.ForAsync(ReasonCodeAppliesTo.Void, cancellationToken)).All(reason => reason.Code != command.ReasonCode))
+        {
+            throw new SaleRefusedException($"'{command.ReasonCode}' is not a reason this shop gives for cancelling a ticket.");
+        }
+
+        var written = await sales.RecordAsync(
+            new CompleteSale(command.TerminalId, command.StaffId, command.Lines, command.TicketDiscount, Removed: command.Removed),
+            command, context, cancellationToken);
+        return new VoidedTicket(written.TransactionId, written.Total);
     }
 }

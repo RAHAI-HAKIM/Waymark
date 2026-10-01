@@ -13,7 +13,10 @@ namespace Waymark.Domain.Organisation;
 /// <param name="MaxCreditLimit">No customer's limit may exceed it, whoever sets it. Null: no ceiling but the owner's judgement.</param>
 /// <param name="CreditOverdueDays">After this many days the oldest unpaid charge stops new charges until something is repaid. Null: off.</param>
 /// <param name="TabAsPart">A ticket may be part on the tab, part cash or card (D-095's parts). Off: the tab takes a ticket whole or not at all.</param>
-public sealed record TenantSettings(bool CustomerModule, Money? MaxCreditLimit, int? CreditOverdueDays, bool TabAsPart)
+/// <param name="VoidAlertCount">B8 (D-097): more cancels than this by one person in one cash session are flagged for the owner. Null: not flagged.</param>
+/// <param name="VoidAlertValue">B8 (D-097): a cancelled ticket worth more than this is flagged for the owner. Null: not flagged.</param>
+public sealed record TenantSettings(
+    bool CustomerModule, Money? MaxCreditLimit, int? CreditOverdueDays, bool TabAsPart, int? VoidAlertCount = null, Money? VoidAlertValue = null)
 {
     /// <summary><c>system_config.config_key</c> of each setting.</summary>
     public const string CustomerModuleKey = "customer_module";
@@ -23,6 +26,10 @@ public sealed record TenantSettings(bool CustomerModule, Money? MaxCreditLimit, 
     public const string CreditOverdueDaysKey = "credit_overdue_days";
 
     public const string TabAsPartKey = "tab_as_part";
+
+    public const string VoidAlertCountKey = "void_alert_count";
+
+    public const string VoidAlertValueKey = "void_alert_value";
 
     /// <summary>A tenant never configured: no customers kept; the tab, once switched on, may be a part.</summary>
     public static TenantSettings Defaults { get; } = new(false, null, null, true);

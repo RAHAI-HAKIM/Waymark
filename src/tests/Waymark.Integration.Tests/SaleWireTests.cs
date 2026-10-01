@@ -139,6 +139,39 @@ public sealed class SaleWireTests
         Assert.Equal([new PaymentLine("on_account", "143.00", null)], SaleWire.Completed(sale).Payments);
     }
 
+    // ------------------------------------------------ cancels and struck lines (B8, D-097)
+
+    [Fact]
+    public void A_cancel_reaches_the_command_with_whether_payment_started_and_who_authorised_it_from_this_session()
+    {
+        var opened = new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
+        var command = SaleWire.ToVoid(
+            new VoidRequest("till-1", [new("111", 2)], "erreur", PaymentOpenedAt: opened, Authorisation: "auth-3"),
+            "cashier-1", sellerMayVoid: false, authorisedBy: cited => cited == "auth-3" ? "manager-1" : null);
+
+        Assert.Equal(("cashier-1", "erreur", opened, "manager-1", false), (command.StaffId, command.ReasonCode, command.PaymentOpenedAt!.Value, command.AuthorisedBy, command.SellerMayVoid));
+        Assert.Equal([new SaleLineRequest("111", 2)], command.Lines);
+    }
+
+    [Fact]
+    public void A_cancel_citing_an_authorisation_nobody_gave_names_nobody()
+    {
+        var command = SaleWire.ToVoid(new VoidRequest("till-1", [new("111", 1)], "erreur", Authorisation: "forged"), "cashier-1", false, _ => null);
+
+        Assert.Null(command.AuthorisedBy);
+    }
+
+    [Fact]
+    public void Struck_lines_reach_the_sale_with_when_they_were_struck_and_none_is_no_list()
+    {
+        var struck = new DateTimeOffset(2026, 10, 1, 9, 5, 0, TimeSpan.Zero);
+        var with = SaleWire.ToCommand(new SaleRequest("till-1", [new("111", 1)], Removed: [new("222", 1, null, struck)]), "staff-1");
+        var without = SaleWire.ToCommand(new SaleRequest("till-1", [new("111", 1)], Removed: []), "staff-1");
+
+        Assert.Equal([new RemovedLine("222", 1, null, struck)], with.Removed);
+        Assert.Null(without.Removed);
+    }
+
     // ------------------------------------------------ who is selling (A5, D-083)
 
     private static readonly SaleRequest AtTillOne = new("till-1", [new("111", 1)]);

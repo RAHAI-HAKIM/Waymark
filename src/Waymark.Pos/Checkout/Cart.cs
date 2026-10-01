@@ -314,12 +314,22 @@ public sealed class Cart
     /// </summary>
     private string NextLineId() => (++_lastLineId).ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// When the payment panel was first opened on this ticket (B8, D-097); null while it never was. A
+    /// cancel says so: a cashier's cancel after it needs a manager, and the owner sees it flagged.
+    /// </summary>
+    public DateTimeOffset? PaymentOpenedAt { get; private set; }
+
+    /// <summary>The payment panel opened on this ticket: the first time is the one kept.</summary>
+    public void MarkPaymentOpened(DateTimeOffset at) => PaymentOpenedAt ??= at;
+
     /// <summary>Empties the cart once its sale is completed.</summary>
     public void Clear()
     {
         _lines.Clear();
         LastAdded = null;
         TicketDiscount = null;
+        PaymentOpenedAt = null;
     }
 }
 

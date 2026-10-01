@@ -368,6 +368,31 @@ public abstract class TillText
     public abstract string EscapeKey { get; }
 
 
+    // ------------------------------------------------------------ B8: cancelling a ticket
+
+    /// <summary>The cancel panel's label, and the manager step's title: "ANNULER LE TICKET".</summary>
+    public abstract string CancelLabel { get; }
+
+    /// <summary>What a cancel does, with the ticket's total.</summary>
+    public abstract string CancelDetail(string total);
+
+    /// <summary>The key that goes on: "Annuler le ticket".</summary>
+    public abstract string CancelConfirm { get; }
+
+    /// <summary>The field's chip while the cancel panel is open.</summary>
+    public abstract string CancelChip { get; }
+
+    /// <summary>A warning, not a refusal: the payment panel had been opened on this ticket.</summary>
+    public abstract string PaymentStarted { get; }
+
+    public abstract string NoVoidReasons { get; }
+
+    public abstract string CancelRefused { get; }
+
+    public abstract string CancelOffline { get; }
+
+    public abstract string ApproveCancel { get; }
+
     /// <summary>"AUTORISATION RESPONSABLE".</summary>
     public abstract string ManagerApproval { get; }
 
@@ -711,6 +736,15 @@ public abstract class TillText
         public override string ApprovingNotice => "AUTORISATION EN COURS";
         public override string ApprovingNoticeDetail => "Les scans sont ignorés tant que l'autorisation est ouverte.";
         public override string EscapeKey => "Échap";
+        public override string CancelLabel => "ANNULER LE TICKET";
+        public override string CancelDetail(string total) => $"{total} · rien n'est vendu ; l'annulation est enregistrée";
+        public override string CancelConfirm => "Annuler le ticket";
+        public override string CancelChip => "ANNULATION";
+        public override string PaymentStarted => "PAIEMENT COMMENCÉ · un responsable valide l'annulation de ce ticket";
+        public override string NoVoidReasons => "Aucun motif d'annulation n'est défini : le ticket ne peut pas être annulé";
+        public override string CancelRefused => "Le serveur a refusé l'annulation : le ticket reste à l'écran";
+        public override string CancelOffline => "Serveur injoignable : rien n'est enregistré, le ticket reste. Mettez-le en attente";
+        public override string ApproveCancel => "Valider l'annulation";
         public override string ManagerApproval => "AUTORISATION RESPONSABLE";
         public override string WhoApproves => "QUI AUTORISE";
         public override string ManagerPin => "PIN RESPONSABLE";
@@ -976,6 +1010,15 @@ public abstract class TillText
         public override string ApprovingNotice => "إذن جارٍ"; // ar: à relire
         public override string ApprovingNoticeDetail => "المسح مُتجاهَل ما دام الإذن مفتوحا."; // ar: à relire
         public override string EscapeKey => "Esc";
+        public override string CancelLabel => "إلغاء التذكرة"; // ar: à relire
+        public override string CancelDetail(string total) => $"{total} · لا شيء يُباع؛ الإلغاء يُسجَّل"; // ar: à relire
+        public override string CancelConfirm => "إلغاء التذكرة"; // ar: à relire
+        public override string CancelChip => "إلغاء"; // ar: à relire
+        public override string PaymentStarted =>"بدات عملية الدفع . يجب تاكيد الغاء التذكرة من طرف مسؤول"; // ar: à relire
+        public override string NoVoidReasons => "لا يوجد سبب للإلغاء: لا يمكن إلغاء التذكرة"; // ar: à relire
+        public override string CancelRefused => "رفض الخادم الإلغاء: التذكرة باقية"; // ar: à relire
+        public override string CancelOffline => "الخادم غير متاح: لم يُسجَّل شيء، التذكرة باقية. ضعها في الانتظار"; // ar: à relire
+        public override string ApproveCancel => "تأكيد الإلغاء"; // ar: à relire
         public override string ManagerApproval => "إذن المسؤول"; // ar: à relire
         public override string WhoApproves => "من يأذن"; // ar: à relire
         public override string ManagerPin => "رمز المسؤول"; // ar: à relire

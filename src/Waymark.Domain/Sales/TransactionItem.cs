@@ -46,6 +46,10 @@ public sealed class TransactionItem
 
     public string? AuthorisedBy { get; init; }
 
+    public DateTimeOffset? RemovedAt { get; init; }
+
+    public string? RemovedBy { get; init; }
+
     public Money TaxAmount { get; init; }
 
     public required Money LineTotal { get; init; }

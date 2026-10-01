@@ -1188,11 +1188,91 @@ public sealed class TillWindow : Window, IDisposable
         _ = LoadReasonsAsync();
     }
 
+    /// <summary>"Annuler ticket" (B8, D-097): the cancel panel opens in the rail with the shop's cancel reasons.</summary>
+    private void OpenCancel()
+    {
+        if (!_session.MayPutAside)
+        {
+            return;
+        }
+
+        _selected = null;
+        _draftsOpen = false;
+        _tickets = null;
+        _search = null;
+        _pin = string.Empty;
+        _discount = new DiscountState(null, DiscountForms.Amount, string.Empty, null, false, null, Kind: CounterKind.Cancel);
+        _input.Text = string.Empty;
+        Render();
+        _input.Focus();
+        _ = LoadReasonsAsync();
+    }
+
+    /// <summary>
+    /// The cancel to the server, which records it before the ticket goes (B8, D-097). Recorded: the
+    /// ticket goes to the drafts, as before. A manager needed: the PIN step, then this again with the
+    /// authorisation. Refused or no answer: the ticket stays, and the panel says why.
+    /// </summary>
+    private async Task CancelAsync(string? authorisation)
+    {
+        if (_discount is not { Kind: CounterKind.Cancel } open || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        if (open.ReasonCode is null)
+        {
+            _discount = open with { Problem = DiscountProblem.NoReason };
+            Render();
+            return;
+        }
+
+        if (_session.VoidRequestFor(open.ReasonCode, authorisation) is not { } request)
+        {
+            CloseDiscount();
+            return;
+        }
+
+        var answer = await _server.VoidAsync(request, person.Token);
+        if (_discount is null)
+        {
+            return;
+        }
+
+        switch (answer?.Outcome)
+        {
+            case VoidOutcomes.Voided:
+                _session.CancelTicket();
+                CloseDiscount();
+                break;
+
+            case VoidOutcomes.PinRequired:
+                var staff = await _server.StaffAsync();
+                _pin = string.Empty;
+                _discount = _discount with { Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null };
+                Render();
+                break;
+
+            case VoidOutcomes.Refused:
+                _discount = _discount with { Authorising = false, Problem = DiscountProblem.CancelRefused };
+                Render();
+                break;
+
+            default:
+                _discount = _discount with { Authorising = false, Problem = DiscountProblem.Offline };
+                Render();
+                break;
+        }
+    }
+
     private async Task LoadReasonsAsync()
     {
-        var reasons = _discount?.Kind == CounterKind.PriceOverride
-            ? await _server.OverrideReasonsAsync()
-            : await _server.DiscountReasonsAsync();
+        var reasons = _discount?.Kind switch
+        {
+            CounterKind.PriceOverride => await _server.OverrideReasonsAsync(),
+            CounterKind.Cancel => await _server.VoidReasonsAsync(),
+            _ => await _server.DiscountReasonsAsync(),
+        };
         if (_discount is { } open)
         {
             _discount = open with { Reasons = reasons, Offline = reasons is null };
@@ -1246,6 +1326,13 @@ public sealed class TillWindow : Window, IDisposable
     {
         if (_discount is not { Authorising: false } open || _session.SignedIn is not { } person)
         {
+            return;
+        }
+
+        // A cancel takes no value: its reason, then the server (B8).
+        if (open.Kind == CounterKind.Cancel)
+        {
+            await CancelAsync(null);
             return;
         }
 
@@ -1366,6 +1453,13 @@ public sealed class TillWindow : Window, IDisposable
     /// <summary>The discount onto the line or the ticket, citing the authorisation the server gave.</summary>
     private void Give(string authorisation)
     {
+        // A cancel's authorisation goes with the cancel, sent again (B8).
+        if (_discount is { Kind: CounterKind.Cancel })
+        {
+            _ = CancelAsync(authorisation);
+            return;
+        }
+
         if (_discount is not { } open
             || !DiscountEntry.TryParse(open.Typed, open.Kind == CounterKind.PriceOverride ? DiscountForms.Amount : open.Form, out var hundredths)
             || open.Reasons?.ReasonCodes.FirstOrDefault(reason => reason.Code == open.ReasonCode) is not { } reason)
@@ -1390,8 +1484,12 @@ public sealed class TillWindow : Window, IDisposable
     }
 
     /// <summary>What the counter panel asks the server to authorise: a discount, rank 2, or a price, rank 3.</summary>
-    private static string CapabilityOf(DiscountState? open) =>
-        open?.Kind == CounterKind.PriceOverride ? Capabilities.OverridePrice : Capabilities.ApplyDiscount;
+    private static string CapabilityOf(DiscountState? open) => open?.Kind switch
+    {
+        CounterKind.PriceOverride => Capabilities.OverridePrice,
+        CounterKind.Cancel => Capabilities.VoidTransaction,
+        _ => Capabilities.ApplyDiscount,
+    };
 
     /// <summary>
     /// The band (D-092), asked before the server is: the same rule it checks again. None while the
@@ -1508,8 +1606,8 @@ public sealed class TillWindow : Window, IDisposable
                 break;
 
             case Operation.CancelTicket:
-                _selected = null;
-                _session.CancelTicket();
+                // B8 (D-097): a reason, recorded on the server, then the drafts as before.
+                OpenCancel();
                 break;
 
             case Operation.Drafts:
@@ -1635,6 +1733,9 @@ public sealed class TillWindow : Window, IDisposable
         _search = null;
         _selected = null;
         _payment = PaymentState.Open;
+
+        // Kept on the ticket (B8): if it is cancelled after this, a cashier needs a manager.
+        _session.MarkPaymentOpened();
         Render();
     }
 

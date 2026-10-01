@@ -19,6 +19,7 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
     private static readonly string[] Keys =
     [
         TenantSettings.CustomerModuleKey, TenantSettings.MaxCreditLimitKey, TenantSettings.CreditOverdueDaysKey, TenantSettings.TabAsPartKey,
+        TenantSettings.VoidAlertCountKey, TenantSettings.VoidAlertValueKey,
     ];
 
     public async Task<TenantSettings> CurrentAsync(CancellationToken cancellationToken = default)
@@ -38,7 +39,15 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
                 && int.TryParse(days, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count > 0
                 ? count
                 : defaults.CreditOverdueDays,
-            values.TryGetValue(TenantSettings.TabAsPartKey, out var part) && bool.TryParse(part, out var asPart) ? asPart : defaults.TabAsPart);
+            values.TryGetValue(TenantSettings.TabAsPartKey, out var part) && bool.TryParse(part, out var asPart) ? asPart : defaults.TabAsPart,
+            values.TryGetValue(TenantSettings.VoidAlertCountKey, out var voids)
+                && int.TryParse(voids, NumberStyles.None, CultureInfo.InvariantCulture, out var most) && most > 0
+                ? most
+                : defaults.VoidAlertCount,
+            values.TryGetValue(TenantSettings.VoidAlertValueKey, out var worth)
+                && long.TryParse(worth, NumberStyles.None, CultureInfo.InvariantCulture, out var cents)
+                ? Money.FromMinorUnits(cents, ledgerCurrency.Currency)
+                : defaults.VoidAlertValue);
     }
 
     public async Task StageAsync(TenantSettings settings, string? updatedBy, DateTimeOffset at, CancellationToken cancellationToken = default)
@@ -85,5 +94,9 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             "Days after which the oldest unpaid charge stops new charges; absent: off (D-096).");
         Put(TenantSettings.TabAsPartKey, settings.TabAsPart ? "true" : "false", SystemConfigEntryDataType.Bool,
             "A ticket may be part on the tab (D-095, D-096).");
+        Put(TenantSettings.VoidAlertCountKey, settings.VoidAlertCount?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "More cancels than this by one person in one cash session are flagged; absent: not flagged (D-097).");
+        Put(TenantSettings.VoidAlertValueKey, settings.VoidAlertValue?.MinorUnits.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Money,
+            "A cancelled ticket worth more than this, in minor units, is flagged; absent: not flagged (D-097).");
     }
 }

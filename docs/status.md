@@ -2,12 +2,13 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**30/09/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
+**01/10/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
 weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is done** (§13): a
 discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). **B5 is done** (§14): a
 price typed at the counter, rank 3, within a band (D-092). **B6 is done** (§15): card and
-BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). **B7's server is
-built, waiting on the board** (§16): the tab, le carnet, and the tenant's customer module (D-096). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). **B7 is done** (§16): the tab, le carnet, and the tenant's customer module (D-096); its screens wait
+on the board. **B8 is built, waiting on Hakim's piece** (§17): a cancelled ticket recorded first, a
+manager only after "Encaisser", flags for the owner (D-097). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -18,7 +19,7 @@ built, waiting on the board** (§16): the tab, le carnet, and the tenant's custo
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
 | Tests | **1864**, all green in Debug and Release (Integration 652 · Pos 528 · Domain 341 · Generator 237 · Hardware 65 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
-| Schema | 62 tables (all STRICT), 89 indexes, 32 triggers, **9 migrations**: `CustomersAndTab` (B7: `credit_limit_events`, append-only; the charge's override, the tab's freeze and the customer's collection notice; the `information` notice type), `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
+| Schema | 62 tables (all STRICT), 89 indexes, 32 triggers, **10 migrations**: `SalesVoid` (B8: a cancel's `payment_opened_at` and `void_authorised_by` on `transactions`; a struck line's `removed_at`, `removed_by` on `transaction_items`; their CHECKs), `CustomersAndTab` (B7: `credit_limit_events`, append-only; the charge's override, the tab's freeze and the customer's collection notice; the `information` notice type), `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
 | Recaps | `recaps/phase-0.md` and `recaps/phase-0.5.md`. Read one only when a question reaches back into a finished phase |
@@ -580,7 +581,7 @@ answer (D-085: the rail's card takes over); "Ticket imprimé" and the drawer (D1
 `CompleteSaleTests`, `SaleWireTests`, `TillWindowTests`. **For Hakim's review:** the panel on screen at
 1024 × 768 and 1366 × 768; the Arabic words are `// ar: à relire` except those from the Arabic board.
 
-## 16. Session B7 — server built 30/09, waiting on the board (D-096)
+## 16. Session B7 — done 30/09, its screens waiting on the board (D-096)
 
 **✍ Hakim's piece:** `Domain/Customers/Tab.cs`: `Age` (the balance, repayments paying the oldest
 charges first), `Check` (a charge: no tab, frozen, overdue, past the limit), `MayLimit`, `MayRepay`; its
@@ -607,4 +608,24 @@ in the payment panel, the tab view with Rembourser, the paid rail. **For Hakim t
 is opened, or made the first time, when StoreServer first names a customer; a store that already has
 data gets one then. And a repayment takes a `cash_movement` reason chosen at the till, since
 `reason_codes` carries no "this one is the repayment".
+
+## 17. Session B8 — built 01/10, waiting on Hakim's piece (D-097)
+
+**✍ Hakim's piece:** `Domain/Sales/Voids.cs`: `NeedsAuthorisation` (a cashier after "Encaisser" only)
+and `Flags` (after "Encaisser"; more than the count in a cash session; more than the value); its 16
+tests are `VoidsTests`. **Until it is written** every cancel is refused by the stub; a sale, and its
+struck lines, never ask it. Five `CompleteSaleTests` wait on it; against a throwaway rule all passed
+(the stub was put back), and 10 mutations of the rest were each caught.
+
+| Where | What |
+| :---- | :---- |
+| Migration `SalesVoid` (Hakim's, with Claude's CHECKs) | `transactions.payment_opened_at`, `void_authorised_by`; `transaction_items.removed_at`, `removed_by`; a struck line has no batch |
+| `Application/Sales/CompleteSale.cs` | `VoidTicketHandler`: the reason checked, a manager after "Encaisser", then the ticket written as its sale would be, voided; struck lines on a sale or a cancel |
+| `Persistence/Sales/PastTickets.cs` | A cancel (no number) is not listed; a struck line is not a line of the ticket paid |
+| `StoreServer/Program.cs` | `POST /api/sales/void`, the seller's rank asked for `VoidTransaction`; `pin_required` when a manager must authorise |
+| `system_config`, `TenantSwitch.cs` | `void_alert_count`, `void_alert_value`; `--void-alert-count=5`, `--void-alert-value=5000.00`, `off` |
+| `Pos/` | "Annuler ticket" asks a cancel reason in the rail (the discount panel's reasons); after "Encaisser" the warning, then the floating PIN step; recorded before the drafts; no answer, the ticket stays |
+
+**Not on the till, on purpose:** the flags, shown in the Z-report (C2) and Admin's review queue.
+**No-sale** waits for the drawer (D2).
 

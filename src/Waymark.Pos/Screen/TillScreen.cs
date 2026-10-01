@@ -100,6 +100,9 @@ public enum CounterKind
 {
     Discount,
     PriceOverride,
+
+    /// <summary>The whole ticket cancelled (B8, D-097): a reason, and a manager after "Encaisser" for a cashier.</summary>
+    Cancel,
 }
 
 /// <summary>What the discount panel has to say is wrong.</summary>
@@ -124,6 +127,9 @@ public enum DiscountProblem
 
     /// <summary>A reason that asks for a note, and none written (F-28).</summary>
     NoteMissing,
+
+    /// <summary>The server refused the cancel (B8): the ticket stays.</summary>
+    CancelRefused,
 }
 
 /// <summary>A name search: what was typed, the server's answer (null while asked, or when it could not say), which row Entrée takes.</summary>
@@ -196,6 +202,7 @@ public sealed record TillScreen(
                 : state.Discounting is { } discounting
                     ? new FieldChip(
                         discounting.Noting ? text.NoteChip
+                        : discounting.Kind == CounterKind.Cancel ? text.CancelChip
                         : discounting.Kind == CounterKind.PriceOverride ? $"{text.PriceKey.ToUpperInvariant()} · {text.CurrencySymbol(CurrencyOf(state) ?? Currency.Dzd)}"
                         : text.DiscountChip(discounting.Form == DiscountForms.Percent ? "%" : text.CurrencySymbol(CurrencyOf(state) ?? Currency.Dzd)),
                         Active: true)
@@ -685,8 +692,12 @@ public sealed record TillScreen(
         if (state.Discounting is { } discounting)
         {
             // At the manager step the panel stays in the rail, under the step floating over it.
-            return discounting.Kind == CounterKind.PriceOverride ? OverridePanelOf(state, discounting)
-                : DiscountPanelOf(state, discounting);
+            return discounting.Kind switch
+            {
+                CounterKind.PriceOverride => OverridePanelOf(state, discounting),
+                CounterKind.Cancel => CancelPanelOf(state, discounting),
+                _ => DiscountPanelOf(state, discounting),
+            };
         }
 
         if (state.DraftsOpen)
@@ -816,6 +827,39 @@ public sealed record TillScreen(
     /// the price typed in the field, what the line then comes to, the band (<see cref="Domain.Sales.PriceOverride"/>,
     /// the same rule the server checks), a warning below cost, the reasons, then Continuer.
     /// </summary>
+    /// <summary>
+    /// "Annuler ticket" (B8, D-097), as the discount panel draws its reasons: the ticket's total, the
+    /// shop's cancel reasons, and, when the payment panel had been opened on it, a warning that a
+    /// manager will be asked. Nothing is sold; the cancel is recorded.
+    /// </summary>
+    private static Rail.Discount CancelPanelOf(ScreenState state, DiscountState discounting)
+    {
+        var text = state.Text;
+        var reasons = discounting.Reasons?.ReasonCodes ?? [];
+        var (message, refused) = discounting.Offline || discounting.Problem == DiscountProblem.Offline ? (text.CancelOffline, true)
+            : discounting.Problem == DiscountProblem.CancelRefused ? (text.CancelRefused, true)
+            : discounting.Reasons is not null && reasons.Count == 0 ? (text.NoVoidReasons, true)
+            : discounting.Problem == DiscountProblem.NoReason ? (text.ChooseReason, true)
+            : state.Cart.PaymentOpenedAt is not null ? (text.PaymentStarted, false)
+            : ((string?)null, false);
+
+        return new Rail.Discount(
+            text.CancelLabel,
+            text.CurrentTicket,
+            state.Cart.Total is { } total ? text.CancelDetail(DisplayFigures.AmountWithCurrency(total, text)) : string.Empty,
+            [],
+            null,
+            text.ReasonTitle,
+            [.. reasons.Select(reason => new ReasonRow(
+                reason.Code, text.RightToLeft ? reason.LabelAr : reason.LabelFr, reason.Code == discounting.ReasonCode))],
+            message,
+            refused,
+            discounting.ReasonCode is not null && !discounting.Offline && reasons.Count > 0,
+            text.CancelConfirm,
+            text.BackToTicket,
+            null);
+    }
+
     private static Rail.Discount OverridePanelOf(ScreenState state, DiscountState discounting)
     {
         var text = state.Text;
@@ -889,6 +933,7 @@ public sealed record TillScreen(
 
         var text = state.Text;
         var overriding = discounting.Kind == CounterKind.PriceOverride;
+        var cancelling = discounting.Kind == CounterKind.Cancel;
         var form = overriding ? DiscountForms.Amount : discounting.Form;
         var given = DiscountEntry.TryParse(discounting.Typed, form, out var hundredths)
             ? overriding
@@ -908,10 +953,14 @@ public sealed record TillScreen(
             _ => null,
         };
 
+        var why = reason is null ? string.Empty : text.RightToLeft ? reason.LabelAr : reason.LabelFr;
         return new Approval(
             text.ManagerApproval,
-            $"{(overriding ? text.PriceOverrideLabel : line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
-            $"{(line is null ? text.CurrentTicket : Article(line))} · {(reason is null ? string.Empty : text.RightToLeft ? reason.LabelAr : reason.LabelFr)}",
+            cancelling ? text.CancelLabel
+                : $"{(overriding ? text.PriceOverrideLabel : line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
+            cancelling
+                ? $"{text.PaymentStarted} · {why}"
+                : $"{(line is null ? text.CurrentTicket : Article(line))} · {why}",
             text.WhoApproves,
             [.. (discounting.Staff?.Staff ?? []).Select(person => new ApproverRow(
                 person.StaffId, person.StaffName, text.RightToLeft ? person.RoleLabelAr : person.RoleLabelFr,
@@ -920,7 +969,7 @@ public sealed record TillScreen(
             discounting.PinLength,
             message,
             discounting.ManagerId is not null && discounting.PinLength >= 4,
-            overriding ? text.ApproveOverride : text.ApproveDiscount,
+            cancelling ? text.ApproveCancel : overriding ? text.ApproveOverride : text.ApproveDiscount,
             text.BackToTicket,
             text.EnterKey,
             text.EscapeKey);

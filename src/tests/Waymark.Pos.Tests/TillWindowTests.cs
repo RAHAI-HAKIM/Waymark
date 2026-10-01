@@ -291,8 +291,9 @@ public sealed class TillWindowTests
         using var till = Till.SignedIn();
         till.ScanMany(2);
 
-        till.Tap(Operation(till, Screen.Operation.CancelTicket), new Point(20, 20));
+        CancelWithAReason(till);
         Assert.Empty(till.Rows());
+        Assert.Equal(("erreur_saisie", (DateTimeOffset?)null), (till.Server.Voids.Single().ReasonCode, till.Server.Voids.Single().PaymentOpenedAt));
 
         till.Tap(Operation(till, Screen.Operation.Drafts), new Point(20, 20));
         var resume = till.Window.GetVisualDescendants().OfType<TillKey>()
@@ -305,6 +306,71 @@ public sealed class TillWindowTests
 
     private static TillKey Operation(Till till, Screen.Operation operation) =>
         till.Window.GetVisualDescendants().OfType<TillKey>().Single(key => key.Tag is OperationKey found && found.Operation == operation);
+
+    /// <summary>"Annuler ticket", its reason, Entrée (B8).</summary>
+    private static void CancelWithAReason(Till till)
+    {
+        till.Tap(Operation(till, Screen.Operation.CancelTicket), new Point(20, 20));
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ReasonRow { Code: "erreur_saisie" }));
+        till.Tap(Keyed<ReasonRow>(till, row => row.Code == "erreur_saisie"), new Point(20, 20));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+    }
+
+    // ================================================================ B8: cancelling a ticket (D-097)
+
+    [Fact]
+    public Task A_cashiers_cancel_after_encaisser_asks_a_managers_pin_then_is_recorded_with_it() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(2);
+        till.Key(Key.F12, PhysicalKey.F12);      // the payment panel opened...
+        till.Key(Key.Escape, PhysicalKey.Escape); // ...and closed without paying
+
+        CancelWithAReason(till);
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ApproverRow));
+        Assert.Equal(2, till.Rows().Count); // not gone yet: nothing is recorded without the manager
+        Assert.Equal(TillText.French.CancelLabel, till.Window.GetVisualDescendants().OfType<Border>().Select(border => border.Tag).OfType<Screen.Approval>().Single().Title);
+
+        till.Tap(Keyed<ApproverRow>(till, row => row.StaffId == "samia"), new Point(20, 20));
+        till.Window.KeyTextInput("1357");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Approval { PinLength: 4 }));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Rows().Count == 0);
+
+        var recorded = till.Server.Voids[^1];
+        Assert.Equal("auth-samia", recorded.Authorisation);
+        Assert.NotNull(recorded.PaymentOpenedAt);
+        Assert.Single(till.Session.Drafts);
+    });
+
+    [Fact]
+    public Task With_no_answer_from_the_server_the_ticket_stays_and_the_panel_says_so() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.Server.VoidsAnswer = false;
+        till.ScanMany(2);
+
+        CancelWithAReason(till);
+
+        Assert.Equal(2, till.Rows().Count);
+        Assert.Empty(till.Session.Drafts);
+        Assert.Contains(till.Window.GetVisualDescendants().OfType<TextBlock>(), block => block.Text == TillText.French.CancelOffline);
+    });
+
+    [Fact]
+    public Task A_line_struck_before_paying_goes_with_the_sale_as_struck_never_as_a_line() => Headless.Run(() =>
+    {
+        using var till = Till.SignedIn();
+        till.ScanMany(2);
+        till.Tap(till.Rows()[0], new Point(200, 10));
+        till.Key(Key.F8, PhysicalKey.F8);
+
+        till.Pay();
+
+        var sent = till.Server.Requests.Single();
+        Assert.Single(sent.Lines);
+        Assert.Equal(Till.Code(0), Assert.Single(sent.Removed!).Barcode);
+    });
 
     // ================================================================ B1: one field, the search, past tickets (D-088)
 
@@ -952,6 +1018,27 @@ public sealed class TillWindowTests
             Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("discount",
                 [new Waymark.Contracts.Reference.ReasonCodeOption("geste_commercial", "لفتة تجارية", "Geste commercial", false, false),
                  new Waymark.Contracts.Reference.ReasonCodeOption("autre", "أخرى", "Autre", true, false)]));
+
+        public Task<Waymark.Contracts.Reference.ReasonCodeList?> VoidReasonsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("void",
+                [new Waymark.Contracts.Reference.ReasonCodeOption("erreur_saisie", "خطأ في الإدخال", "Erreur de saisie", false, false)]));
+
+        /// <summary>Every cancel sent, as sent (B8).</summary>
+        public List<VoidRequest> Voids { get; } = [];
+
+        /// <summary>False: the server gives no answer to a cancel.</summary>
+        public bool VoidsAnswer { get; set; } = true;
+
+        /// <summary>As the server answers: a cashier's cancel after "Encaisser" with no authorisation needs a manager.</summary>
+        public Task<VoidAnswer?> VoidAsync(VoidRequest request, string sessionToken, CancellationToken cancellationToken = default)
+        {
+            Voids.Add(request);
+            return Task.FromResult<VoidAnswer?>(
+                !VoidsAnswer ? null
+                : request is { PaymentOpenedAt: not null, Authorisation: null } && !SellerMayDiscount
+                    ? new VoidAnswer(VoidOutcomes.PinRequired, null, null, "A manager authorises it.")
+                    : new VoidAnswer(VoidOutcomes.Voided, "voided-1", "286.00", null));
+        }
 
         public Task<Waymark.Contracts.Reference.ReasonCodeList?> OverrideReasonsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("price_override",

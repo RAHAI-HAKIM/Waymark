@@ -29,6 +29,12 @@ public static class TenantSwitch
 
     public const string TabAsPart = "tab-as-part";
 
+    /// <summary>B8 (D-097): more cancels than this by one person in one cash session are flagged; <c>off</c> to stop.</summary>
+    public const string VoidAlertCount = "void-alert-count";
+
+    /// <summary>B8 (D-097): a cancelled ticket worth more than this is flagged; <c>off</c> to stop.</summary>
+    public const string VoidAlertValue = "void-alert-value";
+
     public const string PublishNotice = "publish-information-notice";
 
     public const string NoticeLanguage = "notice-language";
@@ -37,7 +43,8 @@ public static class TenantSwitch
     public static bool Asked(IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice }.Any(key => configuration[key] is not null);
+        return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice, VoidAlertCount, VoidAlertValue }
+            .Any(key => configuration[key] is not null);
     }
 
     /// <returns>The process exit code: 0 when set, 1 when refused and nothing was changed.</returns>
@@ -81,7 +88,9 @@ public static class TenantSwitch
             await output.WriteLineAsync(
                 $"Customer module {(now.CustomerModule ? "on" : "off")}; ceiling {now.MaxCreditLimit?.ToString() ?? "none"}; "
                 + $"overdue after {(now.CreditOverdueDays is { } days ? $"{days} days" : "never (off)")}; "
-                + $"tab as a part {(now.TabAsPart ? "on" : "off")}.");
+                + $"tab as a part {(now.TabAsPart ? "on" : "off")}; "
+                + $"cancels flagged above {(now.VoidAlertCount is { } count ? $"{count} a session" : "no count (off)")} "
+                + $"and above {now.VoidAlertValue?.ToString() ?? "no value (off)"}.");
             return 0;
         }
         catch (Exception refusal) when (refusal is TenantSettingRefusedException or IOException or UnauthorizedAccessException)
@@ -97,6 +106,10 @@ public static class TenantSwitch
         var days = configuration[CreditOverdueDays];
         var noCeiling = string.Equals(ceiling, "none", StringComparison.OrdinalIgnoreCase);
         var overdueOff = string.Equals(days, "off", StringComparison.OrdinalIgnoreCase);
+        var voids = configuration[VoidAlertCount];
+        var worth = configuration[VoidAlertValue];
+        var voidsOff = string.Equals(voids, "off", StringComparison.OrdinalIgnoreCase);
+        var worthOff = string.Equals(worth, "off", StringComparison.OrdinalIgnoreCase);
 
         return new SetTenantSettings(
             OnOff(configuration[CustomerModule], CustomerModule),
@@ -108,7 +121,15 @@ public static class TenantSwitch
                     ? count
                     : throw new FormatException($"--{CreditOverdueDays}: a number of days, 30, or off."),
             overdueOff,
-            OnOff(configuration[TabAsPart], TabAsPart));
+            OnOff(configuration[TabAsPart], TabAsPart),
+            voids is null || voidsOff ? null
+                : int.TryParse(voids, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var most) && most > 0
+                    ? most
+                    : throw new FormatException($"--{VoidAlertCount}: a number of cancels, 5, or off."),
+            voidsOff,
+            worth is null || worthOff ? null
+                : WireText.TryHundredths(worth, out var cents) ? cents : throw new FormatException($"--{VoidAlertValue}: an amount, 5000.00, or off."),
+            worthOff);
     }
 
     private static bool? OnOff(string? value, string key) => value?.Trim().ToLowerInvariant() switch

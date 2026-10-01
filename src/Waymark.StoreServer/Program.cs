@@ -148,6 +148,7 @@ builder.Services.AddScoped<CommandExecutor>();
 // Hop 2 (D-070): a cash sale.
 builder.Services.AddScoped<ISalesLedger, SalesLedger>();
 builder.Services.AddScoped<CompleteSaleHandler>();
+builder.Services.AddScoped<VoidTicketHandler>();
 
 // Hop 3 (D-072): the sale's anonymous basket goes to the outbox in the same transaction.
 builder.Services.AddScoped<IOutboxSequence, OutboxSequence>();
@@ -448,6 +449,7 @@ app.MapPost("/api/till/authorise", async (
         Capabilities.OverridePrice => Capability.OverridePrice,
         Capabilities.CreateCustomer => Capability.CreateCustomer,
         Capabilities.ManageCredit => Capability.ManageCredit,
+        Capabilities.VoidTransaction => Capability.VoidTransaction,
         _ => null,
     };
     if (asked is not { } capability)
@@ -538,6 +540,45 @@ app.MapPost("/api/sales", async (
 
 // B7 (D-096): the customers and their tabs.
 app.MapCustomers();
+
+// B8 (D-097): a ticket cancelled at the till, recorded before the till lets it go. Who cancels is the
+// session's; whether they may alone is their rank's (VoidTransaction), asked here, never at the till;
+// a cashier's cancel after "Encaisser" cites a manager's authorisation of this session. One at a time
+// with the sales, which it shares a cash session with.
+app.MapPost("/api/sales/void", async (
+    VoidRequest request, HttpRequest http, TillSessions sessions, IRecommendationBoard staff, CommandExecutor executor,
+    VoidTicketHandler handler, CancellationToken cancellationToken) =>
+{
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (SaleWire.Seller(sessions.Resolve(token), new SaleRequest(request.TerminalId, request.Lines)) is not { } seller)
+    {
+        return Results.Ok(new VoidAnswer(VoidOutcomes.NotSignedIn, null, null, null));
+    }
+
+    var sellerMay = StaffPermissions.May((await staff.StaffAsync(seller, cancellationToken))?.Rank, Capability.VoidTransaction);
+    var command = SaleWire.ToVoid(
+        request, seller, sellerMay,
+        cited => sessions.AuthorisedBy(token, cited, Capability.VoidTransaction),
+        cited => sessions.AuthorisedBy(token, cited, Capability.ApplyDiscount));
+    if (Voids.NeedsAuthorisation(sellerMay, request.PaymentOpenedAt is not null) && command.AuthorisedBy is null)
+    {
+        return Results.Ok(new VoidAnswer(VoidOutcomes.PinRequired, null, null, "This ticket was being paid: a manager authorises its cancellation."));
+    }
+
+    await oneSaleAtATime.WaitAsync(cancellationToken);
+    try
+    {
+        return Results.Ok(SaleWire.Voided(await executor.ExecuteAsync(handler, command, cancellationToken)));
+    }
+    catch (SaleRefusedException refusal)
+    {
+        return Results.Ok(new VoidAnswer(VoidOutcomes.Refused, null, null, refusal.Message));
+    }
+    finally
+    {
+        oneSaleAtATime.Release();
+    }
+});
 
 // Hop 6 (D-073): the expiry evaluator, run on request rather than on a schedule. The engine
 // "ran last night" (CLAUDE.md §5) and a nightly job is Phase 1's; what the skeleton has to prove

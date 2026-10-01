@@ -42,6 +42,12 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             table.HasCheckConstraint(
                 "ck_transactions_status_3",
                 @"status <> 'completed' OR invoice_number IS NOT NULL");
+
+            // B8: whether payment was started, and who let a cashier's cancel through, are said of
+            // a cancelled ticket only.
+            table.HasCheckConstraint(
+                "ck_transactions_void_facts",
+                @"status = 'voided' OR (payment_opened_at IS NULL AND void_authorised_by IS NULL)");
             table.HasCheckConstraint(
                 "ck_transactions_rounding_policy",
                 @"rounding_policy IN ('half_even','half_up')");
@@ -102,6 +108,11 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             .HasConversion(EnumConverters.TransactionStatusConverter)
             .HasDefaultValue(TransactionStatus.Open)
             .HasSentinel(TransactionStatus.Open);
+        builder.Property(x => x.PaymentOpenedAt)
+            .HasColumnName("payment_opened_at")
+            .HasConversion(WaymarkConverters.Timestamp);
+        builder.Property(x => x.VoidAuthorisedBy)
+            .HasColumnName("void_authorised_by");
         builder.Property(x => x.VoidedAt)
             .HasColumnName("voided_at")
             .HasConversion(WaymarkConverters.Timestamp);
@@ -142,6 +153,11 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         builder.HasOne<Staff>()
             .WithMany()
             .HasForeignKey(x => x.VoidedBy)
+            .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Staff>()
+            .WithMany()
+            .HasForeignKey(x => x.VoidAuthorisedBy)
             .HasPrincipalKey(x => x.StaffId)
             .OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<Transaction>()

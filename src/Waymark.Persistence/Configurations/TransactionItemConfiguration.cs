@@ -54,6 +54,12 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             table.HasCheckConstraint(
                 "ck_transaction_items_quantity_source",
                 @"quantity_source IN ('count','typed_weight','label_weight','label_price')");
+
+            // B8: a line struck before the sale says who struck it and when, and was never taken
+            // from a batch: it moved no stock and charged nothing.
+            table.HasCheckConstraint(
+                "ck_transaction_items_removed",
+                @"(removed_at IS NULL) = (removed_by IS NULL) AND (removed_at IS NULL OR batch_id IS NULL)");
         });
 
         builder.HasKey(x => x.TransactionItemId);
@@ -83,6 +89,11 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             .HasColumnName("discount_reason_code");
         builder.Property(x => x.AuthorisedBy)
             .HasColumnName("authorised_by");
+        builder.Property(x => x.RemovedAt)
+            .HasColumnName("removed_at")
+            .HasConversion(WaymarkConverters.Timestamp);
+        builder.Property(x => x.RemovedBy)
+            .HasColumnName("removed_by");
         builder.Property(x => x.TaxAmount)
             .HasColumnName("tax_amount")
             .HasDefaultValue(WaymarkConverters.ZeroMoney);
@@ -121,6 +132,11 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
         builder.HasOne<Staff>()
             .WithMany()
             .HasForeignKey(x => x.AuthorisedBy)
+            .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Staff>()
+            .WithMany()
+            .HasForeignKey(x => x.RemovedBy)
             .HasPrincipalKey(x => x.StaffId)
             .OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<Staff>()

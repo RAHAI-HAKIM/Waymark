@@ -28,7 +28,54 @@ public sealed record SaleRequest(
     [property: JsonPropertyName("ticket_discount")] DiscountRequest? TicketDiscount = null,
     [property: JsonPropertyName("tenders"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<TenderRequest>? Tenders = null,
     [property: JsonPropertyName("customer_id"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CustomerId = null,
-    [property: JsonPropertyName("tab_override"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TabOverride = null);
+    [property: JsonPropertyName("tab_override"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TabOverride = null,
+    [property: JsonPropertyName("removed"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<RemovedLineRequest>? Removed = null);
+
+/// <summary>A line struck on the ticket before it was paid or cancelled (B8, D-097): recorded, never charged.</summary>
+/// <param name="Weight">A typed weight, as on <see cref="SaleRequestLine"/>; null for a count or a label.</param>
+/// <param name="RemovedAt">When it was struck, as the till's clock said.</param>
+public sealed record RemovedLineRequest(
+    [property: JsonPropertyName("barcode")] string Barcode,
+    [property: JsonPropertyName("count")] int Count,
+    [property: JsonPropertyName("weight")] string? Weight,
+    [property: JsonPropertyName("removed_at")] DateTimeOffset RemovedAt);
+
+/// <summary>
+/// A ticket cancelled at the till (B8, D-097): its lines as a sale would send them, why, and whether
+/// the payment panel had been opened on it. The server records it priced, as voided; nothing is sold.
+/// </summary>
+/// <param name="ReasonCode">An active <c>void</c> reason.</param>
+/// <param name="PaymentOpenedAt">When "Encaisser" was opened on this ticket; null when it never was.</param>
+/// <param name="Authorisation">What <c>/api/till/authorise</c> answered for <see cref="Capabilities.VoidTransaction"/>, when one was needed.</param>
+public sealed record VoidRequest(
+    [property: JsonPropertyName("terminal_id")] string TerminalId,
+    [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines,
+    [property: JsonPropertyName("reason_code")] string ReasonCode,
+    [property: JsonPropertyName("ticket_discount")] DiscountRequest? TicketDiscount = null,
+    [property: JsonPropertyName("payment_opened_at")] DateTimeOffset? PaymentOpenedAt = null,
+    [property: JsonPropertyName("authorisation")] string? Authorisation = null,
+    [property: JsonPropertyName("removed")] IReadOnlyList<RemovedLineRequest>? Removed = null);
+
+/// <summary>A cancel recorded, or why not.</summary>
+/// <param name="Outcome">"voided", "refused", "not_signed_in", or "pin_required" when a manager must authorise it first.</param>
+public sealed record VoidAnswer(
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("transaction_id")] string? TransactionId,
+    [property: JsonPropertyName("total")] string? Total,
+    [property: JsonPropertyName("reason")] string? Reason);
+
+/// <summary>The values of <see cref="VoidAnswer.Outcome"/>.</summary>
+public static class VoidOutcomes
+{
+    public const string Voided = "voided";
+
+    public const string Refused = "refused";
+
+    public const string NotSignedIn = "not_signed_in";
+
+    /// <summary>A cashier's cancel after "Encaisser": a manager's PIN, then send it again with the authorisation.</summary>
+    public const string PinRequired = "pin_required";
+}
 
 /// <summary>A part of the ticket paid by card or BaridiMob (B6).</summary>
 /// <param name="Method">One of <see cref="TenderMethods"/>.</param>

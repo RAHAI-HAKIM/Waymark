@@ -314,6 +314,9 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(TabMovementWire),       // an element of that answer: a movement as the statement shows it (B7)
             nameof(RepaymentRequest),      // till -> StoreServer; an amount and a reason; the rows are the server's (B7)
             nameof(LimitRequest),          // till -> StoreServer; what to do to the limit; the event row is the server's (B7)
+            nameof(RemovedLineRequest),    // an element of a sale or a cancel: a struck line as the till held it (B8)
+            nameof(VoidRequest),           // till -> StoreServer; codes and counts, never prices; the voided row is the server's (B8)
+            nameof(VoidAnswer),            // StoreServer -> till; a cancel recorded, or why not (B8)
             nameof(SignInAnswer),          // StoreServer → till; a session lives in the server's memory, not a table (D-083)
             nameof(BoardAnswer),           // the board: a person's cards and a withheld count, computed per request
             nameof(DecisionAnswer),        // what a decision answers with; the row it records is recommendation_decisions
