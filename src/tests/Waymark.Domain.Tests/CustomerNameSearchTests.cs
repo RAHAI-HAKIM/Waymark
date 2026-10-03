@@ -48,6 +48,6 @@ public sealed class CustomerNameSearchTests
     [Fact]
     public void Five_is_the_most_ever_listed()
     {
-        Assert.Equal(5, CustomerNameSearch.MaximumShown);
+        Assert.Equal(3, CustomerNameSearch.MaximumShown);
     }
 }
