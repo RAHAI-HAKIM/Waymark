@@ -35,7 +35,8 @@ public sealed record ReasonCodeOption(
     [property: JsonPropertyName("label_ar")] string LabelAr,
     [property: JsonPropertyName("label_fr")] string LabelFr,
     [property: JsonPropertyName("requires_note")] bool RequiresNote,
-    [property: JsonPropertyName("requires_manager")] bool RequiresManager);
+    [property: JsonPropertyName("requires_manager")] bool RequiresManager,
+    [property: JsonPropertyName("direction"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Direction = null);
 
 /// <summary>
 /// The values of <see cref="ReasonCodeList.AppliesTo"/>, and what a client may ask for.
@@ -66,4 +67,12 @@ public static class ReasonCodeAppliesTo
 
     /// <summary>Stock or a debt given up on.</summary>
     public const string WriteOff = "write_off";
+}
+
+/// <summary>The values of <see cref="ReasonCodeOption.Direction"/> (B10, D-102): which way a cash reason moves money; absent, either way.</summary>
+public static class CashDirections
+{
+    public const string In = "in";
+
+    public const string Out = "out";
 }

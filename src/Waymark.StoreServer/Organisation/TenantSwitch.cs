@@ -14,6 +14,10 @@ namespace Waymark.StoreServer.Organisation;
 ///   <item><description><c>--max-credit-limit=50000.00|none</c></description></item>
 ///   <item><description><c>--credit-overdue-days=30|off</c></description></item>
 ///   <item><description><c>--tab-as-part=on|off</c></description></item>
+///   <item><description><c>--void-alert-count=5|off</c>, <c>--void-alert-value=5000.00|off</c></description></item>
+///   <item><description><c>--refund-min-rank=2|off</c></description></item>
+///   <item><description><c>--credit-expiry-days=365|off</c></description></item>
+///   <item><description><c>--paid-out-min-rank=2|off</c></description></item>
 ///   <item><description><c>--publish-information-notice=&lt;path to the text&gt;</c>, with
 ///   <c>--notice-language=ar|fr|en</c> (Arabic when left out)</description></item>
 /// </list>
@@ -35,6 +39,15 @@ public static class TenantSwitch
     /// <summary>B8 (D-097): a cancelled ticket worth more than this is flagged; <c>off</c> to stop.</summary>
     public const string VoidAlertValue = "void-alert-value";
 
+    /// <summary>B9 (D-098): the lowest rank that refunds alone; <c>off</c> for anyone with a rank.</summary>
+    public const string RefundMinRank = "refund-min-rank";
+
+    /// <summary>B9b (D-101): store credit unspent this many days after it was issued expires; <c>off</c> for never.</summary>
+    public const string CreditExpiryDays = "credit-expiry-days";
+
+    /// <summary>B10 (D-102): the lowest rank that takes cash out of the drawer alone; <c>off</c> for anyone with a rank.</summary>
+    public const string PaidOutMinRank = "paid-out-min-rank";
+
     public const string PublishNotice = "publish-information-notice";
 
     public const string NoticeLanguage = "notice-language";
@@ -43,7 +56,7 @@ public static class TenantSwitch
     public static bool Asked(IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice, VoidAlertCount, VoidAlertValue }
+        return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice, VoidAlertCount, VoidAlertValue, RefundMinRank, CreditExpiryDays, PaidOutMinRank }
             .Any(key => configuration[key] is not null);
     }
 
@@ -90,7 +103,10 @@ public static class TenantSwitch
                 + $"overdue after {(now.CreditOverdueDays is { } days ? $"{days} days" : "never (off)")}; "
                 + $"tab as a part {(now.TabAsPart ? "on" : "off")}; "
                 + $"cancels flagged above {(now.VoidAlertCount is { } count ? $"{count} a session" : "no count (off)")} "
-                + $"and above {now.VoidAlertValue?.ToString() ?? "no value (off)"}.");
+                + $"and above {now.VoidAlertValue?.ToString() ?? "no value (off)"}; "
+                + $"refunds alone from {(now.RefundMinRank is { } rank ? $"rank {rank}" : "any rank (off)")}; "
+                + $"store credit expires {(now.CreditExpiryDays is { } expiry ? $"after {expiry} days" : "never (off)")}; "
+                + $"cash out alone from {(now.PaidOutMinRank is { } outRank ? $"rank {outRank}" : "any rank (off)")}.");
             return 0;
         }
         catch (Exception refusal) when (refusal is TenantSettingRefusedException or IOException or UnauthorizedAccessException)
@@ -110,6 +126,12 @@ public static class TenantSwitch
         var worth = configuration[VoidAlertValue];
         var voidsOff = string.Equals(voids, "off", StringComparison.OrdinalIgnoreCase);
         var worthOff = string.Equals(worth, "off", StringComparison.OrdinalIgnoreCase);
+        var refund = configuration[RefundMinRank];
+        var refundOff = string.Equals(refund, "off", StringComparison.OrdinalIgnoreCase);
+        var expiry = configuration[CreditExpiryDays];
+        var expiryOff = string.Equals(expiry, "off", StringComparison.OrdinalIgnoreCase);
+        var paidOut = configuration[PaidOutMinRank];
+        var paidOutOff = string.Equals(paidOut, "off", StringComparison.OrdinalIgnoreCase);
 
         return new SetTenantSettings(
             OnOff(configuration[CustomerModule], CustomerModule),
@@ -129,7 +151,22 @@ public static class TenantSwitch
             voidsOff,
             worth is null || worthOff ? null
                 : WireText.TryHundredths(worth, out var cents) ? cents : throw new FormatException($"--{VoidAlertValue}: an amount, 5000.00, or off."),
-            worthOff);
+            worthOff,
+            refund is null || refundOff ? null
+                : long.TryParse(refund, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var rank) && rank > 0
+                    ? rank
+                    : throw new FormatException($"--{RefundMinRank}: a rank, 2, or off."),
+            refundOff,
+            expiry is null || expiryOff ? null
+                : int.TryParse(expiry, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var expiryCount) && expiryCount > 0
+                    ? expiryCount
+                    : throw new FormatException($"--{CreditExpiryDays}: a number of days, 365, or off."),
+            expiryOff,
+            paidOut is null || paidOutOff ? null
+                : long.TryParse(paidOut, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var outRank) && outRank > 0
+                    ? outRank
+                    : throw new FormatException($"--{PaidOutMinRank}: a rank, 2, or off."),
+            paidOutOff);
     }
 
     private static bool? OnOff(string? value, string key) => value?.Trim().ToLowerInvariant() switch

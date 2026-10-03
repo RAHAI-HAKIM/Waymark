@@ -54,6 +54,9 @@ public sealed record PastTicketSummary(
 /// </param>
 /// <param name="Subtotal">As the sale's row recorded them, never recomputed: a receipt reads its own row (D-053).</param>
 /// <param name="Payments">In the order they were taken.</param>
+/// <param name="OriginalTransactionId">For a refund (B9), the sale it refunds; null for a sale.</param>
+/// <param name="OriginalInvoiceNumber">That sale's number, for the ticket view to say so.</param>
+/// <param name="HasCustomer">The sale is recorded against a customer, who is not named here (D-088): what store credit needs (D-098).</param>
 public sealed record PastTicket(
     string TransactionId,
     string? InvoiceNumber,
@@ -66,11 +69,16 @@ public sealed record PastTicket(
     Money Subtotal,
     Money TaxTotal,
     Money Total,
-    IReadOnlyList<PastPayment> Payments);
+    IReadOnlyList<PastPayment> Payments,
+    string? OriginalTransactionId = null,
+    string? OriginalInvoiceNumber = null,
+    bool HasCustomer = false);
 
 /// <summary>A line of a past ticket. The names are the catalogue's today: a sale's rows keep no name (D-088).</summary>
 /// <param name="Quantity">In the line's selling unit.</param>
 /// <param name="UnitPrice">The price each unit sold at.</param>
+/// <param name="Returned">What refunds have brought back of the line so far (B9, D-098); null reads as nothing.</param>
+/// <param name="Weighed">Sold by weight, typed or from a label: it comes back whole or not at all (D-098).</param>
 public sealed record PastTicketLine(
     string VariantId,
     string ProductName,
@@ -78,7 +86,9 @@ public sealed record PastTicketLine(
     Quantity Quantity,
     Money UnitPrice,
     Money TaxAmount,
-    Money LineTotal);
+    Money LineTotal,
+    Quantity? Returned = null,
+    bool Weighed = false);
 
 /// <summary>One payment the sale took.</summary>
 public sealed record PastPayment(PaymentMethod Method, Money Amount);

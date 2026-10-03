@@ -18,7 +18,8 @@ public sealed record PaymentActions(
     Action<int> RemovePart,
     Action<bool> TypeInReference,
     Action Primary,
-    Action Close);
+    Action Close,
+    Action? Action = null);
 
 /// <summary>
 /// The panels that freeze the ticket and float over it (D-094): the payment (B6) and the manager's
@@ -193,8 +194,8 @@ public static partial class TillViews
             Child = parts,
         });
 
-        // Espèces, Carte, BaridiMob.
-        var methods = new UniformGrid { Columns = 3, Margin = new Thickness(-2, 0) };
+        // Espèces, Carte, BaridiMob, and Carnet for a customer with a tab (B7).
+        var methods = new UniformGrid { Columns = Math.Max(3, panel.Methods.Count), Margin = new Thickness(-2, 0) };
         foreach (var choice in panel.Methods)
         {
             var method = choice.Method;
@@ -222,9 +223,34 @@ public static partial class TillViews
                 ? theme.BodySmall(entry.ReferencePlaceholder, theme.TextMuted)
                 : TillTheme.Figure(entry.Reference, 16, theme.Text);
 
-            var fields = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*") };
+            // The tab (B7): whose it is, what is available, and after this sale, above its amount.
+            if (entry.AccountTitle is { } account)
+            {
+                var lines = new StackPanel { Spacing = 4 };
+                lines.Children.Add(theme.Label(account, theme.TextSecondary));
+                foreach (var figure in entry.Account ?? [])
+                {
+                    lines.Children.Add(Row(theme.BodySmall(figure.Label, theme.Text), TillTheme.Figure(figure.Value, 15, theme.Text)));
+                }
+
+                left.Children.Add(new Border
+                {
+                    Background = theme.Card,
+                    BorderBrush = theme.Border,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(TillSizes.KeyRadius),
+                    Padding = new Thickness(12, 8),
+                    Child = lines,
+                });
+            }
+
+            var fields = new Grid { ColumnDefinitions = new ColumnDefinitions(entry.HasReference ? "*,12,*" : "*") };
             fields.Children.Add(Labelled(theme, entry.AmountTitle, Touchable(Field(theme, !entry.OnReference, amount), () => actions?.TypeInReference(false), PaymentAmountTag), 0));
-            fields.Children.Add(Labelled(theme, entry.ReferenceTitle, Touchable(Field(theme, entry.OnReference, new Border { VerticalAlignment = VerticalAlignment.Center, Child = reference }), () => actions?.TypeInReference(true), PaymentReferenceTag), 2));
+            if (entry.HasReference)
+            {
+                fields.Children.Add(Labelled(theme, entry.ReferenceTitle, Touchable(Field(theme, entry.OnReference, new Border { VerticalAlignment = VerticalAlignment.Center, Child = reference }), () => actions?.TypeInReference(true), PaymentReferenceTag), 2));
+            }
+
             left.Children.Add(fields);
         }
 
@@ -236,6 +262,15 @@ public static partial class TillViews
         if (panel.Message is { } message)
         {
             left.Children.Add(Refusal(theme, message));
+        }
+
+        // A step to take first, in the panel: "Rattacher un client · F5" (B9a).
+        if (panel.Action is { } step)
+        {
+            var face = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            face.Children.Add(TillTheme.Icon(LucideIcons.User, theme.Text, 16));
+            face.Children.Add(Words(step.Label, 14, FontWeight.SemiBold, theme.Text, theme));
+            left.Children.Add(new TillKey(theme, KeyLook.Secondary, face, () => actions?.Action?.Invoke(), true, 44) { Tag = step, HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(12, 0) });
         }
 
         // The right: the rest after the part and "Tout le reste" while a part is added, then the pad.
@@ -370,7 +405,7 @@ public static partial class TillViews
     /// <summary>A refusal: labelled first, on the critical ground with its edge (label before colour).</summary>
     private static Border Refusal(TillTheme theme, PanelMessage message)
     {
-        var (mark, ink, fill) = theme.ToneOnSurface(Tone.Critical);
+        var (mark, ink, fill) = theme.ToneOnSurface(message.Tone);
         return new Border
         {
             Background = fill,
@@ -416,6 +451,8 @@ public static partial class TillViews
     {
         PaymentMethod.Card => LucideIcons.CreditCard,
         PaymentMethod.MobileWallet => LucideIcons.Smartphone,
+        PaymentMethod.StoreCredit => LucideIcons.Undo2,
+        PaymentMethod.OnAccount => LucideIcons.Notebook,
         _ => LucideIcons.Banknote,
     };
 }

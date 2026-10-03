@@ -69,6 +69,7 @@ public static class SaleWire
             TenderMethods.Card => PaymentMethod.Card,
             TenderMethods.MobileWallet => PaymentMethod.MobileWallet,
             TenderMethods.OnAccount => PaymentMethod.OnAccount,
+            TenderMethods.StoreCredit => PaymentMethod.StoreCredit,
             _ => PaymentMethod.Cash,
         },
         WireText.TryHundredths(tender.Amount, out var amount) ? amount : 0,
@@ -81,7 +82,8 @@ public static class SaleWire
         PaymentMethod.MobileWallet => TenderMethods.MobileWallet,
         PaymentMethod.Cash => TenderMethods.Cash,
         PaymentMethod.OnAccount => TenderMethods.OnAccount,
-        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "A sale writes cash, card, wallet and tab rows only (B6, B7)."),
+        PaymentMethod.StoreCredit => TenderMethods.StoreCredit,
+        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "A sale writes cash, card, wallet, tab and store credit rows only (B6, B7, B9b)."),
     };
 
     /// <summary>

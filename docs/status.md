@@ -6,9 +6,12 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is done** (§13): a
 discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). **B5 is done** (§14): a
 price typed at the counter, rank 3, within a band (D-092). **B6 is done** (§15): card and
-BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). **B7 is done** (§16): the tab, le carnet, and the tenant's customer module (D-096); its screens wait
-on the board. **B8 is built, waiting on Hakim's piece** (§17): a cancelled ticket recorded first, a
-manager only after "Encaisser", flags for the owner (D-097). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). **B7 is done** (§16): the tab, le carnet, and the tenant's customer module (D-096); its screens built
+02/10 from the board (D-099); a customer found by full name or number (D-100). **B8 is done** (§17): a cancelled ticket recorded first, a
+manager only after "Encaisser", flags for the owner (D-097). **B9a is built** (§18): a
+refund as its own ticket, the tab first, then cash or store credit (D-098). **B9b is done**
+(§19): store credit spent as a part, given back as credit, expiring by the tenant's days (D-101). **B10 is built** (§20): cash in and out with no sale,
+and the clock (D-102). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
 
 ---
 
@@ -118,7 +121,7 @@ starting point is always code already reviewed. §7 below is the map.
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
-| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B1–B5 done** (§10–§14) |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B1–B8 done** (§10–§17); B9a built (§18) |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
@@ -581,7 +584,7 @@ answer (D-085: the rail's card takes over); "Ticket imprimé" and the drawer (D1
 `CompleteSaleTests`, `SaleWireTests`, `TillWindowTests`. **For Hakim's review:** the panel on screen at
 1024 × 768 and 1366 × 768; the Arabic words are `// ar: à relire` except those from the Arabic board.
 
-## 16. Session B7 — done 30/09, its screens waiting on the board (D-096)
+## 16. Session B7 — done 30/09; its screens 02/10 (D-096, D-099)
 
 **✍ Hakim's piece:** `Domain/Customers/Tab.cs`: `Age` (the balance, repayments paying the oldest
 charges first), `Check` (a charge: no tab, frozen, overdue, past the limit), `MayLimit`, `MayRepay`; its
@@ -601,21 +604,19 @@ compiler, which proves nothing, and are to be rewritten so they compile.
 | `Application/Sales/CompleteSale.cs`, `CashSessions.cs` | The tab part charged with its payment row, the override named; the drawer's session shared with repayments |
 | `StoreServer/Customers/CustomerEndpoints.cs` | `GET /api/customers?phone=`, `POST /api/customers`, `GET …/tab`, `POST …/repayments`, `POST …/limit`; the actor is the seller if their rank allows, else a cited authorisation |
 | `StoreServer/Organisation/TenantSwitch.cs` | `--customer-module`, `--max-credit-limit`, `--credit-overdue-days`, `--tab-as-part`, `--publish-information-notice` |
-| `Pos/Server/StoreServerClient.cs` | The five calls, and a sale's `customer_id` and `tab_override`; no screen yet |
+| `Pos/Server/StoreServerClient.cs` | The five calls, the cash reasons, and a sale's `customer_id` and `tab_override` |
+| `Pos/Screen/Customers.cs`, `Ui/TillViews.Customers.cs` | 02/10 (D-099): the customer key (F5), the search and the creation floating, the carnet in the ticket's place, the tab's change and repayment; Carnet in the payment panel (`Payment.cs`), `Tab.Check` asked on the server's figures |
 
-**Waiting on the board** (G1 gate): finding a customer, creating one, the customer on the ticket, Carnet
-in the payment panel, the tab view with Rembourser, the paid rail. **For Hakim to decide:** the tenant key
+**Built 02/10 from the board** (D-099), with what was left out of it and why; 6 mutations of the till's customer rules were each caught (one after its test was made to press Entrée where the key was unavailable). **For Hakim to decide:** the tenant key
 is opened, or made the first time, when StoreServer first names a customer; a store that already has
 data gets one then. And a repayment takes a `cash_movement` reason chosen at the till, since
 `reason_codes` carries no "this one is the repayment".
 
-## 17. Session B8 — built 01/10, waiting on Hakim's piece (D-097)
+## 17. Session B8 — done 01/10 (D-097)
 
 **✍ Hakim's piece:** `Domain/Sales/Voids.cs`: `NeedsAuthorisation` (a cashier after "Encaisser" only)
 and `Flags` (after "Encaisser"; more than the count in a cash session; more than the value); its 16
-tests are `VoidsTests`. **Until it is written** every cancel is refused by the stub; a sale, and its
-struck lines, never ask it. Five `CompleteSaleTests` wait on it; against a throwaway rule all passed
-(the stub was put back), and 10 mutations of the rest were each caught.
+tests are `VoidsTests`. Written by Hakim 01/10; 10 mutations of the rest were each caught.
 
 | Where | What |
 | :---- | :---- |
@@ -629,3 +630,58 @@ struck lines, never ask it. Five `CompleteSaleTests` wait on it; against a throw
 **Not on the till, on purpose:** the flags, shown in the Z-report (C2) and Admin's review queue.
 **No-sale** waits for the drawer (D2).
 
+
+## 18. Session B9a — built 01/10 (D-098)
+
+**✍ Hakim's piece:** `Domain/Sales/Refunds.cs`: `Take` (which rows a quantity comes from, first row
+first; nothing, too much, part of a weighed line refused), `Share` (what comes back: the row's total and
+TVA over its units with `Allocate`, so partial refunds sum exactly), `ToTab` (the tab first, never past
+the sale's tab part or what is owed), `StatusAfter`, `Restocks` (never an expired batch); and
+`StaffPermissions.May(rank, capability, raisedTo)` (a shop's setting raises a rank, never lowers it).
+Tests: `RefundsTests` and the six B9 `StaffPermissionsTests`. **Written by Claude at Hakim's request
+(01/10), for Hakim to review**, quantities first; Domain and Integration all green,
+and 14 mutations of the rest were each caught (one only after its test was made to check the reason it refuses).
+
+| Where | What |
+| :---- | :---- |
+| `Application/Sales/RefundSale.cs` | `RefundSaleHandler`: the refund ticket with its own number, negative rows on the sold batches, `returns`, `return_in`, the tab's negative charge, cash rounded once or store credit with `customers.credit` in step, the sale's status; a quote writes nothing |
+| `Application/Sales/InvoiceNumbers.cs` | The sales' sequence, now shared with refunds |
+| `Persistence/Sales/RefundLedger.cs` | The sale, what came back of each row, its tab part and what refunds took back off it |
+| `Persistence/Sales/PastTickets.cs` | A line says what came back of it; a refund names its sale |
+| `system_config`, `TenantSwitch.cs` | `refund_min_rank`; `--refund-min-rank=2`, `off` |
+| `StoreServer/Program.cs` | `POST /api/sales/refund` (D-088's rank rule for another day or till, `pin_required` below the setting); `refund` authorised with the setting |
+| `Pos/` | "Rembourser" on a past ticket; lines touched in the ticket view, − 1 / + 1 / En rayon and the return reasons in the rail; the server's quote floating (Espèces, Avoir where the server allows it); the PIN step when asked; then the refund's own ticket |
+
+**Not in B9a:** spending store credit (B9b). **02/10 (D-099):** store credit on a ticket with no
+customer attaches one first (F5) and is quoted again for them; the credit is shown once issued.
+
+## 19. Session B9b — built 02/10, waiting on Hakim's piece (D-101)
+
+**✍ Hakim's piece:** `Domain/Customers/StoreCredit.cs`: `Age` (the balance as a sum, the oldest credit
+spent first, what has expired by the tenant's days) and `MayRedeem`; store credit as a part of
+`Tender.Settle` (once per ticket, `CreditTwice`); `Refunds.ToCredit` (the credit share of a refund back
+as credit). Tests: `StoreCreditTests`, the B9b `TenderTests` and `RefundsTests`. **Until it is written**
+27 Domain tests, 3 `CompleteSaleTests` and 2 till tests fail; against a throwaway rule every suite
+passed (the stubs were put back), and 6 mutations of the rest were each caught. A customer who never had credit is read without the
+rule, so B7's tab works meanwhile; choosing "Avoir" in a running till asks the rule and throws.
+
+| Where | What |
+| :---- | :---- |
+| `system_config`, `TenantSwitch.cs` | `credit_expiry_days`; `--credit-expiry-days=365`, `off` |
+| `Application/Customers/TabCharges.cs`, `Sales/CompleteSale.cs` | The store credit part: customer and module asked, the rule asked; `expire` then `redeem` with their balances after; `customers.credit` in step |
+| `Application/Sales/RefundSale.cs`, `Persistence/Sales/RefundLedger.cs` | The tab first, then the credit share back as credit (`to_credit`), then cash or credit |
+| `Application/Customers/CustomerCommands.cs` | The tab's answer carries `credit_available` |
+| `Pos/` | "Avoir" in the payment panel for a customer with credit: prefilled with the smaller of the credit and the rest, "PLUS QUE L'AVOIR" above it; "Rendu en avoir" in the refund panel |
+
+## 20. Session B10 — built 02/10 (D-102)
+
+All Claude's (the plan's "C"); the migration too, at Hakim's request. Its tests pass (4 Integration, 5 till); 5 mutations were each caught.
+
+| Where | What |
+| :---- | :---- |
+| Migration `CashReasonDirection` | `reason_codes.direction`: `in`, `out` or null, a cash reason's only (CHECK) |
+| `system_config`, `TenantSwitch.cs` | `paid_out_min_rank`; `--paid-out-min-rank=2`, `off` |
+| `Application/Sales/CashMovements.cs` | `RecordCashMovementHandler` (a paid-in or paid-out on the session, the reason's direction and note asked); `ToggleClockHandler` (a shift opened or closed) |
+| `Persistence/Organisation/ShiftLedger.cs` | The person's open shift at this store; closing it |
+| `StoreServer/Program.cs` | `POST /api/cash/movements` (`pin_required` below the setting for cash out); `POST /api/till/clock` (the PIN with sign-in's lockout); `paid_out` authorised with the setting |
+| `Pos/` | "Petite caisse" in the rail: in or out, the reasons for that way, the amount, a note when asked, the PIN step for cash out when asked; "Plus…" then "Pointage": a name, a PIN as dots, the arrival or the departure |

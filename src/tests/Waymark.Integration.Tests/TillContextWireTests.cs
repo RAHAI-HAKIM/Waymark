@@ -50,4 +50,16 @@ public sealed class TillContextWireTests
             Assert.Contains($"\"{name}\":", json, StringComparison.Ordinal);
         }
     }
+
+    [Fact]
+    public void The_tenants_customer_switches_reach_the_till_and_a_tenant_never_configured_keeps_none()
+    {
+        // B7 (D-096): the till shows a customer key only with the module on, and the tab whole when it may not be a part.
+        var description = new TillDescription("El Bahdja", "Caisse 1", "DZD", null);
+        var on = TillContextWire.ToWire(description, new TenantSettings(true, null, null, false));
+        var never = TillContextWire.ToWire(description, TenantSettings.Defaults);
+
+        Assert.Equal((true, false), (on.CustomerModule, on.TabAsPart));
+        Assert.Equal((false, true), (never.CustomerModule, never.TabAsPart));
+    }
 }

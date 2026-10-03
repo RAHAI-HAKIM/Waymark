@@ -583,7 +583,7 @@ public static partial class TillViews
         Screen.Rail.Rest rest => RestRail(rest, theme, actions),
         Screen.Rail.Drafts drafts => DraftsPanel(drafts, theme, actions),
         Screen.Rail.Tickets tickets => TicketsPanel(tickets, theme, actions),
-        Screen.Rail.Past past => PastPanel(past, theme),
+        Screen.Rail.Past past => PastPanel(past, theme, actions),
         Screen.Rail.Discount discount => DiscountPanel(discount, theme, actions),
         _ => new Border(),
     };
@@ -623,6 +623,10 @@ public static partial class TillViews
             Operation.TicketDiscount => LucideIcons.Percent,
             Operation.CancelTicket => LucideIcons.Ban,
             Operation.Tickets => LucideIcons.History,
+            Operation.Refund => LucideIcons.Undo2,
+            Operation.PettyCash => LucideIcons.Coins,
+            Operation.More => LucideIcons.Ellipsis,
+            Operation.Clock => LucideIcons.User,
             _ => LucideIcons.Archive,
         };
 
@@ -1028,11 +1032,18 @@ public static partial class TillViews
         return card;
     }
 
-    /// <summary>A past ticket's figures and payments, read-only (B1): the paid ticket's panel, for a sale already made.</summary>
-    private static Border PastPanel(Rail.Past past, TillTheme theme) =>
-        PaidPanel(new Rail.Paid(past.Label, past.Title, past.Subtitle, past.Figures, past.Footer), theme);
+    /// <summary>
+    /// A past ticket's figures and payments, read-only (B1): the paid ticket's panel, for a sale already
+    /// made, with "Rembourser" above its footer when it may be refunded (B9), an operation key as the
+    /// rail's others are.
+    /// </summary>
+    private static Border PastPanel(Rail.Past past, TillTheme theme, TillActions actions) =>
+        PaidPanel(
+            new Rail.Paid(past.Label, past.Title, past.Subtitle, past.Figures, past.Footer),
+            theme,
+            past.Refund is { } refund ? new Border { Margin = new Thickness(-2, 0, -2, 12), Child = OperationTile(refund, theme, actions) } : null);
 
-    private static Border PaidPanel(Rail.Paid paid, TillTheme theme)
+    private static Border PaidPanel(Rail.Paid paid, TillTheme theme, Control? action = null)
     {
         var figures = new StackPanel();
         foreach (var figure in paid.Figures)
@@ -1059,6 +1070,7 @@ public static partial class TillViews
                     },
                 }, Dock.Top),
                 Docked(theme.BodySmall(paid.Footer), Dock.Bottom),
+                action is null ? new Border() : Docked(action, Dock.Bottom),
                 new Border(),
             },
         });

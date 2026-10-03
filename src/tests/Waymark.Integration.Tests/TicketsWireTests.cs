@@ -82,7 +82,7 @@ public sealed class TicketsWireTests
         Assert.Equal(TicketOutcomes.Found, wire.Outcome);
         var detail = wire.Ticket!;
         Assert.Equal(("partially_refunded", "429.00", "DZD"), (detail.Status, detail.Total, detail.Currency));
-        Assert.Equal(new PastTicketLineWire("Lait UHT Candia", "Brique 1L", "3", "pc", "143.00", "429.00"), Assert.Single(detail.Lines));
+        Assert.Equal(new PastTicketLineWire("Lait UHT Candia", "Brique 1L", "3", "pc", "143.00", "429.00", "v1", "0", false), Assert.Single(detail.Lines));
         Assert.Equal(new PastPaymentWire("mobile_wallet", "429.00"), Assert.Single(detail.Payments));
         Assert.DoesNotContain(typeof(PastTicketDetail).GetProperties(), property => property.Name.Contains("Customer", StringComparison.Ordinal));
     }

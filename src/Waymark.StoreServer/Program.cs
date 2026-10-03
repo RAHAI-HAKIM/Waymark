@@ -102,6 +102,7 @@ builder.Services.AddScoped<IProductLookup, Waymark.Persistence.Catalogue.Product
 // made, read back for the "Tickets" list.
 builder.Services.AddScoped<IProductSearch, Waymark.Persistence.Catalogue.ProductLookup>();
 builder.Services.AddScoped<IPastTickets, Waymark.Persistence.Sales.PastTickets>();
+builder.Services.AddScoped<IRefundLedger, Waymark.Persistence.Sales.RefundLedger>();
 
 // The reasons the shop accepts for a discount, a void, a cash movement (A3). A read, like
 // the lookup, and scoped for the same reason.
@@ -149,6 +150,10 @@ builder.Services.AddScoped<CommandExecutor>();
 builder.Services.AddScoped<ISalesLedger, SalesLedger>();
 builder.Services.AddScoped<CompleteSaleHandler>();
 builder.Services.AddScoped<VoidTicketHandler>();
+builder.Services.AddScoped<RefundSaleHandler>();
+builder.Services.AddScoped<RecordCashMovementHandler>();
+builder.Services.AddScoped<ToggleClockHandler>();
+builder.Services.AddScoped<IShiftLedger, Waymark.Persistence.Organisation.ShiftLedger>();
 
 // Hop 3 (D-072): the sale's anonymous basket goes to the outbox in the same transaction.
 builder.Services.AddScoped<IOutboxSequence, OutboxSequence>();
@@ -392,7 +397,7 @@ app.MapGet("/api/tickets", async (
 // ticket's own day and till, once it is found: an id is not a permission.
 app.MapGet("/api/tickets/one", async (
     string? ticket, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
-    IPastTickets tickets, IStoreCalendar calendar, CancellationToken cancellationToken) =>
+    IPastTickets tickets, IStoreCalendar calendar, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()) is not { } session)
     {
@@ -407,7 +412,7 @@ app.MapGet("/api/tickets/one", async (
     var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
     var day = TicketsWire.DayOf(found.OccurredAt, storeZone!);
     return Results.Ok(TicketsWire.MaySee(session, rank, calendar.Today, day, found.TerminalId)
-        ? TicketsWire.Found(found)
+        ? TicketsWire.Found(found, (await configuration.CurrentAsync(cancellationToken)).CustomerModule)
         : TicketsWire.Refused(TicketOutcomes.NotAllowed));
 });
 
@@ -415,10 +420,11 @@ app.MapGet("/api/tickets/one", async (
 // store does not have is an answer ("unknown_terminal"), never another store's name: the global
 // filter narrows the read to this store.
 app.MapGet("/api/till/context", async (
-    string? terminal, string? staff, ITillDirectory directory, CancellationToken cancellationToken) =>
+    string? terminal, string? staff, ITillDirectory directory, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
     string.IsNullOrWhiteSpace(terminal)
         ? Results.BadRequest("A terminal is required: /api/till/context?terminal=...&staff=...")
-        : Results.Ok(TillContextWire.ToWire(await directory.DescribeAsync(terminal, staff, cancellationToken))));
+        : Results.Ok(TillContextWire.ToWire(
+            await directory.DescribeAsync(terminal, staff, cancellationToken), await configuration.CurrentAsync(cancellationToken))));
 
 // Session A5 (D-083): who may open this till. Names and roles, and whether a PIN is set; never a hash.
 app.MapGet("/api/till/staff", async (IStaffCredentials credentials, CancellationToken cancellationToken) =>
@@ -441,7 +447,7 @@ app.MapPost("/api/till/sign-in", async (
 // here, through StaffPermissions, never at the till; the PIN is checked with sign-in's lockout.
 app.MapPost("/api/till/authorise", async (
     AuthoriseRequest request, HttpRequest http, TillSessions sessions, IStaffCredentials credentials,
-    IRecommendationBoard staff, CancellationToken cancellationToken) =>
+    IRecommendationBoard staff, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
 {
     Capability? asked = request.Capability switch
     {
@@ -450,6 +456,8 @@ app.MapPost("/api/till/authorise", async (
         Capabilities.CreateCustomer => Capability.CreateCustomer,
         Capabilities.ManageCredit => Capability.ManageCredit,
         Capabilities.VoidTransaction => Capability.VoidTransaction,
+        Capabilities.Refund => Capability.Refund,
+        Capabilities.PaidOut => Capability.PaidOut,
         _ => null,
     };
     if (asked is not { } capability)
@@ -463,6 +471,13 @@ app.MapPost("/api/till/authorise", async (
         capability,
         credentials,
         async id => (await staff.StaffAsync(id, cancellationToken))?.Rank,
+        // A refund and a paid-out need what the shop raised them to (B9, B10); everything else, the ladder alone.
+        capability switch
+        {
+            Capability.Refund => (await configuration.CurrentAsync(cancellationToken)).RefundMinRank,
+            Capability.PaidOut => (await configuration.CurrentAsync(cancellationToken)).PaidOutMinRank,
+            _ => null,
+        },
         cancellationToken);
     return Results.Ok(answer);
 });
@@ -578,6 +593,118 @@ app.MapPost("/api/sales/void", async (
     {
         oneSaleAtATime.Release();
     }
+});
+
+// B9 (D-098): a refund linked to its sale. Who refunds is the session's; whether they may alone is
+// their rank against Refund as the tenant raised it (refund_min_rank), asked here, never at the till.
+// The ticket is one the person may open (D-088's rule, asked of its own day and till). A quote writes
+// nothing and needs no PIN; the refund itself is one at a time with the sales, whose number it shares.
+app.MapPost("/api/sales/refund", async (
+    RefundRequest request, HttpRequest http, TillSessions sessions, IRecommendationBoard staff, IPastTickets tickets,
+    ITenantConfiguration configuration, IStoreCalendar calendar, CommandExecutor executor, RefundSaleHandler handler,
+    CancellationToken cancellationToken) =>
+{
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (sessions.Resolve(token) is not { } session || !string.Equals(session.TerminalId, request.TerminalId, StringComparison.Ordinal))
+    {
+        return Results.Ok(RefundWire.Refused(RefundOutcomes.NotSignedIn));
+    }
+
+    var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
+    if (await tickets.FindAsync(request.Original, cancellationToken) is { } found
+        && !TicketsWire.MaySee(session, rank, calendar.Today, TicketsWire.DayOf(found.OccurredAt, storeZone!), found.TerminalId))
+    {
+        return Results.Ok(RefundWire.Refused(RefundOutcomes.NotAllowed, "Another day's or another till's ticket: a manager refunds it."));
+    }
+
+    var raisedTo = (await configuration.CurrentAsync(cancellationToken)).RefundMinRank;
+    var sellerMay = raisedTo is null ? StaffPermissions.May(rank, Capability.Refund) : StaffPermissions.May(rank, Capability.Refund, raisedTo);
+    var command = RefundWire.ToCommand(request, session.StaffId, sellerMay, cited => sessions.AuthorisedBy(token, cited, Capability.Refund));
+    if (!command.Quote && !sellerMay && command.AuthorisedBy is null)
+    {
+        return Results.Ok(RefundWire.Refused(RefundOutcomes.PinRequired, "This shop asks for a manager to authorise a refund."));
+    }
+
+    await oneSaleAtATime.WaitAsync(cancellationToken);
+    try
+    {
+        return Results.Ok(RefundWire.Answered(await executor.ExecuteAsync(handler, command, cancellationToken)));
+    }
+    catch (SaleRefusedException refusal)
+    {
+        return Results.Ok(RefundWire.Refused(RefundOutcomes.Refused, refusal.Message));
+    }
+    finally
+    {
+        oneSaleAtATime.Release();
+    }
+});
+
+// B10 (D-102): cash into the drawer or out of it with no sale behind it. Who records it is the session's;
+// a paid-out below the tenant's paid_out_min_rank cites an authorisation of this session. One at a time
+// with the sales, whose cash session it shares.
+app.MapPost("/api/cash/movements", async (
+    CashMovementRequest request, HttpRequest http, TillSessions sessions, IRecommendationBoard staff, ITenantConfiguration configuration,
+    CommandExecutor executor, RecordCashMovementHandler handler, CancellationToken cancellationToken) =>
+{
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (sessions.Resolve(token) is not { } session || !string.Equals(session.TerminalId, request.TerminalId, StringComparison.Ordinal))
+    {
+        return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.NotSignedIn));
+    }
+
+    var direction = request.Direction == Waymark.Contracts.Reference.CashDirections.Out ? CashDirection.Out : CashDirection.In;
+    var raisedTo = (await configuration.CurrentAsync(cancellationToken)).PaidOutMinRank;
+    var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
+    var sellerMay = direction == CashDirection.In
+        || (raisedTo is null ? StaffPermissions.May(rank, Capability.PaidOut) : StaffPermissions.May(rank, Capability.PaidOut, raisedTo));
+    var authorisedBy = sessions.AuthorisedBy(token, request.Authorisation, Capability.PaidOut);
+    if (!sellerMay && authorisedBy is null)
+    {
+        return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.PinRequired, Reason: "This shop asks for a manager to take cash out of the drawer."));
+    }
+
+    // What cannot be read is zero, which the handler refuses: never recorded as some other amount.
+    var amount = Waymark.StoreServer.WireText.TryHundredths(request.Amount, out var minor) ? minor : 0;
+    await oneSaleAtATime.WaitAsync(cancellationToken);
+    try
+    {
+        var recorded = await executor.ExecuteAsync(
+            handler,
+            new RecordCashMovement(session.TerminalId, session.StaffId, direction, amount, request.ReasonCode, request.Note, sellerMay, authorisedBy),
+            cancellationToken);
+        return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.Recorded, Waymark.StoreServer.WireText.Figure(recorded.Amount)));
+    }
+    catch (CashMovementRefusedException refusal)
+    {
+        return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.Refused, Reason: refusal.Message));
+    }
+    finally
+    {
+        oneSaleAtATime.Release();
+    }
+});
+
+// B10 (D-102): a person clocks in or out at a till with their own PIN, checked here with sign-in's
+// lockout. The till must be signed in; the person clocking need not be the one selling.
+app.MapPost("/api/till/clock", async (
+    ClockRequest request, HttpRequest http, TillSessions sessions, IStaffCredentials credentials, CommandExecutor executor,
+    ToggleClockHandler handler, CancellationToken cancellationToken) =>
+{
+    if (sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()) is not { } session
+        || !string.Equals(session.TerminalId, request.TerminalId, StringComparison.Ordinal))
+    {
+        return Results.Ok(new ClockAnswer(ClockOutcomes.NotSignedIn));
+    }
+
+    var check = await sessions.VerifyPinAsync(request.StaffId, request.Pin, credentials, cancellationToken);
+    if (check.Outcome != SignInOutcomes.SignedIn)
+    {
+        return Results.Ok(new ClockAnswer(check.Outcome, AttemptsLeft: check.AttemptsLeft, LockedUntil: check.LockedUntil));
+    }
+
+    var clocked = await executor.ExecuteAsync(handler, new ToggleClock(request.StaffId, session.TerminalId), cancellationToken);
+    return Results.Ok(new ClockAnswer(clocked.In ? ClockOutcomes.ClockedIn : ClockOutcomes.ClockedOut, clocked.At, clocked.Since));
 });
 
 // Hop 6 (D-073): the expiry evaluator, run on request rather than on a schedule. The engine

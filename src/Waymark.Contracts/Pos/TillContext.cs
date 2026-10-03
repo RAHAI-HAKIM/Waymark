@@ -24,7 +24,9 @@ public sealed record TillContext(
     [property: JsonPropertyName("staff_name")] string? StaffName,
     [property: JsonPropertyName("role_label_fr")] string? RoleLabelFr,
     [property: JsonPropertyName("role_label_ar")] string? RoleLabelAr,
-    [property: JsonPropertyName("rounding_policy")] string? RoundingPolicy = null);
+    [property: JsonPropertyName("rounding_policy")] string? RoundingPolicy = null,
+    [property: JsonPropertyName("customer_module")] bool CustomerModule = false,
+    [property: JsonPropertyName("tab_as_part")] bool TabAsPart = true);
 
 /// <summary>The values of <see cref="TillContext.RoundingPolicy"/>, as <c>stores.rounding_policy</c> stores them.</summary>
 public static class RoundingPolicies

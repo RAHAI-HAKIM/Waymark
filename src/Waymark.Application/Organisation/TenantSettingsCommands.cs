@@ -18,6 +18,7 @@ public sealed class TenantSettingRefusedException(string reason) : Exception(rea
 /// </summary>
 /// <param name="MaxCreditLimit">Minor units; with <paramref name="NoCeiling"/> the ceiling is removed instead.</param>
 /// <param name="CreditOverdueDays">With <paramref name="OverdueOff"/> the rule is switched off instead.</param>
+/// <param name="RefundMinRank">B9 (D-098): a rank an active role has; with <paramref name="RefundRankOff"/> anyone with a rank refunds instead.</param>
 public sealed record SetTenantSettings(
     bool? CustomerModule = null,
     long? MaxCreditLimit = null,
@@ -28,7 +29,13 @@ public sealed record SetTenantSettings(
     int? VoidAlertCount = null,
     bool VoidCountOff = false,
     long? VoidAlertValue = null,
-    bool VoidValueOff = false) : ICommand<TenantSettings>;
+    bool VoidValueOff = false,
+    long? RefundMinRank = null,
+    bool RefundRankOff = false,
+    int? CreditExpiryDays = null,
+    bool CreditExpiryOff = false,
+    long? PaidOutMinRank = null,
+    bool PaidOutRankOff = false) : ICommand<TenantSettings>;
 
 public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration, ILedgerCurrency ledgerCurrency, TimeProvider clock)
     : ICommandHandler<SetTenantSettings, TenantSettings>
@@ -46,9 +53,25 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
             throw new TenantSettingRefusedException("A cancel threshold is one or more, an amount zero or more; switch it off instead.");
         }
 
+        if (command.CreditExpiryDays is <= 0)
+        {
+            throw new TenantSettingRefusedException("Store credit expires after one day or more; switch it off instead.");
+        }
+
         if (command.CreditOverdueDays is <= 0)
         {
             throw new TenantSettingRefusedException("Overdue days are one or more; switch the rule off instead.");
+        }
+
+        // A rank nobody holds would leave nobody to refund, nor to authorise a refund (D-098).
+        if (command.RefundMinRank is { } refundRank && !(await configuration.ActiveRanksAsync(cancellationToken)).Contains(refundRank))
+        {
+            throw new TenantSettingRefusedException($"No active role has rank {refundRank}: nobody could refund.");
+        }
+
+        if (command.PaidOutMinRank is { } paidOutRank && !(await configuration.ActiveRanksAsync(cancellationToken)).Contains(paidOutRank))
+        {
+            throw new TenantSettingRefusedException($"No active role has rank {paidOutRank}: nobody could take cash out.");
         }
 
         var current = await configuration.CurrentAsync(cancellationToken);
@@ -64,6 +87,9 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
             VoidAlertValue = command.VoidValueOff ? null
                 : command.VoidAlertValue is { } worth ? Money.FromMinorUnits(worth, ledgerCurrency.Currency)
                 : current.VoidAlertValue,
+            RefundMinRank = command.RefundRankOff ? null : command.RefundMinRank ?? current.RefundMinRank,
+            CreditExpiryDays = command.CreditExpiryOff ? null : command.CreditExpiryDays ?? current.CreditExpiryDays,
+            PaidOutMinRank = command.PaidOutRankOff ? null : command.PaidOutMinRank ?? current.PaidOutMinRank,
         };
 
         await configuration.StageAsync(next, null, clock.GetUtcNow(), cancellationToken);

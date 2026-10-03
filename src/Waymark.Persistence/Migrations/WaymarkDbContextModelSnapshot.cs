@@ -3428,6 +3428,10 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("Direction")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("direction");
+
                     b.Property<long>("DisplayOrder")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
@@ -3467,6 +3471,8 @@ namespace Waymark.Persistence.Migrations
                     b.ToTable("reason_codes", null, t =>
                         {
                             t.HasCheckConstraint("ck_reason_codes_applies_to", "applies_to IN ('discount','price_override','adjustment','void', 'return','no_sale','cash_movement','write_off')");
+
+                            t.HasCheckConstraint("ck_reason_codes_direction", "direction IS NULL OR (direction IN ('in','out') AND applies_to = 'cash_movement')");
 
                             t.HasCheckConstraint("ck_reason_codes_is_active", "is_active IN (0,1)");
 

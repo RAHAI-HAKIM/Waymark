@@ -317,6 +317,13 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(RemovedLineRequest),    // an element of a sale or a cancel: a struck line as the till held it (B8)
             nameof(VoidRequest),           // till -> StoreServer; codes and counts, never prices; the voided row is the server's (B8)
             nameof(VoidAnswer),            // StoreServer -> till; a cancel recorded, or why not (B8)
+            nameof(RefundRequest),         // till -> StoreServer; lines named by variant and price, never amounts; the rows are the server's (B9)
+            nameof(RefundLineRequest),     // an element of a refund: a line of the ticket and how much comes back (B9)
+            nameof(RefundAnswer),          // StoreServer -> till; a refund written or quoted, or why not (B9)
+            nameof(CashMovementRequest),   // till -> StoreServer; a direction, an amount, a reason; the row is the server's (B10)
+            nameof(CashMovementAnswer),    // StoreServer -> till; a paid-in or paid-out recorded, or why not (B10)
+            nameof(ClockRequest),          // till -> StoreServer; who and their PIN; the shift row is the server's (B10)
+            nameof(ClockAnswer),           // StoreServer -> till; clocked in or out, or why not (B10)
             nameof(SignInAnswer),          // StoreServer → till; a session lives in the server's memory, not a table (D-083)
             nameof(BoardAnswer),           // the board: a person's cards and a withheld count, computed per request
             nameof(DecisionAnswer),        // what a decision answers with; the row it records is recommendation_decisions

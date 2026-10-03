@@ -38,6 +38,11 @@ internal sealed class ReasonCodeConfiguration : IEntityTypeConfiguration<ReasonC
             table.HasCheckConstraint(
                 "ck_reason_codes_is_active",
                 @"is_active IN (0,1)");
+
+            // B10 (D-102): a cash reason says which way it moves money, and only a cash reason does.
+            table.HasCheckConstraint(
+                "ck_reason_codes_direction",
+                @"direction IS NULL OR (direction IN ('in','out') AND applies_to = 'cash_movement')");
         });
 
         builder.HasKey(x => x.ReasonCodeValue);
@@ -59,6 +64,11 @@ internal sealed class ReasonCodeConfiguration : IEntityTypeConfiguration<ReasonC
             .HasColumnName("requires_manager")
             .HasDefaultValue(false)
             .HasSentinel(false);
+        builder.Property(x => x.Direction)
+            .HasColumnName("direction")
+            .HasConversion(
+                direction => direction == null ? null : direction == CashDirection.In ? "in" : "out",
+                text => text == null ? null : text == "in" ? CashDirection.In : CashDirection.Out);
         builder.Property(x => x.DisplayOrder)
             .HasColumnName("display_order")
             .HasDefaultValue(0L)

@@ -15,8 +15,17 @@ namespace Waymark.Domain.Organisation;
 /// <param name="TabAsPart">A ticket may be part on the tab, part cash or card (D-095's parts). Off: the tab takes a ticket whole or not at all.</param>
 /// <param name="VoidAlertCount">B8 (D-097): more cancels than this by one person in one cash session are flagged for the owner. Null: not flagged.</param>
 /// <param name="VoidAlertValue">B8 (D-097): a cancelled ticket worth more than this is flagged for the owner. Null: not flagged.</param>
+/// <param name="RefundMinRank">
+/// B9 (D-098): the lowest <c>roles.rank</c> that refunds alone; anyone below needs the PIN of someone at
+/// it or above. Null: anyone with a rank refunds. It raises <c>Capability.Refund</c>, never lowers it.
+/// </param>
+/// <param name="PaidOutMinRank">B10 (D-102): the lowest <c>roles.rank</c> that takes cash out of the drawer alone. Null: anyone with a rank.</param>
+/// <param name="CreditExpiryDays">B9b (D-101): store credit unspent this many days after it was issued expires. Null: it never does.</param>
 public sealed record TenantSettings(
-    bool CustomerModule, Money? MaxCreditLimit, int? CreditOverdueDays, bool TabAsPart, int? VoidAlertCount = null, Money? VoidAlertValue = null)
+    bool CustomerModule, Money? MaxCreditLimit, int? CreditOverdueDays, bool TabAsPart, int? VoidAlertCount = null, Money? VoidAlertValue = null,
+    long? RefundMinRank = null,
+    int? CreditExpiryDays = null,
+    long? PaidOutMinRank = null)
 {
     /// <summary><c>system_config.config_key</c> of each setting.</summary>
     public const string CustomerModuleKey = "customer_module";
@@ -30,6 +39,12 @@ public sealed record TenantSettings(
     public const string VoidAlertCountKey = "void_alert_count";
 
     public const string VoidAlertValueKey = "void_alert_value";
+
+    public const string RefundMinRankKey = "refund_min_rank";
+
+    public const string CreditExpiryDaysKey = "credit_expiry_days";
+
+    public const string PaidOutMinRankKey = "paid_out_min_rank";
 
     /// <summary>A tenant never configured: no customers kept; the tab, once switched on, may be a part.</summary>
     public static TenantSettings Defaults { get; } = new(false, null, null, true);
@@ -47,4 +62,10 @@ public interface ITenantConfiguration
     /// </summary>
     /// <param name="updatedBy">The staff member who changed it; null from the command line.</param>
     Task StageAsync(TenantSettings settings, string? updatedBy, DateTimeOffset at, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The ranks of the active <c>roles</c>, lowest first: what <see cref="TenantSettings.RefundMinRank"/>
+    /// may name (B9, D-098). A rank nobody holds would leave nobody able to refund, nor to authorise one.
+    /// </summary>
+    Task<IReadOnlyList<long>> ActiveRanksAsync(CancellationToken cancellationToken = default);
 }

@@ -58,4 +58,5 @@ public sealed record ReasonCodeChoice(
     string LabelAr,
     string LabelFr,
     bool RequiresNote,
-    bool RequiresManager);
+    bool RequiresManager,
+    CashDirection? Direction = null);

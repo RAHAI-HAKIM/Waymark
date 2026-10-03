@@ -161,4 +161,62 @@ public sealed class StaffPermissionsTests
             StaffPermissions.RequiredRank(Capability.NoSale) > 1,
             "Opening the drawer with no sale behind it is permission-gated (ICashDrawer).");
     }
+    // ------------------------------- a shop's setting raises, never lowers (B9, D-098) ✍ Hakim
+
+    [Fact]
+    public void A_refund_is_anyones_with_a_rank_until_the_shop_says_otherwise()
+    {
+        // The tenant's refund_min_rank, unset: every cashier refunds. The ladder holds Refund at the floor.
+        Assert.Equal(1, StaffPermissions.RequiredRank(Capability.Refund));
+        Assert.True(StaffPermissions.May(1, Capability.Refund, null));
+        Assert.False(StaffPermissions.May(null, Capability.Refund, null), "Somebody with no rank refunded.");
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, true)] // exactly the setting
+    [InlineData(3, true)]
+    public void A_setting_raises_what_a_refund_needs(long rank, bool allowed)
+    {
+        Assert.Equal(allowed, StaffPermissions.May(rank, Capability.Refund, 2));
+    }
+
+    [Fact]
+    public void With_no_setting_the_ladder_answers_alone()
+    {
+        foreach (var capability in All)
+        {
+            for (var rank = 1L; rank <= 5; rank++)
+            {
+                Assert.Equal(StaffPermissions.May(rank, capability), StaffPermissions.May(rank, capability, null));
+            }
+        }
+    }
+
+    [Fact]
+    public void A_setting_never_lowers_the_ladder()
+    {
+        // A setting of 1 on a price override would hand it to every cashier, with no error anywhere.
+        var required = StaffPermissions.RequiredRank(Capability.OverridePrice);
+
+        Assert.False(StaffPermissions.May(required - 1, Capability.OverridePrice, 1), "A setting lowered what a price override needs.");
+        Assert.True(StaffPermissions.May(required, Capability.OverridePrice, 1));
+    }
+
+    [Fact]
+    public void No_rank_is_never_permission_whatever_the_setting()
+    {
+        foreach (var capability in All)
+        {
+            Assert.False(StaffPermissions.May(null, capability, 1), $"somebody with no rank was allowed {capability} under a setting.");
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void A_setting_below_every_rank_throws(long raisedTo)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => StaffPermissions.May(3, Capability.Refund, raisedTo));
+    }
 }

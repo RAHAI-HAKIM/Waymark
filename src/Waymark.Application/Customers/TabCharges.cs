@@ -17,6 +17,9 @@ public sealed record TabSale(string? CustomerId, string? OverrideAuthorisedBy)
     public static TabSale None { get; } = new(null, null);
 }
 
+/// <summary>What a sale spending store credit writes (B9b): whose, the balance before, and what has expired and is written off first.</summary>
+public sealed record CreditSpend(string CustomerId, Money Balance, Money Expired);
+
 /// <summary>
 /// A sale's customer and its tab part (B7, D-096), for <see cref="CompleteSaleHandler"/>: the module
 /// on, the customer there, and the charge asked of <see cref="Tab.Check"/> before anything is
@@ -68,6 +71,49 @@ public sealed class TabCharges(ICustomerLedger customers, ITenantConfiguration c
             _ => throw new SaleRefusedException($"{customer.CustomerName}'s oldest charge is overdue: something is repaid first."),
         };
     }
+
+    /// <summary>
+    /// The store credit part of a sale (B9b, D-101): the module on, the customer there, the credit read
+    /// by <see cref="StoreCredit.Age"/> with the tenant's expiry, and the amount asked of
+    /// <see cref="StoreCredit.MayRedeem"/> before anything is written. Null when the sale spends none.
+    /// </summary>
+    /// <exception cref="SaleRefusedException">Nothing is written, and no invoice number spent.</exception>
+    public async Task<CreditSpend?> PrepareCreditAsync(
+        TenantSettings settings, string? customerId, Money? credit, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (credit is not { } spent)
+        {
+            return null;
+        }
+
+        if (customerId is null)
+        {
+            throw new SaleRefusedException("Store credit is a named customer's: attach them first.");
+        }
+
+        if (!settings.CustomerModule)
+        {
+            throw new SaleRefusedException("This shop keeps no customers: the customer module is off.");
+        }
+
+        var customer = await customers.FindAsync(customerId, cancellationToken)
+            ?? throw new SaleRefusedException("No such customer.");
+        var movements = await customers.CreditMovementsAsync(customer.CustomerId, cancellationToken);
+        var age = StoreCredit.Age(
+            ledgerCurrency.Currency, [.. movements.Select(movement => new CreditLine(movement.OccurredAt, movement.Amount))], now, settings.CreditExpiryDays);
+
+        return StoreCredit.MayRedeem(age.Available, spent) switch
+        {
+            RedeemVerdict.Accepted => new CreditSpend(customer.CustomerId, age.Balance, age.Expired),
+            RedeemVerdict.NotAboveZero => throw new SaleRefusedException("A store credit part is above zero."),
+            _ => throw new SaleRefusedException($"{customer.CustomerName} has {age.Available} of store credit: the part cannot be more."),
+        };
+    }
+
+    /// <summary>Stages <c>customers.credit</c> at the ledger's new balance, in the sale's own unit of work (D-098).</summary>
+    public Task KeepCreditAsync(string customerId, Money balance, DateTimeOffset at, CancellationToken cancellationToken = default) =>
+        customers.StageCreditAsync(customerId, balance, at, cancellationToken);
 
     /// <summary>A sale recorded against a named customer: collection of their purchase, and of a charge when there is one (D-045).</summary>
     public void Log(CommandContext context, string customerId, string staffId, string terminalId, bool onTab)

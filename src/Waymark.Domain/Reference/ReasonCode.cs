@@ -33,6 +33,9 @@ public sealed class ReasonCode
 
     public bool RequiresManager { get; init; }
 
+    /// <summary>For a <c>cash_movement</c> reason, which way it moves money (B10, D-102); null: either way.</summary>
+    public CashDirection? Direction { get; init; }
+
     public long DisplayOrder { get; init; }
 
     public bool IsActive { get; init; } = true;

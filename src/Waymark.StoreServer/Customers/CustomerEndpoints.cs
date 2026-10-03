@@ -19,9 +19,9 @@ public static class CustomerEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        // Customers with a number: GET, the number in the query string (decoded once, as the lookup's code is).
+        // Customers with a number, or a full name (D-100): GET, in the query string (decoded once, as the lookup's code is).
         app.MapGet("/api/customers", async (
-            string? phone, string? terminal, HttpRequest http, TillSessions sessions, CommandExecutor executor, FindCustomersHandler handler,
+            string? phone, string? name, string? terminal, HttpRequest http, TillSessions sessions, CommandExecutor executor, FindCustomersHandler handler,
             CancellationToken cancellationToken) =>
         {
             if (Session(sessions, http) is not { } session)
@@ -31,7 +31,7 @@ public static class CustomerEndpoints
 
             try
             {
-                var found = await executor.ExecuteAsync(handler, new FindCustomers(session.StaffId, phone ?? string.Empty, terminal), cancellationToken);
+                var found = await executor.ExecuteAsync(handler, new FindCustomers(session.StaffId, phone ?? string.Empty, terminal, name), cancellationToken);
                 return Results.Ok(new CustomerSearchAnswer(CustomerOutcomes.Ok, [.. found.Select(Wire)]));
             }
             catch (CustomerRefusedException refusal)
@@ -182,6 +182,7 @@ public static class CustomerEndpoints
     {
         CustomerRefusal.ModuleOff => CustomerOutcomes.ModuleOff,
         CustomerRefusal.NotFound => CustomerOutcomes.NotFound,
+        CustomerRefusal.TooMany => CustomerOutcomes.TooMany,
         _ => CustomerOutcomes.Refused,
     };
 
@@ -200,7 +201,9 @@ public static class CustomerEndpoints
             tab.OldestUnpaid,
             tab.OverdueDays,
             tab.Balance.Currency.Code,
-            [.. tab.Movements.Select(movement => new TabMovementWire(Kind(movement), WireText.Figure(movement.Amount), movement.OccurredAt))]);
+            [.. tab.Movements.Select(movement => new TabMovementWire(Kind(movement), WireText.Figure(movement.Amount), movement.OccurredAt))],
+            null,
+            WireText.Figure(tab.CreditAvailable));
     }
 
     private static string Kind(ReceivableMovement movement) => movement.MovementType switch

@@ -72,6 +72,9 @@ internal sealed record ReasonCodeDefinition
     public bool RequiresNote { get; init; }
 
     public bool RequiresManager { get; init; }
+
+    /// <summary>For a cash reason, which way it moves money (B10); null: either way.</summary>
+    public CashDirection? Direction { get; init; }
 }
 
 internal sealed record NoticeDefinition

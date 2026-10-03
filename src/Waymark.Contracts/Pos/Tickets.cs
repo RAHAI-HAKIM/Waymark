@@ -34,6 +34,8 @@ public sealed record TicketAnswer(
     [property: JsonPropertyName("ticket")] PastTicketDetail? Ticket);
 
 /// <summary>A past ticket as it ended: its lines, its figures as recorded, its payments. No customer (D-088).</summary>
+/// <param name="OriginalInvoiceNumber">For a refund (B9), the number of the sale it refunds; null for a sale.</param>
+/// <param name="MayStoreCredit">A refund of it may be store credit: the sale has its customer, never named here, and the module is on (D-098).</param>
 public sealed record PastTicketDetail(
     [property: JsonPropertyName("transaction_id")] string TransactionId,
     [property: JsonPropertyName("invoice_number")] string? InvoiceNumber,
@@ -46,17 +48,25 @@ public sealed record PastTicketDetail(
     [property: JsonPropertyName("tax_total")] string TaxTotal,
     [property: JsonPropertyName("total")] string Total,
     [property: JsonPropertyName("currency")] string Currency,
-    [property: JsonPropertyName("payments")] IReadOnlyList<PastPaymentWire> Payments);
+    [property: JsonPropertyName("payments")] IReadOnlyList<PastPaymentWire> Payments,
+    [property: JsonPropertyName("original_invoice_number")] string? OriginalInvoiceNumber = null,
+    [property: JsonPropertyName("may_store_credit")] bool MayStoreCredit = false);
 
 /// <summary>A line of a past ticket, with today's catalogue names.</summary>
 /// <param name="Quantity">Exact decimal text in the line's unit.</param>
+/// <param name="VariantId">What a refund names the line by, with its unit price (B9).</param>
+/// <param name="Returned">Exact decimal text: what refunds have brought back of it so far, "0" when nothing (B9).</param>
+/// <param name="Weighed">Sold by weight: it comes back whole or not at all (D-098).</param>
 public sealed record PastTicketLineWire(
     [property: JsonPropertyName("product_name")] string ProductName,
     [property: JsonPropertyName("variant_name")] string VariantName,
     [property: JsonPropertyName("quantity")] string Quantity,
     [property: JsonPropertyName("unit_code")] string UnitCode,
     [property: JsonPropertyName("unit_price")] string UnitPrice,
-    [property: JsonPropertyName("line_total")] string LineTotal);
+    [property: JsonPropertyName("line_total")] string LineTotal,
+    [property: JsonPropertyName("variant_id")] string? VariantId = null,
+    [property: JsonPropertyName("returned")] string? Returned = null,
+    [property: JsonPropertyName("weighed")] bool Weighed = false);
 
 /// <summary>A payment the sale took: "cash", "card", "mobile_wallet"...</summary>
 public sealed record PastPaymentWire(

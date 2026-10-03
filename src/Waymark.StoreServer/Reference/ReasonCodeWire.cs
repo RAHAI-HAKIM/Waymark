@@ -57,6 +57,7 @@ public static class ReasonCodeWire
                 choice.LabelAr,
                 choice.LabelFr,
                 choice.RequiresNote,
-                choice.RequiresManager))]);
+                choice.RequiresManager,
+                choice.Direction switch { Domain.Enums.CashDirection.In => CashDirections.In, Domain.Enums.CashDirection.Out => CashDirections.Out, _ => null }))]);
     }
 }

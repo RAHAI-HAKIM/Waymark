@@ -107,6 +107,15 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
                 (row, product) => new { row.item, row.variant.VariantName, product.ProductName })
             .ToListAsync(cancellationToken);
 
+        // What refunds have brought back of each row so far (B9, D-098).
+        var rowIds = rows.Select(row => row.item.TransactionItemId).ToList();
+        var returned = (await _context.Returns
+                .Where(back => rowIds.Contains(back.TransactionItemId))
+                .Select(back => new { back.TransactionItemId, back.QuantityReturned })
+                .ToListAsync(cancellationToken))
+            .GroupBy(back => back.TransactionItemId)
+            .ToDictionary(back => back.Key, back => back.Sum(row => row.QuantityReturned), StringComparer.Ordinal);
+
         // One line per (variant, price). GroupBy keeps the order in which each key first appears,
         // so the lines stay in the order the sale first wrote them.
         var lines = rows
@@ -121,7 +130,9 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
                     Quantity.FromThousandths(line.Sum(row => row.item.Quantity), first.item.UnitCode),
                     first.item.SellPrice,
                     line.Skip(1).Aggregate(first.item.TaxAmount, (sum, row) => sum + row.item.TaxAmount),
-                    line.Skip(1).Aggregate(first.item.LineTotal, (sum, row) => sum + row.item.LineTotal));
+                    line.Skip(1).Aggregate(first.item.LineTotal, (sum, row) => sum + row.item.LineTotal),
+                    Quantity.FromThousandths(line.Sum(row => returned.GetValueOrDefault(row.item.TransactionItemId)), first.item.UnitCode),
+                    line.Any(row => row.item.QuantitySource != QuantitySource.Count));
             })
             .ToList();
 
@@ -131,9 +142,14 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
             .Select(payment => new PastPayment(payment.PaymentMethod, payment.Amount))
             .ToListAsync(cancellationToken);
 
+        // A refund (B9) says which sale it refunds; the sale's number is read through the same filter.
+        var originalNumber = sale.OriginalTransactionId is { } original
+            ? await _context.Transactions.Where(t => t.TransactionId == original).Select(t => t.InvoiceNumber).FirstOrDefaultAsync(cancellationToken)
+            : null;
+
         // The figures are the row's, never summed again from the lines (D-053).
         return new PastTicket(
             sale.TransactionId, sale.InvoiceNumber, sale.OccurredAt, sale.TerminalId, sale.StaffId, staffName, sale.Status,
-            lines, sale.Subtotal, sale.TaxTotal, sale.TotalAmount, payments);
+            lines, sale.Subtotal, sale.TaxTotal, sale.TotalAmount, payments, sale.OriginalTransactionId, originalNumber, sale.CustomerId is not null);
     }
 }

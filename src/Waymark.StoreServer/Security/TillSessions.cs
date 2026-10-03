@@ -72,12 +72,14 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
     /// a manager's PIN is guessed no more easily at the counter than at the sign-in screen.
     /// </summary>
     /// <param name="rankOf">A person's <c>roles.rank</c>, null when they have none (D-037).</param>
+    /// <param name="raisedTo">What the shop raised the capability to (B9: <c>refund_min_rank</c>); null for the ladder alone.</param>
     public async Task<AuthoriseAnswer> AuthoriseAsync(
         string? sessionToken,
         AuthoriseRequest request,
         Capability capability,
         IStaffCredentials credentials,
         Func<string, Task<long?>> rankOf,
+        long? raisedTo = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -92,7 +94,7 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
         // Asked without a PIN: the seller alone, or a PIN is needed. Never compared here (§3.10).
         if (string.IsNullOrWhiteSpace(request.StaffId))
         {
-            return StaffPermissions.May(await rankOf(session.StaffId), capability)
+            return May(await rankOf(session.StaffId), capability, raisedTo)
                 ? Grant(session.StaffId, sessionToken!, capability)
                 : Refused(AuthoriseOutcomes.PinRequired);
         }
@@ -103,9 +105,20 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
             return new AuthoriseAnswer(check.Outcome, null, null, check.LockedUntil, check.AttemptsLeft);
         }
 
-        return StaffPermissions.May(await rankOf(request.StaffId), capability)
+        return May(await rankOf(request.StaffId), capability, raisedTo)
             ? Grant(request.StaffId, sessionToken!, capability)
             : Refused(AuthoriseOutcomes.NotAllowed);
+    }
+
+    /// <summary>
+    /// A PIN checked for the clock (B10, D-102): the person, a usable PIN, sign-in's lockout asked first,
+    /// then the hash, as at sign-in. <see cref="SignInOutcomes.SignedIn"/> means the PIN was right; no
+    /// session is opened.
+    /// </summary>
+    public Task<SignInAnswer> VerifyPinAsync(string? staffId, string? pin, IStaffCredentials credentials, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(credentials);
+        return CheckPinAsync(staffId, pin, credentials, cancellationToken);
     }
 
     /// <summary>
@@ -176,6 +189,10 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
             _oneAtATime.Release();
         }
     }
+
+    /// <summary>The ladder alone, or the ladder as the shop raised it (D-098); never compared here (§3.10).</summary>
+    private static bool May(long? rank, Capability capability, long? raisedTo) =>
+        raisedTo is null ? StaffPermissions.May(rank, capability) : StaffPermissions.May(rank, capability, raisedTo);
 
     private AuthoriseAnswer Grant(string staffId, string sessionToken, Capability capability)
     {

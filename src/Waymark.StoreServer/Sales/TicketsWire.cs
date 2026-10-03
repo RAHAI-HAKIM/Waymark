@@ -2,6 +2,7 @@ using System.Text;
 using Waymark.Contracts.Pos;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Sales;
+using Waymark.Domain.Values;
 using Waymark.StoreServer.Security;
 
 namespace Waymark.StoreServer.Sales;
@@ -53,27 +54,37 @@ public static class TicketsWire
             WireText.Figure(ticket.Total),
             ticket.Total.Currency.Code))]);
 
-    public static TicketAnswer Found(PastTicket ticket) => new(
-        TicketOutcomes.Found,
-        new PastTicketDetail(
-            ticket.TransactionId,
-            ticket.InvoiceNumber,
-            ticket.OccurredAt,
-            ticket.TerminalId,
-            ticket.StaffName,
-            Snake(ticket.Status.ToString()),
-            [.. ticket.Lines.Select(line => new PastTicketLineWire(
-                line.ProductName,
-                line.VariantName,
-                WireText.Figure(line.Quantity),
-                line.Quantity.Unit ?? string.Empty,
-                WireText.Figure(line.UnitPrice),
-                WireText.Figure(line.LineTotal)))],
-            WireText.Figure(ticket.Subtotal),
-            WireText.Figure(ticket.TaxTotal),
-            WireText.Figure(ticket.Total),
-            ticket.Total.Currency.Code,
-            [.. ticket.Payments.Select(payment => new PastPaymentWire(Snake(payment.Method.ToString()), WireText.Figure(payment.Amount)))]));
+    /// <param name="customerModule">The tenant keeps customers (D-096): with the sale's customer, a refund may be store credit.</param>
+    public static TicketAnswer Found(PastTicket ticket, bool customerModule = false)
+    {
+        ArgumentNullException.ThrowIfNull(ticket);
+        return new(
+            TicketOutcomes.Found,
+            new PastTicketDetail(
+                ticket.TransactionId,
+                ticket.InvoiceNumber,
+                ticket.OccurredAt,
+                ticket.TerminalId,
+                ticket.StaffName,
+                Snake(ticket.Status.ToString()),
+                [.. ticket.Lines.Select(line => new PastTicketLineWire(
+                    line.ProductName,
+                    line.VariantName,
+                    WireText.Figure(line.Quantity),
+                    line.Quantity.Unit ?? string.Empty,
+                    WireText.Figure(line.UnitPrice),
+                    WireText.Figure(line.LineTotal),
+                    line.VariantId,
+                    WireText.Figure(line.Returned ?? Quantity.Zero(line.Quantity.Unit!)),
+                    line.Weighed))],
+                WireText.Figure(ticket.Subtotal),
+                WireText.Figure(ticket.TaxTotal),
+                WireText.Figure(ticket.Total),
+                ticket.Total.Currency.Code,
+                [.. ticket.Payments.Select(payment => new PastPaymentWire(Snake(payment.Method.ToString()), WireText.Figure(payment.Amount)))],
+                ticket.OriginalInvoiceNumber,
+                customerModule && ticket.HasCustomer));
+    }
 
     public static TicketAnswer Refused(string outcome) => new(outcome, null);
 

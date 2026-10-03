@@ -94,6 +94,29 @@ public sealed class TillWindow : Window, IDisposable
     /// <summary>A discount being given (B4): the panel's state. The manager's PIN digits live only in <see cref="_pin"/>, never in the screen.</summary>
     private DiscountState? _discount;
     private string _pin = string.Empty;
+
+    // A refund being prepared on the past ticket open (B9), and which ticket it belongs to.
+    private RefundState? _refund;
+    private string? _refundOf;
+
+    // The customers (B7): the attached customer's tab, the carnet open in the ticket's place, the
+    // panel floating over the ticket, and what a PIN step was asked for.
+    private TabAnswer? _customerTab;
+    private CarnetState? _carnet;
+    private CustomerPanelState? _customerPanel;
+    private (string Action, string? Limit)? _pendingChange;
+
+    // "Plus…" open in the rail (B10).
+    private bool _moreOpen;
+
+    /// <summary>D-100: how long the cashier stops typing before a customer search is asked by itself.</summary>
+    public static readonly TimeSpan CustomerSearchAfter = TimeSpan.FromSeconds(3);
+
+    private ITimer? _customerTimer;
+    private readonly Border _clientHost = new();
+    private readonly FormActions _formActions;
+    private readonly CarnetActions _carnetActions;
+    private readonly Border _carnetHost = new() { IsVisible = false };
     private SearchState? _search;
     private TicketsState? _tickets;
     private int _cardIndex;
@@ -124,7 +147,8 @@ public sealed class TillWindow : Window, IDisposable
         {
             // A scan at the sign-in screen belongs to no sale, and a barcode is not a PIN.
             // Nor while a panel freezes the ticket (D-094): the notice slot says the scan was ignored.
-            if (_session.SignedIn is not null && _payment is null && _discount is not { Authorising: true })
+            if (_session.SignedIn is not null && _payment is null && _discount is not { Authorising: true } && _refund is null
+                && _customerPanel is null && _carnet is null)
             {
                 Submit(scan.Code);
             }
@@ -138,12 +162,6 @@ public sealed class TillWindow : Window, IDisposable
                     _signIn.Press(character);
                 }
             }
-            else if (_payment is { } paying)
-            {
-                // The payment (B6): typed keys go to its amount or its reference, never the field.
-                _payment = text.Aggregate(paying, PaymentScreen.Press);
-                Render();
-            }
             else if (_discount is { Authorising: true })
             {
                 // The manager's PIN (B4): typed digits go to it, never to the field, where they would show.
@@ -151,6 +169,19 @@ public sealed class TillWindow : Window, IDisposable
                 {
                     PinDigit(character);
                 }
+            }
+            else if (_payment is { } paying)
+            {
+                // The payment (B6): typed keys go to its amount or its reference, never the field.
+                _payment = text.Aggregate(paying, PaymentScreen.Press);
+                Render();
+            }
+            else if (_customerPanel is { } panel)
+            {
+                // A customer panel (B7): the number, the name or the amount it asks for.
+                _customerPanel = text.Aggregate(panel, CustomerScreen.Press);
+                Render();
+                PauseThenSearch();
             }
             else
             {
@@ -170,6 +201,16 @@ public sealed class TillWindow : Window, IDisposable
         _actions = new TillActions(
             SelectLine: id =>
             {
+                // While a refund is prepared (B9), a line of the past ticket is touched to bring it back.
+                if (_refund is { Quote: null } refund && _session.Viewing is { } ticket
+                    && id.StartsWith("past-", StringComparison.Ordinal) && int.TryParse(id.AsSpan(5), System.Globalization.CultureInfo.InvariantCulture, out var index))
+                {
+                    _refund = RefundScreen.Touch(refund, ticket, index);
+                    _discount = _discount is { } open ? open with { Problem = null } : null;
+                    Render();
+                    return;
+                }
+
                 _selected = _selected == id ? null : id;
                 Render();
             },
@@ -230,7 +271,14 @@ public sealed class TillWindow : Window, IDisposable
                 Open: OpenDiscount,
                 Form: form =>
                 {
-                    if (_discount is { } open)
+                    if (_discount is { Kind: CounterKind.Refund } refunding && _refund is { } refund && _session.Viewing is { } ticket)
+                    {
+                        // "− 1", "+ 1", "En rayon" on the line touched (B9).
+                        _refund = RefundScreen.Press(refund, ticket, form);
+                        _discount = refunding with { Problem = null };
+                        Render();
+                    }
+                    else if (_discount is { } open)
                     {
                         _discount = open with { Form = form, Problem = null };
                         Render();
@@ -239,7 +287,26 @@ public sealed class TillWindow : Window, IDisposable
                 Reason: PickReason,
                 Continue: () => _ = ContinueDiscountAsync(),
                 Remove: RemoveDiscount,
-                Close: CloseDiscount,
+                Close: () =>
+                {
+                    // The ✕ on the manager step of a refund goes back to the refund, not out of it.
+                    if (_discount is { Kind: CounterKind.Refund, Authorising: true } refunding)
+                    {
+                        _pin = string.Empty;
+                        _discount = refunding with { Authorising = false, Problem = null };
+                        Render();
+                    }
+                    else if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut })
+                    {
+                        _pin = string.Empty;
+                        _discount = null;
+                        Render();
+                    }
+                    else
+                    {
+                        CloseDiscount();
+                    }
+                },
                 Approver: id =>
                 {
                     if (_discount is { } open)
@@ -263,14 +330,66 @@ public sealed class TillWindow : Window, IDisposable
                 Validate: () => _ = ValidatePinAsync(),
                 Price: OpenPrice),
             Payments: new PaymentActions(
-                Choose: method => UpdatePayment(open => PaymentScreen.Choose(open, method)),
+                Choose: method =>
+                {
+                    if (_refund is { Quote: not null, Sending: false } refund)
+                    {
+                        _refund = refund with { To = method == Domain.Enums.PaymentMethod.StoreCredit ? RefundDestinations.StoreCredit : RefundDestinations.Cash, Refused = null };
+                        Render();
+                    }
+                    else
+                    {
+                        UpdatePayment(open => PaymentScreen.Choose(open, method));
+                    }
+                },
                 Key: key => UpdatePayment(open => PaymentScreen.Press(open, key)),
                 Backspace: () => UpdatePayment(PaymentScreen.Backspace),
                 WholeRest: () => UpdatePayment(PaymentScreen.WholeRest),
                 RemovePart: index => UpdatePayment(open => PaymentScreen.RemovePart(open, index)),
                 TypeInReference: reference => UpdatePayment(open => open with { OnReference = reference && open.AddingPart }),
-                Primary: PaymentPrimary,
-                Close: ClosePayment));
+                Primary: () =>
+                {
+                    if (_refund is { Quote: not null })
+                    {
+                        _ = SendRefundAsync(null);
+                    }
+                    else
+                    {
+                        PaymentPrimary();
+                    }
+                },
+                Close: () =>
+                {
+                    if (_refund is { Quote: not null })
+                    {
+                        CloseRefundPanel();
+                    }
+                    else
+                    {
+                        ClosePayment();
+                    }
+                },
+                Action: OpenClient));
+
+        _formActions = new FormActions(
+            Field: id => UpdateCustomer(panel => panel with { OnName = id == CustomerScreen.NameField }),
+            Row: id => UpdateCustomer(panel => panel.Kind is CustomerPanelKind.Repay or CustomerPanelKind.PettyCash
+                ? panel with { ReasonCode = id, Refused = null, OnName = false }
+                : panel with { Chosen = id, Refused = null }),
+            Key: CustomerKey,
+            Digit: key => UpdateCustomer(panel => CustomerScreen.Press(panel, key)),
+            Backspace: () => UpdateCustomer(CustomerScreen.Backspace),
+            Clear: () => UpdateCustomer(CustomerScreen.Clear),
+            Primary: () => _ = CustomerPrimaryAsync(),
+            Close: CloseCustomerPanel);
+        _carnetActions = new CarnetActions(
+            Change: () => OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.ChangeTab)),
+            Repay: () =>
+            {
+                OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.Repay));
+                _ = LoadCashReasonsAsync();
+            },
+            Close: CloseCarnet);
 
         _signInActions = new SignInActions(
             Select: _signIn.Select,
@@ -332,7 +451,7 @@ public sealed class TillWindow : Window, IDisposable
             Background = _theme.Tile,
             CornerRadius = new CornerRadius(TillSizes.CardRadius, TillSizes.CardRadius, 0, 0),
             Padding = new Thickness(TillSizes.Margin, 12, TillSizes.Margin, 8),
-            Child = new StackPanel { Children = { field, _noticeHost } },
+            Child = new StackPanel { Children = { new DockPanel { Children = { Docked(_clientHost, Dock.Right), field } }, _noticeHost } },
         };
 
         // The column heads, then the lines in their scroll viewer or, with no line, the empty state
@@ -365,6 +484,9 @@ public sealed class TillWindow : Window, IDisposable
                                 },
                             },
                             _resultsHost,
+
+                            // The carnet takes the ticket's place (B7): it does not float.
+                            _carnetHost,
                         },
                     },
                 },
@@ -503,6 +625,18 @@ public sealed class TillWindow : Window, IDisposable
             _selected = null;
         }
 
+        // The tab read is the attached customer's: a ticket resumed with another, or none, drops it (B7).
+        if (_customerTab is not null && _customerTab.Customer?.CustomerId != _session.Cart.Customer?.CustomerId)
+        {
+            _customerTab = null;
+        }
+
+        // A refund belongs to the past ticket it was opened on: closed, or another opened, it goes (B9).
+        if (_refund is not null && _session.Viewing?.TransactionId != _refundOf)
+        {
+            EndRefund();
+        }
+
         var screen = TillScreen.Build(new ScreenState(
             _text,
             TimeZoneInfo.Local,
@@ -527,7 +661,10 @@ public sealed class TillWindow : Window, IDisposable
             _tickets,
             _session.Weighing,
             _discount is { } discounting ? discounting with { PinLength = _pin.Length } : null,
-            _payment));
+            _payment,
+            _refund,
+            new CustomerScreenState(_context?.CustomerModule ?? false, _context?.TabAsPart ?? true, _customerTab, _carnet, _customerPanel),
+            _moreOpen));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
@@ -574,10 +711,23 @@ public sealed class TillWindow : Window, IDisposable
 
         if (changes.Approval || changes.Payment)
         {
-            _floatingHost.Child = screen.Payment is { } payment ? TillViews.Payment(payment, _theme, _actions.Payments)
-                : screen.Approval is { } approval ? TillViews.Approval(approval, _theme, _actions)
+            // The manager step floats over whatever asked for it: a payment's tab, a customer panel (B7).
+            _floatingHost.Child = screen.Approval is { } approval ? TillViews.Approval(approval, _theme, _actions)
+                : screen.Form is { } form ? TillViews.Form(form, _theme, _formActions)
+                : screen.Payment is { } payment ? TillViews.Payment(payment, _theme, _actions.Payments)
                 : null;
             _floatingHost.IsVisible = _floatingHost.Child is not null;
+        }
+
+        if (changes.Client)
+        {
+            _clientHost.Child = screen.Client is { } client ? TillViews.ClientKeyView(client, _theme, OpenClient, Detach) : null;
+        }
+
+        if (changes.Carnet)
+        {
+            _carnetHost.Child = screen.Carnet is { } carnet ? TillViews.Carnet(carnet, _theme, _carnetActions) : null;
+            _carnetHost.IsVisible = _carnetHost.Child is not null;
         }
 
         FollowCart();
@@ -798,6 +948,24 @@ public sealed class TillWindow : Window, IDisposable
                 {
                     e.Handled = true;
                 }
+                else if (e.Key == Key.Enter && _discount is { Authorising: true })
+                {
+                    // A manager's PIN, whatever asked for it: Entrée validates it.
+                    _ = ValidatePinAsync();
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Enter && _customerPanel is not null)
+                {
+                    // A customer panel (B7): Entrée is its key that goes on.
+                    _ = CustomerPrimaryAsync();
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Enter && _refund is { Quote: not null } && _discount is not { Authorising: true })
+                {
+                    // The refund's floating panel (B9): Entrée is "Rembourser".
+                    _ = SendRefundAsync(null);
+                    e.Handled = true;
+                }
                 else if (_payment is { } paying)
                 {
                     // The payment (B6): Entrée is its key that goes on; Tab moves between amount and reference.
@@ -825,6 +993,12 @@ public sealed class TillWindow : Window, IDisposable
                     e.Handled = true;
                 }
 
+                break;
+
+            case Key.F5:
+                // "Client" (B7): the search, or the attached customer's carnet.
+                OpenClient();
+                e.Handled = true;
                 break;
 
             case Key.F12:
@@ -870,10 +1044,37 @@ public sealed class TillWindow : Window, IDisposable
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_payment is not null)
+                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut })
+                {
+                    // Back from a customer's PIN step to what asked for it (B7).
+                    _pin = string.Empty;
+                    _discount = null;
+                    Render();
+                }
+                else if (_customerPanel is not null)
+                {
+                    CloseCustomerPanel();
+                }
+                else if (_payment is not null)
                 {
                     // Not paid after all (B6): the ticket is as it was.
                     ClosePayment();
+                }
+                else if (_carnet is not null)
+                {
+                    CloseCarnet();
+                }
+                else if (_discount is { Kind: CounterKind.Refund, Authorising: true } refunding)
+                {
+                    // Back from the manager step to the refund (B9).
+                    _pin = string.Empty;
+                    _discount = refunding with { Authorising = false, Problem = null };
+                    Render();
+                }
+                else if (_refund is { Quote: not null })
+                {
+                    // Not paid out after all (B9): back to the lines and the reason.
+                    CloseRefundPanel();
                 }
                 else if (_discount is not null)
                 {
@@ -916,6 +1117,12 @@ public sealed class TillWindow : Window, IDisposable
                 var step = e.Key == Key.Down ? 1 : -1;
                 _search = _search with { Highlighted = Math.Clamp(_search.Highlighted + step, 0, found.Results.Count - 1) };
                 Render();
+                e.Handled = true;
+                break;
+
+            case Key.Back or Key.Delete when _customerPanel is not null && _discount is not { Authorising: true }:
+                _scanner.Flush();
+                UpdateCustomer(CustomerScreen.Backspace);
                 e.Handled = true;
                 break;
 
@@ -1271,6 +1478,7 @@ public sealed class TillWindow : Window, IDisposable
         {
             CounterKind.PriceOverride => await _server.OverrideReasonsAsync(),
             CounterKind.Cancel => await _server.VoidReasonsAsync(),
+            CounterKind.Refund => await _server.ReturnReasonsAsync(),
             _ => await _server.DiscountReasonsAsync(),
         };
         if (_discount is { } open)
@@ -1293,6 +1501,13 @@ public sealed class TillWindow : Window, IDisposable
 
     private void CloseDiscount()
     {
+        // Out of a refund's panel is out of the refund (B9): the past ticket stays open, read-only.
+        if (_discount is { Kind: CounterKind.Refund })
+        {
+            _refund = null;
+            _refundOf = null;
+        }
+
         _discount = null;
         _pin = string.Empty;
         _input.Text = string.Empty;
@@ -1333,6 +1548,13 @@ public sealed class TillWindow : Window, IDisposable
         if (open.Kind == CounterKind.Cancel)
         {
             await CancelAsync(null);
+            return;
+        }
+
+        // Nor a refund: its lines and reason, then the server's quote (B9).
+        if (open.Kind == CounterKind.Refund)
+        {
+            await QuoteRefundAsync();
             return;
         }
 
@@ -1460,6 +1682,45 @@ public sealed class TillWindow : Window, IDisposable
             return;
         }
 
+        // A customer's step goes back to what asked for it (B7).
+        switch (_discount?.Kind)
+        {
+            case CounterKind.CreateCustomer:
+                _pin = string.Empty;
+                _discount = null;
+                _ = CreateCustomerAsync(authorisation);
+                return;
+            case CounterKind.ChangeTab:
+                _pin = string.Empty;
+                _discount = null;
+                _ = ChangeTabAsync(authorisation);
+                return;
+            case CounterKind.PaidOut:
+                _pin = string.Empty;
+                _discount = null;
+                _ = SendCashAsync(authorisation);
+                return;
+            case CounterKind.TabOverride:
+                _pin = string.Empty;
+                _discount = null;
+                if (_payment is { } paying)
+                {
+                    _payment = paying with { TabOverride = authorisation };
+                    PaymentPrimary();
+                }
+
+                return;
+        }
+
+        // A refund's too, back over the panel it came from (B9).
+        if (_discount is { Kind: CounterKind.Refund } refunding)
+        {
+            _pin = string.Empty;
+            _discount = refunding with { Authorising = false, Problem = null };
+            _ = SendRefundAsync(authorisation);
+            return;
+        }
+
         if (_discount is not { } open
             || !DiscountEntry.TryParse(open.Typed, open.Kind == CounterKind.PriceOverride ? DiscountForms.Amount : open.Form, out var hundredths)
             || open.Reasons?.ReasonCodes.FirstOrDefault(reason => reason.Code == open.ReasonCode) is not { } reason)
@@ -1488,6 +1749,10 @@ public sealed class TillWindow : Window, IDisposable
     {
         CounterKind.PriceOverride => Capabilities.OverridePrice,
         CounterKind.Cancel => Capabilities.VoidTransaction,
+        CounterKind.Refund => Capabilities.Refund,
+        CounterKind.CreateCustomer => Capabilities.CreateCustomer,
+        CounterKind.ChangeTab or CounterKind.TabOverride => Capabilities.ManageCredit,
+        CounterKind.PaidOut => Capabilities.PaidOut,
         _ => Capabilities.ApplyDiscount,
     };
 
@@ -1591,6 +1856,759 @@ public sealed class TillWindow : Window, IDisposable
         }
     }
 
+    // =================================================================== B7: customers and the tab
+
+    /// <summary>
+    /// "Client" (F5): with a customer attached, their carnet; else the search, floating over the frozen
+    /// ticket (D-094). While a refund waits for store credit's customer, the search attaches to it (B9a).
+    /// </summary>
+    private void OpenClient()
+    {
+        if (_context is not { CustomerModule: true } || _payment is not null || _discount is { Authorising: true })
+        {
+            return;
+        }
+
+        if (_session.Viewing is not null)
+        {
+            if (_refund is not null)
+            {
+                OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.Search, ForRefund: true));
+            }
+
+            return;
+        }
+
+        if (_session.Cart.Customer is not null)
+        {
+            _ = OpenCarnetAsync();
+            return;
+        }
+
+        OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.Search));
+    }
+
+    /// <summary>The ✕ beside the attached name: the ticket goes on without a customer.</summary>
+    private void Detach()
+    {
+        if (_refund is { } refund && _session.Viewing is not null)
+        {
+            _refund = refund with { Customer = null, Quote = null };
+        }
+        else
+        {
+            _session.Cart.Attach(null);
+            _customerTab = null;
+        }
+
+        Render();
+    }
+
+    private void OpenCustomerPanel(CustomerPanelState panel)
+    {
+        _search = null;
+        _customerPanel = panel;
+        Render();
+    }
+
+    private void CloseCustomerPanel()
+    {
+        if (_customerPanel is { Sending: true })
+        {
+            return;
+        }
+
+        _customerPanel = null;
+        Render();
+        _input.Focus();
+    }
+
+    private void UpdateCustomer(Func<CustomerPanelState, CustomerPanelState> change)
+    {
+        if (_customerPanel is { Sending: false } open)
+        {
+            _customerPanel = change(open);
+            Render();
+            PauseThenSearch();
+        }
+    }
+
+    /// <summary>
+    /// The search asked by itself once nothing has been typed for <see cref="CustomerSearchAfter"/> (D-100):
+    /// long enough for a full name to be finished, so half a name never lists anyone. Every key starts the
+    /// wait again; Entrée asks at once.
+    /// </summary>
+    private void PauseThenSearch()
+    {
+        _customerTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        if (_customerPanel is not { Kind: CustomerPanelKind.Search, Found: null } panel || !CustomerScreen.Searchable(panel.Phone))
+        {
+            return;
+        }
+
+        _customerTimer ??= _clock.CreateTimer(
+            _ => Dispatcher.UIThread.Post(() =>
+            {
+                if (_session.SignedIn is { } person)
+                {
+                    _ = FindCustomersAsync(person.Token);
+                }
+            }),
+            null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _customerTimer.Change(CustomerSearchAfter, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>A secondary key of a panel: "Tout le dû", "Geler", "Dégeler", "Fermer le carnet".</summary>
+    private void CustomerKey(string key)
+    {
+        if (_customerPanel is not { Sending: false } panel)
+        {
+            return;
+        }
+
+        switch (key)
+        {
+            case CustomerScreen.WholeDueKey when _carnet?.Tab?.Balance is { } balance:
+                _customerPanel = panel with { Typed = balance.Replace('.', ','), Refused = null };
+                Render();
+                break;
+            case CustomerScreen.FreezeKey:
+                AskChange(LimitActions.Freeze, null);
+                break;
+            case CustomerScreen.UnfreezeKey:
+                AskChange(LimitActions.Unfreeze, null);
+                break;
+            case CustomerScreen.CloseTabKey:
+                AskChange(LimitActions.Set, null);
+                break;
+            case CustomerScreen.CashInKey or CustomerScreen.CashOutKey:
+                // Which way (B10): a reason for the other way no longer fits.
+                var fits = CustomerScreen.ReasonsFor(panel.Reasons, key).Any(reason => reason.Code == panel.ReasonCode);
+                _customerPanel = panel with { Direction = key, ReasonCode = fits ? panel.ReasonCode : null, Refused = null };
+                Render();
+                break;
+        }
+    }
+
+    /// <summary>The key that goes on, for the panel open.</summary>
+    private async Task CustomerPrimaryAsync()
+    {
+        if (_customerPanel is not { Sending: false } panel || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        switch (panel.Kind)
+        {
+            case CustomerPanelKind.Search when panel.Found?.Customers is { Count: > 0 } found:
+                if (found.FirstOrDefault(customer => customer.CustomerId == panel.Chosen) is { } chosen)
+                {
+                    AttachCustomer(new AttachedCustomer(chosen.CustomerId, chosen.Name, chosen.Phone), panel.ForRefund);
+                }
+
+                break;
+
+            case CustomerPanelKind.Search when panel.Found is not null:
+                // Nobody by that name or number: create them, with what was already typed.
+                _customerPanel = CustomerScreen.IsNumber(panel.Phone)
+                    ? panel with { Kind = CustomerPanelKind.Create, OnName = true, Refused = null, Checked = false }
+                    : panel with { Kind = CustomerPanelKind.Create, Name = panel.Phone, Phone = string.Empty, OnName = false, Refused = null, Checked = false };
+                Render();
+                break;
+
+            case CustomerPanelKind.Search when !CustomerScreen.Searchable(panel.Phone):
+                _customerPanel = panel with { Checked = true };
+                Render();
+                break;
+
+            case CustomerPanelKind.Search:
+                await FindCustomersAsync(person.Token);
+                break;
+
+            case CustomerPanelKind.Create:
+                if (panel.Name.Trim().Length is 0 or > 100 || !Domain.Customers.PhoneNumber.TryNormalise(panel.Phone, out _))
+                {
+                    _customerPanel = panel with { Checked = true };
+                    Render();
+                    break;
+                }
+
+                await AuthoriseCustomerAsync(CounterKind.CreateCustomer, _text.ApproveCreateTitle(panel.Name.Trim()),
+                    $"{_text.PhoneTitle} {CustomerScreen.Phone(panel.Phone)}");
+                break;
+
+            case CustomerPanelKind.ChangeTab:
+                if (DiscountEntry.TryParse(panel.Typed, DiscountForms.Amount, out var hundredths))
+                {
+                    AskChange(LimitActions.Set, Contracts.Figures.Amount(hundredths));
+                }
+
+                break;
+
+            case CustomerPanelKind.Repay:
+                await RepayAsync(panel, person.Token);
+                break;
+
+            case CustomerPanelKind.PettyCash:
+                await SendCashAsync(null);
+                break;
+
+            case CustomerPanelKind.Clock:
+                await ClockAsync(panel, person.Token);
+                break;
+
+            default:
+                CloseCustomerPanel();
+                break;
+        }
+    }
+
+    /// <summary>The number to the server; each customer it lists is a consultation, and the server logs it (D-061).</summary>
+    private async Task FindCustomersAsync(string token)
+    {
+        if (_customerPanel is not { Kind: CustomerPanelKind.Search, Sending: false, Found: null } panel || !CustomerScreen.Searchable(panel.Phone))
+        {
+            return;
+        }
+
+        _customerPanel = panel with { Sending = true, Refused = null };
+        Render();
+        var answer = CustomerScreen.IsNumber(panel.Phone)
+            ? await _server.FindCustomersAsync(panel.Phone, _till.TerminalId ?? string.Empty, token)
+            : await _server.FindCustomersByNameAsync(panel.Phone.Trim(), _till.TerminalId ?? string.Empty, token);
+        if (_customerPanel is null)
+        {
+            return;
+        }
+
+        _customerPanel = answer switch
+        {
+            { Outcome: CustomerOutcomes.Ok, Customers: { } customers } => _customerPanel with
+            {
+                Sending = false,
+                Found = answer,
+                Chosen = customers.Count == 1 ? customers[0].CustomerId : null,
+            },
+            { Outcome: CustomerOutcomes.TooMany } => _customerPanel with { Sending = false, Refused = _text.TooManyNamed },
+            { Reason: { } reason } => _customerPanel with { Sending = false, Refused = reason },
+            _ => _customerPanel with { Sending = false, Refused = _text.CarnetOffline },
+        };
+        Render();
+    }
+
+    /// <summary>The customer onto the ticket, or onto the refund for its store credit (B9a), then quoted again.</summary>
+    private void AttachCustomer(AttachedCustomer customer, bool forRefund)
+    {
+        _customerPanel = null;
+        if (forRefund && _refund is { } refund)
+        {
+            _refund = refund with { Customer = customer, To = RefundDestinations.StoreCredit, Quote = null };
+            Render();
+            _ = QuoteRefundAsync();
+            return;
+        }
+
+        _session.Cart.Attach(customer);
+        _customerTab = null;
+        Render();
+        _input.Focus();
+    }
+
+    /// <summary>
+    /// A step a rank may need (B7): the seller's own rank asked first; below it, the PIN step, whose
+    /// authorisation goes back to what asked (<see cref="Give"/>).
+    /// </summary>
+    private async Task AuthoriseCustomerAsync(CounterKind kind, string title, string summary)
+    {
+        if (_session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        var capability = CapabilityOf(new DiscountState(null, DiscountForms.Amount, string.Empty, null, false, null, Kind: kind));
+        var answer = await _server.AuthoriseAsync(new AuthoriseRequest(capability, null, null), person.Token);
+        switch (answer?.Outcome)
+        {
+            case AuthoriseOutcomes.Authorised:
+                _discount = new DiscountState(null, DiscountForms.Amount, string.Empty, null, false, null, Kind: kind);
+                Give(answer.Authorisation!);
+                break;
+
+            case AuthoriseOutcomes.PinRequired:
+                var staff = await _server.StaffAsync();
+                _pin = string.Empty;
+                _discount = new DiscountState(
+                    null, DiscountForms.Amount, string.Empty, null, false, null, Authorising: true, Staff: staff,
+                    Problem: staff is null ? DiscountProblem.Offline : null, Kind: kind, Title: title, Summary: summary);
+                Render();
+                break;
+
+            default:
+                if (_customerPanel is { } panel)
+                {
+                    _customerPanel = panel with { Refused = _text.CarnetOffline };
+                }
+                else if (_payment is { } paying)
+                {
+                    _payment = paying with { Refused = _text.CarnetOffline };
+                }
+
+                Render();
+                break;
+        }
+    }
+
+    private async Task CreateCustomerAsync(string authorisation)
+    {
+        if (_customerPanel is not { Kind: CustomerPanelKind.Create } panel || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        _customerPanel = panel with { Sending = true, Refused = null };
+        Render();
+        var answer = await _server.CreateCustomerAsync(
+            new CreateCustomerRequest(_till.TerminalId ?? string.Empty, panel.Name.Trim(), panel.Phone, authorisation), person.Token);
+        if (_customerPanel is null)
+        {
+            return;
+        }
+
+        if (answer is { Outcome: CustomerOutcomes.Ok, Customer: { } created })
+        {
+            AttachCustomer(new AttachedCustomer(created.CustomerId, created.Name, created.Phone), panel.ForRefund);
+            return;
+        }
+
+        _customerPanel = _customerPanel with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+        Render();
+    }
+
+    /// <summary>The carnet in the ticket's place: the server's figures, and the server logs the look (D-061).</summary>
+    private async Task OpenCarnetAsync()
+    {
+        if (_session.Cart.Customer is not { } customer || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        _carnet = new CarnetState(null, false, _clock.GetUtcNow(), _context?.StaffName);
+        Render();
+        var tab = await _server.TabAsync(customer.CustomerId, _till.TerminalId ?? string.Empty, person.Token);
+        if (_carnet is null)
+        {
+            return;
+        }
+
+        _carnet = _carnet with { Tab = tab, Offline = tab is null };
+        if (tab is { Outcome: CustomerOutcomes.Ok })
+        {
+            _customerTab = tab;
+        }
+
+        Render();
+    }
+
+    private void CloseCarnet()
+    {
+        _carnet = null;
+        _customerPanel = null;
+        Render();
+        _input.Focus();
+    }
+
+    /// <summary>The attached customer's tab, for the payment's Carnet key.</summary>
+    private async Task LoadTabAsync()
+    {
+        if (_session.Cart.Customer is not { } customer || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        var tab = await _server.TabAsync(customer.CustomerId, _till.TerminalId ?? string.Empty, person.Token);
+        if (tab is { Outcome: CustomerOutcomes.Ok } && _session.Cart.Customer?.CustomerId == customer.CustomerId)
+        {
+            _customerTab = tab;
+            Render();
+        }
+    }
+
+    private async Task LoadCashReasonsAsync()
+    {
+        var reasons = await _server.CashReasonsAsync();
+        if (_customerPanel is { Kind: CustomerPanelKind.Repay } panel)
+        {
+            _customerPanel = panel with { Reasons = reasons, Refused = reasons is null ? _text.CarnetOffline : null };
+            Render();
+        }
+    }
+
+    /// <summary>A change to the tab (rank 3): the owner's PIN, then the server, which refuses above the tenant's ceiling.</summary>
+    private void AskChange(string action, string? limit)
+    {
+        var name = _carnet?.Tab?.Customer is { } customer ? new AttachedCustomer(customer.CustomerId, customer.Name, customer.Phone).ShortName : string.Empty;
+        _pendingChange = (action, limit);
+        var summary = action switch
+        {
+            LimitActions.Freeze => _text.FreezeKey,
+            LimitActions.Unfreeze => _text.UnfreezeKey,
+            _ when limit is null => _text.CloseTabKey,
+            _ => $"{_text.CurrentLimit} {_carnet?.Tab?.Limit ?? "—"} → {limit}",
+        };
+        _ = AuthoriseCustomerAsync(CounterKind.ChangeTab, _text.ApproveChangeTitle(name), summary);
+    }
+
+    private async Task ChangeTabAsync(string authorisation)
+    {
+        if (_pendingChange is not { } change || _carnet?.Tab?.Customer is not { } customer || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        _pendingChange = null;
+        if (_customerPanel is { } sending)
+        {
+            _customerPanel = sending with { Sending = true, Refused = null };
+            Render();
+        }
+
+        var answer = await _server.ChangeLimitAsync(
+            customer.CustomerId, new LimitRequest(_till.TerminalId ?? string.Empty, change.Action, change.Limit, authorisation), person.Token);
+        if (answer is { Outcome: CustomerOutcomes.Ok })
+        {
+            _carnet = _carnet is { } open ? open with { Tab = answer } : null;
+            _customerTab = answer;
+            _customerPanel = null;
+        }
+        else if (_customerPanel is { } panel)
+        {
+            _customerPanel = panel with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+        }
+
+        Render();
+    }
+
+    /// <summary>A repayment in cash (D-055): a paid-in on the drawer and a payment on the tab, both or neither.</summary>
+    private async Task RepayAsync(CustomerPanelState panel, string token)
+    {
+        if (_carnet?.Tab is not { Customer: { } customer } before || panel.ReasonCode is not { } reason
+            || !DiscountEntry.TryParse(panel.Typed, DiscountForms.Amount, out var hundredths))
+        {
+            return;
+        }
+
+        // The tab's own rule, as the panel showed it: never more than is owed, never nothing (D-055).
+        var balance = WireFigures.Money(before.Balance ?? "0", before.Currency ?? "DZD");
+        if (Domain.Customers.Tab.MayRepay(balance, Domain.Values.Money.FromMinorUnits(hundredths, balance.Currency)) != Domain.Customers.RepaymentVerdict.Accepted)
+        {
+            return;
+        }
+
+        _customerPanel = panel with { Sending = true, Refused = null };
+        Render();
+        var answer = await _server.RepayAsync(
+            customer.CustomerId, new RepaymentRequest(_till.TerminalId ?? string.Empty, Contracts.Figures.Amount(hundredths), reason), token);
+        if (_customerPanel is null)
+        {
+            return;
+        }
+
+        if (answer is { Outcome: CustomerOutcomes.Ok })
+        {
+            _carnet = _carnet is { } open ? open with { Tab = answer } : null;
+            _customerTab = answer;
+            _customerPanel = new CustomerPanelState(CustomerPanelKind.Repaid, Before: before, After: answer, At: _clock.GetUtcNow());
+        }
+        else
+        {
+            _customerPanel = _customerPanel with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+        }
+
+        Render();
+    }
+
+    // =================================================================== B10: petite caisse, pointage
+
+    private async Task LoadPettyReasonsAsync()
+    {
+        var reasons = await _server.CashReasonsAsync();
+        if (_customerPanel is { Kind: CustomerPanelKind.PettyCash } panel)
+        {
+            _customerPanel = panel with { Reasons = reasons, Refused = reasons is null ? _text.CarnetOffline : null };
+            Render();
+        }
+    }
+
+    private async Task LoadClockStaffAsync()
+    {
+        var staff = await _server.StaffAsync();
+        if (_customerPanel is { Kind: CustomerPanelKind.Clock } panel)
+        {
+            _customerPanel = panel with { Staff = staff, Refused = staff is null ? _text.CarnetOffline : null };
+            Render();
+        }
+    }
+
+    /// <summary>
+    /// "Enregistrer" (B10, D-102): the paid-in or paid-out to the server, which records it before the
+    /// till says so. Below the shop's rank for a paid-out: the PIN step, then this again with the
+    /// authorisation. Refused or no answer: the panel stays and says why.
+    /// </summary>
+    private async Task SendCashAsync(string? authorisation)
+    {
+        if (_customerPanel is not { Kind: CustomerPanelKind.PettyCash, Sending: false, Direction: { } direction, ReasonCode: { } reason } panel
+            || _session.SignedIn is not { } person
+            || !DiscountEntry.TryParse(panel.Typed, DiscountForms.Amount, out var hundredths) || hundredths <= 0)
+        {
+            return;
+        }
+
+        _customerPanel = panel with { Sending = true, Refused = null };
+        Render();
+        var note = panel.Name.Trim();
+        var answer = await _server.CashMovementAsync(
+            new CashMovementRequest(_till.TerminalId ?? string.Empty, direction, Contracts.Figures.Amount(hundredths), reason, note.Length == 0 ? null : note, authorisation),
+            person.Token);
+        if (_customerPanel is not { Kind: CustomerPanelKind.PettyCash } now)
+        {
+            return;
+        }
+
+        switch (answer?.Outcome)
+        {
+            case CashMovementOutcomes.Recorded:
+                _customerPanel = now with { Kind = CustomerPanelKind.PettyCashDone, Sending = false };
+                break;
+
+            case CashMovementOutcomes.PinRequired:
+                _customerPanel = now with { Sending = false };
+                await AuthoriseCustomerAsync(CounterKind.PaidOut, _text.CashOutKey, $"{_text.AmountTitle} {panel.Typed} · {reason}");
+                return;
+
+            default:
+                _customerPanel = now with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+                break;
+        }
+
+        Render();
+    }
+
+    /// <summary>"Pointer" (B10, D-102): the person and their PIN to the server, which checks it with sign-in's lockout, then clocks them in or out.</summary>
+    private async Task ClockAsync(CustomerPanelState panel, string token)
+    {
+        if (panel.Chosen is not { } staffId || panel.Pin.Length < 4)
+        {
+            return;
+        }
+
+        var pin = panel.Pin;
+        _customerPanel = panel with { Sending = true, Pin = string.Empty, Refused = null };
+        Render();
+        var answer = await _server.ClockAsync(new ClockRequest(_till.TerminalId ?? string.Empty, staffId, pin), token);
+        if (_customerPanel is not { Kind: CustomerPanelKind.Clock } now)
+        {
+            return;
+        }
+
+        _customerPanel = answer?.Outcome switch
+        {
+            ClockOutcomes.ClockedIn or ClockOutcomes.ClockedOut => now with { Kind = CustomerPanelKind.ClockDone, Sending = false, Clocked = answer },
+            SignInOutcomes.WrongPin => now with { Sending = false, Refused = _text.WrongManagerPin(answer.AttemptsLeft ?? 0) },
+            SignInOutcomes.Locked => now with
+            {
+                Sending = false,
+                Refused = _text.ManagerLocked(DisplayFigures.Clock(TimeZoneInfo.ConvertTime(answer.LockedUntil ?? _clock.GetUtcNow(), TimeZoneInfo.Local))),
+            },
+            SignInOutcomes.NoPin => now with { Sending = false, Refused = _text.ManagerHasNoPin },
+            _ => now with { Sending = false, Refused = _text.CarnetOffline },
+        };
+        Render();
+    }
+
+    private string Shown(Domain.Values.Money? amount) =>
+        amount is { } money ? DisplayFigures.AmountWithCurrency(money, _text) : "?";
+
+    // =================================================================== B9: a refund linked to its sale
+
+    /// <summary>
+    /// "Rembourser" on a past ticket (B9, D-098): the ticket stays in the ticket view, its lines are
+    /// touched to bring them back, and the panel in the rail asks the shop's return reasons.
+    /// </summary>
+    private void OpenRefund()
+    {
+        if (_session.Viewing is not { } ticket || !RefundScreen.Refundable(ticket) || _payment is not null || _refund is not null)
+        {
+            return;
+        }
+
+        _refund = RefundState.For(ticket);
+        _refundOf = ticket.TransactionId;
+        _pin = string.Empty;
+        _discount = new DiscountState(null, DiscountForms.Amount, string.Empty, null, false, null, Kind: CounterKind.Refund);
+        _input.Text = string.Empty;
+        Render();
+        _input.Focus();
+        _ = LoadReasonsAsync();
+    }
+
+    /// <summary>
+    /// Continuer: lines, a reason and its note, then the server says what the refund comes to. The
+    /// till never works it out (D-098): the floating panel shows the server's figures, or the rail says
+    /// why there are none.
+    /// </summary>
+    private async Task QuoteRefundAsync()
+    {
+        if (_discount is not { Kind: CounterKind.Refund, Authorising: false } open || _refund is not { } refund
+            || _session.Viewing is not { } ticket || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        var problem = refund.Chosen == 0 ? DiscountProblem.NothingChosen
+            : open.ReasonCode is null ? DiscountProblem.NoReason
+            : (DiscountProblem?)null;
+        if (problem is not null)
+        {
+            _discount = open with { Problem = problem };
+            Render();
+            return;
+        }
+
+        // A reason that asks for a note is not given without one (F-28): the field takes the note.
+        if (open.Reasons?.ReasonCodes.FirstOrDefault(r => r.Code == open.ReasonCode) is { RequiresNote: true })
+        {
+            if (!open.Noting)
+            {
+                _discount = open with { Noting = true, Problem = null };
+                _input.Text = string.Empty;
+                Render();
+                _input.Focus();
+                return;
+            }
+
+            if (open.Note.Trim().Length == 0)
+            {
+                _discount = open with { Problem = DiscountProblem.NoteMissing };
+                Render();
+                return;
+            }
+        }
+
+        // Quoted in cash, unless store credit was chosen and a customer attached for it (B9a).
+        var asked = refund.Customer is not null && refund.To == RefundDestinations.StoreCredit ? refund : refund with { To = RefundDestinations.Cash };
+        var answer = await _server.RefundAsync(
+            RefundScreen.Request(_till.TerminalId ?? string.Empty, ticket, asked, open.ReasonCode!, NoteOf(open), null, quote: true), person.Token);
+        if (_refund is null || _discount is not { Kind: CounterKind.Refund } now)
+        {
+            return;
+        }
+
+        switch (answer?.Outcome)
+        {
+            case RefundOutcomes.Quoted:
+                _refund = _refund with { Quote = answer, To = asked.To, Refused = null };
+                break;
+            case RefundOutcomes.Refused or RefundOutcomes.NotAllowed:
+                _refund = _refund with { Refused = answer.Reason ?? string.Empty };
+                break;
+            default:
+                _discount = now with { Problem = DiscountProblem.Offline };
+                break;
+        }
+
+        Render();
+    }
+
+    /// <summary>
+    /// "Rembourser" in the floating panel: the refund to the server, which writes it before anything
+    /// is handed over (D-098). Written: the refund's own ticket opens in the ticket view. A manager
+    /// needed: the PIN step, then this again with the authorisation. Refused or no answer: the panel
+    /// stays and says why; nothing was refunded.
+    /// </summary>
+    private async Task SendRefundAsync(string? authorisation)
+    {
+        if (_refund is not { Quote: not null, Sending: false } refund || _discount is not { Kind: CounterKind.Refund, ReasonCode: { } code } open
+            || _session.Viewing is not { } ticket || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        // Store credit is a named customer's (D-098): nobody on the ticket, nobody attached, nothing sent.
+        if (refund.To == RefundDestinations.StoreCredit && refund.Quote is { CustomerOnTicket: false } && refund.Customer is null)
+        {
+            return;
+        }
+
+        _refund = refund with { Sending = true, Refused = null };
+        Render();
+        var answer = await _server.RefundAsync(
+            RefundScreen.Request(_till.TerminalId ?? string.Empty, ticket, refund, code, NoteOf(open), authorisation, quote: false), person.Token);
+        if (_refund is null || _discount is not { Kind: CounterKind.Refund } now)
+        {
+            return;
+        }
+
+        switch (answer?.Outcome)
+        {
+            case RefundOutcomes.Refunded:
+                EndRefund();
+                _input.Text = string.Empty;
+                await OpenTicketAsync(answer.InvoiceNumber ?? answer.TransactionId ?? ticket.TransactionId);
+
+                // Store credit issued: its balance, shown once, over the refund's ticket (B9a).
+                if (answer.RefundTo == RefundDestinations.StoreCredit)
+                {
+                    _customerPanel = new CustomerPanelState(
+                        CustomerPanelKind.CreditIssued, Issued: answer, IssuedTo: refund.Customer?.ShortName ?? _text.ClientTitle, At: _clock.GetUtcNow());
+                    Render();
+                }
+
+                return;
+
+            case RefundOutcomes.PinRequired:
+                var staff = await _server.StaffAsync();
+                _pin = string.Empty;
+                _refund = _refund with { Sending = false };
+                _discount = now with { Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null };
+                break;
+
+            case RefundOutcomes.Refused or RefundOutcomes.NotAllowed:
+                _refund = _refund with { Sending = false, Refused = answer.Reason ?? string.Empty };
+                break;
+
+            default:
+                _refund = _refund with { Sending = false, Refused = _text.RefundOffline };
+                break;
+        }
+
+        Render();
+    }
+
+    /// <summary>The floating panel closed: back to the lines and the reason, nothing refunded.</summary>
+    private void CloseRefundPanel()
+    {
+        if (_refund is { Sending: false } refund)
+        {
+            _refund = refund with { Quote = null, Refused = null };
+            Render();
+            _input.Focus();
+        }
+    }
+
+    /// <summary>The refund and its panel gone; the past ticket, if still open, read-only again.</summary>
+    private void EndRefund()
+    {
+        _refund = null;
+        _refundOf = null;
+        if (_discount is { Kind: CounterKind.Refund })
+        {
+            _discount = null;
+            _pin = string.Empty;
+        }
+    }
+
+    private static string? NoteOf(DiscountState open) => open.Note.Trim() is { Length: > 0 } note ? note : null;
+
     /// <summary>
     /// The rail's operation keys (B2). Whether one is available is the screen model's to say; the
     /// session refuses on its own too, so a key pressed twice, or F3 pressed at the wrong moment,
@@ -1618,6 +2636,28 @@ public sealed class TillWindow : Window, IDisposable
 
             case Operation.TicketDiscount:
                 OpenDiscount(null);
+                break;
+
+            case Operation.Refund:
+                OpenRefund();
+                break;
+
+            case Operation.PettyCash:
+                // B10 (D-102): cash in or out with no sale, its reason and its amount.
+                _moreOpen = false;
+                OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.PettyCash));
+                _ = LoadPettyReasonsAsync();
+                break;
+
+            case Operation.More:
+                _moreOpen = !_moreOpen;
+                Render();
+                break;
+
+            case Operation.Clock:
+                _moreOpen = false;
+                OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.Clock));
+                _ = LoadClockStaffAsync();
                 break;
 
             case Operation.Tickets:
@@ -1732,11 +2772,17 @@ public sealed class TillWindow : Window, IDisposable
 
         _search = null;
         _selected = null;
-        _payment = PaymentState.Open;
+        _payment = PaymentState.Open with { TabAsPart = _context?.TabAsPart ?? true };
 
         // Kept on the ticket (B8): if it is cancelled after this, a cashier needs a manager.
         _session.MarkPaymentOpened();
         Render();
+
+        // The attached customer's tab, read when it may be used (B7): the Carnet key needs it.
+        if (_session.Cart.Customer is not null)
+        {
+            _ = LoadTabAsync();
+        }
     }
 
     private void ClosePayment()
@@ -1772,6 +2818,60 @@ public sealed class TillWindow : Window, IDisposable
             return;
         }
 
+        // The tab (B7): the server's rule asked first; the owner's PIN past the limit; the whole ticket
+        // at once when the tenant says the tab is never a part.
+        if (open.Method == Domain.Enums.PaymentMethod.OnAccount)
+        {
+            if (_customerTab is not { } tab)
+            {
+                return;
+            }
+
+            var charge = open.TabAsPart ? PaymentScreen.AmountOf(open, PaymentScreen.RestOf(total, open.Parts)) : total;
+            var check = charge is { IsPositive: true } c ? CustomerScreen.Check(tab, c, _clock.GetUtcNow()) : null;
+            if (check?.Verdict == Domain.Customers.TabVerdict.AboveLimit && open.TabOverride is null)
+            {
+                _ = AuthoriseCustomerAsync(CounterKind.TabOverride,
+                    _text.ApproveOverrideTitle(_session.Cart.Customer?.ShortName ?? string.Empty),
+                    $"{_text.TabAmountTitle} {Shown(charge)} · {_text.TabAvailable} {tab.Available ?? "—"}");
+                return;
+            }
+
+            if (check?.Verdict is not (Domain.Customers.TabVerdict.Accepted or Domain.Customers.TabVerdict.AboveLimit))
+            {
+                return;
+            }
+
+            if (open.TabAsPart)
+            {
+                _payment = PaymentScreen.AddPart(open, total);
+                Render();
+                return;
+            }
+
+            if (open.Parts.Count > 0)
+            {
+                return;
+            }
+
+            _payment = open with { Sending = true, Refused = null };
+            Render();
+            Pay([new TenderEntry(Domain.Enums.PaymentMethod.OnAccount, total, null).ToWire()]);
+            return;
+        }
+
+        // Store credit (B9b): the amount the panel shows, never more than the credit available.
+        if (open.Method == Domain.Enums.PaymentMethod.StoreCredit)
+        {
+            if (_customerTab?.CreditAvailable is { } credit)
+            {
+                _payment = PaymentScreen.AddCredit(open, total, WireFigures.Money(credit, _customerTab.Currency ?? total.Currency.Code));
+                Render();
+            }
+
+            return;
+        }
+
         if (open.AddingPart)
         {
             _payment = PaymentScreen.AddPart(open, total);
@@ -1789,7 +2889,12 @@ public sealed class TillWindow : Window, IDisposable
         // async void, as an event handler must be: so nothing may escape it.
         try
         {
-            await _session.PayAsync(tenders);
+            // Recorded against the attached customer, with the owner's word past the tab's limit (B7).
+            await _session.PayAsync(tenders, _session.Cart.Customer?.CustomerId, _payment?.TabOverride);
+            if (_session.Paid is not null)
+            {
+                _customerTab = null;
+            }
             _payment = _session.Paid is null && _session.Unconfirmed is null && _session.SignedIn is not null && _payment is { } kept
                 ? kept with { Sending = false, Refused = _session.Notice is { Kind: TillNoticeKind.SaleRefused } refused ? refused.Detail : null }
                 : null;
@@ -1917,5 +3022,6 @@ public sealed class TillWindow : Window, IDisposable
         _scanner.Dispose();
         _searchTimer?.Dispose();
         _weighTimer?.Dispose();
+        _customerTimer?.Dispose();
     }
 }

@@ -946,6 +946,102 @@ owner works). **Not in B8:** no-sale (the drawer is D2's), showing the flags (C2
 manager's PIN on every cancel (the G1 board's first drawing); a card on the owner's board at the till;
 cancelling offline and sending it later (a cancel nobody can see until the cable is back).
 
+### D-098 — B9a: a refund is its own ticket, linked to the sale; the tab first, then cash or store credit (Hakim, 01/10)
+**A refund is a transaction of its own**, as the generator already writes one: completed, with the
+next number of the sales' sequence, `original_transaction_id` on the sale, its lines the sold rows
+negated on the same batches, one `returns` row per sold row naming its refund row (F-17), and the sale
+marked `refunded` or `partially_refunded`. Nothing reaches the outbox or tier 2 (D-043). **What a line
+gives back is what it was paid, never the shelf price** (`Refunds.Share`, Hakim's piece): a row's total
+and TVA are split over its units with `Allocate`, so any series of partial refunds sums exactly to the
+line, and a weighed line comes back whole or not at all. A line is named on the wire by its variant and
+unit price, as the ticket view merges them (D-088), and taken from its batch rows first row first.
+**Where the money goes:** the tab first, as a negative charge (D-055), never beyond what the sale put
+on it nor what is owed now; the rest in cash, rounded once (D-034), or as store credit, the cashier's
+choice. **No cap on cash** (Hakim): a card or BaridiMob sale is paid back in cash too, since a refund
+on the terminal is not the shop's to make and with the module off there is nothing else. **Store
+credit is a named customer's** (`credit_movements.customer_id`), the module on: the sale's customer, or
+one attached at the refund (the till offers it only for the first until B7's screens exist). Its
+balance is the ledger's sum; `customers.credit` is kept equal in the same unit of work (Hakim).
+**Who refunds is the tenant's setting** `refund_min_rank` (`system_config`, unset: anyone with a rank):
+below it, a PIN of someone at it or above. `StaffPermissions.May(rank, capability, raisedTo)` raises a
+capability's rank, never lowers it. **Restock** is the cashier's per line, on by default; an expired
+batch never goes back (`Refunds.Restocks`). The till asks the server for a quote, which writes nothing,
+before the money goes out. **A split refund's `returns.refund_method`** is where the rest went (cash or
+store credit), `on_account` only when all of it went to the tab; the payment rows hold the split.
+**Not in B9a:** spending store credit (B9b), an anonymous voucher. **Rejected:** money back the way it
+was paid, part by part (slow at the counter); a manager's PIN on every refund; restock decided by the
+reason (a schema change); a cap of cash at the sale's cash part.
+
+### D-099 — B7, B9a: the customer screens at the till, from the board (Hakim, 02/10)
+**The search and the creation float over the frozen ticket** (D-094); **the carnet does not**: it
+takes the ticket's place, and its opening is logged by the server (D-061). The **customer key** (F5)
+exists only with the tenant's module on, which the till context now carries with `tab_as_part`; once
+someone is attached it names them ("Samira B."), with ✕ to detach, and the notice slot says so; a
+touch or F5 then opens their carnet. The customer is kept on the cart, so a ticket put aside keeps
+it, and is sent with the sale. A number is checked at the till (`PhoneNumber`) before the server is
+asked; each customer listed is a logged consultation. **Creation** is name and number only, a
+manager's PIN for a cashier (rank 2). **Changing the tab** (limit, freeze, close) asks the owner's
+PIN (rank 3); a **repayment** takes an amount, "Tout le dû", and a `cash_movement` reason, and the
+till asks `Tab.MayRepay` before sending. **"Carnet" in the payment panel** appears only for a customer
+with a tab; the till asks `Tab.Check` on the server's figures: frozen or overdue, nothing lets it
+through; past the limit, the owner's PIN, named on the sale; with `tab_as_part` off, the whole
+ticket and nothing typed. **A refund to store credit on a ticket with no customer** attaches one
+first ("UN AVOIR EST NOMINATIF", F5), is quoted again for them, and shows the credit once issued; the
+quote now says `may_credit` (module on) and `customer_on_ticket` apart. **Left out of the board, on
+purpose:** "Imprimée et remise / Montrée à l'écran" and the notice's version on the creation panel
+(no printer before D2, and how it was handed is not a column; the panel says to hand it, and the
+server refuses with no notice in force); "Numéro déjà pris" (one number may be two people's, as the
+board's own search shows); a name of letters only (the server's rule is 1 to 100 characters); the
+store's ceiling on the limit panel and a ticket number per statement line (not in `TabAnswer`; the
+server's refusal says the ceiling); "Tiroir ouvert" and printed receipts (D2); "Payer en avoir" (B9b).
+
+### D-100 — A customer is found by full name, or by number (Hakim, 02/10; widens D-096)
+**Speed at the counter beats asking for a number the customer may not remember** (Hakim): the till's
+one field takes a name or the 10 digits. **A name is kept narrow** (`CustomerNameSearch`, Domain),
+since every customer listed is a logged consultation (D-061): **a full name only**, two words or more
+of two letters or more, so a first name alone searches nothing; **whole words**, case and accents
+ignored as the product search ignores them (D-088), in any order; **five at most**, and more than five
+list nobody and log nobody, the number asked instead; **the number masked** to its last four digits
+in a name's results. **The search asks itself 3 s after the last key** (`TillWindow.CustomerSearchAfter`),
+so a name half typed lists nobody; Entrée asks at once. Nothing found by name, the creation is
+prefilled with the name. The server reads the active customers and filters them with the same rule.
+**Rejected:** a search from the first letters (a list of strangers at every key); showing every match.
+The Arabic till calls the carnet «دفتر الديون» and buying on it «الشراء بالدَّين» (Hakim, 02/10).
+
+### D-101 — B9b: store credit is spent as a part; a refund gives it back as credit; it may expire (Hakim, 02/10)
+**Store credit is a part like a card** (`Tender.Settle`, Hakim's piece): exact, once per ticket
+(`CreditTwice`), never above the rest; anyone spends it, no PIN, for a customer attached with the
+module on. **What is available is a rule** (`StoreCredit.Age`, `MayRedeem`, Hakim's piece): the
+balance is the sum of `credit_movements`, spending takes the oldest credit first, and with the tenant's
+`credit_expiry_days` (`system_config`, unset: never; `--credit-expiry-days=365|off`) credit unspent
+more than that many days after it was issued has expired. **An expiry is written when it is found**: a
+sale spending credit first writes an `expire` movement for what has expired, then the `redeem`, each
+with its balance after, and `customers.credit` kept equal (D-098). **A refund gives store credit back
+as store credit first** (`Refunds.ToCredit`): after the tab's share, the share the sale paid in credit,
+less what earlier refunds gave back as credit (counted generously: a rest the cashier chose to give as
+credit counts too), so a refund never turns store credit into cash; the rest is cash or credit as
+before. The till offers "Avoir" only for a customer with credit available, prefilled with the smaller
+of the credit and the rest ("PLUS QUE L'AVOIR" above it); the tab's answer carries `credit_available`,
+read without the rule for a customer who never had credit. **Not in B9b:** an anonymous voucher; the
+credit in the carnet view. **Rejected:** the cashier choosing freely on a refund (credit cashed out); a
+PIN to spend credit (it is the customer's money); expiry left for later.
+
+### D-102 — B10: cash in and out with no sale; the clock is its own key (Hakim, 02/10)
+**"Petite caisse"** records a `paid_in` or a `paid_out` on the terminal's cash session (opened if there
+is none, D-070, until C1), with a `cash_movement` reason, its note when the reason asks for one, and
+never a negative amount: the type says the direction. **A cash reason says which way it moves money**:
+`reason_codes.direction`, `in`, `out`, or null for either way, and only a cash reason has one (CHECK);
+migration `CashReasonDirection`, written by Claude at Hakim's request. Each panel lists the reasons for
+its own way or either; a tab's repayment (D-055) takes a reason for cash in or either. **Who takes cash
+out is the tenant's** `paid_out_min_rank` (`system_config`, unset: anyone with a rank;
+`--paid-out-min-rank=2|off`), raising `Capability.PaidOut` as `refund_min_rank` raises `Refund`
+(D-098): below it, the PIN of someone at it, named as `authorised_by`. Cash in is anyone's. **The clock
+is "Pointage"**, under the rail's "Plus…": a person picks their name and types their PIN, checked by the
+server with sign-in's lockout; with no open shift at this store they clock in (`shifts`, open), with one
+they clock out (closed, `end_time`). Signing in and switching cashier open no shift: working time is
+not the till's session. **Rejected:** shifts tied to sign-in (ten shifts a day for one person); a paid-out
+for anyone with no setting; every cash reason offered both ways.
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

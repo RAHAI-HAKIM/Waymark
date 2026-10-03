@@ -19,7 +19,8 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
     private static readonly string[] Keys =
     [
         TenantSettings.CustomerModuleKey, TenantSettings.MaxCreditLimitKey, TenantSettings.CreditOverdueDaysKey, TenantSettings.TabAsPartKey,
-        TenantSettings.VoidAlertCountKey, TenantSettings.VoidAlertValueKey,
+        TenantSettings.VoidAlertCountKey, TenantSettings.VoidAlertValueKey, TenantSettings.RefundMinRankKey, TenantSettings.CreditExpiryDaysKey,
+        TenantSettings.PaidOutMinRankKey,
     ];
 
     public async Task<TenantSettings> CurrentAsync(CancellationToken cancellationToken = default)
@@ -47,7 +48,20 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             values.TryGetValue(TenantSettings.VoidAlertValueKey, out var worth)
                 && long.TryParse(worth, NumberStyles.None, CultureInfo.InvariantCulture, out var cents)
                 ? Money.FromMinorUnits(cents, ledgerCurrency.Currency)
-                : defaults.VoidAlertValue);
+                : defaults.VoidAlertValue,
+            // A rank that cannot be read is no rank needed beyond the ladder's: the setting only ever raises.
+            values.TryGetValue(TenantSettings.RefundMinRankKey, out var refund)
+                && long.TryParse(refund, NumberStyles.None, CultureInfo.InvariantCulture, out var rank) && rank > 0
+                ? rank
+                : defaults.RefundMinRank,
+            values.TryGetValue(TenantSettings.CreditExpiryDaysKey, out var expiry)
+                && int.TryParse(expiry, NumberStyles.None, CultureInfo.InvariantCulture, out var expiryDays) && expiryDays > 0
+                ? expiryDays
+                : defaults.CreditExpiryDays,
+            values.TryGetValue(TenantSettings.PaidOutMinRankKey, out var paidOut)
+                && long.TryParse(paidOut, NumberStyles.None, CultureInfo.InvariantCulture, out var paidOutRank) && paidOutRank > 0
+                ? paidOutRank
+                : defaults.PaidOutMinRank);
     }
 
     public async Task StageAsync(TenantSettings settings, string? updatedBy, DateTimeOffset at, CancellationToken cancellationToken = default)
@@ -98,5 +112,19 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             "More cancels than this by one person in one cash session are flagged; absent: not flagged (D-097).");
         Put(TenantSettings.VoidAlertValueKey, settings.VoidAlertValue?.MinorUnits.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Money,
             "A cancelled ticket worth more than this, in minor units, is flagged; absent: not flagged (D-097).");
+        Put(TenantSettings.RefundMinRankKey, settings.RefundMinRank?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "The lowest roles.rank that refunds alone; below it a PIN is asked; absent: anyone with a rank (D-098).");
+        Put(TenantSettings.CreditExpiryDaysKey, settings.CreditExpiryDays?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "Days after which unspent store credit expires; absent: it never does (D-101).");
+        Put(TenantSettings.PaidOutMinRankKey, settings.PaidOutMinRank?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "The lowest roles.rank that takes cash out of the drawer alone; below it a PIN is asked; absent: anyone with a rank (D-102).");
     }
+
+    public async Task<IReadOnlyList<long>> ActiveRanksAsync(CancellationToken cancellationToken = default) =>
+        await context.Roles.AsNoTracking()
+            .Where(role => role.IsActive)
+            .Select(role => role.Rank)
+            .Distinct()
+            .OrderBy(rank => rank)
+            .ToListAsync(cancellationToken);
 }

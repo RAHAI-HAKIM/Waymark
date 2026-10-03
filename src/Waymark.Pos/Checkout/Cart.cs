@@ -323,6 +323,14 @@ public sealed class Cart
     /// <summary>The payment panel opened on this ticket: the first time is the one kept.</summary>
     public void MarkPaymentOpened(DateTimeOffset at) => PaymentOpenedAt ??= at;
 
+    /// <summary>
+    /// The customer the ticket is recorded against (B7, D-096): attached by number, carried when the
+    /// ticket is put aside, sent with the sale. Only what the till needs to name them on screen.
+    /// </summary>
+    public AttachedCustomer? Customer { get; private set; }
+
+    public void Attach(AttachedCustomer? customer) => Customer = customer;
+
     /// <summary>Empties the cart once its sale is completed.</summary>
     public void Clear()
     {
@@ -330,6 +338,7 @@ public sealed class Cart
         LastAdded = null;
         TicketDiscount = null;
         PaymentOpenedAt = null;
+        Customer = null;
     }
 }
 
@@ -431,4 +440,19 @@ public sealed record PriceOverride(Money NewPrice, string ReasonCode, string Rea
 {
     /// <summary>As the sale sends it: the price as invariant text; the server checks the band again.</summary>
     public PriceOverrideRequest ToWire() => new(Figures.Amount(NewPrice.MinorUnits), ReasonCode, Authorisation);
+}
+
+/// <summary>A customer attached to a ticket (B7): their id for the sale, and how the till names them.</summary>
+/// <param name="Name">As recorded: "Samira Benali".</param>
+public sealed record AttachedCustomer(string CustomerId, string Name, string? Phone)
+{
+    /// <summary>The first name and the initial of the last, as the ticket's header shows it: "Samira B.".</summary>
+    public string ShortName
+    {
+        get
+        {
+            var words = Name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return words.Length < 2 ? Name.Trim() : $"{words[0]} {char.ToUpperInvariant(words[^1][0])}.";
+        }
+    }
 }

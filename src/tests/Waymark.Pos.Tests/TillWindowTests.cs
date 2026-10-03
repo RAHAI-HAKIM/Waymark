@@ -30,7 +30,7 @@ namespace Waymark.Pos.Tests;
 /// </para>
 /// </summary>
 [Collection(TillWindowGroup.Name)]
-public sealed class TillWindowTests
+public sealed partial class TillWindowTests
 {
     // ================================================================ a long ticket
 
@@ -856,6 +856,14 @@ public sealed class TillWindowTests
 
         public static Till SignedIn() => new(new FakeStoreServer(), signedIn: true);
 
+        /// <summary>Signed in, against a server set up first: what the till reads when it opens (its context) is the server's then.</summary>
+        public static Till SignedIn(Action<FakeStoreServer> setup)
+        {
+            var server = new FakeStoreServer();
+            setup(server);
+            return new Till(server, signedIn: true);
+        }
+
         public static string Code(int i) => $"61300000{i:D5}";
 
         public FakeStoreServer Server { get; }
@@ -978,7 +986,7 @@ public sealed class TillWindowTests
     }
 
     /// <summary>StoreServer as the till sees it, answering at once. <see cref="Up"/> is whether it answers at all.</summary>
-    private sealed class FakeStoreServer : IProductSource, IStoreSales, ITillServer
+    private sealed partial class FakeStoreServer : IProductSource, IStoreSales, ITillServer
     {
         public bool Up { get; set; } = true;
 
@@ -1092,7 +1100,8 @@ public sealed class TillWindowTests
 
         public Task<TillContext?> ContextAsync(string terminalId, string? staffId, CancellationToken cancellationToken = default) =>
             Task.FromResult(Up
-                ? new TillContext(TillContextOutcome.Found, "El Bahdja", "Caisse 1", "DZD", staffId is null ? null : "Nabil B.", "Caissier", "أمين الصندوق")
+                ? new TillContext(TillContextOutcome.Found, "El Bahdja", "Caisse 1", "DZD", staffId is null ? null : "Nabil B.", "Caissier", "أمين الصندوق",
+                    null, CustomerModule, TabAsPart)
                 : null);
 
         public Task<BoardAnswer?> BoardAsync(string staffId, CancellationToken cancellationToken = default) =>
@@ -1125,7 +1134,7 @@ public sealed class TillWindowTests
         /// <summary>Today's sales at this till: one ticket, S-2026-000142 (B1).</summary>
         public static readonly PastTicketDetail Ticket = new(
             "t-142", "S-2026-000142", new DateTimeOffset(2026, 9, 25, 9, 5, 0, TimeSpan.Zero), "till-1", "Nabil B.", "completed",
-            [new PastTicketLineWire("Lait UHT Candia", "Brique 1L", "2", "pc", "143.00", "286.00")],
+            [new PastTicketLineWire("Lait UHT Candia", "Brique 1L", "2", "pc", "143.00", "286.00", "v-milk", "0")],
             "286.00", "45.66", "286.00", "DZD", [new PastPaymentWire("cash", "286.00")]);
 
         public Task<TicketList?> TicketsAsync(DateOnly day, bool allTills, string sessionToken, CancellationToken cancellationToken = default) =>
@@ -1135,7 +1144,9 @@ public sealed class TillWindowTests
         public Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default) =>
             Task.FromResult<TicketAnswer?>(idOrNumber == Ticket.TransactionId || idOrNumber == Ticket.InvoiceNumber
                 ? new TicketAnswer(TicketOutcomes.Found, Ticket)
-                : new TicketAnswer(TicketOutcomes.Unknown, null));
+                : idOrNumber == RefundTicket.InvoiceNumber
+                    ? new TicketAnswer(TicketOutcomes.Found, RefundTicket)
+                    : new TicketAnswer(TicketOutcomes.Unknown, null));
     }
 }
 

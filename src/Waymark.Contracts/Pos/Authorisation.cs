@@ -74,6 +74,12 @@ public static class Capabilities
 
     /// <summary>A ticket cancelled after "Encaisser" was opened on it, by a cashier (B8).</summary>
     public const string VoidTransaction = "void_transaction";
+
+    /// <summary>A refund (B9, D-098): anyone with a rank, unless the shop raised it (<c>refund_min_rank</c>).</summary>
+    public const string Refund = "refund";
+
+    /// <summary>Cash taken out of the drawer (B10, D-102): anyone with a rank, unless the shop raised it (<c>paid_out_min_rank</c>).</summary>
+    public const string PaidOut = "paid_out";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

@@ -133,8 +133,7 @@ public sealed class TenderTests
 
     [Theory]
     [InlineData(PaymentMethod.Cash)]
-    [InlineData(PaymentMethod.StoreCredit)]
-    public void Only_a_card_a_wallet_or_the_tab_is_a_part(PaymentMethod method)
+    public void Only_a_card_a_wallet_the_tab_or_store_credit_is_a_part(PaymentMethod method)
     {
         var refused = Tender.Settle(Dzd(332_080), [new TenderPart(method, Dzd(10_000))]);
 
@@ -218,5 +217,55 @@ public sealed class TenderTests
 
         // A tab part of zero: each part is judged first.
         Assert.Equal(TenderVerdict.NotAboveZero, Tender.Settle(Dzd(100_000), [OnTab(0), OnTab(0)]).Verdict);
+    }
+
+    // ------------------------------------------------------------------ B9b: store credit, ✍ Hakim
+
+    private static TenderPart Credit(long centimes) => new(PaymentMethod.StoreCredit, Dzd(centimes));
+
+    [Fact]
+    public void Store_credit_is_an_exact_part_and_the_rest_is_cash()
+    {
+        // 3 320,80, of which 1 240,00 in store credit: 2 080,80 left in cash, rounded once.
+        var settled = Tender.Settle(Dzd(332_080), [Credit(124_000)]);
+
+        Assert.Equal(TenderVerdict.Settled, settled.Verdict);
+        Assert.Equal([Credit(124_000), new TenderPart(PaymentMethod.Cash, Dzd(208_080))], settled.Payments);
+        Assert.Equal(Dzd(208_080).ToCashTender(), settled.Cash);
+    }
+
+    [Fact]
+    public void Store_credit_beside_a_card_and_the_tab_is_fine()
+    {
+        var settled = Tender.Settle(Dzd(100_000), [Credit(30_000), Card(20_000), new TenderPart(PaymentMethod.OnAccount, Dzd(50_000))]);
+
+        Assert.Equal(TenderVerdict.Settled, settled.Verdict);
+        Assert.Equal(3, settled.Payments.Count); // nothing left for cash
+    }
+
+    [Fact]
+    public void Credit_is_spent_once_per_ticket()
+    {
+        Assert.Equal(TenderVerdict.CreditTwice, Tender.Settle(Dzd(100_000), [Credit(10_000), Credit(10_000)]).Verdict);
+    }
+
+    [Fact]
+    public void Twice_is_said_before_above_the_total()
+    {
+        Assert.Equal(TenderVerdict.CreditTwice, Tender.Settle(Dzd(1_000), [Credit(10_000), Credit(10_000)]).Verdict);
+    }
+
+    [Fact]
+    public void Credit_above_the_total_is_refused_it_gives_no_change()
+    {
+        Assert.Equal(TenderVerdict.AboveTotal, Tender.Settle(Dzd(10_000), [Credit(10_001)]).Verdict);
+    }
+
+    [Fact]
+    public void With_the_tab_whole_credit_beside_it_is_refused()
+    {
+        var refused = Tender.Settle(Dzd(100_000), [new TenderPart(PaymentMethod.OnAccount, Dzd(80_000)), Credit(20_000)], tabMayBePart: false);
+
+        Assert.Equal(TenderVerdict.TabNotWhole, refused.Verdict);
     }
 }

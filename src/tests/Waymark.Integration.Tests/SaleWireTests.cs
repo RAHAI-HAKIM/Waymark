@@ -289,4 +289,13 @@ public sealed class SaleWireTests
 
         Assert.Equal(string.Empty, command.Lines[0].Override!.AuthorisedBy);
     }
+
+    [Fact]
+    public void A_store_credit_part_reaches_the_command_as_store_credit_never_as_cash()
+    {
+        // B9b (D-101): a method the wire does not know becomes cash and is refused; store credit must not be one of those.
+        var request = new SaleRequest("till", [new SaleRequestLine("6130000000017", 1)], Tenders: [new TenderRequest(TenderMethods.StoreCredit, "100.00")], CustomerId: "c1");
+
+        Assert.Equal(new GivenTender(PaymentMethod.StoreCredit, 10_000, null), Assert.Single(SaleWire.ToCommand(request, "nabil").Tenders!));
+    }
 }

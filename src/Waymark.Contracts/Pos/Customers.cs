@@ -22,10 +22,13 @@ public static class CustomerOutcomes
 
     /// <summary>The person may not; an authorisation for the capability is asked first.</summary>
     public const string NotAllowed = "not_allowed";
+
+    /// <summary>More customers answer the name than are ever listed (D-100): nobody is shown; add the number.</summary>
+    public const string TooMany = "too_many";
 }
 
 /// <summary>A customer as the till lists one: never more than it needs to pick the right person.</summary>
-/// <param name="Phone">In its one form, "+213550123456".</param>
+/// <param name="Phone">In its one form, "+213550123456"; found by name (D-100), masked: "•••• •• 34 56".</param>
 public sealed record CustomerSummaryWire(
     [property: JsonPropertyName("customer_id")] string CustomerId,
     [property: JsonPropertyName("name")] string Name,
@@ -65,6 +68,7 @@ public sealed record TabMovementWire(
 /// <param name="Available">The limit less the balance; null with no tab.</param>
 /// <param name="OldestUnpaid">When the oldest charge still unpaid was made; null when nothing is owed.</param>
 /// <param name="OverdueDays">After how many days a charge is overdue; null when the shop has no such rule.</param>
+/// <param name="CreditAvailable">The customer's store credit that may be spent now, expired credit taken off (B9b); "0.00" when none.</param>
 public sealed record TabAnswer(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("customer")] CustomerSummaryWire? Customer,
@@ -76,7 +80,8 @@ public sealed record TabAnswer(
     [property: JsonPropertyName("overdue_days")] int? OverdueDays,
     [property: JsonPropertyName("currency")] string? Currency,
     [property: JsonPropertyName("movements")] IReadOnlyList<TabMovementWire>? Movements,
-    [property: JsonPropertyName("reason")] string? Reason = null);
+    [property: JsonPropertyName("reason")] string? Reason = null,
+    [property: JsonPropertyName("credit_available")] string? CreditAvailable = null);
 
 /// <summary>A repayment in cash at this till (B7): what was handed over for the tab, and why the drawer takes it.</summary>
 /// <param name="Amount">Exact decimal text.</param>

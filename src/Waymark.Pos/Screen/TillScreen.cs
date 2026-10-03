@@ -39,6 +39,9 @@ public enum Tone
 /// <param name="Weighing">A product sold by weight waiting for its weight (B3).</param>
 /// <param name="Discounting">A discount being given at the counter, on a line or the ticket (B4).</param>
 /// <param name="Paying">The payment panel, while it is open (B6).</param>
+/// <param name="Refunding">A refund being prepared on the past ticket open (B9).</param>
+/// <param name="Customer">The tenant's customer switches, the attached customer's tab, and the customer screens open (B7).</param>
+/// <param name="MoreOpen">The rail shows "Plus…"'s keys (B10).</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -63,7 +66,10 @@ public sealed record ScreenState(
     TicketsState? Tickets = null,
     PendingWeight? Weighing = null,
     DiscountState? Discounting = null,
-    PaymentState? Paying = null);
+    PaymentState? Paying = null,
+    RefundState? Refunding = null,
+    CustomerScreenState? Customer = null,
+    bool MoreOpen = false);
 
 /// <summary>
 /// A discount being given at the counter (B4, D-091): on which line, or the ticket when
@@ -77,6 +83,8 @@ public sealed record ScreenState(
 /// <param name="Kind">A discount (B4), or a price typed in place of the price in force (B5).</param>
 /// <param name="Note">What was typed for a reason that asks for a note (F-28).</param>
 /// <param name="Noting">The field now holds the note, not the value.</param>
+/// <param name="Title">The manager step's title when it is not a counter panel's: a customer created, a tab changed (B7).</param>
+/// <param name="Summary">What that step is asked about, in a line.</param>
 public sealed record DiscountState(
     string? LineId,
     string Form,
@@ -93,7 +101,9 @@ public sealed record DiscountState(
     DateTimeOffset? LockedUntil = null,
     CounterKind Kind = CounterKind.Discount,
     string Note = "",
-    bool Noting = false);
+    bool Noting = false,
+    string? Title = null,
+    string? Summary = null);
 
 /// <summary>What the counter panel gives: a discount (B4), or a new unit price (B5).</summary>
 public enum CounterKind
@@ -103,6 +113,21 @@ public enum CounterKind
 
     /// <summary>The whole ticket cancelled (B8, D-097): a reason, and a manager after "Encaisser" for a cashier.</summary>
     Cancel,
+
+    /// <summary>Lines of a past ticket brought back (B9, D-098): a return reason, and a manager when the shop asks for one.</summary>
+    Refund,
+
+    /// <summary>A customer created at the till (B7): the manager step only, rank 2.</summary>
+    CreateCustomer,
+
+    /// <summary>A tab's limit or freeze changed (B7): the owner's step only, rank 3.</summary>
+    ChangeTab,
+
+    /// <summary>A ticket let past the tab's limit (B7): the owner's step only, rank 3.</summary>
+    TabOverride,
+
+    /// <summary>Cash taken out of the drawer below the shop's rank (B10): the PIN step only.</summary>
+    PaidOut,
 }
 
 /// <summary>What the discount panel has to say is wrong.</summary>
@@ -130,6 +155,9 @@ public enum DiscountProblem
 
     /// <summary>The server refused the cancel (B8): the ticket stays.</summary>
     CancelRefused,
+
+    /// <summary>Continuer with no line chosen to bring back (B9).</summary>
+    NothingChosen,
 }
 
 /// <summary>A name search: what was typed, the server's answer (null while asked, or when it could not say), which row Entrée takes.</summary>
@@ -149,6 +177,9 @@ public sealed record TicketsState(DateOnly Day, bool AllTills, TicketList? List,
 /// <param name="Weigh">The weight card, floating where the results float, while a weight is awaited (B3).</param>
 /// <param name="Approval">The manager step, floating over the whole screen while a PIN is asked (B4, 30/09); null otherwise.</param>
 /// <param name="Payment">The payment panel, floating over the frozen ticket (B6, D-094); null otherwise.</param>
+/// <param name="Client">The customer key beside the field (B7); null with the module off.</param>
+/// <param name="Carnet">The carnet, in the ticket's place (B7); null when closed.</param>
+/// <param name="Form">A customer panel floating over the frozen ticket (B7); null otherwise.</param>
 public sealed record TillScreen(
     bool RightToLeft,
     TopBar Top,
@@ -160,7 +191,10 @@ public sealed record TillScreen(
     ResultsView? Results,
     WeighCard? Weigh = null,
     Approval? Approval = null,
-    PaymentPanel? Payment = null)
+    PaymentPanel? Payment = null,
+    ClientKey? Client = null,
+    CarnetView? Carnet = null,
+    FormPanel? Form = null)
 {
     /// <summary>The key for "Encaisser". Every action has its F key (G1 kit §9).</summary>
     public const string CollectKey = "F12";
@@ -199,7 +233,7 @@ public sealed record TillScreen(
             BottomOf(state),
             state.Weighing is { } weighing
                 ? new FieldChip(text.WeightChip(weighing.UnitCode), Active: true)
-                : state.Discounting is { } discounting
+                : state.Discounting is { } discounting && IsCounter(discounting)
                     ? new FieldChip(
                         discounting.Noting ? text.NoteChip
                         : discounting.Kind == CounterKind.Cancel ? text.CancelChip
@@ -207,11 +241,18 @@ public sealed record TillScreen(
                         : text.DiscountChip(discounting.Form == DiscountForms.Percent ? "%" : text.CurrencySymbol(CurrencyOf(state) ?? Currency.Dzd)),
                         Active: true)
                     : new FieldChip(text.NextCount(DisplayFigures.Count(state.NextCount)), state.NextCount > 1),
-            state.Weighing is null && state.Discounting is null ? ResultsOf(state) : null,
+            state.Weighing is null && (state.Discounting is null || !IsCounter(state.Discounting)) ? ResultsOf(state) : null,
             WeighOf(state),
             ApprovalOf(state),
-            PaymentScreen.Of(state));
+            PaymentScreen.Of(state),
+            CustomerScreen.Key(state),
+            CustomerScreen.Carnet(state),
+            CustomerScreen.Panel(state));
     }
+
+    /// <summary>A panel in the rail (B4, B5, B8): a customer's PIN step (B7) is not one, it only floats.</summary>
+    private static bool IsCounter(DiscountState discounting) =>
+        discounting.Kind is CounterKind.Discount or CounterKind.PriceOverride or CounterKind.Cancel or CounterKind.Refund;
 
     /// <summary>
     /// The weight card (B3, D-090): the product and its price per unit, what was typed, and the
@@ -276,14 +317,34 @@ public sealed record TillScreen(
             Field: drawn.Field != next.Field,
             Results: !Same(drawn.Results, next.Results) || drawn.Weigh != next.Weigh,
             Approval: !Same(drawn.Approval, next.Approval),
-            Payment: !Same(drawn.Payment, next.Payment));
+            Payment: !Same(drawn.Payment, next.Payment) || !Same(drawn.Form, next.Form),
+            Client: drawn.Client != next.Client,
+            Carnet: !Same(drawn.Carnet, next.Carnet));
     }
+
+    private static bool Same(FormPanel? drawn, FormPanel? next) => (drawn, next) switch
+    {
+        (null, null) => true,
+        ({ } a, { } b) => a.Tiles.SequenceEqual(b.Tiles) && a.Fields.SequenceEqual(b.Fields) && a.Rows.SequenceEqual(b.Rows)
+            && a.Keys.SequenceEqual(b.Keys) && a.Figures.SequenceEqual(b.Figures)
+            && a with { Tiles = b.Tiles, Fields = b.Fields, Rows = b.Rows, Keys = b.Keys, Figures = b.Figures } == b,
+        _ => false,
+    };
+
+    private static bool Same(CarnetView? drawn, CarnetView? next) => (drawn, next) switch
+    {
+        (null, null) => true,
+        ({ } a, { } b) => a.Figures.SequenceEqual(b.Figures) && a.Columns.SequenceEqual(b.Columns) && a.Rows.SequenceEqual(b.Rows)
+            && a with { Figures = b.Figures, Columns = b.Columns, Rows = b.Rows } == b,
+        _ => false,
+    };
 
     private static bool Same(PaymentPanel? drawn, PaymentPanel? next) => (drawn, next) switch
     {
         (null, null) => true,
         ({ } a, { } b) => a.Figures.SequenceEqual(b.Figures) && a.Parts.SequenceEqual(b.Parts) && a.Methods.SequenceEqual(b.Methods)
-            && a with { Figures = b.Figures, Parts = b.Parts, Methods = b.Methods } == b,
+            && (a.Entry?.Account ?? []).SequenceEqual(b.Entry?.Account ?? [])
+            && a with { Figures = b.Figures, Parts = b.Parts, Methods = b.Methods, Entry = a.Entry is null ? null : a.Entry with { Account = b.Entry?.Account } } == b,
         _ => false,
     };
 
@@ -429,6 +490,11 @@ public sealed record TillScreen(
         if (state.Paid is { } paid)
         {
             return new NoticeLine(Tone.Neutral, text.SaleRecorded, text.SaleRecordedLine(paid.Outcome.InvoiceNumber ?? "?"));
+        }
+
+        if (CustomerScreen.Attached(state) is { } attached)
+        {
+            return attached;
         }
 
         if (state.Cart.LastAdded is { } last)
@@ -689,7 +755,7 @@ public sealed record TillScreen(
                 text.NextScanOpensTicket);
         }
 
-        if (state.Discounting is { } discounting)
+        if (state.Discounting is { } discounting && IsCounter(discounting))
         {
             // At the manager step the panel stays in the rail, under the step floating over it.
             return discounting.Kind switch
@@ -724,6 +790,16 @@ public sealed record TillScreen(
         var mayPutAside = state.Cart.ActiveLines.Count > 0 && state.Paid is null && state.Unconfirmed is null;
         var drafts = state.Drafts?.Count ?? 0;
 
+        // "Plus…" (B10): the keys that are not the sale's, and the way back.
+        if (state.MoreOpen)
+        {
+            return
+            [
+                new OperationKey(Operation.Clock, text.ClockKey, null, true),
+                new OperationKey(Operation.More, text.BackFromMore, null, true),
+            ];
+        }
+
         return
         [
             new OperationKey(Operation.Park, text.Park, ParkKey, mayPutAside),
@@ -731,6 +807,8 @@ public sealed record TillScreen(
             new OperationKey(Operation.CancelTicket, text.CancelTicket, null, mayPutAside),
             new OperationKey(Operation.Drafts, text.DraftsKey(drafts), null, drafts > 0),
             new OperationKey(Operation.Tickets, text.TicketsKey, null, true),
+            new OperationKey(Operation.PettyCash, text.PettyCashKey, null, state.Paid is null && state.Unconfirmed is null),
+            new OperationKey(Operation.More, text.MoreOperations, null, true),
         ];
     }
 
@@ -934,6 +1012,7 @@ public sealed record TillScreen(
         var text = state.Text;
         var overriding = discounting.Kind == CounterKind.PriceOverride;
         var cancelling = discounting.Kind == CounterKind.Cancel;
+        var refunding = discounting.Kind == CounterKind.Refund;
         var form = overriding ? DiscountForms.Amount : discounting.Form;
         var given = DiscountEntry.TryParse(discounting.Typed, form, out var hundredths)
             ? overriding
@@ -954,13 +1033,38 @@ public sealed record TillScreen(
         };
 
         var why = reason is null ? string.Empty : text.RightToLeft ? reason.LabelAr : reason.LabelFr;
+
+        // A customer's step (B7) says its own title and line; its rank is the server's to say.
+        if (discounting.Title is { } title)
+        {
+            return new Approval(
+                discounting.Kind is CounterKind.CreateCustomer or CounterKind.PaidOut ? text.ManagerApproval : text.OwnerApproval,
+                title,
+                discounting.Summary ?? string.Empty,
+                text.WhoApproves,
+                [.. (discounting.Staff?.Staff ?? []).Select(person => new ApproverRow(
+                    person.StaffId, person.StaffName, text.RightToLeft ? person.RoleLabelAr : person.RoleLabelFr,
+                    person.StaffId == discounting.ManagerId, person.HasPin))],
+                text.ManagerPin,
+                discounting.PinLength,
+                message,
+                discounting.ManagerId is not null && discounting.PinLength >= 4,
+                text.ApproveValidate,
+                text.BackToTicket,
+                text.EnterKey,
+                text.EscapeKey);
+        }
+
         return new Approval(
             text.ManagerApproval,
             cancelling ? text.CancelLabel
+                : refunding ? text.RefundLabel
                 : $"{(overriding ? text.PriceOverrideLabel : line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
             cancelling
                 ? $"{text.PaymentStarted} · {why}"
-                : $"{(line is null ? text.CurrentTicket : Article(line))} · {why}",
+                : refunding
+                    ? $"{text.TicketNumber(state.Viewing?.InvoiceNumber ?? "?")} · {why}"
+                    : $"{(line is null ? text.CurrentTicket : Article(line))} · {why}",
             text.WhoApproves,
             [.. (discounting.Staff?.Staff ?? []).Select(person => new ApproverRow(
                 person.StaffId, person.StaffName, text.RightToLeft ? person.RoleLabelAr : person.RoleLabelFr,
@@ -969,7 +1073,7 @@ public sealed record TillScreen(
             discounting.PinLength,
             message,
             discounting.ManagerId is not null && discounting.PinLength >= 4,
-            cancelling ? text.ApproveCancel : overriding ? text.ApproveOverride : text.ApproveDiscount,
+            cancelling ? text.ApproveCancel : refunding ? text.ApproveRefund : overriding ? text.ApproveOverride : text.ApproveDiscount,
             text.BackToTicket,
             text.EnterKey,
             text.EscapeKey);
@@ -1093,20 +1197,25 @@ public sealed record TillScreen(
 
         var top = TopBarOf(state) with { Tab = new TicketTab(number, $"{date} {clock}") };
 
-        var notice = new NoticeLine(
-            status is null ? Tone.Neutral : Tone.Warning,
-            status?.Label ?? text.PastTicket,
-            text.PastTicketLine(date, clock, past.StaffName));
+        // A refund being prepared says so; a refund ticket says whose sale it refunds (B9).
+        var refund = state.Refunding;
+        var notice = refund is not null
+            ? new NoticeLine(Tone.Neutral, text.RefundingNotice, text.RefundingNoticeDetail)
+            : new NoticeLine(
+                status is null ? Tone.Neutral : Tone.Warning,
+                status?.Label ?? text.PastTicket,
+                past.OriginalInvoiceNumber is { } original ? text.RefundOfTicket(original) : text.PastTicketLine(date, clock, past.StaffName));
 
+        // While a refund is prepared a line is touched to bring it back, and says what comes back of it.
         var rows = past.Lines.Select((line, index) => new LineRow(
             $"past-{index}",
             Decimal(line.Quantity) ?? line.Quantity,
             $"{line.ProductName} {line.VariantName}",
-            [],
+            refund is null ? [] : RefundScreen.Chips(line, refund.Picks[index], text),
             Figure(line.UnitPrice, past.Currency),
             Figure(line.LineTotal, past.Currency),
             Struck: false,
-            Selected: false)).ToList();
+            Selected: refund?.Selected == index)).ToList();
         var cart = new CartView(
             [text.ColumnQuantity, text.ColumnArticle, text.ColumnUnitPrice, text.ColumnTotal],
             rows,
@@ -1122,12 +1231,15 @@ public sealed record TillScreen(
         };
         figures.AddRange(past.Payments.Select(payment => new Figure(text.PaymentMethod(payment.Method), Figure(payment.Amount, past.Currency))));
 
-        var rail = new Rail.Past(
-            text.PastTicket,
-            number,
-            past.StaffName is null ? $"{date} {clock}" : $"{date} {clock} · {past.StaffName}",
-            figures,
-            text.PastTicketFooter);
+        Rail rail = refund is not null && state.Discounting is { Kind: CounterKind.Refund } discounting
+            ? RefundScreen.RailPanel(state, discounting, past, refund)
+            : new Rail.Past(
+                text.PastTicket,
+                number,
+                past.StaffName is null ? $"{date} {clock}" : $"{date} {clock} · {past.StaffName}",
+                figures,
+                text.PastTicketFooter,
+                RefundScreen.Refundable(past) ? new OperationKey(Operation.Refund, text.RefundKey, null, true) : null);
 
         var bottom = new BottomBar(
             [new Figure(text.Subtotal, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))],
@@ -1135,7 +1247,12 @@ public sealed record TillScreen(
             total is { } t ? DisplayFigures.AmountWithCurrency(t, text) : "?",
             new PrimaryKey(text.Close, null, CloseKey, Enabled: true));
 
-        return new TillScreen(text.RightToLeft, top, notice, cart, rail, bottom, new FieldChip(text.NextCount("1"), false), null);
+        var field = state.Discounting is { Kind: CounterKind.Refund, Noting: true }
+            ? new FieldChip(text.NoteChip, Active: true)
+            : new FieldChip(text.NextCount("1"), false);
+        return new TillScreen(
+            text.RightToLeft, top, notice, cart, rail, bottom, field, null, null, ApprovalOf(state), RefundScreen.Panel(state),
+            CustomerScreen.Key(state), null, CustomerScreen.Panel(state));
     }
 
     /// <summary>
@@ -1327,9 +1444,10 @@ public sealed record TillScreen(
 
 /// <summary>Which regions a frame changed (<see cref="TillScreen.Compare"/>): the ones the window redraws.</summary>
 public sealed record FrameChanges(
-    bool Top, bool Notice, bool Cart, bool Rail, bool Bottom, bool Field = false, bool Results = false, bool Approval = false, bool Payment = false)
+    bool Top, bool Notice, bool Cart, bool Rail, bool Bottom, bool Field = false, bool Results = false, bool Approval = false, bool Payment = false,
+    bool Client = false, bool Carnet = false)
 {
-    public static FrameChanges All { get; } = new(true, true, true, true, true, true, true, true, true);
+    public static FrameChanges All { get; } = new(true, true, true, true, true, true, true, true, true, true, true);
 }
 
 /// <summary>
@@ -1451,7 +1569,8 @@ public abstract record Rail
         string Label, string Day, string Scope, string OtherScope, IReadOnlyList<TicketRow> Rows, string? Message, bool MayGoForward, string Close) : Rail;
 
     /// <summary>A past ticket's figures and payments, beside it in the ticket view (B1).</summary>
-    public sealed record Past(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer) : Rail;
+    /// <param name="Refund">"Rembourser" (B9), when the ticket may be refunded; null otherwise.</param>
+    public sealed record Past(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, OperationKey? Refund = null) : Rail;
 
     /// <summary>The tickets cancelled today (D-087).</summary>
     /// <param name="Empty">What to say when there are none; null when there are.</param>
@@ -1487,6 +1606,18 @@ public enum Operation
 
     /// <summary>The "Tickets" list: sales already made (B1).</summary>
     Tickets,
+
+    /// <summary>"Rembourser", on a past ticket (B9).</summary>
+    Refund,
+
+    /// <summary>"Petite caisse" (B10): cash in or out with no sale.</summary>
+    PettyCash,
+
+    /// <summary>"Plus…" (B10): the rail's other keys, and back.</summary>
+    More,
+
+    /// <summary>"Pointage" (B10), under "Plus…".</summary>
+    Clock,
 }
 
 /// <summary>An operation key in the rail: its label, its F key when it has one, and whether it is available now.</summary>

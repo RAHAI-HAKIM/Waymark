@@ -111,6 +111,7 @@ internal static class ReferenceData
             LabelAr = reason.LabelAr,
             RequiresNote = reason.RequiresNote,
             RequiresManager = reason.RequiresManager,
+            Direction = reason.Direction,
             DisplayOrder = order,
             CreatedAt = at,
         }));

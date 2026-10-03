@@ -11,7 +11,13 @@ public sealed record TenderEntry(PaymentMethod Method, Money Amount, string? Ref
 {
     /// <summary>What the sale sends: the part as given, which the server settles again on its own total.</summary>
     public TenderRequest ToWire() => new(
-        Method == PaymentMethod.MobileWallet ? TenderMethods.MobileWallet : TenderMethods.Card,
+        Method switch
+        {
+            PaymentMethod.MobileWallet => TenderMethods.MobileWallet,
+            PaymentMethod.OnAccount => TenderMethods.OnAccount,
+            PaymentMethod.StoreCredit => TenderMethods.StoreCredit,
+            _ => TenderMethods.Card,
+        },
         Contracts.Figures.Amount(Amount.MinorUnits),
         Reference);
 
@@ -42,6 +48,8 @@ public enum PaymentProblem
 /// <param name="Typed">The part's amount as typed; empty while it is the rest, prefilled.</param>
 /// <param name="Refused">The server's reason, when it refused the sale: the parts stay.</param>
 /// <param name="Sending">The sale is on its way: nothing is pressed twice.</param>
+/// <param name="TabAsPart">The tenant lets the tab be a part (D-096); off, the tab takes the whole ticket and nothing is typed.</param>
+/// <param name="TabOverride">The owner's authorisation letting the tab past its limit, once given (B7).</param>
 public sealed record PaymentState(
     IReadOnlyList<TenderEntry> Parts,
     PaymentMethod Method,
@@ -50,7 +58,9 @@ public sealed record PaymentState(
     bool OnReference,
     PaymentProblem? Problem = null,
     string? Refused = null,
-    bool Sending = false)
+    bool Sending = false,
+    bool TabAsPart = true,
+    string? TabOverride = null)
 {
     /// <summary>Opened by Encaisser: no part, cash chosen, so Entrée sends it all in cash.</summary>
     public static PaymentState Open { get; } = new([], PaymentMethod.Cash, string.Empty, string.Empty, false);
@@ -83,7 +93,8 @@ public sealed record PaymentPanel(
     string Primary,
     bool MayPrimary,
     string PrimaryKey,
-    string CloseKey);
+    string CloseKey,
+    PanelAction? Action = null);
 
 /// <summary>A part in the list, with its ✕.</summary>
 public sealed record PartRow(int Index, PaymentMethod Method, string Label, string? Reference, string Amount);
@@ -95,6 +106,9 @@ public sealed record MethodChoice(PaymentMethod Method, string Label, bool Selec
 /// <param name="Prefilled">The amount shown is the rest: the first key typed replaces it.</param>
 /// <param name="Rest">What is left after this part, or "—" when the part is more than is left.</param>
 /// <param name="Currency">The symbol beside the amount: "DA".</param>
+/// <param name="AccountTitle">For the tab (B7): "CARNET DE Samira B.", over <see cref="Account"/>.</param>
+/// <param name="Account">For the tab: what is available, and after this sale.</param>
+/// <param name="HasReference">A card or BaridiMob part has a reference; the tab has none.</param>
 public sealed record PartEntry(
     string AmountTitle,
     string Amount,
@@ -108,10 +122,16 @@ public sealed record PartEntry(
     string WholeRest,
     string WholeRestAmount,
     string NoChange,
-    string Currency);
+    string Currency,
+    string? AccountTitle = null,
+    IReadOnlyList<Figure>? Account = null,
+    bool HasReference = true);
 
-/// <summary>A refusal in the panel, labelled before it is coloured.</summary>
-public sealed record PanelMessage(string Title, string Body);
+/// <summary>A refusal in the panel, labelled before it is coloured; a warning when it only says what to do first.</summary>
+public sealed record PanelMessage(string Title, string Body, Tone Tone = Tone.Critical);
+
+/// <summary>A key in a panel that opens another step: "Rattacher un client · F5" (B9a).</summary>
+public sealed record PanelAction(string Label, string Key);
 
 /// <summary>
 /// The payment panel's rules (B6, D-095), apart from the window so they are tested without one: what
@@ -140,7 +160,25 @@ public static class PaymentScreen
             .Select((part, index) => new PartRow(
                 index, part.Method, Label(part.Method, text), part.Reference is null ? null : text.PartReference(part.Reference), DisplayFigures.Amount(part.Amount)))
             .ToList();
-        var methods = new[] { PaymentMethod.Cash, PaymentMethod.Card, PaymentMethod.MobileWallet }
+        // The tab's key only for a customer attached who has a tab (B7): no key at all otherwise.
+        var account = state.Cart.Customer is not null ? state.Customer?.Tab : null;
+        var tab = account is { Limit: not null } ? account : null;
+
+        // Store credit's key only for a customer attached with credit to spend, once per ticket (B9b).
+        var credit = account is not null ? Read(account.CreditAvailable, account.Currency) : null;
+        var spending = credit is { IsPositive: true } && open.Parts.All(part => part.Method != PaymentMethod.StoreCredit);
+        var offered = new List<PaymentMethod> { PaymentMethod.Cash, PaymentMethod.Card, PaymentMethod.MobileWallet };
+        if (tab is not null)
+        {
+            offered.Add(PaymentMethod.OnAccount);
+        }
+
+        if (spending || open.Method == PaymentMethod.StoreCredit)
+        {
+            offered.Add(PaymentMethod.StoreCredit);
+        }
+
+        var methods = offered
             .Select(method => new MethodChoice(method, Label(method, text), method == open.Method))
             .ToList();
 
@@ -148,6 +186,16 @@ public static class PaymentScreen
         var mayPrimary = !open.Sending;
         var message = open.Refused is { } refused ? new PanelMessage(text.SaleRefusedInPanel, refused) : null;
         string? hint = text.PaymentCloseHint;
+
+        if (open.Method == PaymentMethod.OnAccount && tab is not null)
+        {
+            return TabPanel(state, open, tab, total, rest, parts, methods);
+        }
+
+        if (open.Method == PaymentMethod.StoreCredit && credit is { } available)
+        {
+            return CreditPanel(state, open, available, total, rest, parts, methods);
+        }
 
         if (open.AddingPart)
         {
@@ -199,6 +247,178 @@ public static class PaymentScreen
             mayPrimary,
             text.EnterKey,
             text.EscapeKey);
+    }
+
+    /// <summary>
+    /// The tab chosen (B7, D-096), as the board's "Payer au carnet" draws it: what is available, what is
+    /// left after this sale, and the tab's own rule, <see cref="CustomerScreen.Check"/>, asked as the
+    /// server asks it. Above the limit the key asks the owner's PIN; frozen or overdue, nothing lets it
+    /// through. With <see cref="PaymentState.TabAsPart"/> off the whole ticket goes on it, nothing typed.
+    /// </summary>
+    private static PaymentPanel TabPanel(
+        ScreenState state, PaymentState open, Contracts.Pos.TabAnswer tab, Money total, Money rest, List<PartRow> parts, List<MethodChoice> methods)
+    {
+        var text = state.Text;
+        var whole = !open.TabAsPart;
+        var amount = whole ? total : AmountOf(open, rest);
+        var check = amount is { IsPositive: true } charge ? CustomerScreen.Check(tab, charge, state.Now) : null;
+        var available = Read(tab.Available, tab.Currency);
+        var name = state.Cart.Customer?.ShortName ?? string.Empty;
+
+        var message = whole && open.Parts.Count > 0 ? new PanelMessage(text.TabNotWithParts, text.TabNotWithPartsDetail)
+            : open.Refused is { } refused ? new PanelMessage(text.SaleRefusedInPanel, refused)
+            : check?.Verdict switch
+            {
+                Domain.Customers.TabVerdict.AboveLimit when open.TabOverride is null => new PanelMessage(
+                    text.AboveLimit,
+                    text.AboveLimitDetail(available is { } a ? DisplayFigures.AmountWithCurrency(a, text) : "?", DisplayFigures.AmountWithCurrency(amount!.Value, text))),
+                Domain.Customers.TabVerdict.Frozen => new PanelMessage(text.TabFrozenRefused, text.TabFrozenRefusedDetail),
+                Domain.Customers.TabVerdict.Overdue => new PanelMessage(text.TabOverdueRefused, text.TabOverdueRefusedDetail),
+                _ when !whole && amount is { } typed && typed > rest => new PanelMessage(text.AboveRest, text.AboveRestDetail(DisplayFigures.AmountWithCurrency(rest, text))),
+                _ when amount is null => new PanelMessage(text.PartInvalid, text.PartInvalidDetail),
+                _ => null,
+            };
+
+        var blocked = check?.Verdict is Domain.Customers.TabVerdict.Frozen or Domain.Customers.TabVerdict.Overdue or Domain.Customers.TabVerdict.NoTab
+            || (whole && open.Parts.Count > 0) || amount is not { IsPositive: true } || (!whole && amount > rest);
+        var above = check?.Verdict == Domain.Customers.TabVerdict.AboveLimit && open.TabOverride is null;
+
+        var entry = new PartEntry(
+            text.TabAmountTitle,
+            amount is { } shown ? DisplayFigures.Amount(shown) : open.Typed,
+            !whole && open.Typed.Length == 0,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            false,
+            text.TabOf(name),
+            amount is { } part ? DisplayFigures.AmountWithCurrency(part, text) : "—",
+            text.WholeRest,
+            DisplayFigures.Amount(rest),
+            whole ? text.WholeTicketOnly : text.NoChangeOnCard,
+            text.CurrencySymbol(total.Currency),
+            text.TabOf(name),
+            [
+                new Figure(text.TabAvailable, available is { } x ? DisplayFigures.Amount(x) : "—"),
+                new Figure(text.AfterThisSale, available is { } y && amount is { } z ? DisplayFigures.Amount(y - z) : "—"),
+            ],
+            HasReference: false);
+
+        var due = whole ? Money.Zero(total.Currency) : CashOf(total, open.Parts).Tendered;
+        return new PaymentPanel(
+            text.PaymentTitle,
+            text.PaymentSubtitle(state.Cart.ActiveLines.Count),
+            [new Figure(text.TicketTotal, DisplayFigures.Amount(total))],
+            text.CashToCollect,
+            DisplayFigures.AmountWithCurrency(due, text),
+            text.PartsTitle,
+            parts,
+            parts.Count == 0 ? text.NoParts : null,
+            methods,
+            entry,
+            whole ? null : text.PartPrefilled,
+            message,
+            !whole && !open.Sending,
+            above ? text.OverrideWithOwnerPin : whole ? text.ValidateOnTab : text.AddPart,
+            !blocked && !open.Sending,
+            text.EnterKey,
+            text.EscapeKey);
+    }
+
+    /// <summary>
+    /// Store credit chosen (B9b), as the board's "Payer en avoir" draws it: whose credit, what is
+    /// available, and the amount prefilled with the smaller of the credit and the rest; more than the
+    /// credit is "PLUS QUE L'AVOIR", asked of <see cref="Domain.Customers.StoreCredit.MayRedeem"/>.
+    /// </summary>
+    private static PaymentPanel CreditPanel(
+        ScreenState state, PaymentState open, Money available, Money total, Money rest, List<PartRow> parts, List<MethodChoice> methods)
+    {
+        var text = state.Text;
+        var amount = CreditAmountOf(open, rest, available);
+        var name = state.Cart.Customer?.ShortName ?? string.Empty;
+        var verdict = amount is { } a ? Domain.Customers.StoreCredit.MayRedeem(available, a) : (Domain.Customers.RedeemVerdict?)null;
+
+        var message = open.Refused is { } refused ? new PanelMessage(text.SaleRefusedInPanel, refused)
+            : amount is null ? new PanelMessage(text.PartInvalid, text.PartInvalidDetail)
+            : verdict == Domain.Customers.RedeemVerdict.AboveAvailable ? new PanelMessage(text.AboveCredit, text.AboveCreditDetail(name, DisplayFigures.AmountWithCurrency(available, text)))
+            : amount > rest ? new PanelMessage(text.AboveRest, text.AboveRestDetail(DisplayFigures.AmountWithCurrency(rest, text)))
+            : null;
+        var may = verdict == Domain.Customers.RedeemVerdict.Accepted && amount <= rest && !open.Sending;
+
+        var entry = new PartEntry(
+            text.CreditAmountTitle,
+            open.Typed.Length == 0 && amount is { } prefilled ? DisplayFigures.Amount(prefilled) : open.Typed,
+            open.Typed.Length == 0,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            false,
+            text.RestAfterPart,
+            amount is { } part && may ? DisplayFigures.AmountWithCurrency(rest - part, text) : "—",
+            text.WholeRest,
+            DisplayFigures.Amount(rest),
+            text.CreditPrefilled,
+            text.CurrencySymbol(total.Currency),
+            text.CreditOf(name),
+            [new Figure(text.CreditAvailableLabel, DisplayFigures.Amount(available))],
+            HasReference: false);
+
+        return new PaymentPanel(
+            text.PaymentTitle,
+            text.PaymentSubtitle(state.Cart.ActiveLines.Count),
+            [new Figure(text.TicketTotal, DisplayFigures.Amount(total)), new Figure(text.CashRounding, DisplayFigures.Amount(CashOf(total, open.Parts).Variance))],
+            text.CashToCollect,
+            DisplayFigures.AmountWithCurrency(CashOf(total, open.Parts).Tendered, text),
+            text.PartsTitle,
+            parts,
+            parts.Count == 0 ? text.NoParts : null,
+            methods,
+            entry,
+            null,
+            message,
+            !open.Sending,
+            text.AddPart,
+            may,
+            text.EnterKey,
+            text.EscapeKey);
+    }
+
+    /// <summary>The store credit part's amount: what was typed, else the smaller of the credit and the rest (the board's prefill).</summary>
+    public static Money? CreditAmountOf(PaymentState open, Money rest, Money available)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+        return open.Typed.Length == 0 ? (available < rest ? available : rest) : AmountOf(open, rest);
+    }
+
+    /// <summary>"Ajouter la part" for store credit: the amount the panel shows, prefilled or typed, then added as any part is.</summary>
+    public static PaymentState AddCredit(PaymentState open, Money total, Money available)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+        var rest = RestOf(total, open.Parts);
+        if (CreditAmountOf(open, rest, available) is not { } amount
+            || Domain.Customers.StoreCredit.MayRedeem(available, amount) != Domain.Customers.RedeemVerdict.Accepted)
+        {
+            return open;
+        }
+
+        return AddPart(open with { Typed = DisplayFigures.Amount(amount).Replace(DisplayFigures.ThousandsSeparator.ToString(), string.Empty, StringComparison.Ordinal) }, total);
+    }
+
+    private static Money? Read(string? text, string? currency)
+    {
+        if (text is null || currency is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Checkout.WireFigures.Money(text, currency);
+        }
+        catch (Exception exception) when (exception is FormatException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     /// <summary>What is left to pay once the parts added are taken off.</summary>
@@ -272,7 +492,7 @@ public static class PaymentScreen
     public static PaymentState Choose(PaymentState open, PaymentMethod method)
     {
         ArgumentNullException.ThrowIfNull(open);
-        return open with { Method = method, Typed = string.Empty, Reference = string.Empty, OnReference = false, Problem = null };
+        return open with { Method = method, Typed = string.Empty, Reference = string.Empty, OnReference = false, Problem = null, Refused = null };
     }
 
     /// <summary>
@@ -282,7 +502,8 @@ public static class PaymentScreen
     public static PaymentState Press(PaymentState open, char key)
     {
         ArgumentNullException.ThrowIfNull(open);
-        if (!open.AddingPart || open.Sending)
+        // The tab with the tenant's whole-ticket rule takes nothing typed (D-096).
+        if (!open.AddingPart || open.Sending || (open.Method == PaymentMethod.OnAccount && !open.TabAsPart))
         {
             return open;
         }
@@ -341,6 +562,8 @@ public static class PaymentScreen
         {
             PaymentMethod.Card => text.MethodCard,
             PaymentMethod.MobileWallet => text.MethodWallet,
+            PaymentMethod.OnAccount => text.MethodTab,
+            PaymentMethod.StoreCredit => text.MethodStoreCredit,
             _ => text.MethodCash,
         };
     }

@@ -30,6 +30,9 @@ public enum CustomerRefusal
 
     /// <summary>The tab's rules said no: above the ceiling, above the balance.</summary>
     Refused,
+
+    /// <summary>More customers answer the name than are ever listed (D-100): nobody is shown.</summary>
+    TooMany,
 }
 
 /// <summary>A customer command refused, with why, in words, for the cashier.</summary>
@@ -46,6 +49,7 @@ public sealed record CustomerSummary(string CustomerId, string Name, string? Pho
 /// <param name="OldestUnpaid">When the oldest charge still unpaid was made; null when nothing is owed.</param>
 /// <param name="OverdueDays">The tenant's overdue days, so the till can say how old is too old; null when the rule is off.</param>
 /// <param name="Movements">Every movement at this store, oldest first: the statement.</param>
+/// <param name="CreditAvailable">The store credit that may be spent now (B9b): expired credit taken off.</param>
 public sealed record TabView(
     CustomerSummary Customer,
     Money Balance,
@@ -54,7 +58,8 @@ public sealed record TabView(
     bool Frozen,
     DateTimeOffset? OldestUnpaid,
     int? OverdueDays,
-    IReadOnlyList<ReceivableMovement> Movements);
+    IReadOnlyList<ReceivableMovement> Movements,
+    Money CreditAvailable);
 
 /// <summary>What a limit command does (B7, D-096).</summary>
 public enum LimitChange
@@ -67,8 +72,8 @@ public enum LimitChange
     Unfreeze,
 }
 
-/// <summary>Find customers by their number (B7).</summary>
-public sealed record FindCustomers(string StaffId, string Phone, string? TerminalId = null) : ICommand<IReadOnlyList<CustomerSummary>>;
+/// <summary>Find customers by their number (B7), or by their full name (D-100) when <paramref name="Name"/> is given.</summary>
+public sealed record FindCustomers(string StaffId, string Phone, string? TerminalId = null, string? Name = null) : ICommand<IReadOnlyList<CustomerSummary>>;
 
 /// <summary>Create a customer at the till, the information notice handed over (B7). The host has checked <c>CreateCustomer</c>.</summary>
 public sealed record CreateCustomer(string StaffId, string Name, string Phone, string? TerminalId = null) : ICommand<CustomerSummary>;
@@ -126,7 +131,22 @@ public abstract class CustomerCommandBase(
             TerminalId: terminalId));
 
     /// <summary>The tab as the till shows it, from the customer, the movements and the rule (<see cref="Tab"/>).</summary>
-    protected TabView ViewOf(Customer customer, IReadOnlyList<ReceivableMovement> movements, TenantSettings settings, Money? limit, bool frozen)
+    /// <summary>The customer's store credit as <see cref="StoreCredit.Age"/> reads it (B9b, D-101).</summary>
+    protected async Task<CreditAge> CreditAsync(string customerId, TenantSettings settings, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var movements = await customers.CreditMovementsAsync(customerId, cancellationToken);
+        if (movements.Count == 0)
+        {
+            // No store credit ever: nothing to ask the rule about (B7's tab is read without it).
+            var none = Money.Zero(ledgerCurrency.Currency);
+            return new CreditAge(none, none, none);
+        }
+
+        return StoreCredit.Age(ledgerCurrency.Currency, [.. movements.Select(movement => new CreditLine(movement.OccurredAt, movement.Amount))], now, settings.CreditExpiryDays);
+    }
+
+    protected TabView ViewOf(Customer customer, IReadOnlyList<ReceivableMovement> movements, TenantSettings settings, Money? limit, bool frozen, Money creditAvailable)
     {
         var age = Tab.Age(ledgerCurrency.Currency, [.. movements.Select(movement => new TabMovement(movement.OccurredAt, movement.Amount))]);
         return new TabView(
@@ -137,7 +157,8 @@ public abstract class CustomerCommandBase(
             frozen,
             age.OldestUnpaid,
             settings.CreditOverdueDays,
-            movements);
+            movements,
+            creditAvailable);
     }
 
     protected static string Normalised(string phone) => PhoneNumber.TryNormalise(phone, out var normalised)
@@ -157,6 +178,29 @@ public sealed class FindCustomersHandler(ICustomerLedger customers, ITenantConfi
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(context);
         await ModuleOnAsync(cancellationToken);
+
+        // By name (D-100): a full name, whole words, five at most, the number masked; nobody listed
+        // is nobody looked at, so nothing is logged for a name that answers too many.
+        if (!string.IsNullOrWhiteSpace(command.Name))
+        {
+            if (!CustomerNameSearch.IsFullName(command.Name))
+            {
+                throw new CustomerRefusedException(CustomerRefusal.Invalid, "A full name: the first name and the last, each of two letters or more.");
+            }
+
+            var named = (await Customers.ActiveAsync(cancellationToken)).Where(customer => CustomerNameSearch.Matches(command.Name, customer.CustomerName)).ToList();
+            if (named.Count > CustomerNameSearch.MaximumShown)
+            {
+                throw new CustomerRefusedException(CustomerRefusal.TooMany, $"More than {CustomerNameSearch.MaximumShown} customers have this name: add the number.");
+            }
+
+            foreach (var customer in named)
+            {
+                Log(context, Operation.Consultation, customer.CustomerId, command.StaffId, command.TerminalId);
+            }
+
+            return [.. named.Select(customer => new CustomerSummary(customer.CustomerId, customer.CustomerName, CustomerNameSearch.Masked(customer.ContactPhone)))];
+        }
 
         var found = await Customers.FindByPhoneAsync(Normalised(command.Phone), cancellationToken);
         foreach (var customer in found)
@@ -216,7 +260,8 @@ public sealed class CreateCustomerHandler(
 }
 
 /// <summary>A customer's tab, opened at the till (B7): a consultation of a named person, logged.</summary>
-public sealed class OpenTabHandler(ICustomerLedger customers, ITenantConfiguration configuration, IPseudonymiser pseudonymiser, ILedgerCurrency currency)
+public sealed class OpenTabHandler(
+    ICustomerLedger customers, ITenantConfiguration configuration, IPseudonymiser pseudonymiser, ILedgerCurrency currency, TimeProvider? clock = null)
     : CustomerCommandBase(customers, configuration, pseudonymiser, currency), ICommandHandler<OpenTab, TabView>
 {
     public async Task<TabView> HandleAsync(OpenTab command, CommandContext context, CancellationToken cancellationToken = default)
@@ -228,7 +273,8 @@ public sealed class OpenTabHandler(ICustomerLedger customers, ITenantConfigurati
         var movements = await Customers.MovementsAsync(customer.CustomerId, cancellationToken);
 
         Log(context, Operation.Consultation, customer.CustomerId, command.StaffId, command.TerminalId);
-        return ViewOf(customer, movements, settings, customer.CreditLimit, customer.TabFrozenAt is not null);
+        var credit = await CreditAsync(customer.CustomerId, settings, (clock ?? TimeProvider.System).GetUtcNow(), cancellationToken);
+        return ViewOf(customer, movements, settings, customer.CreditLimit, customer.TabFrozenAt is not null, credit.Available);
     }
 }
 
@@ -298,7 +344,8 @@ public sealed class ChangeCreditLimitHandler(
             Log(context, Operation.Consultation, customer.CustomerId, command.StaffId, command.TerminalId);
         }
 
-        return ViewOf(customer, movements, settings, limit, frozenAt is not null);
+        var credit = await CreditAsync(customer.CustomerId, settings, clock.GetUtcNow(), cancellationToken);
+        return ViewOf(customer, movements, settings, limit, frozenAt is not null, credit.Available);
     }
 
     private static CreditLimitEvent Event(
@@ -345,7 +392,8 @@ public sealed class RepayTabHandler(
                 throw new CustomerRefusedException(CustomerRefusal.Refused, $"More than is owed: {before.Balance}.");
         }
 
-        if ((await reasons.ForAsync(ReasonCodeAppliesTo.CashMovement, cancellationToken)).All(reason => reason.Code != command.ReasonCode))
+        if ((await reasons.ForAsync(ReasonCodeAppliesTo.CashMovement, cancellationToken))
+            .All(reason => reason.Code != command.ReasonCode || reason.Direction == CashDirection.Out))
         {
             throw new CustomerRefusedException(CustomerRefusal.Invalid, "Not a reason this shop gives for money into the drawer.");
         }
@@ -380,6 +428,7 @@ public sealed class RepayTabHandler(
         staging.Add(repayment);
         Log(context, Operation.Collection, customer.CustomerId, command.StaffId, command.TerminalId);
 
-        return ViewOf(customer, [.. movements, repayment], settings, customer.CreditLimit, customer.TabFrozenAt is not null);
+        var credit = await CreditAsync(customer.CustomerId, settings, now, cancellationToken);
+        return ViewOf(customer, [.. movements, repayment], settings, customer.CreditLimit, customer.TabFrozenAt is not null, credit.Available);
     }
 }

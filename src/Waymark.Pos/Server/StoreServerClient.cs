@@ -185,7 +185,6 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         return list?.ReasonCodes is null ? null : list;
     }
 
-    /// <summary>The shop's active price override reasons (B5). Null when the server could not say.</summary>
     /// <summary>The shop's active reasons for cancelling a ticket (B8). Null when the server could not say.</summary>
     public async Task<ReasonCodeList?> VoidReasonsAsync(CancellationToken cancellationToken = default)
     {
@@ -200,6 +199,36 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     public Task<VoidAnswer?> VoidAsync(VoidRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         SendAsync<VoidAnswer>(HttpMethod.Post, "api/sales/void", request, sessionToken, cancellationToken);
 
+    /// <summary>The shop's reasons for money into the drawer (B7, a tab repaid). Null when the server could not say.</summary>
+    public async Task<ReasonCodeList?> CashReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=cash_movement", cancellationToken);
+        return list?.ReasonCodes is null ? null : list;
+    }
+
+    /// <summary>The shop's active return reasons (B9). Null when the server could not say.</summary>
+    public async Task<ReasonCodeList?> ReturnReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=return", cancellationToken);
+        return list?.ReasonCodes is null ? null : list;
+    }
+
+    /// <summary>
+    /// A refund, quoted or written (B9, D-098). Null when the server could not say: nothing is taken to
+    /// be refunded, and the cashier asks again rather than paying out what nothing recorded.
+    /// </summary>
+    public Task<RefundAnswer?> RefundAsync(RefundRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<RefundAnswer>(HttpMethod.Post, "api/sales/refund", request, sessionToken, cancellationToken);
+
+    /// <summary>A paid-in or a paid-out (B10, D-102). Null when the server could not say: nothing is taken as recorded.</summary>
+    public Task<CashMovementAnswer?> CashMovementAsync(CashMovementRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<CashMovementAnswer>(HttpMethod.Post, "api/cash/movements", request, sessionToken, cancellationToken);
+
+    /// <summary>A person clocking in or out (B10, D-102). Null when the server could not say.</summary>
+    public Task<ClockAnswer?> ClockAsync(ClockRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<ClockAnswer>(HttpMethod.Post, "api/till/clock", request, sessionToken, cancellationToken);
+
+    /// <summary>The shop's active price override reasons (B5). Null when the server could not say.</summary>
     public async Task<ReasonCodeList?> OverrideReasonsAsync(CancellationToken cancellationToken = default)
     {
         var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=price_override", cancellationToken);
@@ -245,6 +274,11 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     }
 
     // ---------------------------------------------------------- B7: customers and their tabs (D-096)
+
+    /// <summary>The customers with a full name (D-100). Null when the server could not say.</summary>
+    public Task<CustomerSearchAnswer?> FindCustomersByNameAsync(string name, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<CustomerSearchAnswer>(
+            HttpMethod.Get, $"api/customers?name={Uri.EscapeDataString(name)}&terminal={Uri.EscapeDataString(terminalId)}", null, sessionToken, cancellationToken);
 
     /// <summary>The customers with this number, as typed: the server puts it in its one form. Null when the server could not say.</summary>
     public Task<CustomerSearchAnswer?> FindCustomersAsync(string phone, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
@@ -506,8 +540,30 @@ public interface ITillServer
     Task<VoidAnswer?> VoidAsync(VoidRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         Task.FromResult<VoidAnswer?>(null);
 
+    /// <summary>The shop's active return reasons (B9). Null when the server could not say.</summary>
+    Task<ReasonCodeList?> ReturnReasonsAsync(CancellationToken cancellationToken = default) => Task.FromResult<ReasonCodeList?>(null);
+
+    /// <summary>The shop's reasons for money into the drawer (B7). Null when the server could not say.</summary>
+    Task<ReasonCodeList?> CashReasonsAsync(CancellationToken cancellationToken = default) => Task.FromResult<ReasonCodeList?>(null);
+
+    /// <summary>A refund quoted or written (B9). Null when the server could not say.</summary>
+    Task<RefundAnswer?> RefundAsync(RefundRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<RefundAnswer?>(null);
+
+    /// <summary>A paid-in or a paid-out (B10). Null when the server could not say.</summary>
+    Task<CashMovementAnswer?> CashMovementAsync(CashMovementRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CashMovementAnswer?>(null);
+
+    /// <summary>A person clocking in or out (B10). Null when the server could not say.</summary>
+    Task<ClockAnswer?> ClockAsync(ClockRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ClockAnswer?>(null);
+
     /// <summary>The customers with a number (B7). Null when the server could not say.</summary>
     Task<CustomerSearchAnswer?> FindCustomersAsync(string phone, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CustomerSearchAnswer?>(null);
+
+    /// <summary>The customers with a full name (D-100). Null when the server could not say.</summary>
+    Task<CustomerSearchAnswer?> FindCustomersByNameAsync(string name, string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
         Task.FromResult<CustomerSearchAnswer?>(null);
 
     /// <summary>A customer created at the till (B7). Null when the server could not say.</summary>

@@ -16,6 +16,12 @@ public sealed class CustomerLedger(WaymarkDbContext context) : ICustomerLedger
             .OrderBy(customer => customer.CustomerName)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Customer>> ActiveAsync(CancellationToken cancellationToken = default) =>
+        await context.Customers.AsNoTracking()
+            .Where(customer => customer.Status == CustomerStatus.Active)
+            .OrderBy(customer => customer.CustomerName)
+            .ToListAsync(cancellationToken);
+
     public async Task<Customer?> FindAsync(string customerId, CancellationToken cancellationToken = default) =>
         await context.Customers.AsNoTracking()
             .FirstOrDefaultAsync(customer => customer.CustomerId == customerId && customer.Status != CustomerStatus.Erased, cancellationToken);
@@ -60,5 +66,39 @@ public sealed class CustomerLedger(WaymarkDbContext context) : ICustomerLedger
         entry.Property(row => row.TabFrozenAt).CurrentValue = frozenAt;
         entry.Property(row => row.UpdatedAt).CurrentValue = at;
         return true;
+    }
+
+    public async Task<Money> CreditBalanceAsync(string customerId, Currency currency, CancellationToken cancellationToken = default)
+    {
+        // Summed in memory: Money is an INTEGER behind a converter, and a customer's movements are few.
+        var amounts = await context.CreditMovements.AsNoTracking()
+            .Where(movement => movement.CustomerId == customerId)
+            .Select(movement => movement.Amount)
+            .ToListAsync(cancellationToken);
+        return amounts.Aggregate(Money.Zero(currency), (sum, amount) => sum + amount);
+    }
+
+    public async Task<bool> StageCreditAsync(string customerId, Money balance, DateTimeOffset at, CancellationToken cancellationToken = default)
+    {
+        var customer = await context.Customers.FirstOrDefaultAsync(row => row.CustomerId == customerId, cancellationToken);
+        if (customer is null)
+        {
+            return false;
+        }
+
+        var entry = context.Entry(customer);
+        entry.Property(row => row.Credit).CurrentValue = balance;
+        entry.Property(row => row.UpdatedAt).CurrentValue = at;
+        return true;
+    }
+
+    public async Task<IReadOnlyList<CreditMovement>> CreditMovementsAsync(string customerId, CancellationToken cancellationToken = default)
+    {
+        var movements = await context.CreditMovements.AsNoTracking()
+            .Where(movement => movement.CustomerId == customerId)
+            .ToListAsync(cancellationToken);
+
+        // Ordered here, not in SQL: occurred_at is text through a converter, and the order is the instant's.
+        return [.. movements.OrderBy(movement => movement.OccurredAt)];
     }
 }

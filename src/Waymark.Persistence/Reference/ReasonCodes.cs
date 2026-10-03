@@ -39,7 +39,8 @@ public sealed class ReasonCodes(WaymarkDbContext context) : IReasonCodes
                 reason.LabelAr,
                 reason.LabelFr,
                 reason.RequiresNote,
-                reason.RequiresManager))
+                reason.RequiresManager,
+                reason.Direction))
             .ToListAsync(cancellationToken);
     }
 }

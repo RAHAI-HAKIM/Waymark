@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Waymark.Application.Commands;
 using Waymark.Application.Sync;
@@ -399,7 +398,9 @@ public sealed class CompleteSaleHandler(
         var settlement = Settle(total, command.Tenders, settings.TabAsPart);
         var tabPart = settlement.Payments.FirstOrDefault(payment => payment.Method == PaymentMethod.OnAccount)?.Amount;
         var tabSale = await tabs.PrepareAsync(settings, command.CustomerId, tabPart, command.TabOverrideBy, now, cancellationToken);
-        var invoice = await NextInvoiceNumber(store, today, cancellationToken);
+        var creditPart = settlement.Payments.FirstOrDefault(payment => payment.Method == PaymentMethod.StoreCredit)?.Amount;
+        var creditSpend = await tabs.PrepareCreditAsync(settings, command.CustomerId, creditPart, now, cancellationToken);
+        var invoice = await InvoiceNumbers.NextAsync(ledger, store, today, cancellationToken);
         staging.Add(new Transaction
         {
             TransactionId = transactionId,
@@ -458,11 +459,48 @@ public sealed class CompleteSaleHandler(
                     OverrideAuthorisedBy = tabSale.OverrideAuthorisedBy,
                 });
             }
+
+            // The store credit part (B9b, D-101): what has expired written off first, then the spend,
+            // each with the balance after it, and customers.credit kept equal; all with the sale or none.
+            if (payment.Method == PaymentMethod.StoreCredit && creditSpend is { } spend)
+            {
+                var balance = spend.Balance;
+                if (spend.Expired.IsPositive)
+                {
+                    balance -= spend.Expired;
+                    staging.Add(new CreditMovement
+                    {
+                        MovementId = context.NewId(),
+                        CustomerId = spend.CustomerId,
+                        MovementType = CreditMovementType.Expire,
+                        Amount = -spend.Expired,
+                        BalanceAfter = balance,
+                        StaffId = command.StaffId,
+                        TerminalId = command.TerminalId,
+                        OccurredAt = now,
+                    });
+                }
+
+                balance -= payment.Amount;
+                staging.Add(new CreditMovement
+                {
+                    MovementId = context.NewId(),
+                    CustomerId = spend.CustomerId,
+                    MovementType = CreditMovementType.Redeem,
+                    Amount = -payment.Amount,
+                    BalanceAfter = balance,
+                    TransactionId = transactionId,
+                    StaffId = command.StaffId,
+                    TerminalId = command.TerminalId,
+                    OccurredAt = now,
+                });
+                await tabs.KeepCreditAsync(spend.CustomerId, balance, now, cancellationToken);
+            }
         }
 
         if (tabSale.CustomerId is { } customerId)
         {
-            tabs.Log(context, customerId, command.StaffId, command.TerminalId, tabPart is not null);
+            tabs.Log(context, customerId, command.StaffId, command.TerminalId, tabPart is not null || creditSpend is not null);
         }
 
         // The tender rounds, never the invoice (D-034): the cash row is the exact rest, and what
@@ -523,7 +561,8 @@ public sealed class CompleteSaleHandler(
             TenderVerdict.NotAboveZero => throw new SaleRefusedException("A part of zero or less."),
             TenderVerdict.TabTwice => throw new SaleRefusedException("A ticket goes on the tab once."),
             TenderVerdict.TabNotWhole => throw new SaleRefusedException("This shop puts a ticket on the tab whole, or not at all."),
-            _ => throw new SaleRefusedException("Only a card, BaridiMob or the tab can be a part; cash is what is left."),
+            TenderVerdict.CreditTwice => throw new SaleRefusedException("A ticket spends store credit once."),
+            _ => throw new SaleRefusedException("Only a card, BaridiMob, the tab or store credit can be a part; cash is what is left."),
         };
     }
 
@@ -650,20 +689,6 @@ public sealed class CompleteSaleHandler(
         }
 
         return (found.Product, line.Count, found.Weighed);
-    }
-
-    /// <summary>
-    /// <c>{store code}-{year}-{000001}</c>, gapless per store per calendar year, as the synthetic
-    /// store numbers them. Read and staged in the sale's own transaction, so a sale that fails
-    /// uses no number; StoreServer runs one sale at a time, and the unique index on
-    /// (store, invoice number) refuses a duplicate if two ever raced.
-    /// </summary>
-    private async Task<string> NextInvoiceNumber(Store store, DateOnly today, CancellationToken cancellationToken)
-    {
-        var prefix = string.Create(CultureInfo.InvariantCulture, $"{store.StoreCode}-{today.Year}-");
-        var last = await ledger.LastInvoiceNumberAsync(prefix, cancellationToken);
-        var next = last is null ? 1 : int.Parse(last.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture) + 1;
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{next:D6}");
     }
 }
 

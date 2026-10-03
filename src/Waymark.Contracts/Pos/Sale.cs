@@ -106,6 +106,9 @@ public static class TenderMethods
 
     /// <summary>On the customer's tab, le carnet (B7).</summary>
     public const string OnAccount = "on_account";
+
+    /// <summary>The customer's store credit, l'avoir (B9b).</summary>
+    public const string StoreCredit = "store_credit";
 }
 
 /// <summary>One scanned code and how many units of it.</summary>

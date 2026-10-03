@@ -44,6 +44,19 @@ public enum Capability
     /// D-096). Every limit change is a <c>credit_limit_events</c> row with who made it.
     /// </summary>
     ManageCredit,
+
+    /// <summary>
+    /// Give money back for something sold (B9, D-098). On the ladder at the floor, so anyone with a
+    /// rank refunds; the tenant's <c>refund_min_rank</c> may raise it, through
+    /// <see cref="StaffPermissions.May(long?, Capability, long?)"/>.
+    /// </summary>
+    Refund,
+
+    /// <summary>
+    /// Take cash out of the drawer with no sale behind it (B10, D-102): at the floor, raised by the
+    /// tenant's <c>paid_out_min_rank</c>, as <see cref="Refund"/> is.
+    /// </summary>
+    PaidOut,
 }
 
 /// <summary>
@@ -95,6 +108,12 @@ public static class StaffPermissions
         { Capability.ViewOtherTickets, 2 },
         { Capability.CreateCustomer, 2 },
         { Capability.ManageCredit, 3 },
+
+        // The floor: roles.rank is always above zero. A shop raises it with refund_min_rank (D-098).
+        { Capability.Refund, 1 },
+
+        // The floor too: a shop raises it with paid_out_min_rank (D-102).
+        { Capability.PaidOut, 1 },
     };
 
     /// <summary>
@@ -139,5 +158,35 @@ public static class StaffPermissions
         // Through RequiredRank rather than the dictionary: one path to the ladder, so an
         // unmapped capability fails the same documented way from both methods.
         return staffRank >= RequiredRank(capability);
+    }
+
+    /// <summary>
+    /// <b>Session B9</b> Whether a person of this rank may do this, when the shop has raised
+    /// what it needs (D-098: <c>refund_min_rank</c>, the tenant's).
+    ///
+    /// <para><b>The rules <c>StaffPermissionsTests</c> hold you to:</b> a null rank is never
+    /// permission, whatever the setting. With no setting (null), this is <see cref="May(long?, Capability)"/>
+    /// exactly. A setting <b>raises and never lowers</b>: what is needed is the higher of the ladder's
+    /// rank and the setting, so a setting of 1 cannot hand price overrides to a cashier. A setting of
+    /// zero or less throws: <c>roles.rank</c> is always above zero, and a setting below every rank is
+    /// a mistake, not "everyone".</para>
+    /// </summary>
+    /// <param name="staffRank">As for <see cref="May(long?, Capability)"/>: null when there is no rank.</param>
+    /// <param name="capability">What they are trying to do.</param>
+    /// <param name="raisedTo">The shop's setting for it; null when the shop set nothing.</param>
+    public static bool May(long? staffRank, Capability capability, long? raisedTo)
+    {
+        if (raisedTo is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(raisedTo), raisedTo, "A setting names a rank, and roles.rank is above zero.");
+        }
+
+        if (staffRank is null)
+        {
+            return false;
+        }
+
+        // The higher of the ladder and the setting: a setting raises, never lowers.
+        return staffRank >= Math.Max(RequiredRank(capability), raisedTo ?? 0);
     }
 }

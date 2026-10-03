@@ -13,7 +13,7 @@ public enum TenderVerdict
     /// <summary>The parts fit the total: the rest, if any, is paid in cash.</summary>
     Settled,
 
-    /// <summary>A part is not a card, a wallet or the tab: cash is never a part (it is the rest), and store credit is B9's.</summary>
+    /// <summary>A part is not a card, a wallet, the tab or store credit: cash is never a part (it is the rest).</summary>
     NotAPart,
 
     /// <summary>A part of zero or less.</summary>
@@ -27,6 +27,9 @@ public enum TenderVerdict
 
     /// <summary>The tab may not be a part here (<c>tenant_configuration.tab_as_part</c> off): it takes the whole ticket, alone, or nothing (B7).</summary>
     TabNotWhole,
+
+    /// <summary>Two store credit parts: a ticket spends a customer's credit once (B9b).</summary>
+    CreditTwice,
 }
 
 /// <summary>How the ticket is paid.</summary>
@@ -68,6 +71,11 @@ public sealed record Settlement(TenderVerdict Verdict, IReadOnlyList<TenderPart>
 ///   <see cref="TenderVerdict.TabTwice"/>, then <see cref="TenderVerdict.AboveTotal"/>, then
 ///   <see cref="TenderVerdict.TabNotWhole"/>. Whether the customer's tab takes the charge is
 ///   <see cref="Customers.Tab.Check"/>'s, not this rule's.</description></item>
+///   <item><description><b>B9b: store credit is a part too</b> (<see cref="PaymentMethod.StoreCredit"/>), exact
+///   like a card. <b>At most one</b>, else <see cref="TenderVerdict.CreditTwice"/>, asked right after
+///   <see cref="TenderVerdict.TabTwice"/>. It is a part like the others for <c>tabMayBePart</c>: with the
+///   tab whole, credit beside it is <see cref="TenderVerdict.TabNotWhole"/>. Whether the customer has that
+///   much credit is <see cref="Customers.StoreCredit.MayRedeem"/>'s, not this rule's.</description></item>
 ///   <item><description>A refusal has no payments and a zero <see cref="Settlement.Cash"/>.</description></item>
 ///   <item><description>A total below zero throws (a refund is B9's); parts in another currency throw,
 ///   as <see cref="Money"/> always does.</description></item>
@@ -97,8 +105,9 @@ public static class Tender
         }
         foreach(TenderPart part in parts)
         {
-            // B7: the tab is a part too, exact like a card.
-            if (part.Method != PaymentMethod.Card && part.Method != PaymentMethod.MobileWallet && part.Method != PaymentMethod.OnAccount)
+            // B7: the tab is a part too, exact like a card. B9b: so is store credit.
+            if (part.Method != PaymentMethod.Card && part.Method != PaymentMethod.MobileWallet && part.Method != PaymentMethod.OnAccount
+                && part.Method != PaymentMethod.StoreCredit)
             {
                 return new Settlement(TenderVerdict.NotAPart, Array.Empty<TenderPart>(), new CashTender(Money.Zero(total.Currency), Money.Zero(total.Currency)));
             }
@@ -112,6 +121,12 @@ public static class Tender
         if (parts.Count(part => part.Method == PaymentMethod.OnAccount) > 1)
         {
             return new Settlement(TenderVerdict.TabTwice, Array.Empty<TenderPart>(), new CashTender(Money.Zero(total.Currency), Money.Zero(total.Currency)));
+        }
+
+        // B9b: a ticket spends a customer's store credit once.
+        if (parts.Count(part => part.Method == PaymentMethod.StoreCredit) > 1)
+        {
+            return new Settlement(TenderVerdict.CreditTwice, Array.Empty<TenderPart>(), new CashTender(Money.Zero(total.Currency), Money.Zero(total.Currency)));
         }
 
         if(PartsTotal > total)

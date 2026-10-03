@@ -133,8 +133,8 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | B6 | Split tender: card and BaridiMob parts, the rest in cash, rounded once; no cash received or change taken (D-095) | `CompleteSale`'s single cash payment, `CashTender` (D-034) | **H** | M |
 | B7 | Customer by phone; on-account and the credit limit; the tenant's customer module and carnet settings (D-096) | `receivable_movements` (D-055) — **schema exists, never exercised** | **H** | M |
 | B8 | Line and transaction voids, recorded first, a PIN only after "Encaisser", flags for the owner (D-097); no-sale waits for the drawer (D2). **What a cancelled ticket leaves behind** (D-087: B2 keeps it in the drafts with no record) and the board's manager PIN for "Annuler ticket" | `CompleteSale` atomicity (D-070) | **H** | M |
-| B9 | Refunds linked to the original; store credit | `SaleArithmetic`, `BatchAllocation` (D-070) | **H** | L |
-| B10 | Paid-in and paid-out; clock in and out | `CashSession` auto-open (D-070, provisional) | C | S |
+| B9 | Refunds linked to the original; store credit. **B9a**: the refund, to the tab, cash or store credit, and `refund_min_rank` (D-098); **B9b**: store credit spent as a part, given back as credit, expiring by the tenant's days (D-101) | `SaleArithmetic`, `BatchAllocation` (D-070), the generator's `WriteRefund` | **H** | L |
+| B10 | Paid-in and paid-out, a cash reason's direction, `paid_out_min_rank`; clock in and out under "Plus…" (D-102) | `CashSession` auto-open (D-070, provisional) | C | S |
 
 ### Block C — Shift (3 sessions)
 
