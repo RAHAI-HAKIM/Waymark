@@ -1015,17 +1015,25 @@ public sealed partial class TillWindowTests
 
             var product = new ProductForSale(
                 "v-" + barcode, "p-" + barcode, "Article " + barcode[^3..], "1 L", "pc", 0, 1900, TvaRateSource.FromCategory,
-                "143.00", "DZD", false, "100");
+                "143.00", "DZD", false, StockOnHand);
             return Task.FromResult<LookupAnswer>(new LookupAnswer.Answered(new ProductLookup(ProductLookupOutcome.Found, barcode, product, null)));
         }
+
+        /// <summary>What the store records on hand of every article, as the wire spells it: "0" puts the stock chip on each line.</summary>
+        public string StockOnHand { get; set; } = "100";
 
         /// <summary>Whether the person signed in may give a discount alone (B4); a cashier may not.</summary>
         public bool SellerMayDiscount { get; set; }
 
+        /// <summary>More discount reasons than the two: a shop with a long list, which the rail must scroll.</summary>
+        public int ExtraDiscountReasons { get; set; }
+
         public Task<Waymark.Contracts.Reference.ReasonCodeList?> DiscountReasonsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("discount",
                 [new Waymark.Contracts.Reference.ReasonCodeOption("geste_commercial", "لفتة تجارية", "Geste commercial", false, false),
-                 new Waymark.Contracts.Reference.ReasonCodeOption("autre", "أخرى", "Autre", true, false)]));
+                 new Waymark.Contracts.Reference.ReasonCodeOption("autre", "أخرى", "Autre", true, false),
+                 .. Enumerable.Range(1, ExtraDiscountReasons).Select(i =>
+                     new Waymark.Contracts.Reference.ReasonCodeOption($"motif_{i}", $"سبب {i}", $"Motif {i}", false, false))]));
 
         public Task<Waymark.Contracts.Reference.ReasonCodeList?> VoidReasonsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<Waymark.Contracts.Reference.ReasonCodeList?>(new Waymark.Contracts.Reference.ReasonCodeList("void",

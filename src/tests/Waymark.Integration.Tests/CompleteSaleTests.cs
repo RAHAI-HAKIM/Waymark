@@ -21,6 +21,7 @@ using Waymark.Persistence.Catalogue;
 using Waymark.Persistence.Privacy;
 using Waymark.Persistence.Sales;
 using Waymark.Persistence.Sync;
+using SaleLimits = Waymark.Domain.Sales.SaleLimits;
 
 namespace Waymark.Integration.Tests;
 
@@ -304,6 +305,53 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
         Assert.Equal(0, await read.CashSessions.CountAsync());
         Assert.Equal(0, await read.RoundingVariances.CountAsync());
         Assert.Equal(10 * Quantity.Scale, (await read.Inventories.SingleAsync(i => i.BatchId == milkBatch)).Quantity);
+    }
+
+    [Theory]
+    [InlineData(SaleLimits.MaxUnitsPerLine + 1)]
+    [InlineData(int.MaxValue)]
+    public async Task A_line_of_more_units_than_a_till_can_hold_is_refused_and_nothing_is_written(int count)
+    {
+        // Block B review: the till stops at 9 999 and the server did not, so one request sold
+        // 2 147 483 647 units of milk for 307 thousand million dinars, and took the level that far below zero.
+        var shop = new Shop(database);
+        var batch = shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() => Sell(shop, (shop.Milk, count)));
+
+        using var read = Read(shop);
+        Assert.Equal(0, await read.Transactions.CountAsync());
+        Assert.Equal(10 * Quantity.Scale, (await read.Inventories.SingleAsync(i => i.BatchId == batch)).Quantity);
+    }
+
+    [Fact]
+    public async Task The_most_a_till_can_hold_is_still_sold()
+    {
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+
+        var sale = await Sell(shop, (shop.Milk, SaleLimits.MaxUnitsPerLine));
+
+        Assert.Equal(Dzd(14_300L * SaleLimits.MaxUnitsPerLine), sale.Total);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-2)]
+    [InlineData(SaleLimits.MaxUnitsPerLine + 1)]
+    public async Task A_struck_line_of_no_unit_or_too_many_is_refused_as_a_line_would_be(int count)
+    {
+        // A struck line is a row too: a count of nothing would reach the CHECK on quantity as an
+        // error at commit, mid-sale, rather than as an answer.
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 10, daysAgo: 5);
+
+        await Assert.ThrowsAsync<SaleRefusedException>(() => Execute(shop, new CompleteSale(
+            shop.TerminalId, shop.StaffId, [new SaleLineRequest(shop.Milk.Barcode, 1)],
+            Removed: [new RemovedLine(shop.Bread.Barcode, count, null, Now)])));
+
+        using var read = Read(shop);
+        Assert.Equal(0, await read.Transactions.CountAsync());
     }
 
     // ------------------------------------------------------------ the money
@@ -883,6 +931,25 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
 
         await Assert.ThrowsAsync<SaleRefusedException>(() =>
             Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Percent(basisPoints, shop.StaffId))));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-500)]
+    public async Task A_discount_of_nothing_is_refused_in_words_a_cashier_can_be_shown(long centimes)
+    {
+        // Block B review: the reason reached the till as the exception's own text, "(Parameter
+        // 'discount')" and "Actual value was Amount { Value = 0.00 DZD }" on a second line.
+        Reasons();
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 5, daysAgo: 5);
+
+        var refusal = await Assert.ThrowsAsync<SaleRefusedException>(() =>
+            Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 1, Discount: Amount(centimes, shop.StaffId))));
+
+        Assert.DoesNotContain("Parameter", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Actual value", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('\n', refusal.Message);
     }
 
     [Fact]

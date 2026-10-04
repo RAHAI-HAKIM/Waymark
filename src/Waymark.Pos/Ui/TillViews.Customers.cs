@@ -51,7 +51,7 @@ public static partial class TillViews
         }
 
         face.Children.Add(words);
-        var main = new TillKey(theme, key.Attached ? KeyLook.Chosen : KeyLook.Secondary, TillKey.Labelled(face, key.Key, theme.TextMuted), open, height: TillSizes.Key)
+        var main = new TillKey(theme, key.Attached ? KeyLook.Chosen : KeyLook.Secondary, TillKey.Labelled(face, key.Key, theme.TextMuted, reserve: key.Attached), open, height: TillSizes.Key)
         {
             Tag = ClientKeyTag,
             MinWidth = 150,
@@ -169,10 +169,15 @@ public static partial class TillViews
             }
         }
 
+        Control? rowsLabel = null;
+        Control? rowsBlock = null;
+        Control? keysBlock = null;
         if (panel.RowsTitle is { } rowsTitle)
         {
-            left.Children.Add(theme.Label(rowsTitle, theme.TextSecondary));
+            rowsLabel = theme.Label(rowsTitle, theme.TextSecondary);
+            left.Children.Add(rowsLabel);
             var rows = new StackPanel { Spacing = 4 };
+            rowsBlock = rows;
             if (panel.NoRows is { } none)
             {
                 rows.Children.Add(new Border
@@ -223,6 +228,24 @@ public static partial class TillViews
             }
 
             left.Children.Add(keys);
+            keysBlock = keys;
+        }
+
+        // A panel's first choice is drawn first, under the tiles: cash in or out before the amount,
+        // who clocks before their PIN (block B review). The model says which; the order here is its.
+        var first = panel.Tiles.Count > 0 ? 1 : 0;
+        if (panel.KeysFirst && keysBlock is not null)
+        {
+            left.Children.Remove(keysBlock);
+            left.Children.Insert(first++, keysBlock);
+        }
+
+        if (panel.RowsFirst && rowsLabel is not null && rowsBlock is not null)
+        {
+            left.Children.Remove(rowsLabel);
+            left.Children.Remove(rowsBlock);
+            left.Children.Insert(first++, rowsLabel);
+            left.Children.Insert(first, rowsBlock);
         }
 
         if (panel.Footer is { } footer)
@@ -234,9 +257,10 @@ public static partial class TillViews
         right.Children.Add(Docked(LockedPrimary(theme, panel.Primary, panel.PrimaryKey, panel.MayPrimary, panel.Locked, () => actions?.Primary()), Dock.Bottom));
         if (panel.Pad)
         {
-            // A phone's pad reads 7 8 9 on top here as the payment's does; left to right in Arabic too.
+            // A number or a PIN reads 1 2 3 on top, as a phone and the sign-in pad do; money reads 7 8 9,
+            // as the payment pad does. Left to right in Arabic too: the digits are not text.
             var pad = new UniformGrid { Columns = 3, FlowDirection = FlowDirection.LeftToRight, Margin = new Thickness(-2, 0) };
-            foreach (var key in "789456123")
+            foreach (var key in panel.PhonePad ? "123456789" : "789456123")
             {
                 var pressed = key;
                 pad.Children.Add(FloatingPadKey(TillTheme.Figure(key.ToString(), 20, theme.Text), () => actions?.Digit(pressed), true, theme));
@@ -302,10 +326,17 @@ public static partial class TillViews
 
         if (view.Figures.Count > 0)
         {
-            var tiles = new UniformGrid { Columns = view.Figures.Count, Margin = new Thickness(-4, 0) };
+            // Four tiles abreast on a narrow ticket cut the fourth and its figures (F-29): two by two there.
+            var tiles = new UniformGrid
+            {
+                Columns = theme.Narrow && view.Figures.Count > 2 ? 2 : view.Figures.Count,
+                Margin = new Thickness(-4, 0),
+            };
             foreach (var figure in view.Figures)
             {
-                tiles.Children.Add(Tile(theme, figure.Label, figure.Value, figure.Detail));
+                var tile = Tile(theme, figure.Label, figure.Value, figure.Detail);
+                tile.Margin = new Thickness(4, 0, 4, theme.Narrow ? 8 : 0);
+                tiles.Children.Add(tile);
             }
 
             top.Children.Add(tiles);
@@ -335,8 +366,18 @@ public static partial class TillViews
         };
         foot.Children.Add(Docked(repay, Dock.Right));
         foot.Children.Add(Docked(change, Dock.Right));
-        foot.Children.Add(new Border { VerticalAlignment = VerticalAlignment.Center, Child = Wrapped(theme.BodySmall(view.Footer, theme.TextSecondary)) });
-        body.Children.Add(Docked(foot, Dock.Bottom));
+        var logged = Wrapped(theme.BodySmall(view.Footer, theme.TextSecondary));
+        if (theme.Narrow)
+        {
+            // Beside the two keys the sentence had forty pixels and broke at every word (F-29): above them.
+            body.Children.Add(Docked(foot, Dock.Bottom));
+            body.Children.Add(Docked(new Border { Margin = new Thickness(0, 12, 0, 0), Child = logged }, Dock.Bottom));
+        }
+        else
+        {
+            foot.Children.Add(new Border { VerticalAlignment = VerticalAlignment.Center, Child = logged });
+            body.Children.Add(Docked(foot, Dock.Bottom));
+        }
 
         // The statement: date, movement, amount, balance; oldest first.
         var table = new StackPanel();
@@ -424,7 +465,9 @@ public static partial class TillViews
             ? theme.Label(value, theme.TextSecondary)
             : figure ? TillTheme.Figure(value, 14, theme.Text) : theme.BodySmall(value, theme.Text);
 
-        grid.Children.Add(Cell(new Border { VerticalAlignment = VerticalAlignment.Center, Child = Text(date, true) }, 0));
+        // At the row's start, as the ticket's quantity is: a figure is a left-to-right run, and in
+        // Arabic it sat at the far end of its cell, run into the movement beside it (F-33).
+        grid.Children.Add(Cell(new Border { VerticalAlignment = VerticalAlignment.Center, Child = Start(Text(date, true)) }, 0));
         grid.Children.Add(Cell(new Border { VerticalAlignment = VerticalAlignment.Center, Child = Text(movement, false) }, 1));
         grid.Children.Add(Cell(new Border { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Child = Text(amount, true) }, 2));
         grid.Children.Add(Cell(new Border { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Child = Text(balance, true) }, 3));

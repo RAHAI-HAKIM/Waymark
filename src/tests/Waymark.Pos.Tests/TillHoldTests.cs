@@ -279,17 +279,72 @@ public sealed class TillHoldTests
     // ================================================================ changing cashier
 
     [Fact]
-    public async Task A_ticket_with_only_struck_lines_is_not_put_on_hold_at_a_change_of_cashier()
+    public async Task A_ticket_with_only_struck_lines_is_cancelled_before_the_cashier_changes()
     {
-        // An abandoned ticket, not a sale: the next person starts clean.
+        // D-106: rung up, struck, let go. It was dropped here, and nothing said what had been rung up:
+        // scan, strike, hand over, change cashier. The cashier cancels it first, which records it.
         var session = Till();
         await Scan(session, "111");
         session.Remove(session.Cart.LineOf("v-111"));
 
-        Assert.NotNull(session.SignOut());
+        Assert.Null(session.SignOut());
 
-        Assert.Empty(session.Parked);
+        Assert.Equal(TillNoticeKind.StruckTicketOpen, session.Notice?.Kind);
+        Assert.NotNull(session.SignedIn);
+        Assert.Single(session.Cart.Lines);
+        Assert.True(session.MayCancel);
+        Assert.False(session.MayPutAside);
+    }
+
+    [Fact]
+    public async Task A_ticket_with_only_struck_lines_is_sent_as_a_cancel_and_leaves_no_draft()
+    {
+        var session = Till();
+        await Scan(session, "111");
+        session.Remove(session.Cart.LineOf("v-111"));
+
+        var request = session.VoidRequestFor("customer_left", null);
+
+        Assert.NotNull(request);
+        Assert.Empty(request.Lines);
+        Assert.Equal("111", Assert.Single(request.Removed!).Barcode);
+
+        // Recorded: the ticket goes, and there is nothing on it to take back.
+        Assert.True(session.CancelTicket());
         Assert.Empty(session.Cart.Lines);
+        Assert.Empty(session.Drafts);
+        Assert.NotNull(session.SignOut());
+    }
+
+    [Fact]
+    public async Task A_cancelled_ticket_taken_back_does_not_carry_its_struck_lines_again()
+    {
+        // They went with the cancel the server recorded: carried again, they were written twice.
+        var session = Till();
+        await Scan(session, "111", "222");
+        session.Remove(session.Cart.LineOf("v-111"));
+
+        Assert.True(session.CancelTicket());
+        Assert.True(session.ResumeDraft(session.Drafts[0].Id));
+
+        Assert.Equal("222", Assert.Single(session.Cart.Lines).Barcode);
+    }
+
+    [Fact]
+    public async Task A_ticket_with_only_struck_lines_is_not_dropped_for_one_taken_back()
+    {
+        // The other way it vanished: a ticket on hold taken back over it.
+        var session = Till();
+        await Scan(session, "111");
+        Assert.True(session.Park());
+        await Scan(session, "222");
+        session.Remove(session.Cart.LineOf("v-222"));
+
+        Assert.False(session.ResumeParked(session.Parked[0].Id));
+
+        Assert.Equal(TillNoticeKind.StruckTicketOpen, session.Notice?.Kind);
+        Assert.Equal("222", Assert.Single(session.Cart.Lines).Barcode);
+        Assert.Single(session.Parked);
     }
 
     [Fact]

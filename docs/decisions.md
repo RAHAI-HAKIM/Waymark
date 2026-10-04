@@ -3,8 +3,8 @@
 Every non-obvious choice: **what**, **why**, **what was rejected**. Code cites these
 numbers, so they are never renumbered or reused.
 
-For completed phases, this log acts like a dictionary, where we held only the title and
-further information can be found in the phase's recap file
+For completed phases, and for the reviewed blocks of the phase under way, this log acts
+like a dictionary: it holds only the title, and the reasoning is in the phase's recap file
 
 **Maintenance.** An entry states what is true *now*. When a decision is replaced, rewrite
 the entry to the current rule and name what replaced it, in one line. Do not keep the old
@@ -18,6 +18,7 @@ Open questions (`O-nn`) are at the end.
 | Phase 0 (done, titles only) | D-001–D-054 |
 | Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
 | Phase 0.5, the walking skeleton (done, titles only) | D-063–D-074 |
+| Phase 1, Blocks A and B (done, titles only) | D-075–D-109 |
 
 # **Phase 0 (Already done)**
 
@@ -470,577 +471,140 @@ the card's move to `decided` commit together, and accepting applies nothing.
 
 ---
 
-# **Phase 1**
+# **Phase 1, Blocks A and B (done, titles only)**
 
-### D-075 — When a product's classifications conflict or fall into an undefined category, the Standard TVA rate applies
-The system in Algeria (and in EU), uses a **Catch-all** rule, Article 21 and 23 of the CTCA declare that
-the 9% reduced rate is strictly a restrictive list reserved for specific essential goods,
-pharmaceutical items, and social or economic services. If a product isn't perfectly matched to that 9% list,
-or if its category is unclear, It will be defaulted to the Standard 19% rate.
+Reasoning, rejected alternatives and what the Block B review found: `recaps/phase-1.md`.
+Phase 1 is not closed; a decision taken from Block C on is written here in full until it is.
 
-| Scenario | Rule Applied | Outcome |
-| :---- | :---- | :---- |
-| Composite Supply (One item is dominant, the other is secondary) | Principal vs. Ancillary Rule | The entire product takes the VAT rate of the main (dominant) item. The secondary item is ignored for tax purposes. |
-| Mixed Supply (Separate, distinct items sold together) | Unbundling / Apportionment Rule | The tax must be split proportionally based on the value of each distinct component, applying their respective rates. |
-| Indivisible Mixed Supply (Items cannot be split or valued separately) | Highest Rate Rule | If a business refuses or is unable to split the valuation of an indivisible mixed package, the highest applicable rate among those categories is charged on the whole bundle. |
-| Undefined / Category Disagreement | Standard Catch-All Rule | If the product defies clean classification or one potential category has no specified rate, the Standard Rate must be applied. |
+### D-075 — A product whose categories conflict, or state no rate, takes the standard TVA rate
+`TvaRate.Resolve`: categories that agree give their rate; none, a null among them, or a
+disagreement gives 19 % marked `standard_fallback`, recorded on the wire and never a refusal.
 
-**Only the last row is code (session A1).** It is the one decidable from what the database
-records: `product_category` is a flat many-to-many and `categories.tax_rate` is nullable, so
-"no categories", "a category that states no rate" and "categories that disagree" are all
-visible, and all three answer 19%. The other three rows are not. Composite and indivisible
-supply need to know that a variant *is* a bundle and which component dominates, which no
-table records — `product_category.is_primary` is a merchandising flag and reading it as
-tax-law dominance would be a silent reinterpretation. Apportionment would split one sale line
-across two rates, and `transaction_items` carries one `sell_price` and one `tax_amount`.
-Those three rows therefore describe **how a human classifies a product in the catalogue**,
-and belong to Admin guidance in block E, not to a barcode lookup.
+### D-076 — A promotional price is a price, not a discount (A1)
+A promotional `prices` row in force beats a retail one; `discount_amount` stays zero and no
+`promotion_id` is written. The `promotions` engine is E2's.
 
-**The rule is `Domain/Catalogue/TvaRate.Resolve`**, pure and with no database, on the
-`NearExpiry` model (D-073). Two categories that state the same rate agree and are not a
-conflict. **A null among the rates forces the fallback even when another category did state
-one** — D-075's own words, "one potential category has no specified rate" — so [9%, null] is
-19%, not 9%; the skeleton dropped nulls before counting and would answer 9%. The standard
-rate is `BasisPoints.StandardVat`, a constant and not configuration: it is law, and a decree
-would be a code change and a catalogue migration together.
-
-**The refusal becomes a sale, so the fallback is recorded rather than silent.**
-`NotSellableReason.NoTaxRate` and `ConflictingTaxRates` are **deleted** from Domain and from
-`Waymark.Contracts` — D-075 requires a rate, so neither state can occur, and a refusal the
-till can never receive is a lie in the contract. What the catalogue failed to say crosses
-instead as `ProductForSale.TvaRateSource` (`from_category` or `standard_fallback`) on a
-product that sells. The source is about *how*, never *what*: a product whose categories say
-[19%, null] resolves to 19% `standard_fallback`, the same figure as a correctly classified
-one and the opposite verdict on the data. The till shows nothing for it — a cashier cannot
-fix a catalogue — and block E lists every product selling on the fallback. **Rejected:**
-keeping the two reasons as unreachable members (a contract that describes impossible
-answers), and deriving the source from the rate (which hides every miscategorised
-standard-rated product).
-
-### D-076 — A promotional price is a price, not a discount (session A1)
-The lookup reads `prices` rows of type `retail` **and** `promotional` (phase 0.5 read only
-`retail`). A promotional row in force beats a retail one; within a type the later `valid_from`
-wins; `valid_to` stays exclusive. It is **the unit price**, so nothing is taken off it,
-`transaction_items.discount_amount` stays zero, and `SaleArithmetic.Line` is called exactly as
-before. The till labels the line `PROMOTIONAL PRICE` in words, in the neutral slate of the
-stock notice: a promotion is neither critical nor a warning, and there is no positive state
-(CLAUDE.md §6). The label is re-read on every scan, so a promotion that ends between two scans
-of the same product does not leave a stale label.
-
-**The `promotions`, `promotion_product` and `promotion_variant` tables are not touched here.**
-They are percent / amount / bogo with `min_quantity`, `priority`, `is_stackable` and
-`max_redemptions` — a discount engine that needs cart context, since a bogo cannot be answered
-for one barcode in isolation. That is **block B4**, and it lands on
-`transaction_items.discount_amount` through `SaleArithmetic.Line`'s `discount` parameter and on
-`transaction_items.promotion_id`. A sale at a promotional *price* therefore leaves no
-`promotion_id`: the row records what was charged, and the receipt still recomputes from it.
-
-**A promotional row priced above the retail row is taken as written.** It is a data error, and
-quietly applying the lower of the two would be a rule nobody can see in the row, leaving the
-shop never to learn its promotion is wrong. **Rejected:** `min(retail, promotional)`.
-Likewise a promotional row marked HT **refuses** rather than falling back to retail: falling
-back would charge the full price for a product the shelf edge has on promotion, and the
-cashier would see nothing at all.
-
-**Not seeded by the generator.** `Waymark.Generator` writes no promotional rows, so seed-42
-does not demo this; teaching it to would change every canonical dump. Picked up at **E2**,
-where price-in-force gets an Admin surface.
-
-### D-077 — Who may do what comes from `roles.rank`, and a synthetic PIN never authenticates (session A2)
-**No permissions table.** A `Capability` names a minimum rank, and `StaffPermissions.May` makes
-D-074's comparison: this rank and anything above it. A staff member with **no** rank — not
-active, or a role that is not an active row — is refused, never read as zero (D-037). The
-ladder is **private** and read only through `RequiredRank`, which throws for an unmapped
-capability rather than defaulting: `readonly` protects a field's reference, not its contents,
-so a public dictionary would be a write access point for the whole process. The ranks today:
-discount, void and no-sale need 2; a price override needs 3. `DecideRecommendation` is
-mapped to 3, but cards are still gated by `CardAudience` against each card's own rank
-(rank 2 for near-expiry cards in seed-42, D-073), so the ladder's value is not enforced
-anywhere yet. **Rejected:** a `role_permissions` table now — a migration with nothing to edit
-it until H2.
-
-**`StaffPin.IsUsable` is asked before any PIN is checked**: false for the generator's
-`"synthetic:no-login"` and for anything blank. It is not the verifier and knows no algorithm;
-the KDF is open and belongs in infrastructure, since Domain has no dependencies (§2.1).
-`SyntheticPinTests` holds the generator's constant and Domain's together, because nothing that
-ships may reference the generator (D-054). **Rejected:** letting the verifier refuse the sentinel
-by comparing hashes, which refuses by luck and starts accepting when the stored format changes.
-
-**Closed by D-083** (A5): the KDF is Argon2id, and the till's session lives in StoreServer's memory.
+### D-077 — Who may do what comes from `roles.rank`; a synthetic PIN never authenticates (A2)
+`StaffPermissions.May` against a private ladder; no rank is never permission.
+`StaffPin.IsUsable` is asked before any PIN is checked.
 
 ### D-078 — The append-only triggers are applied in one transaction (closes F-16)
-`ApplyTriggers` ran one `ExecuteSqlRaw` per trigger, and outside a transaction SQLite makes
-every statement its own durable commit: 29 triggers, 29 fsyncs on an encrypted file. It is
-unmeasurable on an SSD and cost 270–1240 ms each on a CI runner's disk, which timed out
-StoreServer's startup twice. **This path runs on every StoreServer start, not just the
-first** (§3.7), so a till on a slow disk paid it every morning. The loop now runs in one
-transaction, and joins the caller's if there is one — `Migrate()` still must stay outside a
-transaction, which `MigrateAndApplyTriggers` checks before it runs. It also makes the set
-atomic: a crash part-way no longer leaves some append-only guards installed and the rest
-missing. **Rejected:** raising the test's 90 s timeout, which hides a 30 s till startup; and
-skipping triggers already present, which would weaken "re-applied idempotently" into
-"re-applied when we think it is needed" — revisit if startup is still slow.
+One commit, not 29, on every StoreServer start; the set is atomic.
 
-### D-079 — `reason_codes` is read as data, and the list is what the database will accept (session A3)
-`IReasonCodes.ForAsync(appliesTo)` returns the shop's **active** reasons for one kind of
-action, ordered by `display_order` **then by code**. The second sort key is not tidiness:
-`display_order` defaults to 0, so a shop that never set one leaves every row tied and SQLite
-may return ties in any order, which reshuffles a dialog between two openings and makes
-picking by position pick wrongly. Inactive codes never cross — retiring a reason must not
-break the rows that already reference it. The vocabulary is the tenant's: `reason_codes` has
-no `store_id`, so **no filter applies**, which the reader says out loud because "no filter"
-and "a filter someone forgot" look identical in a query.
+### D-079 — `reason_codes` is read as data, and the list is what the database will accept (A3)
+Active reasons of one kind, ordered by `display_order` then code; a kind nobody knows is a 400.
+`requires_manager` is carried, never enforced.
 
-`GET /api/reason-codes?applies_to=discount`. A kind nobody knows is a **400, not an empty
-list**: "this shop configured no reasons" and "there is no such kind of action" are different
-answers, and collapsing them lets a typo look like the first. Every column recording *why*
-something happened is a foreign key into this table, so the offered list is the set of values
-the database will accept; offering anything else fails at `SaveChanges`, mid-sale.
+### D-080 — Archivo, IBM Plex Mono and IBM Plex Sans Arabic are bundled as static TTFs
+In `Waymark.Pos/Assets/Fonts`, OFL; static cuts, not the variable file.
 
-**A3 carries `requires_manager` and enforces nothing.** Who counts as senior is
-`StaffPermissions` (A2, D-077). A client that treated the flag as the whole rule would be a
-second place deciding who may do what, which is how the copies drift. **Rejected:** defaulting
-either flag to true "to be safe", which would put a manager in front of every discount in the
-shop; and sorting again in the wire mapper, which would be a second opinion about the order.
+### D-081 — An item missing from the catalogue sells as "Divers", for now
+A fixed catalogue item per TVA rate at a typed price (rank 3, a reason), until O-25. Not built yet.
 
-**No UI.** The till's reason picker waits for design gate **G1** and the A4 shell; building a
-screen before its design exists is what CLAUDE.md §6 forbids. B4, B5 and B8 are the consumers.
+### D-082 — The till's shell decides nothing: a tested screen model and one palette file (A4)
+`TillScreen.Build` decides what is shown; the window draws. Colours live only in `TillPalette`,
+held to contrast by a test.
 
-### D-080 — Archivo and IBM Plex Mono are bundled with the till as static TTFs
-Downloaded 23/09 on Hakim's word: Archivo Regular, Medium, SemiBold and Bold from its foundry's
-repository (Omnibus-Type, which Google Fonts builds from), IBM Plex Mono Regular, Medium and
-SemiBold from `google/fonts`, each with its OFL text, in `src/Waymark.Pos/Assets/Fonts`. A4
-embeds them. **Static cuts, not the variable file**: Avalonia's weight selection on variable
-fonts is unreliable, and a till that silently renders Regular where SemiBold was meant is the
-kind of drift nobody reports. **Neither family has Arabic glyphs**, so IBM Plex Sans Arabic
-(Regular to Bold, OFL, `google/fonts`) is bundled beside them: the same family as Plex Mono, so
-the two scripts read as one voice. Admin gets its own copy at block E (the Vite idiom is an npm
-font package), rather than reaching into the POS project. **Rejected:** Google's variable
-Archivo; a shared top-level `assets/`, which changes the monorepo layout (§9).
+### D-083 — Sign-in: Argon2id in the host, a session in StoreServer's memory, a lockout (A5)
+A PIN of 4 to 8 ASCII digits; five wrong lock that person five minutes; a request names no
+seller, the session does. A restart ends sessions and forgets lockouts (O-29).
 
-### D-081 — An item missing from the catalogue sells as "Divers", for now (G1 review)
-Until O-25 is answered, the till's "Nouvel article" sells a fixed catalogue item, **Divers**,
-one variant per TVA rate, at a price typed at the till. Typing a price is a price override, so
-it is gated by `OverridePrice` (rank 3, D-077) and needs a reason (D-079). Divers lines are
-**kept out of Almanac's inputs by their category**: a line the cashier priced is not demand the
-engine can learn from. The variants are catalogue data, not schema. Built with B5. **Rejected:**
-a free-text name and price, which has no `variant_id`, no TVA category and no stock, and is the
-option cashiers would over-use (Hakim, 23/09).
+### D-084 — The till redraws only what changed and keeps the scanner's focus (block A review)
+One scroll viewer for the window's life; the search field keeps the focus; Fluent's accent is
+pinned to the palette.
 
-### D-082 — The till's shell decides nothing: a tested screen model and one palette file (session A4, G1)
-`TillScreen.Build` turns what the till knows into everything it shows, and the window only draws
-it, so a wrong label, tone or availability fails a test that opens no window. **Colours live only
-in `TillPalette`** (a test fails on a colour anywhere else in `Waymark.Pos`), taken from the G1
-kit, and a test holds every text on the ground the views put it on to 4.5:1 and every edge and
-ring to 3:1, in both themes. It found two pairs the kit gets wrong, both fixed from existing
-tokens: "HORS LIGNE" on the bar takes the dark critical colours in both themes, because the bars
-are dark in both; and **the dark focus ring is `#C6B6EE`, not the kit's `#9B5CF0`**, which is
-2.30:1 on the lifted dark tile (for Hakim to confirm). **The light page is `#F7F5F9`, not the
-kit's `#FBFAFC`** (Hakim, 23/09): on the paler page a white card, the Almanac card first, was barely
-visible. **A figure inside a sentence is its own
-Plex Mono run** (`data-inline`): sharing a run with Arabic letters, digits were shaped as Arabic
-and lost their U+202F. A line removed before payment stays on the ticket, struck and labelled "RETIRÉE",
-and is never charged or sent; the cart keeps the time for B8's log and the screen does not show it. The ticket has no number until the sale is recorded (D-070), and
-Encaisser asks for `ToCashTender()`'s amount, the server's own function (D-034). An unconfirmed
-sale offers no "Réessayer" (O-27). The Almanac slot is the signed-in person's board (D-074);
-Ajuster shows, unavailable, until O-28. Keys are the till's own control, because Fluent buttons
-repaint on hover with a grey outside the palette. `GET /api/till/context` names the store, till
-and person for the top bar, through the store filter. **Rejected:** rules in the window; colours
-in each view; the kit's dark ring as drawn; a retry that could record a sale twice.
-
-### D-083 — Sign-in: Argon2id in the host, a session in StoreServer's memory, five wrong PINs lock for five minutes (session A5)
-**A PIN is 4 to 8 ASCII digits** (`StaffPin.IsWellFormed`): `char.IsDigit` would accept
-Arabic-Indic digits, and a PIN set in them can never be typed on the pad. **Hashed with Argon2id**
-(`Konscious.Security.Cryptography.Argon2` 1.3.1, MIT, pure managed) at OWASP's minimum, m=19 MiB,
-t=2, p=1, stored as a PHC string so the parameters travel with the hash and can rise later,
-compared with `FixedTimeEquals`; a malformed row verifies false, never throws. The hasher is
-**StoreServer's**, behind Domain's `IPinHasher`: only Pseudonymisation and the hosts may reach
-`System.Security.Cryptography`, and Pseudonymisation is a legal boundary, not a crypto library. A
-short PIN falls to offline guessing under any hash, so the defences are SQLCipher (D-056) and
-**`SignInLockout`: five wrong in a row lock that person for five minutes**, asked before any PIN is
-checked, so a right PIN during a lock is refused unchecked. Sign-ins are handled one at a time;
-otherwise ten guesses sent together are all checked before the fifth locks.
-**The session lives in StoreServer's memory** (`TillSessions`): a 32-byte token from the OS
-generator, one session per till, and one person may hold two tills. **`SaleRequest` names no
-seller**: the server takes it from the session that the `X-Waymark-Session` header names, and only
-if that session was opened at the same till. Otherwise the answer is `not_signed_in` and nothing is
-written. A lost session keeps the till's ticket for whoever signs in next. "Changer de caissier" is
-refused while the ticket has lines, until B2 parks one. A restart ends every session and, knowingly,
-**forgets every lockout** (O-29). **PINs are set with `StoreServer --set-pin=<staffId>`**, typed
-twice without echo, after the startup checks, and never passed as an argument. Not yet covered:
-`POST /api/recommendations/decide` still trusts its `staff_id` until Admin signs in (I1), and the
-language stays the till's, because following the person needs a staff column.
-**The cost a stored row may ask for has a ceiling** (F-23, 25/09): above 1 GiB, 10 passes or 4
-lanes the row is malformed, so a hand-edited `m=4000000` refuses one person instead of stalling
-every till behind the one-at-a-time gate.
-**Rejected:** PBKDF2 from the BCL (no package, a weaker KDF for a short secret); a
-`till_sessions` table; a lockout per till, which a guesser beats by walking to the next one.
-
-### D-084 — The till redraws only what changed, keeps the cashier's place and the scanner's focus, and takes no colour from Windows (block A review)
-Five defects of the window, none visible to `TillScreenTests`, found by driving it headlessly
-(then `tools/till-harness`; now `TillWindowTests`, D-086). **The ticket jumped back to its first line on every
-redraw**, the 15-second clock included: each frame built a new scroll viewer, and Avalonia resets
-the offset whenever a scroll viewer's content is swapped. The window now keeps one scroll viewer
-and one panel of rows for its life and refills the panel; `TillScreen.Compare` says which regions
-changed and only those are redrawn (the clock redraws the top bar once a minute), and `CartFollow`
-says when the ticket moves: to the line just scanned, or to the actions of the line just touched,
-never otherwise. **The scanner's focus left the search field** (kit §9): the window was focusable,
-so a touch on a line focused it and Entrée after a code typed by hand sent nothing. Signed in, the
-window is not focusable, a key that is touched declines the focus (`GettingFocus`, cancelled for a
-pointer; Tab still reaches it), and a redraw that removes the focused key gives the focus back to
-the field. **Keys with no ground of their own** (the staff chip, "Ignorer") took a touch only on
-their letters; a key's ground is transparent, as a cart line's already was. **Fluent's accent is
-the palette's action colour** in both themes (`FluentTheme.Palettes`), and so is a selection in
-the search field, with the action label's colour on it: it was Windows' accent colour, and selected
-text was red on a till set to red. **A till started before StoreServer** asked for its staff list
-once, showed nobody, and said "HORS LIGNE" until restarted; each health check that finds the server
-now asks again for what the till could not get (`SignInFlow.NeedsList`). **Rejected:** restoring
-the offset after a full redraw, which shows the jump for a frame and still replaces keys under a
-finger; following the foot of the ticket on every change, which moves the line the cashier is
-reading.
-
-### D-085 — An unconfirmed sale closes Encaisser until the cashier says they have checked (O-27, interim)
-A sale sent with no usable answer may have been recorded, and Encaisser on the kept ticket was a
-retry that would record it twice (O-27). **Until I2 gives a sale a key the server recognises**, the
-till holds `TillSession.Unconfirmed` apart from the notice slot, because a scan replaces a notice and
-Échap clears one, and neither is the cashier saying they checked. While it is set, Encaisser is
-unavailable and `PayAsync` sends nothing whatever pressed it; the rail's card has one key, "J'ai
-vérifié", which clears it and leaves the ticket as it is. "Changer de caissier" stays refused, since
-the ticket still has lines. The card now says the server has not *confirmed* the ticket, not that it
-did not record it, which is the one thing the till does not know. **Rejected (Hakim, 25/09):** the
-key now, a contract and schema change; accepting the risk until I2.
+### D-085 — An unconfirmed sale closes Encaisser until the cashier says they have checked (O-27)
+Interim, until I2 gives a sale a key the server recognises.
 
 ### D-086 — The till's window is tested in CI, headlessly (O-30)
-`Waymark.Pos.Tests/TillWindowTests.cs` drives the real `TillWindow` on Avalonia's headless platform,
-drawn with Skia, against a fake StoreServer: the scrolling, focus, colour and start-up checks that
-found D-084's defects, F-26's clipboard menu, and D-085 through the real keys. `Avalonia.Headless`
-and `Avalonia.Skia` (MIT, the till's 12.1.2) are test-only packages. xunit 2 has no Avalonia runner,
-so the tests share one `HeadlessUnitTestSession` for the assembly and run one at a time in their own
-collection. **In an existing test project**, so no project reference changes; `tools/till-harness`,
-which ran the same checks by hand, is removed. A defect found in the window gets its test here
-(Hakim, 25/09). **Not covered:** a real Win32 window: Windows' own accent colour, touch gestures and
-DPI are looked at on the till. **Rejected:** a new test project; keeping the harness beside the tests,
-two copies of the same checks.
+`TillWindowTests` drives the real window on Avalonia's headless platform against a fake server.
 
-### D-087 — A line is named by its own id; tickets on hold and cancelled tickets live in the till's memory (session B2)
-**A cart line has an id of its own**, local to its ticket and never sent: the server reads codes and
-counts (D-070). Two lines can hold one product (one struck and one not; from B3, a weighed or
-discounted one beside a plain one), so a touch, a removal or a count names the line, never the
-product. **A repeat scan adds to the product's latest line only if that line is plain**
-(`Cart.TakesAnotherScan`): today, not struck; B3, B4 and B5 add "not weighed, no discount, no
-override", so a scan never inherits a weight, a discount or a price nobody decided (Hakim, 25/09).
-**The − / + under a selected line stops at one**: the last unit goes with "Retirer la ligne", which
-leaves the line struck. **The count between them takes a number typed on the keyboard** (Hakim,
-25/09): Entrée confirms, anything but 1 to 9 999 in the digits 0 to 9 is refused and the count
-stays (`QuantityEntry`), and the search field takes the scanner's focus back. **"Attente" (F3) puts the ticket on hold** as a tab in the top bar;
-**"Annuler ticket" puts it in "Brouillons"**, the drafts, with who and when, and sends nothing. Both
-**belong to the till, in memory** (Hakim, 25/09): closing the till loses them, any cashier may take
-one up, and a draft is gone when the till's date changes, in the till's time zone. Resuming a ticket
-puts the one on screen, if it has lines, on hold in its place, so nothing is lost by resuming.
-**"Changer de caissier" no longer refuses a ticket with lines: it puts it on hold.** Nothing is put
-aside or resumed while a sale is unconfirmed (D-085). **Cancelling leaves no record yet**: a
-cancelled ticket with nothing written is the classic hole for till fraud, and what it leaves behind
-is **B8**'s (Hakim, 25/09); the G1 board's manager PIN for "Annuler ticket" comes with it. **Opening an
-old paid ticket** in the ticket view is **B1**, with the search field (Hakim, 25/09: not tied to
-refunds). **Rejected:** parked tickets on the server, a table for a moment at the counter; merging
-every repeat scan, which B3 to B5 would break; a stepper that goes to zero, which makes a line vanish
-without the struck trace.
+### D-087 — A line is named by its own id; held and cancelled tickets live in the till's memory (B2)
+A repeat scan adds only to a plain line; "Attente" holds a ticket, "Annuler ticket" drafts it;
+the count is 1 to 9 999.
 
-### D-088 — B1: one field that scans, types a code or searches a name; past tickets read-only (Hakim, 25/09)
-**One field**, as the G1 board draws it: a scan is an exact barcode; typed digits are an exact
-barcode, then an exact PLU; typed text with a letter is a name search. The Debug "Simulate scan" box
-stays a developer's stand-in for a scanner. **A name matches** when every word typed starts a word of
-the product and variant name, case and accents ignored; at least 2 characters, at most 20 results,
-whole words first. **The results are the stock lookup**: name, price and stock on hand; a touch sells
-it, like a scan; an unsellable product is listed with its reason and cannot be touched. **They float
-under the field**, over the ticket, as search results do, and close on a choice or Échap. **"QTÉ × n"**:
-a number then `*` typed in the empty field (`3*`) makes the next scan or touch add n units; the chip
-says so and goes back to × 1 after it. **Built 25/09:** the rule is `NameSearch` (Domain), accents folded by a table rather than Unicode normalisation, since the till runs with invariant globalisation; the lookup tries the barcode then the PLU; a product with neither is listed as not sellable (`no_code`), since a sale
-sends codes; the rank is `Capability.ViewOtherTickets`; **Rejected:** a second field for barcodes; results in the rail.
+### D-088 — B1: one field that scans, types a code or searches a name
+`NameSearch`: every typed word starts a word of the name; whole words first, then the names the
+first typed word begins.
 
-### D-089 — B1: Past tickets:
-A "Tickets" key lists this till's sales of the day, newest first, with their time;
-a ticket number typed in the field opens one. A past ticket opens **read-only in the ticket view**,
-with today's catalogue names (a sale's lines keep no name)
-and **no customer**: showing one is a consultation to log (D-061), B7's. Today's tickets at this till
-are anyone's; an earlier day or another till needs rank 2, through `StaffPermissions.May`. Reprint is
-D3's, a refund B9's. The store's day runs midnight to midnight in
-its own zone; nothing is sold or put aside while a past ticket is open, since the ticket that would
-be sold is hidden under it. A code typed all at once is a scan (D-063), so a ticket number is typed,
-not pasted.
+### D-089 — B1: past tickets, read-only
+Today's tickets at this till are anyone's; an earlier day or another till needs rank 2, or a
+manager's PIN (D-109).
 
-### D-090 — B3: weighed goods are typed or read from a scale label; a label's price is exact (Hakim, 27/09; closes O-26)
-**Three ways in:** a weighed product's code typed, scanned or touched asks for its weight, typed in
-the one field (kg, net, `0,556` or `0.556`, no more decimals than the unit allows); a **weight label** carries grams; a
-**price label** carries what the customer pays. **The lookup tries the exact barcode, then the PLU,
-then the label**: every seed-42 barcode starts with 20, the in-store range labels use. **A label is
-read by the store's format**: a mask (`P` prefix, `I` item code matched to the PLU with leading zeros
-ignored, `V` value, `C` the EAN-13 check digit, which must hold), known ones shipped as named
-presets, a custom one allowed, and the store's choice in `stores.scale_label_format` (null is the
-default preset); the variant's `barcode_type` says whether `V` is a weight or a price. **A price
-label's figure is exact (O-26):** the quantity is derived from it and rounded to the unit's step by
-the store's policy, so stock absorbs the gram and money never moves; the row says so in
-`transaction_items.quantity_source` (`count`, `typed_weight`, `label_weight`, `label_price`), which
-also tells a typed weight, the unverifiable one, from a label's. A weighed line split over batches
-rounds per batch as D-070 does; a price label's total is split over them with `Allocate`, and each
-such row's quantity is its total ÷ price to within one step. **The server prices**: the till sends
-the label, or the code and the typed weight. A weighed line never merges (D-087) and takes no `3*`.
-**Not in B3:** a scale's own reading and `tare_weight` (the hardware survey); weighed produce in the
-generator (before J1). **Rejected:** charging weight × price against the label's printed price
-(Law 04-02); the gap as a discount nobody decided (D-076); a database-wide format in `system_config`.
-**Built 27/09:** presets from the scales' own documentation (`standard` CAS/Dibal/Mettler
-`PPIIIIIVVVVVC` in dinars, `standard-centimes`, `item4-verifier`, `item5-verifier`, `item6` the
-reviewed schema's); `X` is a price verifier read past, not checked; set by StoreServer's
-`--scale-format=` (`list` shows them) until H2. `quantity_source` is `required` on the entity, like
-`rounding_policy`: its column default only covers the rows written before it, all counts. A label is
-refused when its check digit fails or its prefix is not the store's (no product), when its product is
-not set up for labels or two PLUs read as one item code (`label_not_set_up`), or when its value
-cannot be sold (`label_value_invalid`); a typed weight as `weight_invalid`, or `not_sold_by_weight`.
-The weight is typed in the one field (D-088), with a card from the kit where the results float: the
-product, its price per kg and the server's total as the cashier types (Claude, 27/09, in place of the
-pad agreed: **for Hakim's review**). "Poids" retypes a typed weight, never a label's.
+### D-090 — B3: weighed goods are typed or read from a scale label; a label's price is exact
+The server prices; `quantity_source` says which figure a row keeps exact; the store's label mask
+is `stores.scale_label_format`. Closes O-26.
 
-### D-091 — B4: a discount given at the counter, rank 2, percent or amount, on a line or the ticket (Hakim, 28/09)
-**Two kinds of discount, two sessions.** A discount **given at the counter** (a "geste commercial",
-a damaged article) is B4: a person decides it then, with a reason from `IReasonCodes` (D-079). A
-discount **created in advance** that applies by itself (−10 % this week, two for one) is the
-`promotions` engine, **E2**, where a manager can create one; D-076's pointer to B4 is moved there.
-**Rank 2** gives one (D-077): a cashier's needs a manager's PIN, checked in StoreServer only
-(§3.10), and the row's `authorised_by` is the manager. **Percent or amount, on a line or the ticket.**
-A ticket discount **follows the ticket**: a percent re-applies to the new total, an amount stays,
-capped at it, and the server works both out at payment and spreads them with `Allocate`.
-**Rejected:** cashiers discounting alone up to a threshold (a store setting for H2); dropping a
-ticket discount when the ticket changes.
-**Built 28/09:** the arithmetic is `Discounts` (Domain, Hakim's piece): a percent rounded once by the
-store's policy, an amount capped at the line, a ticket discount worked out once on the lines' totals
-after their own and split with `Allocate`, each line's total spread over its batch rows the same way.
-The till previews with the same function and the store's policy (now in `TillContext`), so the figure
-shown is the one charged; the sale sends what was given, never money. **Authorisation:** the till
-asks `POST /api/till/authorise`; StoreServer answers from the seller's rank (`StaffPermissions.May`),
-or checks a manager's PIN with sign-in's lockout and asks their rank, and keeps the approval in
-memory for that till's session only. The sale cites it, and the row's `authorised_by` is whoever the
-server says gave it. A row with both a line and a ticket discount keeps the line's reason (F-28).
-The panel and the manager step are built from the kit; the manager is chosen by name before the PIN,
-which the board's 09-pin does not draw (**for Hakim's review**).
+### D-091 — B4: a discount given at the counter, rank 2, percent or amount, on a line or the ticket
+`Discounts`: a percent rounded once, a ticket discount split with `Allocate`; the sale sends what
+was given, never money; a cashier's needs a manager's PIN.
 
-### D-092 — B5: a price override is recorded beside the price it replaced, within a band, by rank 3 (Hakim, 29/09)
-**Rank 3** (`OverridePrice`, D-077), a reason from `price_override` (D-079), through B4's
-authorisation and manager step. **Recorded on the row:** a migration adds `list_price` (the price in
-force), `override_reason_code` and `override_authorised_by` to `transaction_items`; `sell_price` stays
-what was charged, so the row still recomputes (D-053) and the Z report can count overrides. The same
-migration settles **F-28**: a ticket-level discount reason, authoriser and note on `transactions`,
-and a note on `transaction_items`, one rebuild instead of two. **The band:** up to +20 % above the
-price in force, refused beyond it (fix the catalogue instead); down to any price above zero, with a
-warning below the batch's unit cost; zero is a 100 % discount, not an override. The limits are a Domain
-rule now and a store setting when H2 gives them a screen. Per line only; an overridden line is not
-plain (D-087); a line discount may follow it. **Not in B5:** Divers and "Nouvel article" (D-081),
-with F-27's design. **Rejected:** down only (a stale low price could not be corrected at the counter);
-no record beyond the price (the Z report could not count overrides); rank 2.
-**Built 29/09:** the band is `PriceOverride.Check` (Domain, Hakim's piece): the ceiling is the price in
-force plus 20 %, **rounded down**, so no centime passes the limit; the price in force itself is
-`Unchanged` and not recorded. The till checks it as the price is typed and the server again before
-charging; the till's below-cost warning reads the oldest batch in stock's cost, which the lookup now
-carries (never shown as a figure). A weighed line takes no override in B5: its price is the server's
-per kilo, and a correction there waits for a need. A sale sends a price only when one was typed:
-`price_override` is left out of the JSON otherwise, which keeps D-070's guard. Migration
-`OverridesAndDiscountReasons` rebuilds `transactions` and `transaction_items`. The note (F-28) is
-asked in the field after the reason when that reason says `requires_note`; an override reason's note
-has no column and is not asked.
+### D-092 — B5: a price override is recorded beside the price it replaced, within a band, by rank 3
+`list_price`, its reason and its authoriser on the row; `PriceOverride.Check`: at most +20 %,
+above zero, a warning below cost.
 
-### D-093 — The manager step floats over the screen; a key reads its own touch; a silence timer that fires early waits again (Hakim, 30/09)
-**The manager step** (B4, B5) is a card floating over the whole screen on a scrim, closed by a ✕,
-not a panel in the rail: in the rail it ran into the bottom bar at the smallest window. It lives
-in its own slot, `TillScreen.Approval`; the discount or price panel stays in the rail under it. The
-scrim takes the touches meant for the ticket, so nothing else is pressed while a PIN is asked; the ✕
-closes it and nothing is given, as Échap does. Rejected: a second OS window, because keystrokes and
-the scanner would go to it and not to the till. **A key acts on a press released over it**, read
-from the pointer, not from Avalonia's `Tapped`: a second touch within the double-tap time is a
-`DoubleTapped` and never a `Tapped`, so a PIN typed at a cashier's pace lost every other digit.
-A key still takes `Tapped`, so a touch on it never also selects the row under it. **The scanner's
-silence timer** (D-063) can fall due up to a 15.6 ms Windows clock tick early. It found the window
-not yet silent and gave up, so the last character typed waited for the next key; now it waits for
-the rest of the window.
+### D-093 — The manager step floats; a key reads its own touch
+A key acts on a press released over it, not on `Tapped`; the silence timer waits out an early tick.
 
-### D-094 — What edits a line stays in the rail; what freezes the ticket floats (Hakim, 30/09)
-**The rule:** a panel that edits a line (discount, price, weight) stays in the rail, beside the
-ticket it changes. A panel that freezes the ticket (the payment, the manager's PIN) floats over the
-whole screen: a card 880 px wide on a dark scrim, its title and a ✕ (Échap) at the top, what is asked
-on the left, the pad and the key that goes on at the right. Both floating panels share that frame
-(`Ui/TillViews.Floating.cs`); D-093's PIN card, 550 px in one column, moved into it. **While one is
-open, scans are ignored**, and the notice slot behind it says so ("ENCAISSEMENT EN COURS", "AUTORISATION
-EN COURS"): a scan under the PIN step used to add a line to a ticket waiting for its approval. A
-scanner's own Entrée ends its scan and is swallowed with it, so it never validates the panel either.
-**Rejected:** everything in the rail (the PIN step ran into the bottom bar, D-093); everything floating
-(a line's discount would hide the line it changes).
+### D-094 — What edits a line stays in the rail; what freezes the ticket floats
+While a panel floats, scans are ignored and the notice slot says so.
 
-### D-095 — B6: split tender: card and BaridiMob parts, the rest in cash, rounded once (Hakim, 30/09)
-**A ticket is paid by card and BaridiMob parts, and whatever is left in cash.** The parts are exact
-and are never rounded: the terminal took 2 000,00, the row says 2 000,00. **Only the cash rest rounds**
-to the 5 DA step (D-034), once, whatever order the parts were typed in; the parts may not come to more
-than the total, since a card gives no change and no cash back. `Tender.Settle` (Domain, Hakim's piece)
-is asked by the till as parts are added and by the server again, on its own total, before anything
-is written; a refusal writes nothing and spends no invoice number. **With no part the ticket is all
-cash** and the rule is not asked, on either side. Rows: one per part in order, then one cash row for
-the exact rest, each with its sequence; `rounding_variance` takes the cash rest's rounding. **A part's
-reference is optional** (the terminal's authorisation number, the last four digits, a transfer id),
-kept in `transaction_payments.reference`; **one that reads as a card number** (13 to 19 digits passing
-the Luhn check, spaces and dashes ignored) is cleared at the till and refused by the server, so it is
-never shown again or stored. **Nothing is taken of the cash handed over and no change is worked out
-(Hakim, 30/09, the second time of asking):** no amount received, no "à rendre", no note keys, on the
-screen or on the row; the board draws them and they are left out. On the wire the till sends the parts
-as given (`tenders`, left out of the JSON for all cash, as `price_override` is); the answer lists the
-rows written. **Not in B6:** store credit (B9), on-account (B7), a terminal or BaridiMob link, the
-drawer (D2). **Rejected:** each part rounding in the order typed (the cash to collect would depend on
-the order); a required reference (a terminal's slip is not always at hand); recording the cash handed
-over (Hakim).
+### D-095 — B6: split tender: card and BaridiMob parts, the rest in cash, rounded once
+`Tender.Settle`; parts are exact and never exceed the total; a reference that reads as a card
+number is refused; nothing is taken of the cash handed over.
 
-### D-096 — B7: the tab (le carnet): tenant settings, customers at the till, a limit with its history (Hakim, 30/09)
-**The customer module is the tenant's switch, not a store's** (DPIA P6): customers are the tenant's
-(`customers` has no `store_id`), and an Enterprise chain has the bundle in every store or none. It and
-the three carnet settings are keys of the reviewed `system_config`, not a new table:
-`customer_module` (off when absent), `max_credit_limit` (money in minor units; absent: no ceiling),
-`credit_overdue_days` (absent: the rule is off), `tab_as_part` (on when absent). Set by
-`--customer-module`, `--max-credit-limit`, `--credit-overdue-days`, `--tab-as-part` until H2; pushed
-down by the cloud once there is sync. There is no default limit: the owner gives each tab its own. The
-paid bundle (Phase 2's customer intelligence) will gate through `store_entitlements`; no licensing now.
-**The rules are `Tab`** (Domain, Hakim's piece): the balance is the sum of the ledger, never a column;
-repayments pay the oldest charges first, so the till can say how old a debt is; a charge is refused
-with no tab, on a frozen tab, when the oldest unpaid charge is past the overdue days, or past the limit,
-**and only past the limit may an owner (`ManageCredit`, rank 3) let one charge through**, named on the
-charge (`receivable_movements.override_authorised_by`); a limit is at least zero and at most the
-ceiling; a repayment is never more than is owed. **The tab is a tender part** (D-095): exact, once per
-ticket, and, with `tab_as_part` off, the whole ticket or nothing. **Every limit set, freeze and unfreeze
-is a row of `credit_limit_events`**, append-only with its three guards, the tenant's like the customer.
-**A customer is created at the till** by rank 2 (`CreateCustomer`): a name, a number stored in one form
-(`PhoneNumber`: +213 and nine digits; one number may have several customers, since households share
-one), and the information notice in force (Art. 32; a new `notice_type` `information`, published by
-`--publish-information-notice`, the one piece of G2 brought forward). **Every look at or change to a
-named customer is a `processing_log` row under their pseudonym** (D-061): each one a search lists, each
-tab opened, a creation, a limit change, a sale recorded against them; purpose `credit_management`, or
-`pos_sale` for a sale with no tab part. A cash repayment is a `paid_in` on the terminal's session and a
-`payment` pointing at it (D-055), under a `cash_movement` reason the till chooses. **Not in B7:**
-adjustments and write-offs (G5), repayment by card or BaridiMob, full customer editing (G1), consents
-(G3). **Rejected:** a per-store switch (a customer would exist in one shop of a chain and not the next);
-a `tenant_configuration` table (`system_config` is the reviewed place for installation settings);
-warning past the limit instead of refusing (the limit would enforce nothing); an override for a frozen
-or overdue tab.
+### D-096 — B7: the tab (le carnet): tenant settings, customers at the till, a limit with its history
+`Tab`; the module and carnet settings are `system_config` keys; only past the limit may an owner
+let a charge through; every limit change is a `credit_limit_events` row.
 
-### D-097 — B8: a cancelled ticket is recorded, not prevented; a PIN only after "Encaisser" (Hakim, 01/10)
-**Record, then review, rather than a PIN on every cancel:** a PIN asked every time is a PIN that gets
-shared. Every cancel is recorded, by everyone, with a reason (`void` reason codes): a `transactions`
-row `voided`, priced as its sale would have been (one pricing, `CompleteSaleHandler`), its lines with no
-batch, and no stock movement, payment, invoice number, outbox row or tier-2 record. **The record comes
-first**: the till lets the ticket go to the drafts only once the server has written it, and with no
-answer the ticket stays ("put it on hold"), so pulling the cable hides nothing. **A manager's PIN is
-asked only of a cashier** (below `VoidTransaction`, rank 2) **cancelling after the payment panel was
-opened on the ticket**: the customer may have paid, the classic theft at a till. The till keeps when
-"Encaisser" was first opened on a ticket; the row keeps it (`payment_opened_at`) and who authorised
-(`void_authorised_by`). **Lines struck before a sale is paid are recorded with it**: rows with
-`removed_at` and `removed_by`, no batch, priced at the price in force, outside every total; the
-till's past-ticket view leaves them out, and a cancelled ticket, which has no number, is not listed
-among the tickets. **The owner's flags are a rule, `Voids.Flags`** (Domain, Hakim's piece): after
-"Encaisser", always; more than `void_alert_count` cancels by one person in one cash session; a ticket
-worth more than `void_alert_value`; both `system_config` keys like D-096's, absent unless the owner sets
-them. **Shown in the Z-report (C2) and Admin's review queue, never on the till** (Hakim: not while the
-owner works). **Not in B8:** no-sale (the drawer is D2's), showing the flags (C2, E). **Rejected:** a
-manager's PIN on every cancel (the G1 board's first drawing); a card on the owner's board at the till;
-cancelling offline and sending it later (a cancel nobody can see until the cable is back).
+### D-097 — B8: a cancelled ticket is recorded, not prevented; a PIN only after "Encaisser"
+A `voided` transaction written before the till lets the ticket go; struck lines are rows outside
+every total; `Voids.Flags` are the owner's.
 
-### D-098 — B9a: a refund is its own ticket, linked to the sale; the tab first, then cash or store credit (Hakim, 01/10)
-**A refund is a transaction of its own**, as the generator already writes one: completed, with the
-next number of the sales' sequence, `original_transaction_id` on the sale, its lines the sold rows
-negated on the same batches, one `returns` row per sold row naming its refund row (F-17), and the sale
-marked `refunded` or `partially_refunded`. Nothing reaches the outbox or tier 2 (D-043). **What a line
-gives back is what it was paid, never the shelf price** (`Refunds.Share`, Hakim's piece): a row's total
-and TVA are split over its units with `Allocate`, so any series of partial refunds sums exactly to the
-line, and a weighed line comes back whole or not at all. A line is named on the wire by its variant and
-unit price, as the ticket view merges them (D-088), and taken from its batch rows first row first.
-**Where the money goes:** the tab first, as a negative charge (D-055), never beyond what the sale put
-on it nor what is owed now; the rest in cash, rounded once (D-034), or as store credit, the cashier's
-choice. **No cap on cash** (Hakim): a card or BaridiMob sale is paid back in cash too, since a refund
-on the terminal is not the shop's to make and with the module off there is nothing else. **Store
-credit is a named customer's** (`credit_movements.customer_id`), the module on: the sale's customer, or
-one attached at the refund (the till offers it only for the first until B7's screens exist). Its
-balance is the ledger's sum; `customers.credit` is kept equal in the same unit of work (Hakim).
-**Who refunds is the tenant's setting** `refund_min_rank` (`system_config`, unset: anyone with a rank):
-below it, a PIN of someone at it or above. `StaffPermissions.May(rank, capability, raisedTo)` raises a
-capability's rank, never lowers it. **Restock** is the cashier's per line, on by default; an expired
-batch never goes back (`Refunds.Restocks`). The till asks the server for a quote, which writes nothing,
-before the money goes out. **A split refund's `returns.refund_method`** is where the rest went (cash or
-store credit), `on_account` only when all of it went to the tab; the payment rows hold the split.
-**Not in B9a:** spending store credit (B9b), an anonymous voucher. **Rejected:** money back the way it
-was paid, part by part (slow at the counter); a manager's PIN on every refund; restock decided by the
-reason (a schema change); a cap of cash at the sale's cash part.
+### D-098 — B9a: a refund is its own ticket, linked to the sale; the tab first, then cash or credit
+`Refunds.Share` gives back what was paid; `refund_min_rank` is the tenant's; an expired batch
+never goes back on the shelf.
 
-### D-099 — B7, B9a: the customer screens at the till, from the board (Hakim, 02/10)
-**The search and the creation float over the frozen ticket** (D-094); **the carnet does not**: it
-takes the ticket's place, and its opening is logged by the server (D-061). The **customer key** (F5)
-exists only with the tenant's module on, which the till context now carries with `tab_as_part`; once
-someone is attached it names them ("Samira B."), with ✕ to detach, and the notice slot says so; a
-touch or F5 then opens their carnet. The customer is kept on the cart, so a ticket put aside keeps
-it, and is sent with the sale. A number is checked at the till (`PhoneNumber`) before the server is
-asked; each customer listed is a logged consultation. **Creation** is name and number only, a
-manager's PIN for a cashier (rank 2). **Changing the tab** (limit, freeze, close) asks the owner's
-PIN (rank 3); a **repayment** takes an amount, "Tout le dû", and a `cash_movement` reason, and the
-till asks `Tab.MayRepay` before sending. **"Carnet" in the payment panel** appears only for a customer
-with a tab; the till asks `Tab.Check` on the server's figures: frozen or overdue, nothing lets it
-through; past the limit, the owner's PIN, named on the sale; with `tab_as_part` off, the whole
-ticket and nothing typed. **A refund to store credit on a ticket with no customer** attaches one
-first ("UN AVOIR EST NOMINATIF", F5), is quoted again for them, and shows the credit once issued; the
-quote now says `may_credit` (module on) and `customer_on_ticket` apart. **Left out of the board, on
-purpose:** "Imprimée et remise / Montrée à l'écran" and the notice's version on the creation panel
-(no printer before D2, and how it was handed is not a column; the panel says to hand it, and the
-server refuses with no notice in force); "Numéro déjà pris" (one number may be two people's, as the
-board's own search shows); a name of letters only (the server's rule is 1 to 100 characters); the
-store's ceiling on the limit panel and a ticket number per statement line (not in `TabAnswer`; the
-server's refusal says the ceiling); "Tiroir ouvert" and printed receipts (D2); "Payer en avoir" (B9b).
+### D-099 — B7, B9a: the customer screens at the till
+The search and creation float; the carnet takes the ticket's place and its opening is logged.
 
-### D-100 — A customer is found by full name, or by number (Hakim, 02/10; widens D-096)
-**Speed at the counter beats asking for a number the customer may not remember** (Hakim): the till's
-one field takes a name or the 10 digits. **A name is kept narrow** (`CustomerNameSearch`, Domain),
-since every customer listed is a logged consultation (D-061): **a full name only**, two words or more
-of two letters or more, so a first name alone searches nothing; **whole words**, case and accents
-ignored as the product search ignores them (D-088), in any order; **five at most**, and more than five
-list nobody and log nobody, the number asked instead; **the number masked** to its last four digits
-in a name's results. **The search asks itself 3 s after the last key** (`TillWindow.CustomerSearchAfter`),
-so a name half typed lists nobody; Entrée asks at once. Nothing found by name, the creation is
-prefilled with the name. The server reads the active customers and filters them with the same rule.
-**Rejected:** a search from the first letters (a list of strangers at every key); showing every match.
-The Arabic till calls the carnet «دفتر الديون» and buying on it «الشراء بالدَّين» (Hakim, 02/10).
+### D-100 — A customer is found by full name, or by number
+`CustomerNameSearch`: a full name, whole words, three at most; more list nobody and log nobody.
 
-### D-101 — B9b: store credit is spent as a part; a refund gives it back as credit; it may expire (Hakim, 02/10)
-**Store credit is a part like a card** (`Tender.Settle`, Hakim's piece): exact, once per ticket
-(`CreditTwice`), never above the rest; anyone spends it, no PIN, for a customer attached with the
-module on. **What is available is a rule** (`StoreCredit.Age`, `MayRedeem`, Hakim's piece): the
-balance is the sum of `credit_movements`, spending takes the oldest credit first, and with the tenant's
-`credit_expiry_days` (`system_config`, unset: never; `--credit-expiry-days=365|off`) credit unspent
-more than that many days after it was issued has expired. **An expiry is written when it is found**: a
-sale spending credit first writes an `expire` movement for what has expired, then the `redeem`, each
-with its balance after, and `customers.credit` kept equal (D-098). **A refund gives store credit back
-as store credit first** (`Refunds.ToCredit`): after the tab's share, the share the sale paid in credit,
-less what earlier refunds gave back as credit (counted generously: a rest the cashier chose to give as
-credit counts too), so a refund never turns store credit into cash; the rest is cash or credit as
-before. The till offers "Avoir" only for a customer with credit available, prefilled with the smaller
-of the credit and the rest ("PLUS QUE L'AVOIR" above it); the tab's answer carries `credit_available`,
-read without the rule for a customer who never had credit. **Not in B9b:** an anonymous voucher; the
-credit in the carnet view. **Rejected:** the cashier choosing freely on a refund (credit cashed out); a
-PIN to spend credit (it is the customer's money); expiry left for later.
+### D-101 — B9b: store credit is spent as a part; a refund gives it back as credit; it may expire
+`StoreCredit.Age` and `MayRedeem`; an expiry is written when it is found; `customers.credit` kept equal.
 
-### D-102 — B10: cash in and out with no sale; the clock is its own key (Hakim, 02/10)
-**"Petite caisse"** records a `paid_in` or a `paid_out` on the terminal's cash session (opened if there
-is none, D-070, until C1), with a `cash_movement` reason, its note when the reason asks for one, and
-never a negative amount: the type says the direction. **A cash reason says which way it moves money**:
-`reason_codes.direction`, `in`, `out`, or null for either way, and only a cash reason has one (CHECK);
-migration `CashReasonDirection`, written by Claude at Hakim's request. Each panel lists the reasons for
-its own way or either; a tab's repayment (D-055) takes a reason for cash in or either. **Who takes cash
-out is the tenant's** `paid_out_min_rank` (`system_config`, unset: anyone with a rank;
-`--paid-out-min-rank=2|off`), raising `Capability.PaidOut` as `refund_min_rank` raises `Refund`
-(D-098): below it, the PIN of someone at it, named as `authorised_by`. Cash in is anyone's. **The clock
-is "Pointage"**, under the rail's "Plus…": a person picks their name and types their PIN, checked by the
-server with sign-in's lockout; with no open shift at this store they clock in (`shifts`, open), with one
-they clock out (closed, `end_time`). Signing in and switching cashier open no shift: working time is
-not the till's session. **Rejected:** shifts tied to sign-in (ten shifts a day for one person); a paid-out
-for anyone with no setting; every cash reason offered both ways.
+### D-102 — B10: cash in and out with no sale; the clock is its own key
+`reason_codes.direction` says which way a cash reason moves money; `paid_out_min_rank` is the
+tenant's; "Pointage" opens and closes `shifts`.
+
+### D-103 — A line is priced once, then split over its batches (block B review)
+`SaleArithmetic.Line`, then `Split` with `Allocate`: the rows sum to the figure the scan showed.
+Replaces D-090's "rounds per batch".
+
+### D-104 — A ticket's lines keep their place: `transaction_items.line_number` (block B review)
+From 1; rows of one line share it; struck lines follow; 0 on rows written before the column.
+Migration `LinesStrikesAndTabRounding`.
+
+### D-105 — An approval belongs to the till, for the store's day (block B review)
+It survives a change of cashier and ends at the store's midnight, as a cashier's view of past
+tickets does; one the server no longer holds is `approval_expired`; a cancel is never refused for one.
+
+### D-106 — A line struck after "Encaisser" needs the cancel's PIN; a ticket struck empty is cancelled (block B review)
+`Voids.StrikeNeedsAuthorisation`; `transaction_items.removed_authorised_by`; a ticket with only
+struck lines is recorded as a cancel before the till lets it go.
+
+### D-107 — A refusal a cashier meets is a code; the till owns the sentence (block B review)
+`RefusalCodes` and what the code names on the wire; `TillText.Refusal` in French and Arabic.
+
+### D-108 — A tab repaid in cash rounds like a cash sale (block B review)
+`Tab.Repay`: the whole due clears the tab exactly, the `paid_in` is the rounded cash, the
+difference a `rounding_variance` row; a part is a multiple of the cash step.
+
+### D-109 — A manager's PIN opens an earlier day's ticket for a cashier (block B review; widens D-089)
+`pin_required`, then an authorisation for `ViewOtherTickets`, which the refund cites.
+
+---
 
 ## Open — waiting on Hakim
 
@@ -1053,6 +617,7 @@ for anyone with no setting; every cash reason offered both ways.
 | O-31 | **May a terminal that is not `active` sign in and sell?** Neither sign-in (`TillDirectory`) nor `CompleteSale` reads `terminals.status`, so a retired till still signs in and sells | Who and what may sell is an access rule (D-077, D-083). Claude's recommendation: refuse at sign-in as `unknown_terminal`, and at the sale | **H2** (terminals). Before a pilot |
 | O-32 | **Does an archived product stop its variants selling?** The lookup reads only `variants.status` (D-066), so a product archived with an active variant sells | A sellability rule of D-066. Claude's recommendation: the lookup refuses on either, as `archived`, so E1 need not cascade the status | **E1** (archiving a product) |
 | O-33 | **Is the person who decides a card at the till the session's person?** The till sends `staff_id` to `/api/recommendations` and `/decide`, and the server believes it (D-083's stated gap), against CLAUDE.md §3.10 | The till already holds a token. Closing the till's half is about an hour: with the header, the session's person decides and a different `staff_id` is refused; without it (Admin) nothing changes until I1 | Nothing in Phase 1's flow; anyone on the LAN can decide as the owner meanwhile |
+| O-34 | **Does lowering a line's count after "Encaisser" need the cancel's PIN, and is it recorded?** D-106 covers a line struck; five units made one is the same theft, and a lowered count is written nowhere | An access rule (D-097, D-106) and a record: the difference as a struck row would be a new meaning for one | Nothing in the flow. **Before a pilot** (F-30) |
 
 ### Resolved
 | Open | Resolved by |

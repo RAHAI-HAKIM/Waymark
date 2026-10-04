@@ -295,7 +295,7 @@ public static class PaymentScreen
             amount is { } part ? DisplayFigures.AmountWithCurrency(part, text) : "—",
             text.WholeRest,
             DisplayFigures.Amount(rest),
-            whole ? text.WholeTicketOnly : text.NoChangeOnCard,
+            whole ? text.WholeTicketOnly : text.TabPartExact,
             text.CurrencySymbol(total.Currency),
             text.TabOf(name),
             [

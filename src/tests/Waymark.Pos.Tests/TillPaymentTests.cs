@@ -144,13 +144,60 @@ public sealed class TillPaymentTests
     }
 
     [Fact]
-    public async Task A_ticket_whose_every_line_was_removed_does_not_block_the_change()
+    public async Task A_ticket_whose_every_line_was_removed_is_cancelled_before_the_change()
     {
+        // D-106: it used to be dropped at the change, struck lines and all.
         var (session, _) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
         session.Remove(session.Cart.LineOf("v-111"));
 
+        Assert.Null(session.SignOut());
+        Assert.Single(session.Cart.Lines);
+
+        session.CancelTicket();
         Assert.Equal("token-1", session.SignOut());
-        Assert.Empty(session.Cart.Lines);
+    }
+
+    // ------------------------------------------------ a line struck after "Encaisser" (D-106)
+
+    [Fact]
+    public async Task A_line_struck_after_encaisser_goes_with_its_authorisation_and_when_payment_was_opened()
+    {
+        var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), null, "111", "222");
+        session.MarkPaymentOpened();
+        session.Remove(session.Cart.LineOf("v-111"), "auth-samia");
+
+        await session.PayAsync();
+
+        var sent = Assert.Single(sales.Sent);
+        Assert.Equal(("111", "auth-samia"), (Assert.Single(sent.Removed!).Barcode, sent.Removed![0].Authorisation));
+        Assert.Equal(session.Paid is null ? null : sent.PaymentOpenedAt, sent.PaymentOpenedAt);
+        Assert.NotNull(sent.PaymentOpenedAt);
+    }
+
+    [Fact]
+    public async Task A_sale_with_no_struck_line_does_not_say_when_payment_was_opened()
+    {
+        // The server reads the seller's rank only for a ticket that has both: nothing else is asked.
+        var (session, sales) = await CartOf(new SaleAnswer.Completed(Done), null, "111");
+        session.MarkPaymentOpened();
+
+        await session.PayAsync();
+
+        Assert.Null(Assert.Single(sales.Sent).PaymentOpenedAt);
+    }
+
+    [Fact]
+    public async Task A_refused_sale_keeps_the_servers_code_and_the_slot_says_it_in_french()
+    {
+        // D-107: "Samira Benali's tab is frozen." reached the cashier as written.
+        var refusal = new Refusal(RefusalCodes.TabFrozen, ["Samira Benali"]);
+        var (session, _) = await CartOf(new SaleAnswer.Refused("Samira Benali's tab is frozen.", refusal), null, "111");
+
+        await session.PayAsync();
+
+        Assert.Equal((TillNoticeKind.SaleRefused, refusal), (session.Notice?.Kind, session.Notice?.Refusal));
+        Assert.Equal("Le carnet de Samira Benali est gelé.", Waymark.Pos.Screen.RefusalText.Say(
+            Waymark.Pos.Screen.TillText.French, session.Notice!.Refusal, session.Notice.Detail));
     }
 
     // ------------------------------------------------ a line taken out (G1)

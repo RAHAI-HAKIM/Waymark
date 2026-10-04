@@ -137,10 +137,19 @@ public sealed class TillKey : Border
     }
 
     /// <summary>A key's label with its F key in the top corner (G1 kit §9), laid out for its look.</summary>
-    public static Control Labelled(Control label, string? functionKey, IBrush keyBrush)
+    /// <param name="reserve">
+    /// For a key only as wide as its label (the keys under a line): room is kept at the label's end,
+    /// so the F key sits beside the label and not on it. A tile is wide enough without.
+    /// </param>
+    public static Control Labelled(Control label, string? functionKey, IBrush keyBrush, bool reserve = false)
     {
         var grid = new Grid { VerticalAlignment = VerticalAlignment.Stretch };
-        grid.Children.Add(new Border { VerticalAlignment = VerticalAlignment.Center, Child = label });
+        grid.Children.Add(new Border
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, reserve && functionKey is not null ? 14 : 0, 0),
+            Child = label,
+        });
         if (functionKey is not null)
         {
             grid.Children.Add(new TextBlock

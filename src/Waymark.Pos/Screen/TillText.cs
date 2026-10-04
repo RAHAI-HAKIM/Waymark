@@ -554,6 +554,64 @@ public abstract class TillText
 
     public abstract string CashReasonTitle { get; }
 
+    /// <summary>"MOTIF DE SORTIE DE CAISSE": over the reasons for cash out (B10); <see cref="CashReasonTitle"/> is cash in's.</summary>
+    public abstract string CashOutReasonTitle { get; }
+
+    // ------------------------------------------------------------------ what the server refused (D-107)
+
+    /// <summary>
+    /// A server's refusal in the till's language (D-107): the code's sentence, with what it names
+    /// already written the till's way; null for a code this till does not know.
+    /// </summary>
+    public abstract string? Refusal(string code, IReadOnlyList<string> args);
+
+    /// <summary>"Refusé par le serveur": said before the server's own words, for a refusal with no sentence here.</summary>
+    public abstract string RefusedByServer { get; }
+
+    /// <summary>The <paramref name="index"/>th thing a refusal names, or "?" when the server named fewer.</summary>
+    protected static string Named(IReadOnlyList<string> args, int index) => index < args.Count ? args[index] : "?";
+
+    // ------------------------------------------------------------------ a line struck after "Encaisser" (D-106)
+
+    /// <summary>The manager step's title when a cashier strikes a line once payment was opened.</summary>
+    public abstract string StrikeApprovalTitle { get; }
+
+    public abstract string StrikeApprovalSummary(string article);
+
+    /// <summary>"LIGNES RETIRÉES": the ticket holds only struck lines, and the cashier asked to leave it (D-106).</summary>
+    public abstract string StruckTicketOpen { get; }
+
+    public abstract string CancelBeforeSwitching { get; }
+
+    // ------------------------------------------------------------------ an older ticket opened with a PIN (D-109)
+
+    public abstract string OpenTicketApprovalTitle { get; }
+
+    public abstract string OpenTicketApprovalSummary(string number);
+
+    // ------------------------------------------------------------------ a tab repaid in cash steps (D-108)
+
+    /// <summary>"Espèces à encaisser": what the drawer takes for a repayment, the due rounded to the cash step.</summary>
+    public abstract string CashTaken { get; }
+
+    public abstract string RepayOnStep { get; }
+
+    public abstract string RepayOnStepDetail(string cashStep);
+
+    /// <summary>"RETOUR ENREGISTRÉ": the notice once a refund in cash is written.</summary>
+    public abstract string RefundRecorded { get; }
+
+    public abstract string CashToHandBack(string amount);
+
+    /// <summary>"2 EN ATTENTE": the count of tickets on hold, beside their tabs in the top bar.</summary>
+    public abstract string HeldCount(int tickets);
+
+    /// <summary>"PIN PROPRIÉTAIRE": over the PIN of a step only the owner may approve.</summary>
+    public abstract string OwnerPin { get; }
+
+    /// <summary>"Total HT": a past ticket's total before TVA, which is what its <c>subtotal</c> holds.</summary>
+    public abstract string TotalBeforeTax { get; }
+
     public abstract string WholeDue(string amount);
 
     public abstract string CashIn { get; }
@@ -653,6 +711,9 @@ public abstract class TillText
     public abstract string TabOverdueRefusedDetail { get; }
 
     public abstract string WholeTicketOnly { get; }
+
+    /// <summary>Under a tab part being typed: the tab takes the exact amount, never more than is left. Not the card's sentence.</summary>
+    public abstract string TabPartExact { get; }
 
     public abstract string TabNotWithParts { get; }
 
@@ -879,8 +940,20 @@ public abstract class TillText
 
     public abstract string TaxIncluded { get; }
 
-    /// <summary>"Espèces", "Carte", "Mobile"; anything else as the wire says it.</summary>
-    public abstract string PaymentMethod(string method);
+    /// <summary>
+    /// A payment row's method by the name the payment panel gave it: one list of names, so a past
+    /// ticket cannot call a part something else than the panel that took it (block B review: "Mobile"
+    /// for "BaridiMob", and cash spelled two ways in Arabic). Anything else as the wire says it.
+    /// </summary>
+    public string PaymentMethod(string method) => method switch
+    {
+        "cash" => MethodCash,
+        "card" => MethodCard,
+        "mobile_wallet" => MethodWallet,
+        "store_credit" => MethodStoreCredit,
+        "on_account" => MethodTab,
+        _ => method,
+    };
 
     // ------------------------------------------------------------------ sign-in (A5)
 
@@ -1132,7 +1205,7 @@ public abstract class TillText
         public override string ApproveDiscount => "Valider la remise";
         public override string WrongManagerPin(int attemptsLeft) => $"PIN incorrect · {attemptsLeft} essai{(attemptsLeft > 1 ? "s" : string.Empty)} avant blocage";
         public override string ManagerLocked(string until) => $"Trop d'essais : bloqué jusqu'à {until}";
-        public override string NotAManager => "Cette personne n'a pas le rang pour autoriser une remise";
+        public override string NotAManager => "Cette personne ne peut pas donner cette autorisation";
         public override string ManagerHasNoPin => "Aucun PIN n'est défini pour cette personne";
 
         public override string WeightChip(string unit) => $"POIDS · {unit}";
@@ -1200,7 +1273,7 @@ public abstract class TillText
         public override string NameIncompleteDetail => "Le prénom et le nom, en entier : deux lettres au moins chacun.";
         public override string TooManyNamed => "Plus de 3 clients portent ce nom : cherchez par le numéro.";
         public override string ResultsAfterPause => "Les résultats viennent 3 secondes après la dernière touche, ou à Entrée.";
-        public override string ClientByPhone => "par téléphone";
+        public override string ClientByPhone => "nom ou téléphone";
         public override string ClientAttached => "CLIENT RATTACHÉ";
         public override string ClientAttachedDetail(string name) => $"{name} · touchez le nom pour ouvrir le carnet";
         public override string ClientRefused => "REFUSÉ";
@@ -1212,7 +1285,7 @@ public abstract class TillText
         public override string SearchClient => "Chercher";
         public override string ClientTitle => "Client";
         public override string ClientForRefund => "Rattacher au retour : un avoir est nominatif";
-        public override string ClientForTicket(int lines) => $"Rattacher au ticket en cours · {DisplayFigures.Count(lines)} lignes";
+        public override string ClientForTicket(int lines) => $"Rattacher au ticket en cours · {Lines(lines)}";
         public override string PhoneTitle => "NUMÉRO DE TÉLÉPHONE";
         public override string PhoneRule => "10 chiffres, commençant par 05, 06, 07, 02, 03 ou 04.";
         public override string ResultTitle => "RÉSULTAT";
@@ -1220,14 +1293,14 @@ public abstract class TillText
         public override string NoSearchYet => "Aucune recherche tant que le numéro n'est pas complet.";
         public override string NoClientWithNumber => "Aucun client avec ce numéro.";
         public override string ConsultationLogged => "Chaque fiche affichée est une consultation, et elle est journalisée.";
-        public override string CreateNeedsManager => "Créer demande le PIN d'un responsable (rang 2).";
+        public override string CreateNeedsManager => "Créer demande le PIN d'un responsable.";
         public override string TicketFrozenWhileSearching => "Le ticket est gelé pendant la recherche.";
         public override string FieldsToCorrect(int count) => count == 1 ? "1 CHAMP À CORRIGER" : $"{DisplayFigures.Count(count)} CHAMPS À CORRIGER";
         public override string FieldsToCorrectDetail => "Nom : 1 à 100 caractères. Téléphone : 10 chiffres, commençant par 05, 06, 07, 02, 03 ou 04.";
         public override string NewClientTitle => "Nouveau client";
         public override string NewClientSubtitle => "Création minimale · rattaché au ticket en cours";
         public override string NameTitle => "NOM";
-        public override string NameAndPhoneOnly => "Nom et téléphone seulement : pas d'adresse, rien d'autre (DPIA).";
+        public override string NameAndPhoneOnly => "Nom et téléphone seulement : pas d'adresse, rien d'autre.";
         public override string NoticeToHand => "NOTICE D'INFORMATION · ART. 32 — remettez-la au client avant de créer : la version en vigueur est enregistrée sur sa fiche.";
         public override string CreateAndAttach => "Créer et rattacher";
         public override string CarnetLabel => "CARNET";
@@ -1240,26 +1313,79 @@ public abstract class TillText
         public override string CloseTabNote => "Fermer retire le plafond : plus d'achat au carnet, le solde reste dû et se rembourse.";
         public override string ChangeRefused => "REFUSÉ";
         public override string SetLimit => "Fixer le plafond";
-        public override string OwnerPinAsked => "Rang 3 · le PIN du propriétaire sera demandé.";
+        public override string OwnerPinAsked => "Le PIN du propriétaire sera demandé.";
         public override string UnfreezeKey => "Dégeler";
         public override string FreezeKey => "Geler";
         public override string CloseTabKey => "Fermer le carnet";
         public override string RepayRefused => "REFUSÉ";
         public override string AboveDue => "PLUS QUE LE DÛ";
-        public override string AboveDueDetail(string name, string balance) => $"{name} doit {balance} : un remboursement ne peut pas dépasser le solde.";
+        public override string AboveDueDetail(string name, string balance) => $"{name} doit {balance} : un règlement ne peut pas dépasser le solde.";
         public override string NothingRepaid => "MONTANT NUL";
         public override string NothingRepaidDetail => "Saisissez un montant supérieur à 0,00 DA.";
         public override string NoCashReasons => "Aucun motif d'entrée de caisse n'est défini : le responsable les ajoute dans l'administration.";
-        public override string RepayTitle(string name) => $"Remboursement — {name}";
+        public override string RepayTitle(string name) => $"Règlement du carnet — {name}";
         public override string RepaySubtitle => "Entre dans le tiroir comme entrée de caisse";
-        public override string AmountRepaid => "MONTANT REMBOURSÉ";
+        public override string AmountRepaid => "MONTANT RÉGLÉ";
         public override string CashReasonTitle => "MOTIF D'ENTRÉE DE CAISSE";
+        public override string CashOutReasonTitle => "MOTIF DE SORTIE DE CAISSE";
+        public override string RefusedByServer => "Refusé par le serveur";
+        public override string? Refusal(string code, IReadOnlyList<string> args) => code switch
+        {
+            Contracts.Pos.RefusalCodes.NotSellable => $"{Named(args, 0)} n'est plus vendable : retirez la ligne.",
+            Contracts.Pos.RefusalCodes.UnknownCode => $"{Named(args, 0)} : plus aucun article ne porte ce code. Retirez la ligne.",
+            Contracts.Pos.RefusalCodes.NeverReceived => $"{Named(args, 0)} n'a jamais été réceptionné : rien à vendre.",
+            Contracts.Pos.RefusalCodes.LineTooLarge => $"Une ligne contient au plus {Named(args, 0)}.",
+            Contracts.Pos.RefusalCodes.PriceOutOfBand => $"{Named(args, 0)} : le prix {Named(args, 1)} dépasse la limite ({Named(args, 2)}).",
+            Contracts.Pos.RefusalCodes.PartsAboveTotal => $"Les parts dépassent le ticket ({Named(args, 0)}).",
+            Contracts.Pos.RefusalCodes.ReferenceRefused => "Référence refusée : jamais un numéro de carte.",
+            Contracts.Pos.RefusalCodes.ApprovalExpired => "Une autorisation n'est plus valable : redonnez la remise ou le prix, ou retirez-les.",
+            Contracts.Pos.RefusalCodes.StrikeNeedsPin => "Ligne retirée après Encaisser : le PIN d'un responsable est requis.",
+            Contracts.Pos.RefusalCodes.DiscountInvalid => "Remise impossible : plus que rien, et au plus la ligne.",
+            Contracts.Pos.RefusalCodes.TabAboveLimit => $"Carnet de {Named(args, 0)} : plafond dépassé, disponible {Named(args, 1)}.",
+            Contracts.Pos.RefusalCodes.TabNone => $"{Named(args, 0)} n'a pas de carnet.",
+            Contracts.Pos.RefusalCodes.TabFrozen => $"Le carnet de {Named(args, 0)} est gelé.",
+            Contracts.Pos.RefusalCodes.TabOverdue => $"Carnet de {Named(args, 0)} en retard : un règlement d'abord.",
+            Contracts.Pos.RefusalCodes.CreditInsufficient => $"Avoir de {Named(args, 0)} : {Named(args, 1)} disponible, pas plus.",
+            Contracts.Pos.RefusalCodes.ModuleOff => "Ce magasin ne tient pas de clients.",
+            Contracts.Pos.RefusalCodes.CustomerUnknown => "Client introuvable.",
+            Contracts.Pos.RefusalCodes.ReasonUnknown => "Ce motif n'est plus proposé : choisissez-en un autre.",
+            Contracts.Pos.RefusalCodes.NoteMissing => "Ce motif demande une note.",
+            Contracts.Pos.RefusalCodes.RefundNeedsManager => "Un responsable autorise le retour.",
+            Contracts.Pos.RefusalCodes.RefundAlreadyWhole => "Tout ce ticket a déjà été remboursé.",
+            Contracts.Pos.RefusalCodes.RefundMoreThanLeft => "Plus que le reste de la ligne : une partie a déjà été remboursée.",
+            Contracts.Pos.RefusalCodes.RefundOtherCustomer => "Ce ticket est celui d'un autre client.",
+            Contracts.Pos.RefusalCodes.CreditNeedsCustomer => "Un avoir est nominatif : rattachez un client.",
+            Contracts.Pos.RefusalCodes.RefundOfRefund => "Un retour ne se rembourse pas : c'est la vente qui se rembourse.",
+            Contracts.Pos.RefusalCodes.PhoneInvalid => $"Numéro invalide : {PhoneRule}",
+            Contracts.Pos.RefusalCodes.NameInvalid => "Nom complet : le prénom et le nom, deux lettres au moins chacun.",
+            Contracts.Pos.RefusalCodes.NoNotice => "Aucune notice d'information publiée : pas de fiche client sans elle.",
+            Contracts.Pos.RefusalCodes.LimitAboveCeiling => $"Plafond du magasin : {Named(args, 0)} au plus.",
+            Contracts.Pos.RefusalCodes.RepayAboveBalance => $"Plus que le dû : {Named(args, 0)}.",
+            Contracts.Pos.RefusalCodes.RepayNotOnStep => $"En espèces, par pas de {Named(args, 0)} : ou tout le dû.",
+            Contracts.Pos.RefusalCodes.PaidOutNeedsManager => "Un responsable autorise la sortie de caisse.",
+            _ => null,
+        };
+
+        public override string StrikeApprovalTitle => "Retirer une ligne après Encaisser";
+        public override string StrikeApprovalSummary(string article) => $"{article} · le paiement était ouvert sur ce ticket";
+        public override string StruckTicketOpen => "LIGNES RETIRÉES";
+        public override string CancelBeforeSwitching => "Ce ticket n'a plus que des lignes retirées : annulez-le d'abord (Annuler ticket).";
+        public override string OpenTicketApprovalTitle => "Ouvrir un ticket d'un autre jour ou d'une autre caisse";
+        public override string OpenTicketApprovalSummary(string number) => $"Ticket {number}";
+        public override string CashTaken => "Espèces à encaisser";
+        public override string RepayOnStep => "PAS DE MONNAIE POUR CE MONTANT";
+        public override string RepayOnStepDetail(string cashStep) => $"En espèces, un acompte se règle par pas de {cashStep}. « Tout le dû » solde le carnet.";
+        public override string RefundRecorded => "RETOUR ENREGISTRÉ";
+        public override string CashToHandBack(string amount) => $"Espèces à rendre au client : {amount}";
+        public override string HeldCount(int tickets) => $"{DisplayFigures.Count(tickets)} EN ATTENTE";
+        public override string OwnerPin => "PIN PROPRIÉTAIRE";
+        public override string TotalBeforeTax => "Total HT";
         public override string WholeDue(string amount) => $"Tout le dû · {amount}";
         public override string CashIn => "Encaisser";
-        public override string RepaidTitle => "Remboursement encaissé";
+        public override string RepaidTitle => "Règlement encaissé";
         public override string NewBalanceDue => "NOUVEAU SOLDE DÛ";
         public override string BalanceBefore => "Solde avant";
-        public override string RepaidInCash => "Remboursé en espèces";
+        public override string RepaidInCash => "Réglé en espèces";
         public override string Finish => "Terminer";
         public override string ReturnLabel => "RETOUR";
         public override string CreditIssuedTitle => "Avoir émis";
@@ -1272,7 +1398,7 @@ public abstract class TillText
         public override string StatementTitle => "RELEVÉ · DU PLUS ANCIEN AU PLUS RÉCENT";
         public override string ChangeTabKey => "Modifier le carnet";
         public override string OpenTabKey => "Ouvrir un carnet";
-        public override string RepayKey => "Encaisser un remboursement";
+        public override string RepayKey => "Encaisser un règlement";
         public override string TabFrozen => "GELÉ";
         public override string TabFrozenDetail => "Par le propriétaire : aucun nouvel achat au carnet. Les remboursements restent possibles.";
         public override string TabOverdue => "EN RETARD";
@@ -1302,8 +1428,9 @@ public abstract class TillText
         public override string TabFrozenRefused => "CARNET GELÉ";
         public override string TabFrozenRefusedDetail => "Gelé par le propriétaire : aucun achat au carnet. Payez autrement.";
         public override string TabOverdueRefused => "CARNET EN RETARD";
-        public override string TabOverdueRefusedDetail => "L'impayé le plus ancien a dépassé le délai : payez autrement, ou remboursez d'abord.";
+        public override string TabOverdueRefusedDetail => "L'impayé le plus ancien a dépassé le délai : payez autrement, ou réglez d'abord le carnet.";
         public override string WholeTicketOnly => "Tout le ticket ou rien : le carnet ne se combine pas avec d'autres moyens dans ce magasin.";
+        public override string TabPartExact => "Le carnet prend le montant exact : jamais plus que le reste.";
         public override string TabNotWithParts => "TOUT LE TICKET OU RIEN";
         public override string TabNotWithPartsDetail => "Retirez les parts carte ou BaridiMob pour mettre le ticket au carnet.";
         public override string ValidateOnTab => "Valider au carnet";
@@ -1314,7 +1441,7 @@ public abstract class TillText
         public override string ApproveCreateTitle(string name) => $"Créer le client {name}";
         public override string ApproveChangeTitle(string name) => $"Changer le carnet de {name}";
         public override string ApproveOverrideTitle(string name) => $"Dépasser le plafond de {name}";
-        public override string OwnerApproval => "AUTORISATION PROPRIÉTAIRE · RANG 3";
+        public override string OwnerApproval => "AUTORISATION PROPRIÉTAIRE";
         public override string ApproveValidate => "Valider";
         public override string RefundKey => "Rembourser";
         public override string RefundLabel => "REMBOURSEMENT";
@@ -1355,16 +1482,6 @@ public abstract class TillText
             staff is null ? $"Vendu le {dayAndMonth} à {clock} · lecture seule" : $"Vendu le {dayAndMonth} à {clock} par {staff} · lecture seule";
         public override string PastTicketFooter => "Lecture seule. Fermer rend le ticket en cours.";
         public override string TaxIncluded => "Dont TVA";
-        public override string PaymentMethod(string method) => method switch
-        {
-            "cash" => "Espèces",
-            "card" => "Carte",
-            "mobile_wallet" => "Mobile",
-            "store_credit" => "Avoir",
-            "on_account" => "Carnet",
-            _ => method,
-        };
-
         public override string WhoOpensTheTill => "Qui ouvre la caisse ?";
         public override string ChooseYourName => "Choisissez votre nom";
         public override string PinOf(string name) => $"Code PIN de {name}";
@@ -1659,7 +1776,7 @@ public abstract class TillText
         public override string NameIncompleteDetail => "الاسم واللقب كاملين: حرفان على الأقل لكل منهما."; // ar: à relire
         public override string TooManyNamed => "أكثر من 3 زبائن بهذا الاسم: ابحث بالرقم."; // ar: à relire
         public override string ResultsAfterPause => "تظهر النتائج بعد 3 ثوانٍ من آخر حرف، أو عند الإدخال."; // ar: à relire
-        public override string ClientByPhone => "بالهاتف"; // ar: à relire
+        public override string ClientByPhone => "بالاسم أو الهاتف"; // ar: à relire
         public override string ClientAttached => "زبون مرتبط"; // ar: à relire
         public override string ClientAttachedDetail(string name) => $"{name} · المس الاسم لفتح دفتر الديون"; // ar: à relire
         public override string ClientRefused => "مرفوض"; // ar: à relire
@@ -1671,7 +1788,7 @@ public abstract class TillText
         public override string SearchClient => "بحث"; // ar: à relire
         public override string ClientTitle => "الزبون"; // ar: à relire
         public override string ClientForRefund => "ربط بالإرجاع: الرصيد بالاسم"; // ar: à relire
-        public override string ClientForTicket(int lines) => $"ربط بالتذكرة الحالية · {DisplayFigures.Count(lines)} أسطر"; // ar: à relire
+        public override string ClientForTicket(int lines) => $"ربط بالتذكرة الحالية · {Lines(lines)}"; // ar: à relire
         public override string PhoneTitle => "رقم الهاتف"; // ar: à relire
         public override string PhoneRule => "10 أرقام، تبدأ بـ 05 أو 06 أو 07 أو 02 أو 03 أو 04."; // ar: à relire
         public override string ResultTitle => "النتيجة"; // ar: à relire
@@ -1679,7 +1796,7 @@ public abstract class TillText
         public override string NoSearchYet => "لا بحث قبل اكتمال الرقم."; // ar: à relire
         public override string NoClientWithNumber => "لا زبون بهذا الرقم."; // ar: à relire
         public override string ConsultationLogged => "كل بطاقة معروضة تسجل كاطلاع، وهي مسجلة."; // ar: à relire
-        public override string CreateNeedsManager => "الإنشاء يتطلب رمز مسؤول (الرتبة 2)."; // ar: à relire
+        public override string CreateNeedsManager => "الإنشاء يتطلب رمز مسؤول."; // ar: à relire
         public override string TicketFrozenWhileSearching => "التذكرة مجمدة أثناء البحث."; // ar: à relire
         public override string FieldsToCorrect(int count) => $"{DisplayFigures.Count(count)} حقول للتصحيح"; // ar: à relire
         public override string FieldsToCorrectDetail => "الاسم: من 1 إلى 100 حرف. الهاتف: 10 أرقام."; // ar: à relire
@@ -1699,7 +1816,7 @@ public abstract class TillText
         public override string CloseTabNote => "الإغلاق يزيل السقف: لا شراء بالدَّين، ويبقى الرصيد مستحقًا."; // ar: à relire
         public override string ChangeRefused => "رُفض التعديل"; // ar: à relire
         public override string SetLimit => "تحديد السقف"; // ar: à relire
-        public override string OwnerPinAsked => "الرتبة 3 · سيُطلب رمز المالك."; // ar: à relire
+        public override string OwnerPinAsked => "سيُطلب رمز المالك."; // ar: à relire
         public override string UnfreezeKey => "إلغاء التجميد"; // ar: à relire
         public override string FreezeKey => "تجميد"; // ar: à relire
         public override string CloseTabKey => "إغلاق دفتر الديون"; // ar: à relire
@@ -1713,6 +1830,59 @@ public abstract class TillText
         public override string RepaySubtitle => "يدخل الدرج كإدخال نقدي"; // ar: à relire
         public override string AmountRepaid => "المبلغ المسدد"; // ar: à relire
         public override string CashReasonTitle => "سبب إدخال النقد"; // ar: à relire
+        public override string CashOutReasonTitle => "سبب إخراج النقد"; // ar: à relire
+        public override string RefusedByServer => "رفضه الخادم"; // ar: à relire
+        public override string? Refusal(string code, IReadOnlyList<string> args) => code switch // ar: à relire
+        {
+            Contracts.Pos.RefusalCodes.NotSellable => $"{Named(args, 0)} لم يعد قابلًا للبيع: أزل السطر.",
+            Contracts.Pos.RefusalCodes.UnknownCode => $"{Named(args, 0)}: لم يعد أي منتج يحمل هذا الرمز. أزل السطر.",
+            Contracts.Pos.RefusalCodes.NeverReceived => $"{Named(args, 0)} لم يُستلم قط: لا شيء للبيع.",
+            Contracts.Pos.RefusalCodes.LineTooLarge => $"السطر يحمل {Named(args, 0)} على الأكثر.",
+            Contracts.Pos.RefusalCodes.PriceOutOfBand => $"{Named(args, 0)}: السعر {Named(args, 1)} يتجاوز الحد ({Named(args, 2)}).",
+            Contracts.Pos.RefusalCodes.PartsAboveTotal => $"الأجزاء تتجاوز التذكرة ({Named(args, 0)}).",
+            Contracts.Pos.RefusalCodes.ReferenceRefused => "المرجع مرفوض: لا يُكتب رقم بطاقة أبدًا.",
+            Contracts.Pos.RefusalCodes.ApprovalExpired => "إذن لم يعد صالحًا: أعد منح التخفيض أو السعر، أو أزلهما.",
+            Contracts.Pos.RefusalCodes.StrikeNeedsPin => "سطر أُزيل بعد فتح الدفع: مطلوب رمز مسؤول.",
+            Contracts.Pos.RefusalCodes.DiscountInvalid => "تخفيض غير ممكن: أكثر من لا شيء، وعلى الأكثر قيمة السطر.",
+            Contracts.Pos.RefusalCodes.TabAboveLimit => $"دفتر {Named(args, 0)}: تجاوز السقف، المتاح {Named(args, 1)}.",
+            Contracts.Pos.RefusalCodes.TabNone => $"{Named(args, 0)} ليس له دفتر ديون.",
+            Contracts.Pos.RefusalCodes.TabFrozen => $"دفتر {Named(args, 0)} مجمَّد.",
+            Contracts.Pos.RefusalCodes.TabOverdue => $"دفتر {Named(args, 0)} متأخر: التسديد أولًا.",
+            Contracts.Pos.RefusalCodes.CreditInsufficient => $"رصيد {Named(args, 0)}: المتاح {Named(args, 1)}، لا أكثر.",
+            Contracts.Pos.RefusalCodes.ModuleOff => "هذا المتجر لا يسجل الزبائن.",
+            Contracts.Pos.RefusalCodes.CustomerUnknown => "الزبون غير موجود.",
+            Contracts.Pos.RefusalCodes.ReasonUnknown => "هذا السبب لم يعد متاحًا: اختر سببًا آخر.",
+            Contracts.Pos.RefusalCodes.NoteMissing => "هذا السبب يتطلب ملاحظة.",
+            Contracts.Pos.RefusalCodes.RefundNeedsManager => "الإرجاع يأذن به مسؤول.",
+            Contracts.Pos.RefusalCodes.RefundAlreadyWhole => "كل هذه التذكرة أُرجعت من قبل.",
+            Contracts.Pos.RefusalCodes.RefundMoreThanLeft => "أكثر مما بقي من السطر: جزء منه أُرجع من قبل.",
+            Contracts.Pos.RefusalCodes.RefundOtherCustomer => "هذه التذكرة لزبون آخر.",
+            Contracts.Pos.RefusalCodes.CreditNeedsCustomer => "الرصيد بالاسم: اربط زبونًا أولًا.",
+            Contracts.Pos.RefusalCodes.RefundOfRefund => "الإرجاع لا يُرجَع: البيع هو الذي يُرجَع.",
+            Contracts.Pos.RefusalCodes.PhoneInvalid => $"رقم غير صالح: {PhoneRule}",
+            Contracts.Pos.RefusalCodes.NameInvalid => "الاسم الكامل: الاسم واللقب، حرفان على الأقل لكل منهما.",
+            Contracts.Pos.RefusalCodes.NoNotice => "لا يوجد إشعار إعلام منشور: لا بطاقة زبون من دونه.",
+            Contracts.Pos.RefusalCodes.LimitAboveCeiling => $"سقف المتجر: {Named(args, 0)} على الأكثر.",
+            Contracts.Pos.RefusalCodes.RepayAboveBalance => $"أكثر من المستحق: {Named(args, 0)}.",
+            Contracts.Pos.RefusalCodes.RepayNotOnStep => $"نقدًا، بمضاعفات {Named(args, 0)}: أو كل المستحق.",
+            Contracts.Pos.RefusalCodes.PaidOutNeedsManager => "إخراج النقد يأذن به مسؤول.",
+            _ => null,
+        };
+
+        public override string StrikeApprovalTitle => "إزالة سطر بعد فتح الدفع"; // ar: à relire
+        public override string StrikeApprovalSummary(string article) => $"{article} · كان الدفع مفتوحًا على هذه التذكرة"; // ar: à relire
+        public override string StruckTicketOpen => "أسطر مُزالة"; // ar: à relire
+        public override string CancelBeforeSwitching => "لم يبق في هذه التذكرة إلا أسطر مُزالة: ألغِها أولًا (إلغاء التذكرة)."; // ar: à relire
+        public override string OpenTicketApprovalTitle => "فتح تذكرة ليوم آخر أو صندوق آخر"; // ar: à relire
+        public override string OpenTicketApprovalSummary(string number) => $"التذكرة {number}"; // ar: à relire
+        public override string CashTaken => "النقد المطلوب تحصيله"; // ar: à relire
+        public override string RepayOnStep => "لا فكّة لهذا المبلغ"; // ar: à relire
+        public override string RepayOnStepDetail(string cashStep) => $"نقدًا، يُسدَّد الجزء بمضاعفات {cashStep}. «كل المستحق» يصفّي الدفتر."; // ar: à relire
+        public override string RefundRecorded => "تم تسجيل الإرجاع"; // ar: à relire
+        public override string CashToHandBack(string amount) => $"النقد المطلوب إرجاعه للزبون: {amount}"; // ar: à relire
+        public override string HeldCount(int tickets) => $"{DisplayFigures.Count(tickets)} في الانتظار"; // ar: à relire
+        public override string OwnerPin => "رمز المالك"; // ar: à relire
+        public override string TotalBeforeTax => "المجموع خارج الرسم"; // ar: à relire
         public override string WholeDue(string amount) => $"كل المستحق · {amount}"; // ar: à relire
         public override string CashIn => "تحصيل"; // ar: à relire
         public override string RepaidTitle => "تم تحصيل التسديد"; // ar: à relire
@@ -1744,7 +1914,8 @@ public abstract class TillText
         public override string Limit => "السقف"; // ar: à relire
         public override string Available => "المتاح"; // ar: à relire
         public override string OldestUnpaid => "أقدم دين"; // ar: à relire
-        public override string DaysOf(int days, int rule) => $"{DisplayFigures.Count(days)} ي / {DisplayFigures.Count(rule)}"; // ar: à relire
+        // The figures first, the word after: a letter between two numbers reordered them ("ي / 30 0").
+        public override string DaysOf(int days, int rule) => $"{DisplayFigures.Count(days)} / {DisplayFigures.Count(rule)} يوم"; // ar: à relire
         public override string Days(int days) => $"{DisplayFigures.Count(days)} ي"; // ar: à relire
         public override string ColumnDate => "التاريخ"; // ar: à relire
         public override string ColumnMovement => "الحركة"; // ar: à relire
@@ -1763,6 +1934,7 @@ public abstract class TillText
         public override string TabOverdueRefused => "دفتر ديون متأخر"; // ar: à relire
         public override string TabOverdueRefusedDetail => "تجاوز أقدم دين المهلة: ادفع بطريقة أخرى أو سدد أولًا."; // ar: à relire
         public override string WholeTicketOnly => "التذكرة كلها أو لا شيء: لا يُجمع دفتر الديون مع وسائل أخرى في هذا المتجر."; // ar: à relire
+        public override string TabPartExact => "دفتر الديون يأخذ المبلغ بالضبط: ليس أكثر من الباقي أبدًا."; // ar: à relire
         public override string TabNotWithParts => "التذكرة كلها أو لا شيء"; // ar: à relire
         public override string TabNotWithPartsDetail => "أزل أجزاء البطاقة أو بريدي موب لوضع التذكرة على دفتر الديون."; // ar: à relire
         public override string ValidateOnTab => "تأكيد على دفتر الديون"; // ar: à relire
@@ -1773,7 +1945,7 @@ public abstract class TillText
         public override string ApproveCreateTitle(string name) => $"إنشاء الزبون {name}"; // ar: à relire
         public override string ApproveChangeTitle(string name) => $"تغيير دفتر ديون {name}"; // ar: à relire
         public override string ApproveOverrideTitle(string name) => $"تجاوز سقف {name}"; // ar: à relire
-        public override string OwnerApproval => "ترخيص المالك · الرتبة 3"; // ar: à relire
+        public override string OwnerApproval => "ترخيص المالك"; // ar: à relire
         public override string ApproveValidate => "تأكيد"; // ar: à relire
         public override string RefundKey => "استرداد"; // ar: à relire
         public override string RefundLabel => "استرداد"; // ar: à relire
@@ -1813,16 +1985,6 @@ public abstract class TillText
             staff is null ? $"بيعت يوم {dayAndMonth} على {clock} · للقراءة فقط" : $"بيعت يوم {dayAndMonth} على {clock} من طرف {staff} · للقراءة فقط";
         public override string PastTicketFooter => "للقراءة فقط. «إغلاق» يعيد التذكرة الحالية."; // ar: à relire
         public override string TaxIncluded => "منها الرسم"; // ar: à relire
-        public override string PaymentMethod(string method) => method switch // ar: à relire
-        {
-            "cash" => "نقدًا",
-            "card" => "بطاقة",
-            "mobile_wallet" => "الهاتف",
-            "store_credit" => "رصيد",
-            "on_account" => "دفتر الديون",
-            _ => method,
-        };
-
         // Sign-in (A5). No Arabic board shows this screen: every string here is to be read.
         public override string WhoOpensTheTill => "من يفتح الصندوق؟"; // ar: à relire
         public override string ChooseYourName => "اختر اسمك"; // ar: à relire

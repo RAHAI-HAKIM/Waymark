@@ -22,7 +22,8 @@ public sealed record RefundRequest(
     [property: JsonPropertyName("note")] string? Note = null,
     [property: JsonPropertyName("customer_id")] string? CustomerId = null,
     [property: JsonPropertyName("authorisation")] string? Authorisation = null,
-    [property: JsonPropertyName("quote")] bool Quote = false);
+    [property: JsonPropertyName("quote")] bool Quote = false,
+    [property: JsonPropertyName("ticket_authorisation"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TicketAuthorisation = null);
 
 /// <summary>A line of the ticket brought back: one line per product and price, as the ticket showed it (D-088).</summary>
 /// <param name="UnitPrice">Exact decimal text, "100.00": the price each unit sold at.</param>
@@ -59,7 +60,8 @@ public sealed record RefundAnswer(
     [property: JsonPropertyName("currency")] string? Currency = null,
     [property: JsonPropertyName("reason")] string? Reason = null,
     [property: JsonPropertyName("customer_on_ticket")] bool CustomerOnTicket = false,
-    [property: JsonPropertyName("to_credit")] string? ToCredit = null);
+    [property: JsonPropertyName("to_credit")] string? ToCredit = null,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 /// <summary>The values of <see cref="RefundAnswer.Outcome"/>.</summary>
 public static class RefundOutcomes

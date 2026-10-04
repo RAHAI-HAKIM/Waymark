@@ -147,7 +147,8 @@ public sealed class TillSearchTests
 
         Assert.Contains(new Figure("Total du ticket", "305,00"), rail.Figures);
         Assert.Contains(new Figure("Espèces", "305,00"), rail.Figures);
-        Assert.Contains(new Figure("Sous-total", "306,00"), rail.Figures);
+        // What transactions.subtotal holds is the total before TVA, and the ticket says so (block B review).
+        Assert.Contains(new Figure("Total HT", "306,00"), rail.Figures);
     }
 
     [Theory]

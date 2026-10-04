@@ -195,7 +195,9 @@ public static partial class TillViews
         });
 
         // Espèces, Carte, BaridiMob, and Carnet for a customer with a tab (B7).
-        var methods = new UniformGrid { Columns = Math.Max(3, panel.Methods.Count), Margin = new Thickness(-2, 0) };
+        // Three abreast at most: with Carnet and Avoir beside the three, five keys in one row ran
+        // their labels into each other. Four go two by two, five three and two.
+        var methods = new UniformGrid { Columns = panel.Methods.Count == 4 ? 2 : 3, Margin = new Thickness(-2, 0) };
         foreach (var choice in panel.Methods)
         {
             var method = choice.Method;

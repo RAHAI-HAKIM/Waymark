@@ -33,7 +33,8 @@ namespace Waymark.Pos;
 /// <para>
 /// <b>Nobody signed in, no till</b> (A5, D-083): until a PIN is accepted the window shows the
 /// sign-in screen, typed digits go to the pad, and a scan is ignored. The ticket survives a lost
-/// session; it does not survive "Changer de caissier", which the session refuses while it has lines.
+/// session, and "Changer de caissier" puts it on hold for whoever comes next (D-087); a ticket with
+/// only struck lines is cancelled first, so that it is recorded (D-106).
 /// </para>
 /// <para>
 /// <b>It redraws only what changed</b> (<see cref="TillScreen.Compare"/>), and it keeps the cart's
@@ -98,6 +99,18 @@ public sealed class TillWindow : Window, IDisposable
     // A refund being prepared on the past ticket open (B9), and which ticket it belongs to.
     private RefundState? _refund;
     private string? _refundOf;
+
+    /// <summary>The ticket and the rail side by side: the rail's column narrows with the window (F-29).</summary>
+    private Grid? _middle;
+
+    /// <summary>The ticket a manager's PIN is being asked for (D-109), until the step is answered.</summary>
+    private string? _ticketAsked;
+
+    /// <summary>
+    /// The authorisation that opened the past ticket on screen, when it took a manager's PIN (D-109):
+    /// its refund cites it, and it is forgotten when the ticket closes.
+    /// </summary>
+    private (string TransactionId, string Authorisation)? _ticketApproval;
 
     // The customers (B7): the attached customer's tab, the carnet open in the ticket's place, the
     // panel floating over the ticket, and what a PIN step was asked for.
@@ -194,6 +207,9 @@ public sealed class TillWindow : Window, IDisposable
         Height = 768;
         MinWidth = 1024;
         MinHeight = 768;
+
+        // A narrow till gives the ticket the room the rail can spare (F-29).
+        SizeChanged += (_, e) => Fit(e.NewSize.Width);
         Background = _theme.Page;
         FontFamily = _theme.Sans(FontWeight.Normal);
         FlowDirection = _text.RightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
@@ -296,7 +312,7 @@ public sealed class TillWindow : Window, IDisposable
                         _discount = refunding with { Authorising = false, Problem = null };
                         Render();
                     }
-                    else if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut })
+                    else if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket })
                     {
                         _pin = string.Empty;
                         _discount = null;
@@ -498,6 +514,7 @@ public sealed class TillWindow : Window, IDisposable
             ColumnDefinitions = new ColumnDefinitions($"*,{TillSizes.Gap},{TillSizes.Rail}"),
             Margin = new Thickness(TillSizes.Margin),
         };
+        _middle = middle;
         middle.Children.Add(cartCard);
         middle.Children.Add(RailWithDebug());
 
@@ -600,6 +617,29 @@ public sealed class TillWindow : Window, IDisposable
 
     // =================================================================== render
 
+    /// <summary>
+    /// The window's width class (F-29): narrow below <see cref="TillSizes.NarrowBelow"/>. When it
+    /// changes the rail's column is resized and everything is drawn again, since a view may lay
+    /// itself out differently.
+    /// </summary>
+    private void Fit(double width)
+    {
+        var narrow = width < TillSizes.NarrowBelow;
+        if (narrow == _theme.Narrow)
+        {
+            return;
+        }
+
+        _theme.Narrow = narrow;
+        if (_middle is { } middle)
+        {
+            middle.ColumnDefinitions[2].Width = new GridLength(_theme.Rail);
+        }
+
+        _screen = null;
+        Render();
+    }
+
     private void Render()
     {
         if (_session.SignedIn is null)
@@ -632,6 +672,12 @@ public sealed class TillWindow : Window, IDisposable
         }
 
         // A refund belongs to the past ticket it was opened on: closed, or another opened, it goes (B9).
+        // The PIN that opened a past ticket opens that ticket only, while it is open (D-109).
+        if (_ticketApproval is { } kept && _session.Viewing?.TransactionId != kept.TransactionId)
+        {
+            _ticketApproval = null;
+        }
+
         if (_refund is not null && _session.Viewing?.TransactionId != _refundOf)
         {
             EndRefund();
@@ -1044,7 +1090,7 @@ public sealed class TillWindow : Window, IDisposable
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut })
+                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket })
                 {
                     // Back from a customer's PIN step to what asked for it (B7).
                     _pin = string.Empty;
@@ -1098,6 +1144,13 @@ public sealed class TillWindow : Window, IDisposable
                 else if (_tickets is not null)
                 {
                     _tickets = null;
+                    Render();
+                }
+                else if (_draftsOpen)
+                {
+                    // "Brouillons" closes as every other panel does (block B review): only its own
+                    // "Fermer" did, and the rail's keys stayed hidden behind it.
+                    _draftsOpen = false;
                     Render();
                 }
                 else
@@ -1398,7 +1451,7 @@ public sealed class TillWindow : Window, IDisposable
     /// <summary>"Annuler ticket" (B8, D-097): the cancel panel opens in the rail with the shop's cancel reasons.</summary>
     private void OpenCancel()
     {
-        if (!_session.MayPutAside)
+        if (!_session.MayCancel)
         {
             return;
         }
@@ -1454,7 +1507,7 @@ public sealed class TillWindow : Window, IDisposable
                 break;
 
             case VoidOutcomes.PinRequired:
-                var staff = await _server.StaffAsync();
+                var staff = await _server.ApproversAsync(Capabilities.VoidTransaction);
                 _pin = string.Empty;
                 _discount = _discount with { Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null };
                 Render();
@@ -1462,7 +1515,15 @@ public sealed class TillWindow : Window, IDisposable
 
             case VoidOutcomes.Refused:
                 _discount = _discount with { Authorising = false, Problem = DiscountProblem.CancelRefused };
+                // Why, in the till's language, where a sale's refusal is said (D-107).
+                _session.Tell(TillNoticeKind.SaleRefused, "-", answer.Reason ?? string.Empty, answer.Refusal);
                 Render();
+                break;
+
+            case VoidOutcomes.NotSignedIn:
+                // The server holds no session for this till: said as that, not as an outage (block B review).
+                CloseDiscount();
+                _session.Tell(TillNoticeKind.NotSignedIn, "-", string.Empty);
                 break;
 
             default:
@@ -1614,7 +1675,7 @@ public sealed class TillWindow : Window, IDisposable
                 break;
 
             case AuthoriseOutcomes.PinRequired:
-                var staff = await _server.StaffAsync();
+                var staff = await _server.ApproversAsync(CapabilityOf(_discount));
                 _pin = string.Empty;
                 _discount = _discount with { Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null };
                 Render();
@@ -1710,6 +1771,29 @@ public sealed class TillWindow : Window, IDisposable
                 }
 
                 return;
+            case CounterKind.StrikeLine:
+                // The line is struck citing who let it be (D-106); the sale carries it to its row.
+                var struck = _discount.LineId;
+                _pin = string.Empty;
+                _discount = null;
+                if (struck is not null)
+                {
+                    _session.Remove(struck, authorisation);
+                }
+
+                Render();
+                _input.Focus();
+                return;
+            case CounterKind.OpenTicket:
+                _pin = string.Empty;
+                _discount = null;
+                if (_ticketAsked is { } asked)
+                {
+                    _ticketAsked = null;
+                    _ = OpenTicketAsync(asked, authorisation);
+                }
+
+                return;
         }
 
         // A refund's too, back over the panel it came from (B9).
@@ -1748,7 +1832,8 @@ public sealed class TillWindow : Window, IDisposable
     private static string CapabilityOf(DiscountState? open) => open?.Kind switch
     {
         CounterKind.PriceOverride => Capabilities.OverridePrice,
-        CounterKind.Cancel => Capabilities.VoidTransaction,
+        CounterKind.Cancel or CounterKind.StrikeLine => Capabilities.VoidTransaction,
+        CounterKind.OpenTicket => Capabilities.ViewOtherTickets,
         CounterKind.Refund => Capabilities.Refund,
         CounterKind.CreateCustomer => Capabilities.CreateCustomer,
         CounterKind.ChangeTab or CounterKind.TabOverride => Capabilities.ManageCredit,
@@ -1823,7 +1908,8 @@ public sealed class TillWindow : Window, IDisposable
     }
 
     /// <summary>One past ticket, by id or number, opened read-only; or the notice saying why not.</summary>
-    private async Task OpenTicketAsync(string idOrNumber)
+    /// <param name="authorisation">A manager's authorisation to open an earlier day's or another till's ticket (D-109); null to ask without one.</param>
+    private async Task OpenTicketAsync(string idOrNumber, string? authorisation = null)
     {
         try
         {
@@ -1832,12 +1918,20 @@ public sealed class TillWindow : Window, IDisposable
                 return;
             }
 
-            var answer = await _server.TicketAsync(idOrNumber, person.Token);
+            var answer = await _server.OpenTicketAsync(idOrNumber, person.Token, authorisation);
             switch (answer)
             {
                 case { Outcome: TicketOutcomes.Found, Ticket: { } ticket }:
                     _selected = null;
+                    // Kept while this ticket is open, for its refund; forgotten when it closes (D-109).
+                    _ticketApproval = authorisation is null ? null : (ticket.TransactionId, authorisation);
                     _session.View(ticket);
+                    break;
+                case { Outcome: TicketOutcomes.PinRequired }:
+                    // An earlier day's or another till's: a manager's PIN opens this one ticket (D-109).
+                    _ticketAsked = idOrNumber;
+                    await AuthoriseCustomerAsync(
+                        CounterKind.OpenTicket, _text.OpenTicketApprovalTitle, _text.OpenTicketApprovalSummary(idOrNumber));
                     break;
                 case { Outcome: TicketOutcomes.NotAllowed }:
                     _session.Tell(TillNoticeKind.TicketNotAllowed, idOrNumber, string.Empty);
@@ -2118,7 +2212,8 @@ public sealed class TillWindow : Window, IDisposable
     /// A step a rank may need (B7): the seller's own rank asked first; below it, the PIN step, whose
     /// authorisation goes back to what asked (<see cref="Give"/>).
     /// </summary>
-    private async Task AuthoriseCustomerAsync(CounterKind kind, string title, string summary)
+    /// <param name="lineId">The line the step is about, for a strike (D-106); null otherwise.</param>
+    private async Task AuthoriseCustomerAsync(CounterKind kind, string title, string summary, string? lineId = null)
     {
         if (_session.SignedIn is not { } person)
         {
@@ -2130,21 +2225,31 @@ public sealed class TillWindow : Window, IDisposable
         switch (answer?.Outcome)
         {
             case AuthoriseOutcomes.Authorised:
-                _discount = new DiscountState(null, DiscountForms.Amount, string.Empty, null, false, null, Kind: kind);
+                _discount = new DiscountState(lineId, DiscountForms.Amount, string.Empty, null, false, null, Kind: kind);
                 Give(answer.Authorisation!);
                 break;
 
             case AuthoriseOutcomes.PinRequired:
-                var staff = await _server.StaffAsync();
+                // Who may approve this, as the server says: not everybody who may open the till.
+                var staff = await _server.ApproversAsync(capability);
                 _pin = string.Empty;
                 _discount = new DiscountState(
-                    null, DiscountForms.Amount, string.Empty, null, false, null, Authorising: true, Staff: staff,
+                    lineId, DiscountForms.Amount, string.Empty, null, false, null, Authorising: true, Staff: staff,
                     Problem: staff is null ? DiscountProblem.Offline : null, Kind: kind, Title: title, Summary: summary);
                 Render();
                 break;
 
+            case AuthoriseOutcomes.NotSignedIn:
+                _session.Tell(TillNoticeKind.NotSignedIn, "-", string.Empty);
+                break;
+
             default:
-                if (_customerPanel is { } panel)
+                if (kind is CounterKind.StrikeLine or CounterKind.OpenTicket)
+                {
+                    // Nothing was struck and nothing opened: the server could not say.
+                    _session.ReportHealth(reachable: false);
+                }
+                else if (_customerPanel is { } panel)
                 {
                     _customerPanel = panel with { Refused = _text.CarnetOffline };
                 }
@@ -2180,7 +2285,7 @@ public sealed class TillWindow : Window, IDisposable
             return;
         }
 
-        _customerPanel = _customerPanel with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+        _customerPanel = _customerPanel with { Sending = false, Refused = answer is null ? _text.CarnetOffline : RefusalText.Say(_text, answer.Refusal, answer.Reason) };
         Render();
     }
 
@@ -2238,7 +2343,14 @@ public sealed class TillWindow : Window, IDisposable
         var reasons = await _server.CashReasonsAsync();
         if (_customerPanel is { Kind: CustomerPanelKind.Repay } panel)
         {
-            _customerPanel = panel with { Reasons = reasons, Refused = reasons is null ? _text.CarnetOffline : null };
+            // A shop with one reason for cash coming in has nothing to choose: it is chosen (block B review).
+            var fitting = reasons?.ReasonCodes.Where(reason => reason.Direction != Contracts.Reference.CashDirections.Out).ToList();
+            _customerPanel = panel with
+            {
+                Reasons = reasons,
+                ReasonCode = panel.ReasonCode ?? (fitting is { Count: 1 } ? fitting[0].Code : null),
+                Refused = reasons is null ? _text.CarnetOffline : null,
+            };
             Render();
         }
     }
@@ -2253,7 +2365,7 @@ public sealed class TillWindow : Window, IDisposable
             LimitActions.Freeze => _text.FreezeKey,
             LimitActions.Unfreeze => _text.UnfreezeKey,
             _ when limit is null => _text.CloseTabKey,
-            _ => $"{_text.CurrentLimit} {_carnet?.Tab?.Limit ?? "—"} → {limit}",
+            _ => $"{_text.CurrentLimit} {ShownWire(_carnet?.Tab?.Limit, _carnet?.Tab?.Currency)} → {ShownWire(limit, _carnet?.Tab?.Currency)}",
         };
         _ = AuthoriseCustomerAsync(CounterKind.ChangeTab, _text.ApproveChangeTitle(name), summary);
     }
@@ -2282,7 +2394,7 @@ public sealed class TillWindow : Window, IDisposable
         }
         else if (_customerPanel is { } panel)
         {
-            _customerPanel = panel with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+            _customerPanel = panel with { Sending = false, Refused = answer is null ? _text.CarnetOffline : RefusalText.Say(_text, answer.Refusal, answer.Reason) };
         }
 
         Render();
@@ -2297,9 +2409,10 @@ public sealed class TillWindow : Window, IDisposable
             return;
         }
 
-        // The tab's own rule, as the panel showed it: never more than is owed, never nothing (D-055).
+        // The tab's own rule, as the panel showed it: never more than is owed, never nothing (D-055),
+        // and a part of the due only in whole cash steps (D-108).
         var balance = WireFigures.Money(before.Balance ?? "0", before.Currency ?? "DZD");
-        if (Domain.Customers.Tab.MayRepay(balance, Domain.Values.Money.FromMinorUnits(hundredths, balance.Currency)) != Domain.Customers.RepaymentVerdict.Accepted)
+        if (!Domain.Customers.Tab.Repay(balance, Domain.Values.Money.FromMinorUnits(hundredths, balance.Currency)).Accepted)
         {
             return;
         }
@@ -2321,7 +2434,7 @@ public sealed class TillWindow : Window, IDisposable
         }
         else
         {
-            _customerPanel = _customerPanel with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+            _customerPanel = _customerPanel with { Sending = false, Refused = answer is null ? _text.CarnetOffline : RefusalText.Say(_text, answer.Refusal, answer.Reason) };
         }
 
         Render();
@@ -2382,11 +2495,16 @@ public sealed class TillWindow : Window, IDisposable
 
             case CashMovementOutcomes.PinRequired:
                 _customerPanel = now with { Sending = false };
-                await AuthoriseCustomerAsync(CounterKind.PaidOut, _text.CashOutKey, $"{_text.AmountTitle} {panel.Typed} · {reason}");
+                var label = panel.Reasons?.ReasonCodes.FirstOrDefault(r => r.Code == reason) is { } chosen
+                    ? (_text.RightToLeft ? chosen.LabelAr : chosen.LabelFr)
+                    : reason;
+                await AuthoriseCustomerAsync(
+                    CounterKind.PaidOut, _text.CashOutKey,
+                    $"{_text.AmountTitle} {ShownWire(Contracts.Figures.Amount(hundredths), _context?.Currency)} · {label}");
                 return;
 
             default:
-                _customerPanel = now with { Sending = false, Refused = answer?.Reason ?? _text.CarnetOffline };
+                _customerPanel = now with { Sending = false, Refused = answer is null ? _text.CarnetOffline : RefusalText.Say(_text, answer.Refusal, answer.Reason) };
                 break;
         }
 
@@ -2427,6 +2545,27 @@ public sealed class TillWindow : Window, IDisposable
 
     private string Shown(Domain.Values.Money? amount) =>
         amount is { } money ? DisplayFigures.AmountWithCurrency(money, _text) : "?";
+
+    /// <summary>
+    /// A figure off the wire ("1714.00") as the till shows every other: "1 714,00 DA". A dash for none,
+    /// and the text as it came when it cannot be read: never a guess.
+    /// </summary>
+    private string ShownWire(string? amount, string? currency)
+    {
+        if (amount is null)
+        {
+            return "—";
+        }
+
+        try
+        {
+            return DisplayFigures.AmountWithCurrency(WireFigures.Money(amount, currency ?? "DZD"), _text);
+        }
+        catch (Exception exception) when (exception is FormatException or ArgumentException)
+        {
+            return amount;
+        }
+    }
 
     // =================================================================== B9: a refund linked to its sale
 
@@ -2497,7 +2636,11 @@ public sealed class TillWindow : Window, IDisposable
         // Quoted in cash, unless store credit was chosen and a customer attached for it (B9a).
         var asked = refund.Customer is not null && refund.To == RefundDestinations.StoreCredit ? refund : refund with { To = RefundDestinations.Cash };
         var answer = await _server.RefundAsync(
-            RefundScreen.Request(_till.TerminalId ?? string.Empty, ticket, asked, open.ReasonCode!, NoteOf(open), null, quote: true), person.Token);
+            RefundScreen.Request(_till.TerminalId ?? string.Empty, ticket, asked, open.ReasonCode!, NoteOf(open), null, quote: true) with
+            {
+                TicketAuthorisation = TicketApprovalFor(ticket),
+            },
+            person.Token);
         if (_refund is null || _discount is not { Kind: CounterKind.Refund } now)
         {
             return;
@@ -2509,7 +2652,7 @@ public sealed class TillWindow : Window, IDisposable
                 _refund = _refund with { Quote = answer, To = asked.To, Refused = null };
                 break;
             case RefundOutcomes.Refused or RefundOutcomes.NotAllowed:
-                _refund = _refund with { Refused = answer.Reason ?? string.Empty };
+                _refund = _refund with { Refused = RefusalText.Say(_text, answer.Refusal, answer.Reason, answer.Currency ?? "DZD") };
                 break;
             default:
                 _discount = now with { Problem = DiscountProblem.Offline };
@@ -2542,7 +2685,11 @@ public sealed class TillWindow : Window, IDisposable
         _refund = refund with { Sending = true, Refused = null };
         Render();
         var answer = await _server.RefundAsync(
-            RefundScreen.Request(_till.TerminalId ?? string.Empty, ticket, refund, code, NoteOf(open), authorisation, quote: false), person.Token);
+            RefundScreen.Request(_till.TerminalId ?? string.Empty, ticket, refund, code, NoteOf(open), authorisation, quote: false) with
+            {
+                TicketAuthorisation = TicketApprovalFor(ticket),
+            },
+            person.Token);
         if (_refund is null || _discount is not { Kind: CounterKind.Refund } now)
         {
             return;
@@ -2555,6 +2702,12 @@ public sealed class TillWindow : Window, IDisposable
                 _input.Text = string.Empty;
                 await OpenTicketAsync(answer.InvoiceNumber ?? answer.TransactionId ?? ticket.TransactionId);
 
+                // Cash to hand back, said again over the refund's ticket: the panel that showed it is gone.
+                if (answer.RefundTo != RefundDestinations.StoreCredit && answer.CashOut is { } handBack)
+                {
+                    _session.Tell(TillNoticeKind.RefundPaid, answer.InvoiceNumber ?? "-", handBack);
+                }
+
                 // Store credit issued: its balance, shown once, over the refund's ticket (B9a).
                 if (answer.RefundTo == RefundDestinations.StoreCredit)
                 {
@@ -2566,14 +2719,14 @@ public sealed class TillWindow : Window, IDisposable
                 return;
 
             case RefundOutcomes.PinRequired:
-                var staff = await _server.StaffAsync();
+                var staff = await _server.ApproversAsync(Capabilities.Refund);
                 _pin = string.Empty;
                 _refund = _refund with { Sending = false };
                 _discount = now with { Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null };
                 break;
 
             case RefundOutcomes.Refused or RefundOutcomes.NotAllowed:
-                _refund = _refund with { Sending = false, Refused = answer.Reason ?? string.Empty };
+                _refund = _refund with { Sending = false, Refused = RefusalText.Say(_text, answer.Refusal, answer.Reason, answer.Currency ?? "DZD") };
                 break;
 
             default:
@@ -2583,6 +2736,10 @@ public sealed class TillWindow : Window, IDisposable
 
         Render();
     }
+
+    /// <summary>The authorisation that opened this ticket, when a manager's PIN did (D-109); null for a ticket the seller may open alone.</summary>
+    private string? TicketApprovalFor(PastTicketDetail ticket) =>
+        _ticketApproval is { } approval && approval.TransactionId == ticket.TransactionId ? approval.Authorisation : null;
 
     /// <summary>The floating panel closed: back to the lines and the reason, nothing refunded.</summary>
     private void CloseRefundPanel()
@@ -2689,11 +2846,24 @@ public sealed class TillWindow : Window, IDisposable
 
     private void RemoveSelected()
     {
-        if (_selected is { } id && _session.Paid is null)
+        if (_selected is not { } id || _session.Paid is not null)
         {
-            _selected = null;
-            _session.Remove(id);
+            return;
         }
+
+        _selected = null;
+
+        // Once "Encaisser" was opened on the ticket, a strike is a cancel one line at a time (D-106):
+        // the server says whether the seller may alone, and asks a manager's PIN when not.
+        if (_session.Cart.PaymentOpenedAt is not null
+            && _session.Cart.ActiveLines.FirstOrDefault(line => line.LineId == id) is { } line)
+        {
+            _ = AuthoriseCustomerAsync(
+                CounterKind.StrikeLine, _text.StrikeApprovalTitle, _text.StrikeApprovalSummary(line.ProductName), id);
+            return;
+        }
+
+        _session.Remove(id);
     }
 
     /// <summary>"Ouvrir la caisse": sends the PIN, and on a right one hands the till to that person.</summary>
@@ -2833,7 +3003,7 @@ public sealed class TillWindow : Window, IDisposable
             {
                 _ = AuthoriseCustomerAsync(CounterKind.TabOverride,
                     _text.ApproveOverrideTitle(_session.Cart.Customer?.ShortName ?? string.Empty),
-                    $"{_text.TabAmountTitle} {Shown(charge)} · {_text.TabAvailable} {tab.Available ?? "—"}");
+                    $"{_text.TabAmountTitle} {Shown(charge)} · {_text.TabAvailable} {ShownWire(tab.Available, tab.Currency)}");
                 return;
             }
 

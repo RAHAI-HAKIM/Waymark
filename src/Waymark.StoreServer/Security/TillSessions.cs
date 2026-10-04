@@ -42,8 +42,23 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
     private readonly Dictionary<string, SignInLockout> _lockouts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Authorised> _authorisations = new(StringComparer.Ordinal);
 
-    /// <summary>What an authorisation stands for: who gave it, for what, and in which till's session (B4).</summary>
-    private sealed record Authorised(string StaffId, string SessionToken, Capability Capability);
+    /// <summary>
+    /// The store's time zone, set once the store's row has been read at startup; UTC until then.
+    /// <b>An approval stands for the store's day it was given on</b> (D-105), midnight to midnight
+    /// in this zone, as a cashier's view of past tickets does (D-089) and as the till's own drafts do
+    /// (D-087): a ticket on hold is paid or cancelled before the shop closes. Not a count of hours:
+    /// an approval given at 23:50 does not carry a discount into the next morning.
+    /// </summary>
+    public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Utc;
+
+    /// <summary>
+    /// What an authorisation stands for: who gave it, for what, and at which till (B4, D-105). <b>The
+    /// till, not the session</b>: a ticket put on hold with an approved discount is paid by whoever
+    /// takes the till next, and the row still names the manager whose PIN was typed. Tied to the
+    /// session, the approval died at "Changer de caissier" and the ticket could be neither paid nor
+    /// cancelled (block B review).
+    /// </summary>
+    private sealed record Authorised(string StaffId, string TerminalId, Capability Capability, DateTimeOffset GivenAt);
 
     /// <summary>
     /// Checks a PIN and, when it is right, opens a session at the till.
@@ -95,7 +110,7 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
         if (string.IsNullOrWhiteSpace(request.StaffId))
         {
             return May(await rankOf(session.StaffId), capability, raisedTo)
-                ? Grant(session.StaffId, sessionToken!, capability)
+                ? Grant(session.StaffId, session.TerminalId, capability)
                 : Refused(AuthoriseOutcomes.PinRequired);
         }
 
@@ -106,7 +121,7 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
         }
 
         return May(await rankOf(request.StaffId), capability, raisedTo)
-            ? Grant(request.StaffId, sessionToken!, capability)
+            ? Grant(request.StaffId, session.TerminalId, capability)
             : Refused(AuthoriseOutcomes.NotAllowed);
     }
 
@@ -123,25 +138,31 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
 
     /// <summary>
     /// Who gave <paramref name="authorisation"/>, when it was given for <paramref name="capability"/>
-    /// in this session; null otherwise. An authorisation from another till, or from a session since
-    /// ended, authorises nothing.
+    /// at the till this session is signed in at, on the store's day that is today; null otherwise.
+    /// An authorisation from another till, one cited with no session, or one of an earlier day
+    /// authorises nothing. It outlives the session it was given in (D-105).
     /// </summary>
     public string? AuthorisedBy(string? sessionToken, string? authorisation, Capability capability)
     {
-        if (string.IsNullOrEmpty(sessionToken) || string.IsNullOrEmpty(authorisation) || Resolve(sessionToken) is null)
+        if (string.IsNullOrEmpty(authorisation) || Resolve(sessionToken) is not { } session)
         {
             return null;
         }
 
+        var today = DayOf(clock.GetUtcNow());
         lock (_gate)
         {
             return _authorisations.TryGetValue(authorisation, out var given)
                 && given.Capability == capability
-                && string.Equals(given.SessionToken, sessionToken, StringComparison.Ordinal)
+                && string.Equals(given.TerminalId, session.TerminalId, StringComparison.Ordinal)
+                && DayOf(given.GivenAt) == today
                     ? given.StaffId
                     : null;
         }
     }
+
+    /// <summary>The store's day an instant falls on: midnight to midnight in <see cref="Zone"/>.</summary>
+    private DateOnly DayOf(DateTimeOffset moment) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(moment, Zone).DateTime);
 
     /// <summary>
     /// The PIN check sign-in and authorisation share: the person, a usable PIN, the lockout asked
@@ -194,12 +215,20 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
     private static bool May(long? rank, Capability capability, long? raisedTo) =>
         raisedTo is null ? StaffPermissions.May(rank, capability) : StaffPermissions.May(rank, capability, raisedTo);
 
-    private AuthoriseAnswer Grant(string staffId, string sessionToken, Capability capability)
+    private AuthoriseAnswer Grant(string staffId, string terminalId, Capability capability)
     {
         var id = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var now = clock.GetUtcNow();
         lock (_gate)
         {
-            _authorisations[id] = new Authorised(staffId, sessionToken, capability);
+            // Yesterday's go as a new one comes, so the list is a day's work and no more.
+            var today = DayOf(now);
+            foreach (var stale in _authorisations.Where(pair => DayOf(pair.Value.GivenAt) != today).Select(pair => pair.Key).ToList())
+            {
+                _authorisations.Remove(stale);
+            }
+
+            _authorisations[id] = new Authorised(staffId, terminalId, capability, now);
         }
 
         return new AuthoriseAnswer(AuthoriseOutcomes.Authorised, id, null, null, null);
@@ -238,11 +267,8 @@ public sealed class TillSessions(IPinHasher hasher, TimeProvider clock) : IDispo
                 _tokenByTerminal.Remove(session.TerminalId);
             }
 
-            // What the session was allowed ends with it.
-            foreach (var ended in _authorisations.Where(pair => pair.Value.SessionToken == token).Select(pair => pair.Key).ToList())
-            {
-                _authorisations.Remove(ended);
-            }
+            // What was approved at the till stays the till's (D-105): the ticket on hold is paid by
+            // whoever signs in next.
         }
     }
 

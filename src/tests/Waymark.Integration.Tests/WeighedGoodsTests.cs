@@ -447,25 +447,65 @@ public sealed class WeighedGoodsTests(MigratedDatabaseFixture database) : IClass
     }
 
     [Fact]
-    public async Task A_weight_label_over_two_batches_prices_each_batch_as_its_own_row()
+    public async Task A_weight_label_over_two_batches_is_charged_what_the_scan_showed()
     {
-        // 0,300 kg and 0,256 kg at 179,99/kg: 54,00 + 46,08 = 100,08, where the line priced once
-        // would be 100,07. Every row is its own weight × price, and recomputes from itself (D-090).
+        // D-103. 0,556 kg at 179,99/kg is 100,07: what the scan answers, and what the till shows.
+        // Priced batch by batch it was 54,00 + 46,08 = 100,08, a centime nobody had been shown, and a
+        // card part of the till's total was refused as "more than the ticket" (block B review).
         var shop = new Shop(database, labels: BarcodeType.WeightEmbedded, pricePerKg: 17_999);
-        shop.Receive(grams: 300, daysAgo: 5);
-        shop.Receive(grams: 1_000, daysAgo: 1);
+        var older = shop.Receive(grams: 300, daysAgo: 5);
+        var newer = shop.Receive(grams: 1_000, daysAgo: 1);
+        var scanned = Weighed(await shop.Lookup(shop.Label(556)));
 
         var sale = await Sell(shop, new SaleLineRequest(shop.Label(556), 1));
 
         var items = await ItemsOf(shop, sale.TransactionId);
-        Assert.Equal(Dzd(10_008), sale.Total);
-        Assert.All(items, item =>
-        {
-            Assert.Equal(QuantitySource.LabelWeight, item.QuantitySource);
-            Assert.True(WeighedLine.Recomputes(
-                item.QuantitySource, item.SellPrice, Quantity.FromThousandths(item.Quantity, item.UnitCode), item.DiscountAmount,
-                item.LineTotal, UnitPrecision.For(item.UnitCode, 3), Rounding.HalfUp));
-        });
+        var first = items.Single(item => item.BatchId == older);
+        var second = items.Single(item => item.BatchId == newer);
+        Assert.Equal(Dzd(10_007), scanned.Amounts.LineTotal);
+        Assert.Equal(scanned.Amounts.LineTotal, sale.Total);
+
+        // The line split with Allocate, weighted by what each batch gave: the rows sum to the line.
+        Assert.Equal(Dzd(5_399), first.LineTotal);
+        Assert.Equal(Dzd(4_608), second.LineTotal);
+        Assert.All(items, item => Assert.Equal(QuantitySource.LabelWeight, item.QuantitySource));
+        Assert.True(SaleArithmetic.LineRecomputes(
+            first.SellPrice,
+            [(Quantity.FromThousandths(first.Quantity, first.UnitCode), first.LineTotal), (Quantity.FromThousandths(second.Quantity, second.UnitCode), second.LineTotal)],
+            Rounding.HalfUp));
+    }
+
+    [Fact]
+    public async Task A_typed_weight_over_two_batches_is_charged_what_the_scan_showed_and_its_tva_is_each_rows_own()
+    {
+        // The review's own case: 0,660 kg at 1 285,50 is 848,43; the two batch rows came to 848,44.
+        var shop = new Shop(database, pricePerKg: 128_550);
+        shop.Receive(grams: 300, daysAgo: 5);
+        shop.Receive(grams: 1_000, daysAgo: 1);
+        var scanned = Weighed(await shop.Lookup(shop.Plu, typedWeight: 660));
+
+        var sale = await Sell(shop, new SaleLineRequest(shop.Plu, 1, WeightThousandths: 660));
+
+        var items = await ItemsOf(shop, sale.TransactionId);
+        Assert.Equal(Dzd(84_843), scanned.Amounts.LineTotal);
+        Assert.Equal(Dzd(84_843), sale.Total);
+        Assert.Equal(2, items.Count);
+        Assert.Equal(sale.Total, items.Aggregate(Dzd(0), (sum, item) => sum + item.LineTotal));
+        Assert.Equal(sale.TaxTotal, items.Aggregate(Dzd(0), (sum, item) => sum + item.TaxAmount));
+    }
+
+    [Fact]
+    public async Task A_typed_weight_past_what_a_till_can_type_is_refused_by_the_server_too()
+    {
+        // The till stops at 99,999 kg; a request is not a till (block B review).
+        var shop = new Shop(database);
+        shop.Receive(grams: 500_000, daysAgo: 3);
+
+        var refusal = await Assert.ThrowsAsync<SaleRefusedException>(
+            () => Sell(shop, new SaleLineRequest(shop.Plu, 1, WeightThousandths: SaleLimits.MaxWeightThousandths + 1)));
+
+        Assert.Equal(Waymark.Contracts.Pos.RefusalCodes.LineTooLarge, refusal.Code);
+        await Sell(shop, new SaleLineRequest(shop.Plu, 1, WeightThousandths: SaleLimits.MaxWeightThousandths));
     }
 
     [Fact]

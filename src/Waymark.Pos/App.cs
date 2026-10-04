@@ -44,7 +44,9 @@ public sealed class App : Application
         {
             var args = desktop.Args ?? [];
             var http = StoreServerClient.CreateHttp(ServerAddress(args));
-            var server = new StoreServerClient(http);
+            // A sale prices every line and may take longer than a scan: its own patience (block B review).
+            var patient = StoreServerClient.CreateHttp(ServerAddress(args), StoreServerClient.SaleTimeout);
+            var server = new StoreServerClient(http, patient);
             // The till's own id. Who sells at it is whoever signs in (A5, D-083): there is no --staff=.
             var till = new TillIdentity(Setting(args, "--terminal=", "WAYMARK_TERMINAL"));
             var session = new TillSession(server, server, till, TimeProvider.System);
@@ -59,7 +61,11 @@ public sealed class App : Application
 
             var window = new TillWindow(session, server, till, language, theme, TimeProvider.System);
             desktop.MainWindow = window;
-            desktop.Exit += (_, _) => http.Dispose();
+            desktop.Exit += (_, _) =>
+            {
+                http.Dispose();
+                patient.Dispose();
+            };
 
 #if DEBUG
             // Renders the shell to a PNG and exits, for reviewing it against the G1 boards:

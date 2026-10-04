@@ -60,6 +60,16 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             table.HasCheckConstraint(
                 "ck_transaction_items_removed",
                 @"(removed_at IS NULL) = (removed_by IS NULL) AND (removed_at IS NULL OR batch_id IS NULL)");
+
+            // D-106: only a struck line names who let it be struck.
+            table.HasCheckConstraint(
+                "ck_transaction_items_removed_authorised",
+                @"removed_authorised_by IS NULL OR removed_at IS NOT NULL");
+
+            // D-104: a place on the ticket from 1; 0 only on the rows written before the column.
+            table.HasCheckConstraint(
+                "ck_transaction_items_line_number",
+                @"line_number >= 0");
         });
 
         builder.HasKey(x => x.TransactionItemId);
@@ -94,6 +104,15 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
             .HasConversion(WaymarkConverters.Timestamp);
         builder.Property(x => x.RemovedBy)
             .HasColumnName("removed_by");
+        builder.Property(x => x.RemovedAuthorisedBy)
+            .HasColumnName("removed_authorised_by");
+
+        // The default is for the rows written before the column; the entity's property is
+        // required, so no writer leans on it (D-104).
+        builder.Property(x => x.LineNumber)
+            .HasColumnName("line_number")
+            .HasDefaultValue(0)
+            .HasSentinel(0);
         builder.Property(x => x.TaxAmount)
             .HasColumnName("tax_amount")
             .HasDefaultValue(WaymarkConverters.ZeroMoney);
@@ -137,6 +156,11 @@ internal sealed class TransactionItemConfiguration : IEntityTypeConfiguration<Tr
         builder.HasOne<Staff>()
             .WithMany()
             .HasForeignKey(x => x.RemovedBy)
+            .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Staff>()
+            .WithMany()
+            .HasForeignKey(x => x.RemovedAuthorisedBy)
             .HasPrincipalKey(x => x.StaffId)
             .OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<Staff>()

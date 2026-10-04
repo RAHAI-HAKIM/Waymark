@@ -60,6 +60,20 @@ public enum RepaymentVerdict
 
     /// <summary>More than is owed: the tab is not a place to keep money (store credit is B9's).</summary>
     AboveBalance,
+
+    /// <summary>A part of what is owed that is not a multiple of the cash step: no coin pays it (D-108).</summary>
+    NotOnCashStep,
+}
+
+/// <summary>A repayment in cash as it is recorded (D-108).</summary>
+/// <param name="Cleared">What comes off the tab, to the centime.</param>
+/// <param name="Cash">What the drawer takes: the same, or the whole due rounded to the cash step.</param>
+public readonly record struct TabRepayment(RepaymentVerdict Verdict, Money Cleared, Money Cash)
+{
+    public bool Accepted => Verdict == RepaymentVerdict.Accepted;
+
+    /// <summary>What the cash step added or took off: <c>rounding_variance</c>'s, never the drawer's (D-034).</summary>
+    public Money Variance => Cash - Cleared;
 }
 
 /// <summary>
@@ -91,6 +105,14 @@ public enum RepaymentVerdict
 ///   <item><description><b><see cref="MayRepay"/>:</b> zero or less is
 ///   <see cref="RepaymentVerdict.NotAboveZero"/>; more than the balance is
 ///   <see cref="RepaymentVerdict.AboveBalance"/>; the whole balance is fine.</description></item>
+///   <item><description><b><see cref="Repay"/> (D-108):</b> cash moves in steps of
+///   <see cref="Currency.CashRoundingStep"/>, a tab is owed to the centime. <b>Paying the whole due
+///   clears the tab exactly</b>, and the drawer takes the due rounded to the step, the difference a
+///   rounding variance as for a cash sale (D-034): 286,00 owed is cleared by 285,00 in cash. The whole
+///   due is named by its exact figure or by its rounded one, so 285,00 typed on 286,00 clears it too,
+///   and 290,00 on 288,00. <b>A part of the due is a multiple of the step</b>, cleared and taken as
+///   typed; anything else is <see cref="RepaymentVerdict.NotOnCashStep"/>. Zero or less, and more than
+///   is owed, as <see cref="MayRepay"/>.</description></item>
 ///   <item><description>Figures in different currencies throw, as <see cref="Money"/> always does.</description></item>
 /// </list>
 /// </summary>
@@ -216,6 +238,35 @@ public static class Tab
         }
 
         return amount > balance ? RepaymentVerdict.AboveBalance : RepaymentVerdict.Accepted;
+    }
+
+    /// <param name="balance">What the customer owes now.</param>
+    /// <param name="amount">What is paid, as typed: the exact due, the due as cash rounds it, or a part of it.</param>
+    public static TabRepayment Repay(Money balance, Money amount)
+    {
+        var zero = Money.Zero(amount.Currency);
+        if (!amount.IsPositive)
+        {
+            return new TabRepayment(RepaymentVerdict.NotAboveZero, zero, zero);
+        }
+
+        // The whole due, by either of its names: the tab is cleared to the centime, and the cash
+        // rounds once. Money throws on a second currency.
+        var whole = balance.ToCashTender().Tendered;
+        if (balance.IsPositive && (amount == balance || amount == whole))
+        {
+            return new TabRepayment(RepaymentVerdict.Accepted, balance, whole);
+        }
+
+        if (amount > balance)
+        {
+            return new TabRepayment(RepaymentVerdict.AboveBalance, zero, zero);
+        }
+
+        var step = amount.Currency.CashRoundingStep;
+        return step > 1 && amount.MinorUnits % step != 0
+            ? new TabRepayment(RepaymentVerdict.NotOnCashStep, zero, zero)
+            : new TabRepayment(RepaymentVerdict.Accepted, amount, amount);
     }
 
     private static Money Smaller(Money a, Money b) => a < b ? a : b;

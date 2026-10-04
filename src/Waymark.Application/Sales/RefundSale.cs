@@ -11,6 +11,7 @@ using Waymark.Domain.Reference;
 using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
 using Waymark.Domain.Work;
+using RefusalCodes = Waymark.Contracts.Pos.RefusalCodes;
 
 namespace Waymark.Application.Sales;
 
@@ -116,7 +117,7 @@ public sealed class RefundSaleHandler(
         // A quote writes nothing, so it needs nobody's authorisation; the refund itself does.
         if (!command.Quote && !command.SellerMayRefund && string.IsNullOrWhiteSpace(command.AuthorisedBy))
         {
-            throw new SaleRefusedException("This shop asks for a manager to authorise a refund.");
+            throw new SaleRefusedException("This shop asks for a manager to authorise a refund.", RefusalCodes.RefundNeedsManager);
         }
 
         if (command.Lines.Count == 0)
@@ -129,14 +130,14 @@ public sealed class RefundSaleHandler(
         var sale = found.Sale;
         if (sale.OriginalTransactionId is not null)
         {
-            throw new SaleRefusedException("A refund is not refunded: the sale it refunds is.");
+            throw new SaleRefusedException("A refund is not refunded: the sale it refunds is.", RefusalCodes.RefundOfRefund);
         }
 
         if (sale.Status is not (TransactionStatus.Completed or TransactionStatus.PartiallyRefunded))
         {
-            throw new SaleRefusedException(sale.Status == TransactionStatus.Refunded
-                ? "Everything on this ticket has already been refunded."
-                : "Only a paid ticket is refunded.");
+            throw sale.Status == TransactionStatus.Refunded
+                ? new SaleRefusedException("Everything on this ticket has already been refunded.", RefusalCodes.RefundAlreadyWhole)
+                : new SaleRefusedException("Only a paid ticket is refunded.");
         }
 
         await CheckReasonAsync(command, cancellationToken);
@@ -152,7 +153,7 @@ public sealed class RefundSaleHandler(
         // asked for where there can be none is refused before anything is worked out.
         if (command.CustomerId is { } attached && sale.CustomerId is { } own && !string.Equals(attached, own, StringComparison.Ordinal))
         {
-            throw new SaleRefusedException("This ticket was sold to another customer: the refund is theirs.");
+            throw new SaleRefusedException("This ticket was sold to another customer: the refund is theirs.", RefusalCodes.RefundOtherCustomer);
         }
 
         var customerId = sale.CustomerId ?? command.CustomerId;
@@ -162,11 +163,11 @@ public sealed class RefundSaleHandler(
         {
             if (!module)
             {
-                throw new SaleRefusedException("This shop keeps no customers: a refund is paid in cash.");
+                throw new SaleRefusedException("This shop keeps no customers: a refund is paid in cash.", RefusalCodes.ModuleOff);
             }
 
             creditor = (customerId is null ? null : await customers.FindAsync(customerId, cancellationToken))
-                ?? throw new SaleRefusedException("Store credit is a named customer's: attach one first.");
+                ?? throw new SaleRefusedException("Store credit is a named customer's: attach one first.", RefusalCodes.CreditNeedsCustomer);
         }
 
         // Each line asked for is a line of the ticket: its rows, the variant at that price (D-088).
@@ -192,7 +193,8 @@ public sealed class RefundSaleHandler(
                 case ReturnVerdict.NotAboveZero:
                     throw new SaleRefusedException("A line brought back is at least one unit.");
                 case ReturnVerdict.AboveReturnable:
-                    throw new SaleRefusedException("More than is left of that line: some of it was already refunded.");
+                    throw new SaleRefusedException(
+                        "More than is left of that line: some of it was already refunded.", RefusalCodes.RefundMoreThanLeft);
                 case ReturnVerdict.NotWhole:
                     throw new SaleRefusedException("A weighed line comes back whole, and a counted one in whole units.");
             }
@@ -253,10 +255,17 @@ public sealed class RefundSaleHandler(
             : command.To == RefundTo.Cash ? RefundMethod.Cash : RefundMethod.StoreCredit;
         var (net, discounted) = (zero, zero);
 
+        // A refund's line is the ticket's: the variant at that price (D-088). Its rows share a place
+        // on the refund ticket, in the order the lines were asked (D-104).
+        var places = new Dictionary<(string Variant, long Price), int>();
         foreach (var (sold, (portion, restockAsked)) in returning)
         {
             var item = sold.Item;
             var share = shares[sold];
+            if (!places.TryGetValue((item.VariantId, item.SellPrice.MinorUnits), out var place))
+            {
+                places[(item.VariantId, item.SellPrice.MinorUnits)] = place = places.Count + 1;
+            }
 
             // The refund row recomputes from itself: price × quantity − discount = line total. A whole
             // row gives its own discount back; a part, what its units' share leaves of their gross.
@@ -293,6 +302,7 @@ public sealed class RefundSaleHandler(
                 LineTotal = -share.Total,
                 CreatedAt = now,
                 QuantitySource = item.QuantitySource,
+                LineNumber = place,
             });
 
             var restock = item.BatchId is not null && Refunds.Restocks(restockAsked, sold.BatchExpires, today);
@@ -470,10 +480,11 @@ public sealed class RefundSaleHandler(
     private async Task CheckReasonAsync(RefundSale command, CancellationToken cancellationToken)
     {
         var reason = (await reasons.ForAsync(ReasonCodeAppliesTo.Return, cancellationToken)).FirstOrDefault(r => r.Code == command.ReasonCode)
-            ?? throw new SaleRefusedException($"'{command.ReasonCode}' is not a reason this shop gives for a refund.");
+            ?? throw new SaleRefusedException(
+                $"'{command.ReasonCode}' is not a reason this shop gives for a refund.", RefusalCodes.ReasonUnknown, command.ReasonCode);
         if (reason.RequiresNote && string.IsNullOrWhiteSpace(command.Note))
         {
-            throw new SaleRefusedException($"'{command.ReasonCode}' asks for a note, and none was written.");
+            throw new SaleRefusedException($"'{command.ReasonCode}' asks for a note, and none was written.", RefusalCodes.NoteMissing);
         }
     }
 }

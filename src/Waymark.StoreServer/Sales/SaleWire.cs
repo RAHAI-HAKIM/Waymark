@@ -18,7 +18,7 @@ public static class SaleWire
     /// <param name="tabOverrideBy">The same for a tab part let past its limit (B7), <c>ManageCredit</c>'s authorisation.</param>
     public static CompleteSale ToCommand(
         SaleRequest request, string sellerId, Func<string?, string?>? authorisedBy = null, Func<string?, string?>? overriddenBy = null,
-        Func<string?, string?>? tabOverrideBy = null) => new(
+        Func<string?, string?>? tabOverrideBy = null, Func<string?, string?>? struckBy = null, bool sellerMayVoid = true) => new(
         request.TerminalId,
         sellerId,
         [.. request.Lines.Select(line => new SaleLineRequest(
@@ -28,7 +28,10 @@ public static class SaleWire
         string.IsNullOrWhiteSpace(request.CustomerId) ? null : request.CustomerId,
         // Who let the tab part past the limit is the server's, from an authorisation of this session (B7).
         tabOverrideBy?.Invoke(request.TabOverride),
-        Removed(request.Removed));
+        // Who let a line be struck after "Encaisser" is the server's too (D-106).
+        Removed(request.Removed, struckBy),
+        request.PaymentOpenedAt,
+        sellerMayVoid);
 
     /// <summary>
     /// A cancel as the handler reads it (B8, D-097). Whether the seller may cancel alone is the
@@ -47,16 +50,27 @@ public static class SaleWire
             sellerMayVoid,
             request.PaymentOpenedAt,
             authorisedBy?.Invoke(request.Authorisation),
-            Removed(request.Removed));
+            Removed(request.Removed, authorisedBy));
     }
 
-    /// <summary>Struck lines as the handler reads them; a weight that cannot be read is zero, which the lookup refuses.</summary>
-    private static IReadOnlyList<RemovedLine>? Removed(IReadOnlyList<RemovedLineRequest>? removed) => removed is { Count: > 0 }
-        ? [.. removed.Select(line => new RemovedLine(line.Barcode, line.Count, Weight(line.Weight), line.RemovedAt))]
-        : null;
+    /// <summary>
+    /// Struck lines as the handler reads them; a weight that cannot be read is zero, which the lookup
+    /// refuses. Who let one be struck after "Encaisser" is resolved from what the till cites (D-106).
+    /// </summary>
+    private static IReadOnlyList<RemovedLine>? Removed(IReadOnlyList<RemovedLineRequest>? removed, Func<string?, string?>? struckBy) =>
+        removed is { Count: > 0 }
+            ? [.. removed.Select(line => new RemovedLine(
+                line.Barcode, line.Count, Weight(line.Weight), line.RemovedAt, struckBy?.Invoke(line.Authorisation)))]
+            : null;
 
     public static VoidAnswer Voided(VoidedTicket ticket) =>
         new(VoidOutcomes.Voided, ticket.TransactionId, WireText.Figure(ticket.Total), null);
+
+    public static VoidAnswer VoidRefused(SaleRefusedException refusal)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        return new VoidAnswer(VoidOutcomes.Refused, null, null, refusal.Message, Coded(refusal.Code, refusal.Args));
+    }
 
     /// <summary>
     /// A card or BaridiMob part as the handler reads it (B6). A method it does not know becomes cash,
@@ -145,4 +159,15 @@ public static class SaleWire
 
     public static SaleOutcome Refused(string reason) =>
         new(SaleOutcomes.Refused, null, null, null, null, null, null, reason);
+
+    /// <summary>A refusal with its code, when it has one, for the till to say in its own language (D-107).</summary>
+    public static SaleOutcome Refused(SaleRefusedException refusal)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        return Refused(refusal.Message) with { Refusal = Coded(refusal.Code, refusal.Args) };
+    }
+
+    /// <summary>A code and what it names as the wire carries them; null with no code.</summary>
+    public static Refusal? Coded(string? code, IReadOnlyList<string> args) =>
+        code is null ? null : new Refusal(code, args is { Count: > 0 } ? args : null);
 }

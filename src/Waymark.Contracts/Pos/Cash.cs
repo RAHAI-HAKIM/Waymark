@@ -23,7 +23,8 @@ public sealed record CashMovementRequest(
 public sealed record CashMovementAnswer(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("amount")] string? Amount = null,
-    [property: JsonPropertyName("reason")] string? Reason = null);
+    [property: JsonPropertyName("reason")] string? Reason = null,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 public static class CashMovementOutcomes
 {

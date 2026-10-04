@@ -16,3 +16,4 @@ A recap is a snapshot and is not kept current. When it disagrees with `decisions
 | :---- | :---- | :---- |
 | 0, Foundation | [phase-0.md](phase-0.md) | 17/09/2026 (build 15/09; §8 is the revision, the final test and the close) |
 | 0.5, The walking skeleton | [phase-0.5.md](phase-0.5.md) | 21/09/2026 (built 18–20/09; §5 is what the thin cut found) |
+| 1, The till runs a shop — **till Block B** | [phase-1.md](phase-1.md) | Not closed. Blocks A and B, reviewed 03/10/2026; §5 is what the Block B review found |

@@ -28,4 +28,5 @@ public interface IStaffCredentials
 
 /// <summary>One person the sign-in screen lists.</summary>
 /// <param name="HasPin">Whether their stored hash could ever verify (<see cref="StaffPin.IsUsable"/>).</param>
-public sealed record SignInCandidate(string StaffId, string StaffName, string RoleLabelFr, string RoleLabelAr, bool HasPin);
+/// <param name="Rank">Their role's rank, for <see cref="StaffPermissions"/> to say what they may approve; never compared elsewhere.</param>
+public sealed record SignInCandidate(string StaffId, string StaffName, string RoleLabelFr, string RoleLabelAr, bool HasPin, long? Rank = null);

@@ -109,6 +109,7 @@ internal sealed class SaleWriter
             .GroupBy(line => line.Variant.Index)
             .Select((group, index) => (Variant: group.First().Variant, Units: group.Sum(line => line.Quantity.Thousandths / Quantity.Scale) + (index == 0 ? 1 : 0)));
 
+        var place = 0;
         foreach (var (variant, units) in rung)
         {
             var price = variant.PriceOn(date).Retail;
@@ -129,6 +130,7 @@ internal sealed class SaleWriter
                 LineTotal = amounts.LineTotal,
                 CreatedAt = now,
                 QuantitySource = QuantitySource.Count, // the generator sells whole units only
+                LineNumber = ++place,
             });
         }
 
@@ -176,6 +178,9 @@ internal sealed class SaleWriter
         var totals = (Net: zero, Tax: zero, Total: zero, Discount: zero);
         var items = new List<(string ItemId, ServedLine Line, Money Price, Money Discount, string? Reason, Money Total)>();
 
+        // A line's place on its ticket (D-104): a variant served from two lots is one line, two rows.
+        var places = new Dictionary<int, int>();
+
         for (var j = 0; j < served.Count; j++)
         {
             var line = served[j];
@@ -221,6 +226,7 @@ internal sealed class SaleWriter
                 LineTotal = amounts.LineTotal,
                 CreatedAt = now,
                 QuantitySource = QuantitySource.Count, // the generator sells whole units only
+                LineNumber = places.TryGetValue(variant.Index, out var known) ? known : places[variant.Index] = places.Count + 1,
             });
 
             Movement(StockMovementType.Sale, line, QuantityDelta.Decrease(line.Quantity), date, "transaction", transactionId, null, staff, now);
@@ -346,6 +352,7 @@ internal sealed class SaleWriter
             LineTotal = amounts.LineTotal,
             CreatedAt = now,
             QuantitySource = QuantitySource.Count, // the generator sells whole units only
+            LineNumber = 1,
         });
 
         db.Transactions.Add(new Transaction

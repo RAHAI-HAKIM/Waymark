@@ -54,6 +54,19 @@ public static class Voids
         return false;
     }
 
+    /// <summary>
+    /// A line struck once the payment panel had been opened on its ticket (D-106): the same theft as
+    /// a cancel at that stage, one line at a time, so the same rule. A manager's PIN is needed when
+    /// the seller may not cancel alone <b>and</b> the line was struck at or after the moment
+    /// "Encaisser" was first opened. A line struck before it, or on a ticket never opened for
+    /// payment, needs nothing; it is recorded either way (D-097).
+    /// </summary>
+    /// <param name="sellerMayVoid">The seller's rank reaches <c>VoidTransaction</c>, as <c>StaffPermissions.May</c> says.</param>
+    /// <param name="paymentOpenedAt">When the payment panel was first opened on the ticket; null when it never was.</param>
+    /// <param name="removedAt">When the line was struck, by the same clock.</param>
+    public static bool StrikeNeedsAuthorisation(bool sellerMayVoid, DateTimeOffset? paymentOpenedAt, DateTimeOffset removedAt) =>
+        NeedsAuthorisation(sellerMayVoid, paymentOpenedAt is { } opened && removedAt >= opened);
+
     /// <param name="cancel">The cancelled ticket.</param>
     /// <param name="cancelsThisSession">The person's cancels in this cash session, this one included.</param>
     /// <param name="alertCount">The owner's <c>void_alert_count</c>; null: not flagged by count.</param>

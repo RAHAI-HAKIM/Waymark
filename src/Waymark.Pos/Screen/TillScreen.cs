@@ -128,6 +128,12 @@ public enum CounterKind
 
     /// <summary>Cash taken out of the drawer below the shop's rank (B10): the PIN step only.</summary>
     PaidOut,
+
+    /// <summary>A line struck after "Encaisser" by a cashier (D-106): the PIN step only, rank 2.</summary>
+    StrikeLine,
+
+    /// <summary>An earlier day's or another till's ticket opened by a cashier (D-109): the PIN step only, rank 2.</summary>
+    OpenTicket,
 }
 
 /// <summary>What the discount panel has to say is wrong.</summary>
@@ -419,7 +425,10 @@ public sealed record TillScreen(
             connection,
             staff,
             DisplayFigures.Clock(Local(state, state.Now)),
-            parked);
+            parked)
+        {
+            Held = parked.Count > 0 ? text.HeldCount(parked.Count) : null,
+        };
     }
 
     private static string RoleLabel(TillContext context, TillText text) => text.Language == TillLanguage.Arabic
@@ -461,10 +470,26 @@ public sealed record TillScreen(
                 return Offline(state);
 
             case { Kind: TillNoticeKind.SaleRefused } saleRefused:
-                return new NoticeLine(Tone.Critical, text.SaleRefused, saleRefused.Detail);
+                // In the till's language, by the server's code (D-107); its own words only behind
+                // "Refusé par le serveur", for a refusal no cashier meets in ordinary work.
+                return new NoticeLine(
+                    Tone.Critical, text.SaleRefused,
+                    RefusalText.Say(text, saleRefused.Refusal, saleRefused.Detail, CurrencyOf(state)?.Code ?? "DZD"));
 
             case { Kind: TillNoticeKind.SwitchRefused }:
                 return new NoticeLine(Tone.Warning, text.TicketInProgress, text.FinishBeforeSwitching);
+
+            case { Kind: TillNoticeKind.StruckTicketOpen }:
+                return new NoticeLine(Tone.Warning, text.StruckTicketOpen, text.CancelBeforeSwitching);
+
+            case { Kind: TillNoticeKind.RefundPaid } refunded:
+                // What to hand back, said again once the refund is written: the panel that showed it
+                // has closed, and the refund's ticket says "−143,00" where the drawer gives 145,00.
+                return new NoticeLine(
+                    Tone.Neutral, text.RefundRecorded,
+                    text.CashToHandBack(Money(refunded.Detail, CurrencyOf(state)?.Code ?? "DZD") is { } cash
+                        ? DisplayFigures.AmountWithCurrency(cash, text)
+                        : refunded.Detail));
 
             case { Kind: TillNoticeKind.NotSignedIn }:
                 return new NoticeLine(Tone.Warning, text.SessionEnded, text.SessionEndedDetail);
@@ -723,19 +748,27 @@ public sealed record TillScreen(
             var staff = state.Context?.StaffName;
             var when = DisplayFigures.Clock(Local(state, paid.At));
 
-            // One line per card or BaridiMob part (B6), then the cash and its rounding when there was
-            // cash. A server before B6 sends no rows: all cash, the total its exact amount.
+            // One line per part (B6, B7, B9b), then the cash and its rounding when there was cash. A
+            // server before B6 sends no rows: all cash, the total its exact amount.
             var figures = new List<Figure> { new(text.TicketTotal, total is { } t ? DisplayFigures.Amount(t) : "?") };
-            var cashRest = outcome.Payments is null ? total : null;
+            var cashRest = CashRest(outcome);
             foreach (var payment in outcome.Payments ?? [])
             {
                 if (payment.Method == TenderMethods.Cash)
                 {
-                    cashRest = Money(payment.Amount, outcome.Currency);
                     continue;
                 }
 
-                var method = PaymentScreen.Label(payment.Method == TenderMethods.MobileWallet ? PaymentMethod.MobileWallet : PaymentMethod.Card, text);
+                // Each part by its own name: a ticket on the tab is not read as a card (block B review).
+                var method = PaymentScreen.Label(
+                    payment.Method switch
+                    {
+                        TenderMethods.MobileWallet => PaymentMethod.MobileWallet,
+                        TenderMethods.OnAccount => PaymentMethod.OnAccount,
+                        TenderMethods.StoreCredit => PaymentMethod.StoreCredit,
+                        _ => PaymentMethod.Card,
+                    },
+                    text);
                 figures.Add(new Figure(
                     payment.Reference is null ? method : $"{method} · {text.PartReference(payment.Reference)}",
                     Money(payment.Amount, outcome.Currency) is { } part ? DisplayFigures.Amount(part) : "?"));
@@ -788,6 +821,9 @@ public sealed record TillScreen(
     {
         var text = state.Text;
         var mayPutAside = state.Cart.ActiveLines.Count > 0 && state.Paid is null && state.Unconfirmed is null;
+
+        // A ticket with only struck lines is cancelled like any other, so that it is recorded (D-106).
+        var mayCancel = mayPutAside || (state.Cart.HasOnlyStruckLines && state.Paid is null && state.Unconfirmed is null);
         var drafts = state.Drafts?.Count ?? 0;
 
         // "Plus…" (B10): the keys that are not the sale's, and the way back.
@@ -804,7 +840,7 @@ public sealed record TillScreen(
         [
             new OperationKey(Operation.Park, text.Park, ParkKey, mayPutAside),
             new OperationKey(Operation.TicketDiscount, text.TicketDiscountKey, TicketDiscountKey, mayPutAside && state.Weighing is null),
-            new OperationKey(Operation.CancelTicket, text.CancelTicket, null, mayPutAside),
+            new OperationKey(Operation.CancelTicket, text.CancelTicket, null, mayCancel),
             new OperationKey(Operation.Drafts, text.DraftsKey(drafts), null, drafts > 0),
             new OperationKey(Operation.Tickets, text.TicketsKey, null, true),
             new OperationKey(Operation.PettyCash, text.PettyCashKey, null, state.Paid is null && state.Unconfirmed is null),
@@ -935,7 +971,10 @@ public sealed record TillScreen(
             discounting.ReasonCode is not null && !discounting.Offline && reasons.Count > 0,
             text.CancelConfirm,
             text.BackToTicket,
-            null);
+            null)
+        {
+            Warns = !refused && message is not null && state.Cart.PaymentOpenedAt is not null,
+        };
     }
 
     private static Rail.Discount OverridePanelOf(ScreenState state, DiscountState discounting)
@@ -981,7 +1020,10 @@ public sealed record TillScreen(
             check is { MayCharge: true } && discounting.ReasonCode is not null && !discounting.Offline,
             text.ContinueKey,
             text.BackToTicket,
-            line.Override is null ? null : text.BackToListPrice);
+            line.Override is null ? null : text.BackToListPrice)
+        {
+            Warns = !refused && check?.Verdict == Domain.Sales.OverrideVerdict.AcceptedBelowCost,
+        };
     }
 
     /// <summary>The band's verdict, or none while the rule is not written (Hakim's piece, as <see cref="Off{T}"/>).</summary>
@@ -1037,15 +1079,18 @@ public sealed record TillScreen(
         // A customer's step (B7) says its own title and line; its rank is the server's to say.
         if (discounting.Title is { } title)
         {
+            // The owner's steps say so, and ask for the owner's PIN by name (block B review: every
+            // step said "PIN RESPONSABLE").
+            var owners = discounting.Kind is CounterKind.ChangeTab or CounterKind.TabOverride;
             return new Approval(
-                discounting.Kind is CounterKind.CreateCustomer or CounterKind.PaidOut ? text.ManagerApproval : text.OwnerApproval,
+                owners ? text.OwnerApproval : text.ManagerApproval,
                 title,
                 discounting.Summary ?? string.Empty,
                 text.WhoApproves,
                 [.. (discounting.Staff?.Staff ?? []).Select(person => new ApproverRow(
                     person.StaffId, person.StaffName, text.RightToLeft ? person.RoleLabelAr : person.RoleLabelFr,
                     person.StaffId == discounting.ManagerId, person.HasPin))],
-                text.ManagerPin,
+                owners ? text.OwnerPin : text.ManagerPin,
                 discounting.PinLength,
                 message,
                 discounting.ManagerId is not null && discounting.PinLength >= 4,
@@ -1225,7 +1270,7 @@ public sealed record TillScreen(
         var total = Money(past.Total, past.Currency);
         var figures = new List<Figure>
         {
-            new(text.Subtotal, Figure(past.Subtotal, past.Currency)),
+            new(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)),
             new(text.TaxIncluded, Figure(past.TaxTotal, past.Currency)),
             new(text.TicketTotal, Figure(past.Total, past.Currency)),
         };
@@ -1242,7 +1287,7 @@ public sealed record TillScreen(
                 RefundScreen.Refundable(past) ? new OperationKey(Operation.Refund, text.RefundKey, null, true) : null);
 
         var bottom = new BottomBar(
-            [new Figure(text.Subtotal, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))],
+            [new Figure(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))],
             text.TicketTotal.ToUpperInvariant(),
             total is { } t ? DisplayFigures.AmountWithCurrency(t, text) : "?",
             new PrimaryKey(text.Close, null, CloseKey, Enabled: true));
@@ -1358,10 +1403,17 @@ public sealed record TillScreen(
             var total = Money(outcome.TotalTtc, outcome.Currency);
             var cash = Money(outcome.CashToCollect, outcome.Currency);
 
+            // The rounding is the cash row's, never the whole ticket's: with a card, tab or credit part
+            // the cash due is less than the total, and the difference is not rounding (block B review).
+            // A ticket with no cash row rounded nothing.
+            var rounding = cash is { } collected
+                ? collected - (CashRest(outcome) ?? Domain.Values.Money.Zero(collected.Currency))
+                : (Money?)null;
+
             return new BottomBar(
                 [
                     new Figure(text.TicketTotal, total is { } t ? DisplayFigures.Amount(t) : "?"),
-                    new Figure(text.CashRounding, total is { } a && cash is { } b ? DisplayFigures.Amount(b - a) : "?"),
+                    new Figure(text.CashRounding, rounding is { } r ? DisplayFigures.Amount(r) : "?"),
                 ],
                 text.CashDue,
                 cash is { } c ? DisplayFigures.AmountWithCurrency(c, text) : "?",
@@ -1370,8 +1422,11 @@ public sealed record TillScreen(
 
         var currency = CurrencyOf(state);
         var totalDue = Try(() => state.Cart.Total) ?? (currency is { } known ? Domain.Values.Money.Zero(known) : (Money?)null);
-        // Not while a sale is unconfirmed: Encaisser would send it again (D-085).
-        var canCollect = state.Cart.ActiveLines.Count > 0 && state.Unconfirmed is null && state.Weighing is null && state.Discounting is null;
+        // Not while a sale is unconfirmed: Encaisser would send it again (D-085). Nor while the till
+        // knows the server is out of reach: the sale could only come back unconfirmed, a ticket to
+        // check for a sale that was never sent. The next answer from the server opens it again.
+        var canCollect = state.Cart.ActiveLines.Count > 0 && state.Unconfirmed is null && state.Weighing is null && state.Discounting is null
+            && state.Server.IsReachable;
 
         // What the drawer takes: the total rounded to the cash step, by the same function the
         // server uses (Money.ToCashTender, D-034), so the button and the receipt agree.
@@ -1406,6 +1461,16 @@ public sealed record TillScreen(
 
     private static DateTimeOffset Local(ScreenState state, DateTimeOffset moment) =>
         TimeZoneInfo.ConvertTime(moment, state.Zone);
+
+    /// <summary>
+    /// The exact cash rest of a recorded sale, before the cash step: its cash row. A server before B6
+    /// sends no rows, and the whole total was cash; a sale with rows and no cash one took no cash.
+    /// </summary>
+    private static Money? CashRest(SaleOutcome outcome) => outcome.Payments is null
+        ? Money(outcome.TotalTtc, outcome.Currency)
+        : outcome.Payments.FirstOrDefault(payment => payment.Method == TenderMethods.Cash) is { } cash
+            ? Money(cash.Amount, outcome.Currency)
+            : null;
 
     private static Money? Money(string? text, string? currency)
     {
@@ -1472,7 +1537,14 @@ public sealed record TicketRow(string TransactionId, string Title, string Detail
 
 /// <param name="Tab">The open ticket; null on the sign-in screen, where there is none.</param>
 /// <param name="Parked">The tickets on hold, oldest first, each a tab that a touch brings back (D-087).</param>
-public sealed record TopBar(string? Place, TicketTab? Tab, Connection Connection, StaffChip? Staff, string Clock, IReadOnlyList<ParkedTab> Parked);
+public sealed record TopBar(string? Place, TicketTab? Tab, Connection Connection, StaffChip? Staff, string Clock, IReadOnlyList<ParkedTab> Parked)
+{
+    /// <summary>
+    /// "2 EN ATTENTE": how many tickets are on hold, said beside their tabs; null with none. The tabs
+    /// scroll when they do not fit, and one out of sight was a ticket nobody knew was there (F-29).
+    /// </summary>
+    public string? Held { get; init; }
+}
 
 /// <summary>A ticket on hold: "Attente 14:05 · 3 lignes".</summary>
 public sealed record ParkedTab(string Id, string Title, string Detail);
@@ -1586,7 +1658,15 @@ public abstract record Rail
     /// <param name="Remove">"Retirer la remise", when one is already given; null otherwise.</param>
     public sealed record Discount(
         string Label, string Title, string Detail, IReadOnlyList<DiscountFormChoice> Forms, string? Preview, string ReasonTitle,
-        IReadOnlyList<ReasonRow> Reasons, string? Message, bool Refused, bool MayContinue, string Continue, string Back, string? Remove) : Rail;
+        IReadOnlyList<ReasonRow> Reasons, string? Message, bool Refused, bool MayContinue, string Continue, string Back, string? Remove) : Rail
+    {
+        /// <summary>
+        /// The message warns without refusing: a price below cost, a cancel after "Encaisser". It
+        /// reads in the warning tone, its own words first (label before colour); it was drawn as
+        /// plain secondary text, and nothing set it apart from a prompt (block B review).
+        /// </summary>
+        public bool Warns { get; init; }
+    }
 
 
     /// <summary>No answer to a sale. Critical, and in the rail because it needs room to say what to do.</summary>

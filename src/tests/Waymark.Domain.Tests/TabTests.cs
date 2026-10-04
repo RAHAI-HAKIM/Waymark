@@ -210,6 +210,59 @@ public sealed class TabTests
         Assert.Equal(verdict, Tab.MayRepay(Dzd(balance), Dzd(amount)));
     }
 
+    // ------------------------------------------------------------------ Repay (D-108)
+
+    [Theory]
+    // the whole due, by its exact figure: the tab is cleared to the centime, the cash rounds once
+    [InlineData(28_600, 28_600, RepaymentVerdict.Accepted, 28_600, 28_500)]
+    [InlineData(28_800, 28_800, RepaymentVerdict.Accepted, 28_800, 29_000)]
+    // the whole due, by what the customer hands over
+    [InlineData(28_600, 28_500, RepaymentVerdict.Accepted, 28_600, 28_500)]
+    [InlineData(28_800, 29_000, RepaymentVerdict.Accepted, 28_800, 29_000)]
+    // a due already on the step: nothing rounds
+    [InlineData(50_000, 50_000, RepaymentVerdict.Accepted, 50_000, 50_000)]
+    // a due the step rounds to nothing: cleared with no cash at all
+    [InlineData(200, 200, RepaymentVerdict.Accepted, 200, 0)]
+    // a part of the due: whole cash steps, cleared and taken as typed
+    [InlineData(171_400, 100_000, RepaymentVerdict.Accepted, 100_000, 100_000)]
+    [InlineData(171_400, 500, RepaymentVerdict.Accepted, 500, 500)]
+    public void A_repayment_clears_what_it_pays_and_the_drawer_takes_what_cash_can_be(
+        long balance, long amount, RepaymentVerdict verdict, long cleared, long cash)
+    {
+        var plan = Tab.Repay(Dzd(balance), Dzd(amount));
+
+        Assert.Equal(verdict, plan.Verdict);
+        Assert.True(plan.Accepted);
+        Assert.Equal(Dzd(cleared), plan.Cleared);
+        Assert.Equal(Dzd(cash), plan.Cash);
+        Assert.Equal(Dzd(cash - cleared), plan.Variance);
+    }
+
+    [Theory]
+    [InlineData(171_400, 100_100, RepaymentVerdict.NotOnCashStep)] // 1 001,00: no coin pays the 1,00
+    [InlineData(171_400, 28_600, RepaymentVerdict.NotOnCashStep)]  // a part, even one that was once a whole due
+    [InlineData(28_600, 29_000, RepaymentVerdict.AboveBalance)]    // more than the due, and not its rounding
+    [InlineData(28_600, 30_000, RepaymentVerdict.AboveBalance)]
+    [InlineData(28_600, 0, RepaymentVerdict.NotAboveZero)]
+    [InlineData(28_600, -500, RepaymentVerdict.NotAboveZero)]
+    [InlineData(0, 500, RepaymentVerdict.AboveBalance)]            // nothing owed, nothing to repay
+    [InlineData(-500, 500, RepaymentVerdict.AboveBalance)]         // a tab in credit takes no repayment
+    public void A_repayment_no_coin_pays_or_more_than_is_owed_is_refused_and_moves_nothing(long balance, long amount, RepaymentVerdict verdict)
+    {
+        var plan = Tab.Repay(Dzd(balance), Dzd(amount));
+
+        Assert.Equal(verdict, plan.Verdict);
+        Assert.False(plan.Accepted);
+        Assert.Equal(Dzd(0), plan.Cleared);
+        Assert.Equal(Dzd(0), plan.Cash);
+    }
+
+    [Fact]
+    public void A_repayment_in_another_currency_than_the_tab_throws()
+    {
+        Assert.Throws<InvalidOperationException>(() => Tab.Repay(Dzd(28_600), Money.FromMinorUnits(28_600, Currency.Eur)));
+    }
+
     [Fact]
     public void Figures_in_two_currencies_throw()
     {

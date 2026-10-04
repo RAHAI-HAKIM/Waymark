@@ -38,7 +38,8 @@ public sealed record CustomerSummaryWire(
 public sealed record CustomerSearchAnswer(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("customers")] IReadOnlyList<CustomerSummaryWire>? Customers,
-    [property: JsonPropertyName("reason")] string? Reason = null);
+    [property: JsonPropertyName("reason")] string? Reason = null,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 /// <summary>A customer created at the till (B7): a name and a number; the information notice in force is recorded by the server.</summary>
 /// <param name="Authorisation">What <c>/api/till/authorise</c> answered for <see cref="Capabilities.CreateCustomer"/>, when the seller may not alone.</param>
@@ -52,7 +53,8 @@ public sealed record CreateCustomerRequest(
 public sealed record CustomerAnswer(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("customer")] CustomerSummaryWire? Customer,
-    [property: JsonPropertyName("reason")] string? Reason = null);
+    [property: JsonPropertyName("reason")] string? Reason = null,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 /// <summary>A movement on the tab, as the statement shows it.</summary>
 /// <param name="Kind">"charge", "payment", "adjustment", "write_off".</param>
@@ -69,6 +71,11 @@ public sealed record TabMovementWire(
 /// <param name="OldestUnpaid">When the oldest charge still unpaid was made; null when nothing is owed.</param>
 /// <param name="OverdueDays">After how many days a charge is overdue; null when the shop has no such rule.</param>
 /// <param name="CreditAvailable">The customer's store credit that may be spent now, expired credit taken off (B9b); "0.00" when none.</param>
+/// <param name="CashCollected">
+/// After a repayment: what the drawer took, the repayment rounded to the cash step when it cleared
+/// the tab (D-108). Left out of every other answer.
+/// </param>
+/// <param name="Refusal">Why, as a code the till says in its own language (D-107); null when the refusal has none.</param>
 public sealed record TabAnswer(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("customer")] CustomerSummaryWire? Customer,
@@ -81,7 +88,9 @@ public sealed record TabAnswer(
     [property: JsonPropertyName("currency")] string? Currency,
     [property: JsonPropertyName("movements")] IReadOnlyList<TabMovementWire>? Movements,
     [property: JsonPropertyName("reason")] string? Reason = null,
-    [property: JsonPropertyName("credit_available")] string? CreditAvailable = null);
+    [property: JsonPropertyName("credit_available")] string? CreditAvailable = null,
+    [property: JsonPropertyName("cash_collected"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CashCollected = null,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 /// <summary>A repayment in cash at this till (B7): what was handed over for the tab, and why the drawer takes it.</summary>
 /// <param name="Amount">Exact decimal text.</param>

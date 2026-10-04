@@ -37,9 +37,10 @@ public sealed partial class CompleteSaleTests
         }
     }
 
+    /// <param name="lines">The ticket's lines; two milks and a bread when none are given.</param>
     private async Task<VoidedTicket> Cancel(
         Shop shop, bool sellerMayVoid = false, DateTimeOffset? paymentOpenedAt = null, string? authorisedBy = null, string reason = Mistake,
-        IReadOnlyList<RemovedLine>? removed = null)
+        IReadOnlyList<RemovedLine>? removed = null, IReadOnlyList<SaleLineRequest>? lines = null, GivenDiscount? ticketDiscount = null)
     {
         await using var context = database.NewContext(storeId: shop.StoreId);
         var ids = new Waymark.Application.IdGenerator.UlidGenerator();
@@ -53,7 +54,7 @@ public sealed partial class CompleteSaleTests
         var handler = new VoidTicketHandler(sales, new Waymark.Persistence.Reference.ReasonCodes(context));
 
         return await executor.ExecuteAsync(handler, new VoidTicket(
-            shop.TerminalId, shop.StaffId, [new SaleLineRequest(shop.Milk.Barcode, 2), new SaleLineRequest(shop.Bread.Barcode, 1)], null,
+            shop.TerminalId, shop.StaffId, lines ?? [new SaleLineRequest(shop.Milk.Barcode, 2), new SaleLineRequest(shop.Bread.Barcode, 1)], ticketDiscount,
             reason, sellerMayVoid, paymentOpenedAt, authorisedBy, removed));
     }
 

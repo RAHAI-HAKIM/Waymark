@@ -55,5 +55,6 @@ public static class RefundWire
             WireText.Figure(refund.ToCredit ?? Domain.Values.Money.Zero(refund.Total.Currency)));
     }
 
-    public static RefundAnswer Refused(string outcome, string? reason = null) => new(outcome, Reason: reason);
+    public static RefundAnswer Refused(string outcome, string? reason = null, Refusal? refusal = null) =>
+        new(outcome, Reason: reason, Refusal: refusal);
 }

@@ -57,6 +57,9 @@ public static partial class TillViews
 {
     // ================================================================ top bar
 
+    /// <summary>The count of tickets on hold, tagged so its tests find it.</summary>
+    public const string HeldCountTag = "held-count";
+
     /// <param name="switchCashier">What touching the staff chip does ("Changer de caissier", A5); null draws it inert.</param>
     /// <param name="resumeParked">What touching a ticket on hold does (B2); null draws the tabs inert.</param>
     public static Control TopBar(TopBar top, TillTheme theme, Action? switchCashier = null, Action<string>? resumeParked = null)
@@ -66,7 +69,15 @@ public static partial class TillViews
         if (top.Place is { } place)
         {
             start.Children.Add(Words("·", 14, FontWeight.Normal, theme.BarLabel, theme));
-            start.Children.Add(Words(place, 14, FontWeight.Normal, theme.BarLabel, theme));
+            var where = Words(place, 14, FontWeight.Normal, theme.BarLabel, theme);
+            if (theme.Narrow)
+            {
+                // The shop's name gives way to the tickets on hold, which a cashier needs to see (F-29).
+                where.MaxWidth = 150;
+                where.TextTrimming = TextTrimming.CharacterEllipsis;
+            }
+
+            start.Children.Add(where);
         }
 
         // The open ticket is a tab joined to the page below it (kit §9, "onglets dans la barre haute").
@@ -166,10 +177,41 @@ public static partial class TillViews
             Margin = new Thickness(0, 0, 12, 0),
         };
 
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(TillSizes.Margin, 0) };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), Margin = new Thickness(TillSizes.Margin, 0) };
         grid.Children.Add(Cell(start, 0));
         grid.Children.Add(Cell(tabStrip, 1));
-        grid.Children.Add(Cell(end, 2));
+
+        // How many tickets are on hold, outside the strip that scrolls: a tab cut at the edge, or
+        // scrolled out of sight, is still counted (F-29).
+        // A key: on a narrow till the tabs it counts are out of sight, and a touch brings the oldest
+        // back, as a touch on its tab would. Touched again, the next one: each is reached in turn.
+        if (top.Held is { } held && top.Parked.Count > 0)
+        {
+            var oldest = top.Parked[0].Id;
+            var face = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                VerticalAlignment = VerticalAlignment.Center,
+                // Narrow, the figure alone beside the "Attente" key's own mark: the words took the
+                // room of the ticket's tab.
+                Children =
+                {
+                    TillTheme.Icon(LucideIcons.Pause, theme.BarLabel, 14),
+                    theme.Narrow
+                        ? TillTheme.Figure(top.Parked.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), 14, theme.BarText, FontWeight.Medium)
+                        : theme.Label(held, theme.BarText),
+                },
+            };
+            grid.Children.Add(Cell(new TillKey(theme, KeyLook.Ghost, face, resumeParked is null ? null : () => resumeParked(oldest), available: true, height: 44)
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0),
+                Tag = HeldCountTag,
+            }, 2));
+        }
+
+        grid.Children.Add(Cell(end, 3));
 
         return new Border { Background = theme.Bar, Height = TillSizes.TopBar, Child = grid };
     }
@@ -319,20 +361,23 @@ public static partial class TillViews
         var ink = line.Struck ? theme.TextMuted : theme.Text;
         var strike = line.Struck ? TextDecorations.Strikethrough : null;
 
-        // The name trims before it can reach the price column; the chips keep their width beside
-        // it, word first (kit §5).
-        var article = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        // The name trims before it can reach the price column. Its chips sit beside it, word first
+        // (kit §5), while there is room; when the name needs the line they go under it. Side by side
+        // whatever the room, a chip took the name's place: at 1024 px the row read "AU-DELÀ DU STOCK
+        // ENREGISTRÉ" and no article at all (F-29).
+        var article = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
         // Medium at rest, SemiBold when selected: the name is what the cashier reads (Hakim, 23/09).
         var name = theme.Body(line.Article, ink, line.Selected ? FontWeight.SemiBold : FontWeight.Medium);
         name.TextDecorations = strike;
+        name.VerticalAlignment = VerticalAlignment.Center;
+        name.Margin = new Thickness(0, 0, 8, 0);
         article.Children.Add(name);
-        var chips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(8, 0, 0, 0) };
         foreach (var chip in line.Chips)
         {
-            chips.Children.Add(Chip(chip, theme));
+            var mark = Chip(chip, theme);
+            mark.Margin = new Thickness(0, 2, 4, 2);
+            article.Children.Add(mark);
         }
-
-        article.Children.Add(Cell(chips, 1));
 
         var grid = RowGrid();
         grid.Children.Add(Cell(Start(Struck(TillTheme.Figure(line.Quantity, 16, ink), strike)), 0));
@@ -380,7 +425,9 @@ public static partial class TillViews
     /// </summary>
     private static Border LineActionBar(LineActions lineActions, TillTheme theme, TillActions actions)
     {
-        var bar = new DockPanel();
+        // On a narrow till the keys wrap onto a second line: in one row "Retirer la ligne" was
+        // pushed off the ticket's edge (F-29). Wide, they are one row with the remove key at its end.
+        Panel bar = theme.Narrow ? new WrapPanel { Orientation = Orientation.Horizontal } : new DockPanel();
         bar.Children.Add(Docked(
             lineActions.IsWeighed ? WeightActions(lineActions, theme, actions) : Stepper(lineActions, theme, actions), Dock.Left));
         if (lineActions.Discount is { } discount && actions.Discounts is { } discounts)
@@ -389,7 +436,7 @@ public static partial class TillViews
             bar.Children.Add(Docked(new TillKey(
                 theme,
                 KeyLook.Secondary,
-                TillKey.Labelled(Locked(LucideIcons.Percent, discount, theme), lineActions.DiscountKey, theme.TextMuted),
+                TillKey.Labelled(Locked(LucideIcons.Percent, discount, theme), lineActions.DiscountKey, theme.TextMuted, reserve: true),
                 () => discounts.Open(id),
                 height: TillSizes.LineKey)
             { Margin = new Thickness(8, 0, 0, 0) }, Dock.Left));
@@ -408,7 +455,13 @@ public static partial class TillViews
             { Margin = new Thickness(8, 0, 0, 0) }, Dock.Left));
         }
 
-        bar.Children.Add(RemoveKey(lineActions, theme, actions));
+        var remove = RemoveKey(lineActions, theme, actions);
+        if (theme.Narrow)
+        {
+            remove.Margin = new Thickness(8, 0, 0, 0);
+        }
+
+        bar.Children.Add(remove);
 
         return new Border
         {
@@ -505,7 +558,8 @@ public static partial class TillViews
                     Children = { TillTheme.Icon(LucideIcons.Trash2, theme.TextMuted, 18), theme.Body(lineActions.Remove, theme.Text, FontWeight.SemiBold) },
                 },
                 lineActions.RemoveKey,
-                theme.TextMuted),
+                theme.TextMuted,
+                reserve: true),
             actions.RemoveSelected,
             height: TillSizes.LineKey)
         { HorizontalAlignment = HorizontalAlignment.Right };
@@ -734,7 +788,10 @@ public static partial class TillViews
         var body = new StackPanel { Spacing = 8 };
         body.Children.Add(theme.Label(panel.Label, theme.TextSecondary));
         body.Children.Add(Wrapped(Words(panel.Title, 18, FontWeight.SemiBold, theme.Text, theme)));
-        body.Children.Add(TillTheme.Figure(panel.Detail, 14, theme.TextSecondary));
+
+        // A sentence wraps, its figures in their own run: a cancel's "rien n'est vendu ; l'annulation
+        // est enregistrée" and a refund's "rendu 1 sur 7" were cut at the card's edge (block B review).
+        body.Children.Add(Wrapped(theme.Prose(panel.Detail, 14, theme.TextSecondary)));
 
         var forms = new UniformGrid { Columns = 2, Margin = new Thickness(-2, 4, -2, 0) };
         foreach (var form in panel.Forms)
@@ -785,27 +842,35 @@ public static partial class TillViews
         if (panel.Message is { } message)
         {
             var (_, refusedInk, _) = theme.ToneOnSurface(Tone.Critical);
-            body.Children.Add(Wrapped(theme.BodySmall(message, panel.Refused ? refusedInk : theme.TextSecondary)));
+            var (_, warningInk, _) = theme.ToneOnSurface(Tone.Warning);
+            body.Children.Add(Wrapped(theme.BodySmall(message, panel.Refused ? refusedInk : panel.Warns ? warningInk : theme.TextSecondary)));
         }
 
-        var keys = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
-        keys.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(panel.Back, theme.TextSecondary), () => discounts?.Close()), Dock.Left));
+        // The keys keep their place at the foot of the card and only what is above them scrolls: at
+        // 768 px a refund's reasons pushed Continuer out of view (block B review). "Retirer la remise"
+        // has a row of its own, since three keys on one row left "Conti…" of the third.
+        var keys = new StackPanel { Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
         if (panel.Remove is { } remove)
         {
-            keys.Children.Add(Docked(new TillKey(theme, KeyLook.Secondary, theme.Body(remove, theme.Text), () => discounts?.Remove())
-            { Margin = new Thickness(8, 0, 0, 0) }, Dock.Left));
+            keys.Children.Add(new TillKey(theme, KeyLook.Secondary, Centred(theme.Body(remove, theme.Text)), () => discounts?.Remove()));
         }
 
-        keys.Children.Add(new TillKey(
+        var goOn = new DockPanel();
+        goOn.Children.Add(Docked(new TillKey(theme, KeyLook.Ghost, theme.Body(panel.Back, theme.TextSecondary), () => discounts?.Close()), Dock.Left));
+        goOn.Children.Add(new TillKey(
             theme,
             KeyLook.Primary,
             Centred(Words(panel.Continue, 16, FontWeight.SemiBold, panel.MayContinue ? theme.ActionLabel : theme.DisabledLabel, theme)),
             () => discounts?.Continue(),
             panel.MayContinue)
         { Margin = new Thickness(8, 0, 0, 0) });
-        body.Children.Add(keys);
+        keys.Children.Add(goOn);
 
-        var card = Card(theme, null, new ScrollViewer { Content = body });
+        var layout = new DockPanel();
+        layout.Children.Add(Docked(keys, Dock.Bottom));
+        layout.Children.Add(new ScrollViewer { Content = body });
+
+        var card = Card(theme, null, layout);
         card.VerticalAlignment = VerticalAlignment.Stretch;
         card.Tag = panel;
         return card;
@@ -1273,8 +1338,10 @@ public static partial class TillViews
 
     private static Grid RowGrid() => new()
     {
-        // Quantity, article, unit price, total: the article takes what is left.
-        ColumnDefinitions = new ColumnDefinitions("96,*,140,120"),
+        // Quantity, article, unit price, total: the article takes what is left. The three figures
+        // get what their longest values need ("0,556 kg", "12 345,00", "123 456,00") and no more:
+        // every pixel beyond that is the article's name (F-29).
+        ColumnDefinitions = new ColumnDefinitions("88,*,104,112"),
         VerticalAlignment = VerticalAlignment.Center,
     };
 

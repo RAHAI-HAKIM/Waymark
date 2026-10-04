@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Waymark.Application.Sync;
+using Waymark.Domain.Enums;
 using Waymark.Domain.Values;
 
 namespace Waymark.Application.Tests;
@@ -30,6 +31,27 @@ public sealed class AnonymousBasketTests
         Assert.Equal((int)DayOfWeek.Friday, basket.DayOfWeek);
         Assert.Equal(AnonymousBasket.Cash, basket.PaymentClass);
         Assert.False(basket.HasDiscount);
+    }
+
+    [Theory]
+    [InlineData("cash", PaymentMethod.Cash)]
+    [InlineData("card", PaymentMethod.Card)]
+    [InlineData("mobile_wallet", PaymentMethod.MobileWallet)]
+    [InlineData("store_credit", PaymentMethod.StoreCredit)]
+    [InlineData("on_account", PaymentMethod.OnAccount)] // a method, not a debt (D-043)
+    [InlineData("card", PaymentMethod.Card, PaymentMethod.Card)]
+    [InlineData("mixed", PaymentMethod.Card, PaymentMethod.Cash)]
+    [InlineData("mixed", PaymentMethod.OnAccount, PaymentMethod.Card, PaymentMethod.Cash)]
+    public void A_baskets_payment_class_is_its_method_or_mixed(string expected, params PaymentMethod[] methods)
+    {
+        // The till wrote "cash" on every basket, whatever was paid (block B review).
+        Assert.Equal(expected, AnonymousBasket.PaymentClassOf(methods));
+    }
+
+    [Fact]
+    public void A_ticket_that_took_no_payment_says_none_never_cash()
+    {
+        Assert.Equal("none", AnonymousBasket.PaymentClassOf([]));
     }
 
     [Fact]

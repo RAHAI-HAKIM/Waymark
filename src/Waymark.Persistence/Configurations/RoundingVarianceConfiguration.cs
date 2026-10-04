@@ -24,7 +24,7 @@ internal sealed class RoundingVarianceConfiguration : IEntityTypeConfiguration<R
             // names to SQLite, not strings, and the table would fail to create.
             table.HasCheckConstraint(
                 "ck_rounding_variance_reference_type",
-                @"reference_type IN ('transaction','purchase_order','batch')");
+                @"reference_type IN ('transaction','purchase_order','batch','receivable_movement')");
             table.HasCheckConstraint(
                 "ck_rounding_variance_source",
                 @"source IN ('cash_tender','currency_conversion')");
@@ -77,7 +77,7 @@ internal sealed class RoundingVarianceConfiguration : IEntityTypeConfiguration<R
             .HasDatabaseName("ix_rounding_variance_reference");
 
         // Foreign keys are dropped by a rebuild too, for the same reason.
-        // store_id is the only one: reference_id points at three different
+        // store_id is the only one: reference_id points at four different
         // tables depending on reference_type, which SQLite cannot express.
         builder.HasOne<Store>()
             .WithMany()

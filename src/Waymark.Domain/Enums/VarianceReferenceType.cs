@@ -30,4 +30,10 @@ public enum VarianceReferenceType
 
     /// <summary>A batch, where a foreign-currency unit cost is valued into the ledger currency.</summary>
     Batch,
+
+    /// <summary>
+    /// A tab's repayment in cash (D-108): the <c>receivable_movements</c> row that cleared the tab,
+    /// when the cash step made the drawer take a little more or less than was owed.
+    /// </summary>
+    ReceivableMovement,
 }

@@ -216,6 +216,46 @@ public sealed class TillTenderTests
         Assert.Equal(["Total du ticket 3 320,80", "Carte 3 320,80"], paid.Figures.Select(figure => Plain($"{figure.Label} {figure.Value}")));
     }
 
+    [Fact]
+    public void After_parts_the_bar_rounds_the_cash_rest_never_the_whole_ticket()
+    {
+        // Block B review: 1 001,00 with 500 by card and 300 by BaridiMob leaves 201,00, collected as
+        // 200,00. The bar said "Arrondi espèces −801,00": the cash due less the whole ticket.
+        var outcome = new SaleOutcome(SaleOutcomes.Completed, "t1", "0142", "1001.00", "159.82", "200.00", "DZD", null,
+            [new PaymentLine("card", "500.00", null), new PaymentLine("mobile_wallet", "300.00", null), new PaymentLine("cash", "201.00", null)]);
+
+        var bar = TillScreen.Build(State(new Cart(), paid: new PaidTicket(outcome, [], DateTimeOffset.UnixEpoch))).Bottom;
+
+        Assert.Equal(["Total du ticket 1 001,00", "Arrondi espèces −1,00"], bar.Summary.Select(figure => Plain($"{figure.Label} {figure.Value}")));
+        Assert.Equal("200,00 DA", Plain(bar.BigFigure));
+    }
+
+    [Fact]
+    public void A_ticket_with_no_cash_row_rounded_nothing()
+    {
+        var outcome = new SaleOutcome(SaleOutcomes.Completed, "t1", "0142", "286.00", "45.66", "0.00", "DZD", null,
+            [new PaymentLine("on_account", "286.00", null)]);
+
+        var bar = TillScreen.Build(State(new Cart(), paid: new PaidTicket(outcome, [], DateTimeOffset.UnixEpoch))).Bottom;
+
+        Assert.Equal("Arrondi espèces 0,00", Plain($"{bar.Summary[1].Label} {bar.Summary[1].Value}"));
+        Assert.Equal("0,00 DA", Plain(bar.BigFigure));
+    }
+
+    [Fact]
+    public void A_tab_part_and_a_store_credit_part_are_named_as_what_they_are()
+    {
+        // Block B review: both read "Carte" on the paid card, since anything not BaridiMob was a card.
+        var outcome = new SaleOutcome(SaleOutcomes.Completed, "t1", "0142", "429.00", "68.50", "80.00", "DZD", null,
+            [new PaymentLine("on_account", "200.00", null), new PaymentLine("store_credit", "150.00", null), new PaymentLine("cash", "79.00", null)]);
+
+        var paid = Assert.IsType<Rail.Paid>(TillScreen.Build(State(new Cart(), paid: new PaidTicket(outcome, [], DateTimeOffset.UnixEpoch))).Rail);
+
+        Assert.Equal(
+            ["Total du ticket 429,00", "Carnet 200,00", "Avoir 150,00", "Arrondi espèces 1,00", "ESPÈCES DUES 80,00"],
+            paid.Figures.Select(figure => Plain($"{figure.Label} {figure.Value}")));
+    }
+
     // ------------------------------------------------------------------ the session
 
     private sealed class Products : IProductSource

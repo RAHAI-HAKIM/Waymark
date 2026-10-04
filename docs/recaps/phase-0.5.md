@@ -29,7 +29,7 @@ executor, and the POS talks HTTP to StoreServer even though both run on one mach
 | Criterion | State |
 | :---- | :---- |
 | The whole cut runs end to end on generated data | ✅ seed-42: scan `2000000000015`, pay, invoice `GDZ-001-2026-000004`, one outbox row; the evaluator flags ~99 batches of ~315; a card decided in Local Admin |
-| Nothing merged that cannot be explained | ✅ twelve decisions (D-063–D-074), each with its rejected alternatives, and a reading guide per session in `../status.md` |
+| Nothing merged that cannot be explained | ✅ twelve decisions (D-063–D-074), each with its rejected alternatives, and a reading guide per session in §9 |
 | Every risky rule proven by breaking it (D-012) | ✅ hop 1: 8 breaks · session A: 11 · B: 7 · C: 9 · D: 8 |
 | The synthetic store still loads; the previous demo still runs | ✅ every session, and on the real StoreServer process |
 | Solution green | ✅ **995 tests**, 0 warnings, Debug and Release |
@@ -489,8 +489,7 @@ stack — is Phase 1 work, planned in `../phase-1-plan.md`.
 - **The thin-slice rule (D-069).** Hop 1 was built at Phase 1 depth and cost understanding;
   the rest shipped the minimum that made the path real, and the phase finished in three days
   rather than three weeks.
-- **One commit per hop**, with a reading guide written in the same session (`../status.md`
-  §7). The guides are the map Phase 1 expands from.
+- **One commit per hop**, with a reading guide written in the same session (§9). The guides are the map Phase 1 expands from.
 - **Break the code on purpose (D-012), on the hop's one risky rule.** It caught a test that
   proved nothing — twice.
 - **Tests first, then the code.** Session D's role check was handed over as failing tests and
@@ -502,3 +501,158 @@ stack — is Phase 1 work, planned in `../phase-1-plan.md`.
 A path that runs end to end, and a rule for widening it: **every Phase 1 session names the
 Phase 0.5 file it expands.** The backlog, the work split, the design gates and the tool ramp
 are in `../phase-1-plan.md`.
+
+---
+
+## 9. The code, read in the order it runs
+
+Moved here from `../status.md` at the Block B review (03/10/2026). Each guide walks one session's work in the order data moves
+through it; each file has its tests beside it under `src/tests/`, with the same name plus
+`Tests`.
+
+### 9.1 Hop 1, read in the order a scan travels
+
+1. **The keystroke:** `Waymark.Hardware/KeyboardWedgeScanner.cs`. `Accept` holds each
+   character; `EndBurst` classifies it (8 or more is a scan, anything shorter was typed).
+2. **The window:** `Waymark.Pos/TillWindow.cs`. The tunnel `OnTextInput` and `OnKeyDown`
+   feed the scanner; `Submit` hands the code to the session; `Render` draws. `App.cs` wires
+   it together.
+3. **What to do with a code:** `Pos/Checkout/TillSession.cs`. `_tail` keeps scan order;
+   `Handle` is one switch over the four answers.
+4. **The cart:** `Pos/Checkout/Cart.cs`, `WireFigures.cs`. Figures are read exactly;
+   `LineTotal = UnitPrice * Count`; `ExceedsStockOnHand`.
+5. **The HTTP call:** `Pos/Server/StoreServerClient.cs`, which returns `Answered` or
+   `ServerUnavailable`.
+6. **The wire shape:** `Contracts/Pos/ProductLookup.cs`.
+7. **The server's door:** `StoreServer/Program.cs` (DI, the startup checks and the time
+   zone, then `MapGet("/api/products/lookup")`) and `StoreServer/Catalogue/ProductLookupWire.cs`.
+8. **The store's date:** `Application/Time/StoreTimeZones.cs`, `StoreCalendar.cs`.
+9. **The rules:** `Persistence/Catalogue/ProductLookup.cs`, whose port is
+   `Domain/Catalogue/IProductLookup.cs`. Store scoping is the global filter in
+   `WaymarkDbContext` (`HasQueryFilter`); the query never names a store.
+10. **The whole path:** `StoreServerStartupTests.A_generated_store_is_imported_served_and_reopened_after_a_restart`.
+
+Each file has its tests beside it, under `src/tests/`, with the same name plus `Tests`.
+To watch a code cross every stop, set breakpoints in `TillSession.Handle` and in the
+`MapGet` lambda, run both processes, and scan `2000000000015`.
+
+### 9.2 Session A, read in the order a sale travels
+
+1. **The Pay button:** `Waymark.Pos/TillWindow.cs` (`Pay()`), then
+   `Pos/Checkout/TillSession.cs` (`PayAsync` → `PayAfter`). It waits for scans still
+   being looked up, sends codes and counts, and reacts to one of three answers: completed
+   (the cart empties, `LastSale`), refused (a notice, the cart kept), unknown (a warning,
+   the cart kept).
+2. **The HTTP call:** `Pos/Server/StoreServerClient.cs` (`CompleteSaleAsync`). Any answer
+   it can't read is `Unknown`, never `Completed`.
+3. **The wire:** `Contracts/Pos/Sale.cs`.
+4. **The door:** `StoreServer/Program.cs`. The DI block "Commands (D-050)" (the unit of
+   work is both `IUnitOfWork` and `IStaging`), then `MapPost("/api/sales")` with its
+   one-sale-at-a-time gate. `StoreServer/Sales/SaleWire.cs` maps the result;
+   `StoreServer/WireText.cs` formats the figures.
+5. **The executor:** `Application/Commands/CommandExecutor.cs`. The handler stages, the
+   executor commits once, or discards on any exception.
+6. **The handler, the heart of it:** `Application/Sales/CompleteSale.cs`. Read
+   `HandleAsync` top to bottom: re-price each line → session → per line, the batches →
+   per batch, `SaleArithmetic.Line` → stage the item, the movement, the level → invoice →
+   stage the transaction, the payment and the variance.
+7. **The rules it calls:**
+   - `Domain/Sales/SaleArithmetic.cs`: TVA from TTC; the same code as the generator;
+   - `Domain/Inventory/BatchAllocation.cs`: first in, first out, and the shortfall;
+   - `Money.ToCashTender()`: the 5 DZD step.
+8. **The reads:** `Domain/Sales/ISalesLedger.cs`, implemented in
+   `Persistence/Sales/SalesLedger.cs`. Store-scoped by the filter; `AdjustLevel` changes a
+   tracked `inventories` row.
+9. **The proof:** `Integration.Tests/CompleteSaleTests.cs`: atomicity, money, invoice,
+   session, batches. `Domain.Tests/BatchAllocationTests.cs`. And
+   `StoreServerStartupTests.AssertSale`, a sale on the real process.
+
+To watch one sale: breakpoints in `CompleteSaleHandler.HandleAsync` and in
+`CommandExecutor.ExecuteAsync` (on `CommitAsync`), then scan and press Pay.
+
+### 9.3 Session B, read in the order a basket travels
+
+1. **Where it starts:** `Application/Sales/CompleteSale.cs`. The sale loop now also collects
+   `sold` (product, quantity, line total) and `tier2Lines` (variant grain); at the end,
+   `EmitBasket` and the tier-2 call. Both are inside the command, so the executor commits
+   the outbox row with the sale's rows, or neither (CLAUDE.md §3.6).
+2. **What crosses:** `Application/Sync/AnonymousBasket.cs`. A pure function: product grain,
+   the store's hour, the weekday, the payment class, a fresh opaque basket id. The
+   comment says what must not be there and why.
+3. **The figures:** `Contracts/Figures.cs`, now the one place stored integers become wire
+   text (the till's answers use it through `StoreServer/WireText.cs`).
+4. **The hour:** `Domain/IStoreCalendar.cs` (`Now`, `Today`, `HourOfDay`) and
+   `Application/Time/StoreCalendar.cs`.
+5. **The sequence:** `Domain/Sync/IOutboxSequence.cs`, implemented in
+   `Persistence/Sync/OutboxSequence.cs`. Read inside the sale's transaction; the unique
+   index on `outbox.sequence_number` is the backstop.
+6. **Tier 2, stubbed:** `Domain/Statistics/ITier2Writer.cs` and
+   `Application/Statistics/NullTier2Writer.cs` (D-065).
+7. **The write guard (D-071):** `Persistence/WaymarkDbContext.cs`,
+   `RefuseAnotherStoresRows`, called by both `SaveChanges` overrides.
+8. **The proof:** `Integration.Tests/CompleteSaleTests.cs`, section "the outbox", including
+   `StubCloud`, the hop-5 reader that parses a pending row and acknowledges it;
+   `Application.Tests/AnonymousBasketTests.cs`; `Integration.Tests/StoreWriteScopeTests.cs`;
+   and the sale on the real process in `StoreServerStartupTests`.
+
+To watch one basket: a breakpoint in `EmitBasket`, then sell. Afterwards the row is visible
+in the encrypted store (the outbox keeps it until something acknowledges it).
+
+### 9.4 Session C, read in the order a batch becomes a card
+
+1. **The rule, and the only file that matters:** `Domain/Engine/NearExpiry.cs`. Pure, no
+   database. `Evaluate` returns a finding or **null** — null is "there is nothing to say",
+   which is most batches. Read the three early returns first: no shelf life, nothing left,
+   still outside the window. Then the two figures: the quantity, which needs one unit, and
+   the value at cost, which does not.
+2. **What it reads through:** `Domain/Engine/IExpiryLedger.cs` — the window, the shelf, the
+   board as it stands, and the one row it changes. Implemented in
+   `Persistence/Engine/ExpiryLedger.cs`: three queries, each scoped by the global filter
+   (`batch_items` through its batch, D-062).
+3. **The window:** `Persistence/Engine/ColdStartParameters.cs`. Seven days, installed at
+   start when the registry has none, never repaired. `Program.cs` calls it in the startup
+   block, after the time zone.
+4. **The card:** `Application/Engine/EvaluateExpiry.cs`. `HandleAsync` is the whole hop in
+   thirty lines: window → shelf → board → per finding, supersede then write. Then read
+   `Because` (three figures, each with its unit) and `Headline` (a rendering of them).
+   The class comment says why a card here has no interval.
+5. **Who it is addressed to:** `DecidingRoleAsync` in the ledger — the rung above the shop
+   floor, read off `roles.rank` rather than named in the code (D-073).
+6. **The door:** `StoreServer/Program.cs`, `MapPost("/api/engine/expiry")`.
+7. **The proof:** `Domain.Tests/NearExpiryTests.cs` (the window's edge, first section) and
+   `Integration.Tests/ExpiryEvaluatorTests.cs` (what it flags, what it stays quiet about,
+   running it twice). `StoreServerStartupTests.AssertExpiryEvaluation` runs it twice on the
+   real process over a generated store.
+
+To watch one batch: a breakpoint in `NearExpiry.Evaluate`, then post to the endpoint. On
+seed-42 the first run flags around a hundred batches out of about three hundred — a year of
+trading leaves a lot past its date — and the second run flags the same number and supersedes
+exactly that many.
+
+### 9.5 Session D, read in the order a card reaches a person
+
+1. ✍ **Hakim's piece:** `Domain/Engine/CardAudience.cs`. One function, one comparison —
+   `staffRank >= requiredRank`, "this rank and anything above it". Written 20/09, after a first
+   attempt with the comparison inverted, which four tests caught: a cashier passed and an owner
+   was locked out, both failure modes D-074 names, at once.
+2. **What the board reads:** `Domain/Engine/IRecommendationBoard.cs`, implemented in
+   `Persistence/Engine/RecommendationBoard.cs`. Note `StaffAsync`: active staff only, and a
+   role that is not an active row gives **no rank** rather than rank zero (D-037).
+3. **The board itself:** `Application/Engine/PendingCards.cs` — twelve lines. It filters with
+   `CardAudience` and reports what it held back as a **count**. The comment says why an empty
+   board is a lie.
+4. **The one door out:** `Application/Engine/DecideRecommendation.cs`. `HandleAsync` is six
+   numbered checks, then two staged writes: the decision row, and the card's move to
+   `decided`. They commit together or neither does, which is the risky rule of the hop.
+5. **The wire:** `StoreServer/Engine/RecommendationWire.cs` (a card crosses as the envelope of
+   D-044; the Because block and the option payloads are re-parsed here, not passed through as
+   strings) and `Contracts/Recommendations/DecisionRequest.cs`.
+6. **The doors:** `StoreServer/Program.cs`, `MapGet("/api/recommendations")` and
+   `MapPost("/api/recommendations/decide")`.
+7. **The screen:** `waymark-admin/src/Board.tsx`, and `src/index.css` for the brand tokens.
+   The page decides nothing — it renders the board the server already filtered.
+8. **The proof:** `Domain.Tests/CardAudienceTests.cs` (yours, three skipped) and
+   `Integration.Tests/RecommendationBoardTests.cs` (thirteen, four skipped).
+
+With StoreServer and the admin app running, the board fills for the owner and stays empty —
+with a count of what was withheld — for the cashier.

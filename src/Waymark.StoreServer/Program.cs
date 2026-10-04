@@ -264,6 +264,9 @@ using (var scope = app.Services.CreateScope())
     if (timezone is not null)
     {
         storeZone = StoreTimeZones.Resolve(timezone);
+
+        // An approval stands for the store's day (D-105): the session store learns the zone here.
+        app.Services.GetRequiredService<TillSessions>().Zone = storeZone;
         logger.LogInformation("Store time zone: {Zone} ({WindowsId})", timezone, storeZone.Id);
     }
 
@@ -395,11 +398,15 @@ app.MapGet("/api/tickets", async (
 
 // One past ticket, by its id or its number, read-only (D-088). The rank rule is asked of the
 // ticket's own day and till, once it is found: an id is not a permission.
+//
+// D-109: an earlier day's or another till's ticket, asked by someone below rank 2, is answered
+// "pin_required"; asked again citing a manager's authorisation for ViewOtherTickets, it opens.
 app.MapGet("/api/tickets/one", async (
-    string? ticket, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
+    string? ticket, string? authorisation, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
     IPastTickets tickets, IStoreCalendar calendar, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
 {
-    if (sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()) is not { } session)
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (sessions.Resolve(token) is not { } session)
     {
         return Results.Ok(TicketsWire.Refused(TicketOutcomes.NotSignedIn));
     }
@@ -411,9 +418,11 @@ app.MapGet("/api/tickets/one", async (
 
     var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
     var day = TicketsWire.DayOf(found.OccurredAt, storeZone!);
-    return Results.Ok(TicketsWire.MaySee(session, rank, calendar.Today, day, found.TerminalId)
-        ? TicketsWire.Found(found, (await configuration.CurrentAsync(cancellationToken)).CustomerModule)
-        : TicketsWire.Refused(TicketOutcomes.NotAllowed));
+    return Results.Ok(
+        TicketsWire.MaySee(session, rank, calendar.Today, day, found.TerminalId)
+        || sessions.AuthorisedBy(token, authorisation, Capability.ViewOtherTickets) is not null
+            ? TicketsWire.Found(found, (await configuration.CurrentAsync(cancellationToken)).CustomerModule)
+            : TicketsWire.Refused(TicketOutcomes.PinRequired));
 });
 
 // Session A4: the store, the till and the person selling, for the till's top bar. A terminal this
@@ -427,9 +436,23 @@ app.MapGet("/api/till/context", async (
             await directory.DescribeAsync(terminal, staff, cancellationToken), await configuration.CurrentAsync(cancellationToken))));
 
 // Session A5 (D-083): who may open this till. Names and roles, and whether a PIN is set; never a hash.
-app.MapGet("/api/till/staff", async (IStaffCredentials credentials, CancellationToken cancellationToken) =>
-    Results.Ok(new TillStaff([.. (await credentials.CandidatesAsync(cancellationToken)).Select(candidate =>
-        new TillStaffMember(candidate.StaffId, candidate.StaffName, candidate.RoleLabelFr, candidate.RoleLabelAr, candidate.HasPin))])));
+//
+// With "may", who may approve that capability, as the shop raised it: the manager step lists the
+// people whose PIN would be accepted, not every cashier (block B review). The rank is asked of
+// StaffPermissions here, and never leaves the server.
+app.MapGet("/api/till/staff", async (
+    string? may, IStaffCredentials credentials, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    var candidates = await credentials.CandidatesAsync(cancellationToken);
+    if (TillStaffWire.Capability(may) is { } capability)
+    {
+        var settings = await configuration.CurrentAsync(cancellationToken);
+        candidates = [.. candidates.Where(candidate => TillStaffWire.MayApprove(candidate.Rank, capability, settings))];
+    }
+
+    return Results.Ok(new TillStaff([.. candidates.Select(candidate =>
+        new TillStaffMember(candidate.StaffId, candidate.StaffName, candidate.RoleLabelFr, candidate.RoleLabelAr, candidate.HasPin))]));
+});
 
 // A PIN typed at a till. Every outcome is a 200 with its answer; the token in a "signed_in" one is
 // what the till sends with each sale from now on.
@@ -449,18 +472,7 @@ app.MapPost("/api/till/authorise", async (
     AuthoriseRequest request, HttpRequest http, TillSessions sessions, IStaffCredentials credentials,
     IRecommendationBoard staff, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
 {
-    Capability? asked = request.Capability switch
-    {
-        Capabilities.ApplyDiscount => Capability.ApplyDiscount,
-        Capabilities.OverridePrice => Capability.OverridePrice,
-        Capabilities.CreateCustomer => Capability.CreateCustomer,
-        Capabilities.ManageCredit => Capability.ManageCredit,
-        Capabilities.VoidTransaction => Capability.VoidTransaction,
-        Capabilities.Refund => Capability.Refund,
-        Capabilities.PaidOut => Capability.PaidOut,
-        _ => null,
-    };
-    if (asked is not { } capability)
+    if (TillStaffWire.Capability(request.Capability) is not { } capability)
     {
         return Results.Ok(new AuthoriseAnswer(AuthoriseOutcomes.UnknownCapability, null, null, null, null));
     }
@@ -472,12 +484,7 @@ app.MapPost("/api/till/authorise", async (
         credentials,
         async id => (await staff.StaffAsync(id, cancellationToken))?.Rank,
         // A refund and a paid-out need what the shop raised them to (B9, B10); everything else, the ladder alone.
-        capability switch
-        {
-            Capability.Refund => (await configuration.CurrentAsync(cancellationToken)).RefundMinRank,
-            Capability.PaidOut => (await configuration.CurrentAsync(cancellationToken)).PaidOutMinRank,
-            _ => null,
-        },
+        TillStaffWire.RaisedTo(capability, await configuration.CurrentAsync(cancellationToken)),
         cancellationToken);
     return Results.Ok(answer);
 });
@@ -521,14 +528,19 @@ var oneSaleAtATime = new SemaphoreSlim(1, 1);
 // The seller is whoever the session header's token signed in (A5, D-083); the request no longer
 // names anyone. No session, or another till's, is "not_signed_in" and nothing is written.
 app.MapPost("/api/sales", async (
-    SaleRequest request, HttpRequest http, TillSessions sessions, CommandExecutor executor, CompleteSaleHandler handler,
-    CancellationToken cancellationToken) =>
+    SaleRequest request, HttpRequest http, TillSessions sessions, IRecommendationBoard staff, CommandExecutor executor,
+    CompleteSaleHandler handler, CancellationToken cancellationToken) =>
 {
     var token = http.Headers[TillSessionHeader.Name].ToString();
     if (SaleWire.Seller(sessions.Resolve(token), request) is not { } seller)
     {
         return Results.Ok(SaleWire.NotSignedIn());
     }
+
+    // D-106: whether the seller may cancel alone is asked only when a line was struck on a ticket
+    // "Encaisser" had been opened on; every other sale never reads their rank.
+    var sellerMayVoid = request is not { Removed.Count: > 0, PaymentOpenedAt: not null }
+        || StaffPermissions.May((await staff.StaffAsync(seller, cancellationToken))?.Rank, Capability.VoidTransaction);
 
     await oneSaleAtATime.WaitAsync(cancellationToken);
     try
@@ -539,13 +551,15 @@ app.MapPost("/api/sales", async (
             seller,
             cited => sessions.AuthorisedBy(token, cited, Capability.ApplyDiscount),
             cited => sessions.AuthorisedBy(token, cited, Capability.OverridePrice),
-            cited => sessions.AuthorisedBy(token, cited, Capability.ManageCredit));
+            cited => sessions.AuthorisedBy(token, cited, Capability.ManageCredit),
+            cited => sessions.AuthorisedBy(token, cited, Capability.VoidTransaction),
+            sellerMayVoid);
         var sale = await executor.ExecuteAsync(handler, command, cancellationToken);
         return Results.Ok(SaleWire.Completed(sale));
     }
     catch (SaleRefusedException refusal)
     {
-        return Results.Ok(SaleWire.Refused(refusal.Message));
+        return Results.Ok(SaleWire.Refused(refusal));
     }
     finally
     {
@@ -587,7 +601,7 @@ app.MapPost("/api/sales/void", async (
     }
     catch (SaleRefusedException refusal)
     {
-        return Results.Ok(new VoidAnswer(VoidOutcomes.Refused, null, null, refusal.Message));
+        return Results.Ok(SaleWire.VoidRefused(refusal));
     }
     finally
     {
@@ -612,7 +626,9 @@ app.MapPost("/api/sales/refund", async (
 
     var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
     if (await tickets.FindAsync(request.Original, cancellationToken) is { } found
-        && !TicketsWire.MaySee(session, rank, calendar.Today, TicketsWire.DayOf(found.OccurredAt, storeZone!), found.TerminalId))
+        && !TicketsWire.MaySee(session, rank, calendar.Today, TicketsWire.DayOf(found.OccurredAt, storeZone!), found.TerminalId)
+        // D-109: or one a manager's PIN opened for this cashier.
+        && sessions.AuthorisedBy(token, request.TicketAuthorisation, Capability.ViewOtherTickets) is null)
     {
         return Results.Ok(RefundWire.Refused(RefundOutcomes.NotAllowed, "Another day's or another till's ticket: a manager refunds it."));
     }
@@ -622,7 +638,8 @@ app.MapPost("/api/sales/refund", async (
     var command = RefundWire.ToCommand(request, session.StaffId, sellerMay, cited => sessions.AuthorisedBy(token, cited, Capability.Refund));
     if (!command.Quote && !sellerMay && command.AuthorisedBy is null)
     {
-        return Results.Ok(RefundWire.Refused(RefundOutcomes.PinRequired, "This shop asks for a manager to authorise a refund."));
+        return Results.Ok(RefundWire.Refused(
+            RefundOutcomes.PinRequired, "This shop asks for a manager to authorise a refund.", new Refusal(RefusalCodes.RefundNeedsManager)));
     }
 
     await oneSaleAtATime.WaitAsync(cancellationToken);
@@ -632,7 +649,7 @@ app.MapPost("/api/sales/refund", async (
     }
     catch (SaleRefusedException refusal)
     {
-        return Results.Ok(RefundWire.Refused(RefundOutcomes.Refused, refusal.Message));
+        return Results.Ok(RefundWire.Refused(RefundOutcomes.Refused, refusal.Message, SaleWire.Coded(refusal.Code, refusal.Args)));
     }
     finally
     {
@@ -653,7 +670,12 @@ app.MapPost("/api/cash/movements", async (
         return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.NotSignedIn));
     }
 
-    var direction = request.Direction == Waymark.Contracts.Reference.CashDirections.Out ? CashDirection.Out : CashDirection.In;
+    // In or out, and nothing else: a direction nobody knows is refused, never taken as cash in.
+    if (CashWire.Direction(request.Direction) is not { } direction)
+    {
+        return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.Refused, Reason: "Cash goes in or out: 'in' or 'out'."));
+    }
+
     var raisedTo = (await configuration.CurrentAsync(cancellationToken)).PaidOutMinRank;
     var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
     var sellerMay = direction == CashDirection.In
@@ -661,7 +683,9 @@ app.MapPost("/api/cash/movements", async (
     var authorisedBy = sessions.AuthorisedBy(token, request.Authorisation, Capability.PaidOut);
     if (!sellerMay && authorisedBy is null)
     {
-        return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.PinRequired, Reason: "This shop asks for a manager to take cash out of the drawer."));
+        return Results.Ok(new CashMovementAnswer(
+            CashMovementOutcomes.PinRequired, Reason: "This shop asks for a manager to take cash out of the drawer.",
+            Refusal: new Refusal(RefusalCodes.PaidOutNeedsManager)));
     }
 
     // What cannot be read is zero, which the handler refuses: never recorded as some other amount.
@@ -677,7 +701,8 @@ app.MapPost("/api/cash/movements", async (
     }
     catch (CashMovementRefusedException refusal)
     {
-        return Results.Ok(new CashMovementAnswer(CashMovementOutcomes.Refused, Reason: refusal.Message));
+        return Results.Ok(new CashMovementAnswer(
+            CashMovementOutcomes.Refused, Reason: refusal.Message, Refusal: SaleWire.Coded(refusal.Code, refusal.Args)));
     }
     finally
     {

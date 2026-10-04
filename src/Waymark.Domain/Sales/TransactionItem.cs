@@ -50,6 +50,21 @@ public sealed class TransactionItem
 
     public string? RemovedBy { get; init; }
 
+    /// <summary>
+    /// Whose PIN let a cashier strike the line once "Encaisser" had been opened on the ticket
+    /// (D-106): a person of <c>VoidTransaction</c>. Null for every other row, struck or not.
+    /// </summary>
+    public string? RemovedAuthorisedBy { get; init; }
+
+    /// <summary>
+    /// The line's place on its ticket, from 1 (D-104). <b>Rows of one line share it</b>: a line taken
+    /// from two batches is two rows and one number. Lines struck come after the lines sold. Ids do not
+    /// sort within a millisecond (<c>UlidGenerator</c>), so this is the only order a ticket has.
+    /// <b>Required, with no default</b>, like <see cref="QuantitySource"/>; the column's default, 0,
+    /// is for the rows written before it, which read in the order they always did.
+    /// </summary>
+    public required int LineNumber { get; init; }
+
     public Money TaxAmount { get; init; }
 
     public required Money LineTotal { get; init; }

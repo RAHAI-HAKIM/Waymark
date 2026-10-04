@@ -94,7 +94,7 @@ internal sealed class Outbox
                 Amount(group.Aggregate(Money.Zero(currency), (sum, line) => sum + line.LineTotal))))
             .ToList();
 
-        var paymentClass = methods.Distinct().Count() > 1 ? "mixed" : Code(methods.First());
+        var paymentClass = Application.Sync.AnonymousBasket.PaymentClassOf(methods);
         var record = new AnonymousBasketRecord(
             _context.Ids.NewId(),
             _context.Store.StoreId,

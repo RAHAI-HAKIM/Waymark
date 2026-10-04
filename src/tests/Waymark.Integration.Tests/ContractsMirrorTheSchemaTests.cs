@@ -322,6 +322,7 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(RefundAnswer),          // StoreServer -> till; a refund written or quoted, or why not (B9)
             nameof(CashMovementRequest),   // till -> StoreServer; a direction, an amount, a reason; the row is the server's (B10)
             nameof(CashMovementAnswer),    // StoreServer -> till; a paid-in or paid-out recorded, or why not (B10)
+            nameof(Refusal),               // an element of every answer that refuses: a code and what it names (D-107)
             nameof(ClockRequest),          // till -> StoreServer; who and their PIN; the shift row is the server's (B10)
             nameof(ClockAnswer),           // StoreServer -> till; clocked in or out, or why not (B10)
             nameof(SignInAnswer),          // StoreServer → till; a session lives in the server's memory, not a table (D-083)

@@ -403,4 +403,55 @@ public sealed class TillSessionsTests
         sessions.SignOut(token);
         Assert.Null(sessions.AuthorisedBy(token, given, Capability.ApplyDiscount));
     }
+
+    [Fact]
+    public async Task An_approval_stays_with_the_till_when_the_cashier_changes()
+    {
+        // D-105: the ticket on hold with a manager's discount is paid by whoever takes the till next.
+        // Tied to the session, the approval died at the change and the ticket could be neither paid
+        // nor cancelled (block B review).
+        var (sessions, token) = await CashierSignedIn();
+        var given = (await Authorise(sessions, token, "samia", "1357")).Authorisation;
+
+        sessions.SignOut(token);
+        var next = (await SignIn(sessions, "samia", "1357")).SessionToken!;
+
+        Assert.Equal("samia", sessions.AuthorisedBy(next, given, Capability.ApplyDiscount));
+
+        // Still the till's alone, and for what it was given.
+        var elsewhere = (await SignIn(sessions, "nabil", "4821", terminal: "till-2")).SessionToken!;
+        Assert.Null(sessions.AuthorisedBy(elsewhere, given, Capability.ApplyDiscount));
+        Assert.Null(sessions.AuthorisedBy(next, given, Capability.OverridePrice));
+    }
+
+    [Fact]
+    public async Task An_approval_stands_for_the_stores_day_it_was_given_on()
+    {
+        // As a cashier's view of past tickets does (D-089): the day, not a count of hours. Given at
+        // 08:00, it stands at 23:59:59 and is gone at midnight.
+        var (sessions, token) = await CashierSignedIn();
+        var given = (await Authorise(sessions, token, "samia", "1357")).Authorisation;
+
+        _clock.Now = new DateTimeOffset(2026, 9, 24, 23, 59, 59, TimeSpan.Zero);
+        Assert.Equal("samia", sessions.AuthorisedBy(token, given, Capability.ApplyDiscount));
+
+        _clock.Now = new DateTimeOffset(2026, 9, 25, 0, 0, 0, TimeSpan.Zero);
+        Assert.Null(sessions.AuthorisedBy(token, given, Capability.ApplyDiscount));
+    }
+
+    [Fact]
+    public async Task The_day_an_approval_stands_for_is_the_stores_own_not_utcs()
+    {
+        // A shop an hour ahead of UTC: 23:30 on its clock is 22:30 UTC. Forty minutes later it is
+        // 00:10 there, another day, though UTC is still on the same one.
+        var (sessions, token) = await CashierSignedIn();
+        sessions.Zone = TimeZoneInfo.CreateCustomTimeZone("store", TimeSpan.FromHours(1), "store", "store");
+        _clock.Now = new DateTimeOffset(2026, 9, 24, 22, 30, 0, TimeSpan.Zero);
+        var given = (await Authorise(sessions, token, "samia", "1357")).Authorisation;
+        Assert.Equal("samia", sessions.AuthorisedBy(token, given, Capability.ApplyDiscount));
+
+        _clock.Now = new DateTimeOffset(2026, 9, 24, 23, 10, 0, TimeSpan.Zero);
+
+        Assert.Null(sessions.AuthorisedBy(token, given, Capability.ApplyDiscount));
+    }
 }

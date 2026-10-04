@@ -8,8 +8,11 @@ using Waymark.Domain.Organisation;
 using Waymark.Domain.Privacy;
 using Waymark.Domain.Reference;
 using Waymark.Domain.Sales;
+using Waymark.Domain.Pricing;
 using Waymark.Domain.Values;
 using Waymark.Domain.Work;
+using Figures = Waymark.Contracts.Figures;
+using RefusalCodes = Waymark.Contracts.Pos.RefusalCodes;
 
 namespace Waymark.Application.Customers;
 
@@ -36,9 +39,15 @@ public enum CustomerRefusal
 }
 
 /// <summary>A customer command refused, with why, in words, for the cashier.</summary>
-public sealed class CustomerRefusedException(CustomerRefusal refusal, string reason) : Exception(reason)
+/// <param name="code">One of <c>RefusalCodes</c> when a cashier meets this refusal in ordinary work (D-107); null otherwise.</param>
+/// <param name="args">What the code's sentence names, in its own order.</param>
+public sealed class CustomerRefusedException(CustomerRefusal refusal, string reason, string? code = null, params string[] args) : Exception(reason)
 {
     public CustomerRefusal Refusal { get; } = refusal;
+
+    public string? Code { get; } = code;
+
+    public IReadOnlyList<string> Args { get; } = args;
 }
 
 /// <summary>A customer as the till lists one: never more than it needs to pick the right person.</summary>
@@ -59,7 +68,11 @@ public sealed record TabView(
     DateTimeOffset? OldestUnpaid,
     int? OverdueDays,
     IReadOnlyList<ReceivableMovement> Movements,
-    Money CreditAvailable);
+    Money CreditAvailable)
+{
+    /// <summary>After a repayment: what the drawer took (D-108). Null for every other view.</summary>
+    public Money? CashCollected { get; init; }
+}
 
 /// <summary>What a limit command does (B7, D-096).</summary>
 public enum LimitChange
@@ -110,12 +123,13 @@ public abstract class CustomerCommandBase(
         var settings = await configuration.CurrentAsync(cancellationToken);
         return settings.CustomerModule
             ? settings
-            : throw new CustomerRefusedException(CustomerRefusal.ModuleOff, "This shop keeps no customers: the customer module is off.");
+            : throw new CustomerRefusedException(
+                CustomerRefusal.ModuleOff, "This shop keeps no customers: the customer module is off.", RefusalCodes.ModuleOff);
     }
 
     protected async Task<Customer> CustomerAsync(string customerId, CancellationToken cancellationToken) =>
         await customers.FindAsync(customerId, cancellationToken)
-        ?? throw new CustomerRefusedException(CustomerRefusal.NotFound, "No such customer.");
+        ?? throw new CustomerRefusedException(CustomerRefusal.NotFound, "No such customer.", RefusalCodes.CustomerUnknown);
 
     /// <summary>A personal-data operation on one customer, staged with the work it records.</summary>
     protected void Log(CommandContext context, Operation operation, string customerId, string staffId, string? terminalId) =>
@@ -163,7 +177,8 @@ public abstract class CustomerCommandBase(
 
     protected static string Normalised(string phone) => PhoneNumber.TryNormalise(phone, out var normalised)
         ? normalised!
-        : throw new CustomerRefusedException(CustomerRefusal.Invalid, "That is not a telephone number: 10 digits starting 05, 06, 07, 02, 03 or 04.");
+        : throw new CustomerRefusedException(
+            CustomerRefusal.Invalid, "That is not a telephone number: 10 digits starting 05, 06, 07, 02, 03 or 04.", RefusalCodes.PhoneInvalid);
 }
 
 /// <summary>
@@ -179,13 +194,14 @@ public sealed class FindCustomersHandler(ICustomerLedger customers, ITenantConfi
         ArgumentNullException.ThrowIfNull(context);
         await ModuleOnAsync(cancellationToken);
 
-        // By name (D-100): a full name, whole words, five at most, the number masked; nobody listed
+        // By name (D-100): a full name, whole words, three at most, the number masked; nobody listed
         // is nobody looked at, so nothing is logged for a name that answers too many.
         if (!string.IsNullOrWhiteSpace(command.Name))
         {
             if (!CustomerNameSearch.IsFullName(command.Name))
             {
-                throw new CustomerRefusedException(CustomerRefusal.Invalid, "A full name: the first name and the last, each of two letters or more.");
+                throw new CustomerRefusedException(
+                    CustomerRefusal.Invalid, "A full name: the first name and the last, each of two letters or more.", RefusalCodes.NameInvalid);
             }
 
             var named = (await Customers.ActiveAsync(cancellationToken)).Where(customer => CustomerNameSearch.Matches(command.Name, customer.CustomerName)).ToList();
@@ -233,12 +249,15 @@ public sealed class CreateCustomerHandler(
         var name = (command.Name ?? string.Empty).Trim();
         if (name.Length is 0 or > MaxName)
         {
-            throw new CustomerRefusedException(CustomerRefusal.Invalid, $"A name of 1 to {MaxName} characters.");
+            throw new CustomerRefusedException(CustomerRefusal.Invalid, $"A name of 1 to {MaxName} characters.", RefusalCodes.NameInvalid);
         }
 
         var phone = Normalised(command.Phone);
         var notice = await Customers.NoticeInForceAsync(NoticeType.Information, calendar.Today, cancellationToken)
-            ?? throw new CustomerRefusedException(CustomerRefusal.NoNotice, "No information notice is published: a customer is not created without being told what is kept (Art. 32).");
+            ?? throw new CustomerRefusedException(
+                CustomerRefusal.NoNotice,
+                "No information notice is published: a customer is not created without being told what is kept (Art. 32).",
+                RefusalCodes.NoNotice);
 
         var now = clock.GetUtcNow();
         var customer = new Customer
@@ -312,7 +331,9 @@ public sealed class ChangeCreditLimitHandler(
                     case LimitVerdict.Negative:
                         throw new CustomerRefusedException(CustomerRefusal.Invalid, "A limit is zero or more.");
                     case LimitVerdict.AboveCeiling:
-                        throw new CustomerRefusedException(CustomerRefusal.Refused, $"At most {settings.MaxCreditLimit}: the shop's ceiling for any tab.");
+                        throw new CustomerRefusedException(
+                            CustomerRefusal.Refused, $"At most {settings.MaxCreditLimit}: the shop's ceiling for any tab.",
+                            RefusalCodes.LimitAboveCeiling, Figures.Amount(settings.MaxCreditLimit?.MinorUnits ?? 0));
                 }
 
                 if (limit != customer.CreditLimit)
@@ -364,7 +385,14 @@ public sealed class ChangeCreditLimitHandler(
 /// <summary>
 /// A repayment in cash (B7, D-055): a <c>paid_in</c> on the terminal's open session, so the drawer
 /// still reconciles, and a <c>payment</c> on the tab pointing at it; both or neither. Never more
-/// than is owed (<see cref="Tab.MayRepay"/>): the tab is not a place to keep money.
+/// than is owed: the tab is not a place to keep money.
+/// <para>
+/// <b>Cash moves in steps, a tab is owed to the centime</b> (D-108, <see cref="Tab.Repay"/>). Paying
+/// the whole due clears the tab exactly; the <c>paid_in</c> is the due rounded to the cash step, what
+/// the drawer really took, and the difference is a <c>rounding_variance</c> row naming the tab's
+/// movement, as a cash sale's names its transaction (D-034). A due the step rounds to nothing is
+/// cleared with no <c>paid_in</c> at all. A part of the due is a multiple of the step.
+/// </para>
 /// </summary>
 public sealed class RepayTabHandler(
     ICustomerLedger customers, ITenantConfiguration configuration, IPseudonymiser pseudonymiser, ILedgerCurrency currency,
@@ -384,12 +412,19 @@ public sealed class RepayTabHandler(
         var amount = Money.FromMinorUnits(command.Amount, _currency.Currency);
 
         var before = Tab.Age(_currency.Currency, [.. movements.Select(movement => new TabMovement(movement.OccurredAt, movement.Amount))]);
-        switch (Tab.MayRepay(before.Balance, amount))
+        var plan = Tab.Repay(before.Balance, amount);
+        switch (plan.Verdict)
         {
             case RepaymentVerdict.NotAboveZero:
                 throw new CustomerRefusedException(CustomerRefusal.Invalid, "A repayment is above zero.");
             case RepaymentVerdict.AboveBalance:
-                throw new CustomerRefusedException(CustomerRefusal.Refused, $"More than is owed: {before.Balance}.");
+                throw new CustomerRefusedException(
+                    CustomerRefusal.Refused, $"More than is owed: {before.Balance}.", RefusalCodes.RepayAboveBalance, Figures.Amount(before.Balance.MinorUnits));
+            case RepaymentVerdict.NotOnCashStep:
+                throw new CustomerRefusedException(
+                    CustomerRefusal.Refused,
+                    "A part of what is owed is paid in whole cash steps; the whole due rounds once.",
+                    RefusalCodes.RepayNotOnStep, Figures.Amount(_currency.Currency.CashRoundingStep));
         }
 
         if ((await reasons.ForAsync(ReasonCodeAppliesTo.CashMovement, cancellationToken))
@@ -403,32 +438,60 @@ public sealed class RepayTabHandler(
         var now = clock.GetUtcNow();
         var session = await CashSessions.OpenAsync(ledger, staging, context, store, command.TerminalId, command.StaffId, now, cancellationToken);
 
-        var paidIn = new CashMovement
-        {
-            MovementId = context.NewId(),
-            SessionId = session,
-            MovementType = CashMovementType.PaidIn,
-            Amount = amount,
-            ReasonCode = command.ReasonCode,
-            StaffId = command.StaffId,
-            OccurredAt = now,
-        };
+        // What the drawer took: nothing at all when the step rounds the whole due away (D-108).
+        var paidIn = plan.Cash.IsPositive
+            ? new CashMovement
+            {
+                MovementId = context.NewId(),
+                SessionId = session,
+                MovementType = CashMovementType.PaidIn,
+                Amount = plan.Cash,
+                ReasonCode = command.ReasonCode,
+                StaffId = command.StaffId,
+                OccurredAt = now,
+            }
+            : null;
         var repayment = new ReceivableMovement
         {
             MovementId = context.NewId(),
             StoreId = store.StoreId,
             CustomerId = customer.CustomerId,
             MovementType = ReceivableMovementType.Payment,
-            Amount = -amount,
+            Amount = -plan.Cleared,
             OccurredAt = now,
-            CashMovementId = paidIn.MovementId,
+            CashMovementId = paidIn?.MovementId,
             StaffId = command.StaffId,
         };
-        staging.Add(paidIn);
+        if (paidIn is not null)
+        {
+            staging.Add(paidIn);
+        }
+
         staging.Add(repayment);
+
+        // The tender rounds, never the debt (D-034, D-108): what the step added or took off.
+        if (!plan.Variance.IsZero)
+        {
+            staging.Add(new RoundingVariance
+            {
+                VarianceId = context.NewId(),
+                StoreId = store.StoreId,
+                OccurredAt = now,
+                ReferenceType = VarianceReferenceType.ReceivableMovement,
+                ReferenceId = repayment.MovementId,
+                Source = VarianceSource.CashTender,
+                Amount = plan.Variance,
+                Policy = store.RoundingPolicy,
+                CreatedAt = now,
+            });
+        }
+
         Log(context, Operation.Collection, customer.CustomerId, command.StaffId, command.TerminalId);
 
         var credit = await CreditAsync(customer.CustomerId, settings, now, cancellationToken);
-        return ViewOf(customer, [.. movements, repayment], settings, customer.CreditLimit, customer.TabFrozenAt is not null, credit.Available);
+        return ViewOf(customer, [.. movements, repayment], settings, customer.CreditLimit, customer.TabFrozenAt is not null, credit.Available) with
+        {
+            CashCollected = plan.Cash,
+        };
     }
 }

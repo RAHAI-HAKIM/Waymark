@@ -2,16 +2,12 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**01/10/2026**: **block A is done and reviewed** (§9); **B2 and B1 are done** (§10, §11); **B3 is done** (§12):
-weighed goods typed or read from a scale label, a label's price exact (D-090). **B4 is done** (§13): a
-discount given at the counter, rank 2, a manager's PIN for a cashier (D-091). **B5 is done** (§14): a
-price typed at the counter, rank 3, within a band (D-092). **B6 is done** (§15): card and
-BaridiMob parts, the rest in cash (D-095), in a panel floating over the frozen ticket (D-094). **B7 is done** (§16): the tab, le carnet, and the tenant's customer module (D-096); its screens built
-02/10 from the board (D-099); a customer found by full name or number (D-100). **B8 is done** (§17): a cancelled ticket recorded first, a
-manager only after "Encaisser", flags for the owner (D-097). **B9a is built** (§18): a
-refund as its own ticket, the tab first, then cash or store credit (D-098). **B9b is done**
-(§19): store credit spent as a part, given back as credit, expiring by the tenant's days (D-101). **B10 is built** (§20): cash in and out with no sale,
-and the clock (D-102). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `phase-1-plan.md`.
+**03/10/2026**: **Blocks A and B are done and reviewed** (§9).
+The till searches, holds and cancels tickets, sells by weight, discounts, overrides a price, splits
+a payment, keeps customers and a tab, refunds, spends store credit, moves cash and clocks people in.
+**Next is Block C** (the shift: counted float, X and Z reports, handover). Phase 1's decisions so far
+are in `recaps/phase-1.md` (till Block B); Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is
+`phase-1-plan.md`.
 
 ---
 
@@ -20,12 +16,12 @@ and the clock (D-102). Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is `
 | | |
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
-| Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **1864**, all green in Debug and Release (Integration 652 · Pos 528 · Domain 341 · Generator 237 · Hardware 65 · Application 41). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
-| Schema | 62 tables (all STRICT), 89 indexes, 32 triggers, **10 migrations**: `SalesVoid` (B8: a cancel's `payment_opened_at` and `void_authorised_by` on `transactions`; a struck line's `removed_at`, `removed_by` on `transaction_items`; their CHECKs), `CustomersAndTab` (B7: `credit_limit_events`, append-only; the charge's override, the tab's freeze and the customer's collection notice; the `information` notice type), `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
+| Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. On a machine short of memory build and test one node at a time (`-m:1`): MSBuild's child nodes die with `MSB4166` otherwise. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
+| Tests | **2407**, all green in Debug and Release (Integration 784 · Pos 681 · Domain 589 · Generator 238 · Hardware 65 · Application 50). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Schema | 62 tables (all STRICT), 89 indexes, 32 triggers, **11 migrations**: `LinesStrikesAndTabRounding` (block B review: `transaction_items.line_number` and `removed_authorised_by` with their CHECKs; `rounding_variance` may name a tab's movement; rebuilds both tables), `SalesVoid` (B8: a cancel's `payment_opened_at` and `void_authorised_by` on `transactions`; a struck line's `removed_at`, `removed_by` on `transaction_items`; their CHECKs), `CustomersAndTab` (B7: `credit_limit_events`, append-only; the charge's override, the tab's freeze and the customer's collection notice; the `information` notice type), `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
-| Recaps | `recaps/phase-0.md` and `recaps/phase-0.5.md`. Read one only when a question reaches back into a finished phase |
+| Recaps | `recaps/phase-0.md`, `recaps/phase-0.5.md`, and `recaps/phase-1.md` (**till Block B**: every Phase 1 decision so far in full). Read one only when a question reaches back |
 
 ## 2. Phase 0.5, closed
 
@@ -51,6 +47,12 @@ usually an `O-` entry). Close an item by deleting its row.
 
 | # | Sev. | Finding | Where | Action |
 | :---- | :---- | :---- | :---- | :---- |
+| F-30 | **Med** | **Lowering a count after "Encaisser" asks nobody and leaves no trace.** D-106 covers a line struck; five units made one is the same theft, and a lowered count is recorded nowhere, before or after payment opened | `Pos/Checkout/Cart.cs` `SetCount`, `CompleteSale` | **Decide**: the same PIN, and the difference recorded as a struck row; or leave it |
+| F-31 | Low | **A sale costs about 50 ms a line**: roughly ten queries, each opening its own connection since pooling is off (§3.4). A hundred lines took 5 s on the review machine. A sale now waits 20 s, not 3 (`StoreServerClient.SaleTimeout`), so it is no longer shown as unconfirmed | `CompleteSaleHandler`, `ProductLookup` | **Fix** before a pilot: hold one connection open for the length of a command (`Database.OpenConnection()`), then measure |
+| F-32 | Low | **Refusals with no code still show the server's English** behind "Refusé par le serveur" (about 35, the ones the till's own screens prevent), and so does the unconfirmed-sale card's detail (D-107) | `Application/Sales`, `TillSession` | **Fix** as each is met; nothing a cashier reaches in ordinary work |
+| F-33 | Low | **Every Arabic string added since the board is `// ar: à relire`**, the refusals' sentences (D-107) among them | `Pos/Screen/TillText.cs` | **Hakim reads** the Arabic; fix what reads wrong |
+| F-34 | Low | **A restock asked for an expired batch is refused silently** (D-098): the quote does not say which lines will not go back on the shelf, so the cashier is not told | `RefundSale.cs`, `RefundAnswer` | **Fix** with D3 (the refund's receipt needs the same fact) |
+| F-35 | Low | **A paid-out larger than the cash in the drawer is accepted**, and **a refund is stamped with the store's rounding policy of the day**, not its sale's | `CashMovements.cs`, `RefundSale.cs` | The first is **C1**'s (it needs the counted float). The second matters only if a store changes policy: **decide** with C2 |
 | F-27 | Low | **Two B3 pieces of the G1 board are not built**: the "Poids / PLU · saisie manuelle" key (F2) beside the field, and the rail's "Articles sans code-barres" grid (Tomates 180,00 /kg, Œufs 25,00 /u… and "Nouvel article"). B3 sells them by PLU typed in the field | G1 board, `Pos/Ui/TillViews.cs` | **Hakim brings the design**: what F2 does beyond focusing the field, which products the grid shows and in what order, and what "Nouvel article" is (O-25) |
 | F-25 | Low | **The Almanac card's "1 / 3" takes a touch only on its 12 px figures**, the defect D-084 fixed for keys. It is a label that acts, not a key | `Pos/Ui/TillViews.cs`, `Almanac` | **Decide** at the next rail design: a key, or a larger target |
 | F-18 | Low | **Admin's colour tokens have drifted from the design system.** `waymark-admin/src/index.css` has ink `#1a1a1f`, muted `#5c5c66`, critical `#a4243b`, warning `#b4690e`; the design system has `#14101F`, `#6B6478`, critical `#C03F44`/`#93292F`, warning `#BA8823`/`#7C580A`. The till's brushes already match the design system | `waymark-admin/src/index.css` | **Fix** with block E, from the design system's tokens |
@@ -72,6 +74,7 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | O-31 | May a terminal that is not `active` sign in and sell? Today a retired till can | An access rule. **H2**, before a pilot |
 | O-32 | Does an archived product stop its variants selling? Today only the variant's status is read | A D-066 rule. **E1** |
 | O-33 | Is the person deciding a card at the till the session's person? Today the till sends `staff_id` and the server believes it | CLAUDE.md §3.10 against D-083's gap. The till's half is an hour's work |
+| O-34 | Does lowering a line's count after "Encaisser" need the cancel's PIN, and is it recorded? (D-106 covers a strike only) | An access rule. **Before a pilot** (F-30) |
 
 ---
 
@@ -114,14 +117,14 @@ and the session backlog. It is the *how*; `Waymark_Build_Plan.md` is the *what* 
 definition of done. What follows is only the shape and the progress.
 
 **Phase 1 is Phase 0.5 widened.** Every session names the Phase 0.5 file it expands, so the
-starting point is always code already reviewed. §7 below is the map.
+starting point is always code already reviewed. `recaps/phase-0.5.md` §9 is the map.
 
 **≈47 sessions of 4 h (A5 added 23/09), one or two a day, every day: 24–47 days.**
 
 | Block | What | Sessions | State |
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
-| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **B1–B8 done** (§10–§17); B9a built (§18) |
+| **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **Done 02/10, reviewed 03/10** (§9) |
 | **C** | Shift: counted float, X and Z reports, handover | 3 | |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
@@ -141,158 +144,10 @@ makes them green. Session D's inverted role check is why.
 
 ---
 
-## 7. The Phase 0.5 code, read in the order it runs
+## 7. The Phase 0.5 code map
 
-The map Phase 1 expands from. Each guide walks one session's work in the order data moves
-through it; each file has its tests beside it under `src/tests/`, with the same name plus
-`Tests`.
-
-### 7.1 Hop 1, read in the order a scan travels
-
-1. **The keystroke:** `Waymark.Hardware/KeyboardWedgeScanner.cs`. `Accept` holds each
-   character; `EndBurst` classifies it (8 or more is a scan, anything shorter was typed).
-2. **The window:** `Waymark.Pos/TillWindow.cs`. The tunnel `OnTextInput` and `OnKeyDown`
-   feed the scanner; `Submit` hands the code to the session; `Render` draws. `App.cs` wires
-   it together.
-3. **What to do with a code:** `Pos/Checkout/TillSession.cs`. `_tail` keeps scan order;
-   `Handle` is one switch over the four answers.
-4. **The cart:** `Pos/Checkout/Cart.cs`, `WireFigures.cs`. Figures are read exactly;
-   `LineTotal = UnitPrice * Count`; `ExceedsStockOnHand`.
-5. **The HTTP call:** `Pos/Server/StoreServerClient.cs`, which returns `Answered` or
-   `ServerUnavailable`.
-6. **The wire shape:** `Contracts/Pos/ProductLookup.cs`.
-7. **The server's door:** `StoreServer/Program.cs` (DI, the startup checks and the time
-   zone, then `MapGet("/api/products/lookup")`) and `StoreServer/Catalogue/ProductLookupWire.cs`.
-8. **The store's date:** `Application/Time/StoreTimeZones.cs`, `StoreCalendar.cs`.
-9. **The rules:** `Persistence/Catalogue/ProductLookup.cs`, whose port is
-   `Domain/Catalogue/IProductLookup.cs`. Store scoping is the global filter in
-   `WaymarkDbContext` (`HasQueryFilter`); the query never names a store.
-10. **The whole path:** `StoreServerStartupTests.A_generated_store_is_imported_served_and_reopened_after_a_restart`.
-
-Each file has its tests beside it, under `src/tests/`, with the same name plus `Tests`.
-To watch a code cross every stop, set breakpoints in `TillSession.Handle` and in the
-`MapGet` lambda, run both processes, and scan `2000000000015`.
-
-### 7.2 Session A, read in the order a sale travels
-
-1. **The Pay button:** `Waymark.Pos/TillWindow.cs` (`Pay()`), then
-   `Pos/Checkout/TillSession.cs` (`PayAsync` → `PayAfter`). It waits for scans still
-   being looked up, sends codes and counts, and reacts to one of three answers: completed
-   (the cart empties, `LastSale`), refused (a notice, the cart kept), unknown (a warning,
-   the cart kept).
-2. **The HTTP call:** `Pos/Server/StoreServerClient.cs` (`CompleteSaleAsync`). Any answer
-   it can't read is `Unknown`, never `Completed`.
-3. **The wire:** `Contracts/Pos/Sale.cs`.
-4. **The door:** `StoreServer/Program.cs`. The DI block "Commands (D-050)" (the unit of
-   work is both `IUnitOfWork` and `IStaging`), then `MapPost("/api/sales")` with its
-   one-sale-at-a-time gate. `StoreServer/Sales/SaleWire.cs` maps the result;
-   `StoreServer/WireText.cs` formats the figures.
-5. **The executor:** `Application/Commands/CommandExecutor.cs`. The handler stages, the
-   executor commits once, or discards on any exception.
-6. **The handler, the heart of it:** `Application/Sales/CompleteSale.cs`. Read
-   `HandleAsync` top to bottom: re-price each line → session → per line, the batches →
-   per batch, `SaleArithmetic.Line` → stage the item, the movement, the level → invoice →
-   stage the transaction, the payment and the variance.
-7. **The rules it calls:**
-   - `Domain/Sales/SaleArithmetic.cs`: TVA from TTC; the same code as the generator;
-   - `Domain/Inventory/BatchAllocation.cs`: first in, first out, and the shortfall;
-   - `Money.ToCashTender()`: the 5 DZD step.
-8. **The reads:** `Domain/Sales/ISalesLedger.cs`, implemented in
-   `Persistence/Sales/SalesLedger.cs`. Store-scoped by the filter; `AdjustLevel` changes a
-   tracked `inventories` row.
-9. **The proof:** `Integration.Tests/CompleteSaleTests.cs`: atomicity, money, invoice,
-   session, batches. `Domain.Tests/BatchAllocationTests.cs`. And
-   `StoreServerStartupTests.AssertSale`, a sale on the real process.
-
-To watch one sale: breakpoints in `CompleteSaleHandler.HandleAsync` and in
-`CommandExecutor.ExecuteAsync` (on `CommitAsync`), then scan and press Pay.
-
-### 7.3 Session B, read in the order a basket travels
-
-1. **Where it starts:** `Application/Sales/CompleteSale.cs`. The sale loop now also collects
-   `sold` (product, quantity, line total) and `tier2Lines` (variant grain); at the end,
-   `EmitBasket` and the tier-2 call. Both are inside the command, so the executor commits
-   the outbox row with the sale's rows, or neither (CLAUDE.md §3.6).
-2. **What crosses:** `Application/Sync/AnonymousBasket.cs`. A pure function: product grain,
-   the store's hour, the weekday, the payment class, a fresh opaque basket id. The
-   comment says what must not be there and why.
-3. **The figures:** `Contracts/Figures.cs`, now the one place stored integers become wire
-   text (the till's answers use it through `StoreServer/WireText.cs`).
-4. **The hour:** `Domain/IStoreCalendar.cs` (`Now`, `Today`, `HourOfDay`) and
-   `Application/Time/StoreCalendar.cs`.
-5. **The sequence:** `Domain/Sync/IOutboxSequence.cs`, implemented in
-   `Persistence/Sync/OutboxSequence.cs`. Read inside the sale's transaction; the unique
-   index on `outbox.sequence_number` is the backstop.
-6. **Tier 2, stubbed:** `Domain/Statistics/ITier2Writer.cs` and
-   `Application/Statistics/NullTier2Writer.cs` (D-065).
-7. **The write guard (D-071):** `Persistence/WaymarkDbContext.cs`,
-   `RefuseAnotherStoresRows`, called by both `SaveChanges` overrides.
-8. **The proof:** `Integration.Tests/CompleteSaleTests.cs`, section "the outbox", including
-   `StubCloud`, the hop-5 reader that parses a pending row and acknowledges it;
-   `Application.Tests/AnonymousBasketTests.cs`; `Integration.Tests/StoreWriteScopeTests.cs`;
-   and the sale on the real process in `StoreServerStartupTests`.
-
-To watch one basket: a breakpoint in `EmitBasket`, then sell. Afterwards the row is visible
-in the encrypted store (the outbox keeps it until something acknowledges it).
-
-### 7.4 Session C, read in the order a batch becomes a card
-
-1. **The rule, and the only file that matters:** `Domain/Engine/NearExpiry.cs`. Pure, no
-   database. `Evaluate` returns a finding or **null** — null is "there is nothing to say",
-   which is most batches. Read the three early returns first: no shelf life, nothing left,
-   still outside the window. Then the two figures: the quantity, which needs one unit, and
-   the value at cost, which does not.
-2. **What it reads through:** `Domain/Engine/IExpiryLedger.cs` — the window, the shelf, the
-   board as it stands, and the one row it changes. Implemented in
-   `Persistence/Engine/ExpiryLedger.cs`: three queries, each scoped by the global filter
-   (`batch_items` through its batch, D-062).
-3. **The window:** `Persistence/Engine/ColdStartParameters.cs`. Seven days, installed at
-   start when the registry has none, never repaired. `Program.cs` calls it in the startup
-   block, after the time zone.
-4. **The card:** `Application/Engine/EvaluateExpiry.cs`. `HandleAsync` is the whole hop in
-   thirty lines: window → shelf → board → per finding, supersede then write. Then read
-   `Because` (three figures, each with its unit) and `Headline` (a rendering of them).
-   The class comment says why a card here has no interval.
-5. **Who it is addressed to:** `DecidingRoleAsync` in the ledger — the rung above the shop
-   floor, read off `roles.rank` rather than named in the code (D-073).
-6. **The door:** `StoreServer/Program.cs`, `MapPost("/api/engine/expiry")`.
-7. **The proof:** `Domain.Tests/NearExpiryTests.cs` (the window's edge, first section) and
-   `Integration.Tests/ExpiryEvaluatorTests.cs` (what it flags, what it stays quiet about,
-   running it twice). `StoreServerStartupTests.AssertExpiryEvaluation` runs it twice on the
-   real process over a generated store.
-
-To watch one batch: a breakpoint in `NearExpiry.Evaluate`, then post to the endpoint. On
-seed-42 the first run flags around a hundred batches out of about three hundred — a year of
-trading leaves a lot past its date — and the second run flags the same number and supersedes
-exactly that many.
-
-### 7.5 Session D, read in the order a card reaches a person
-
-1. ✍ **Hakim's piece:** `Domain/Engine/CardAudience.cs`. One function, one comparison —
-   `staffRank >= requiredRank`, "this rank and anything above it". Written 20/09, after a first
-   attempt with the comparison inverted, which four tests caught: a cashier passed and an owner
-   was locked out, both failure modes D-074 names, at once.
-2. **What the board reads:** `Domain/Engine/IRecommendationBoard.cs`, implemented in
-   `Persistence/Engine/RecommendationBoard.cs`. Note `StaffAsync`: active staff only, and a
-   role that is not an active row gives **no rank** rather than rank zero (D-037).
-3. **The board itself:** `Application/Engine/PendingCards.cs` — twelve lines. It filters with
-   `CardAudience` and reports what it held back as a **count**. The comment says why an empty
-   board is a lie.
-4. **The one door out:** `Application/Engine/DecideRecommendation.cs`. `HandleAsync` is six
-   numbered checks, then two staged writes: the decision row, and the card's move to
-   `decided`. They commit together or neither does, which is the risky rule of the hop.
-5. **The wire:** `StoreServer/Engine/RecommendationWire.cs` (a card crosses as the envelope of
-   D-044; the Because block and the option payloads are re-parsed here, not passed through as
-   strings) and `Contracts/Recommendations/DecisionRequest.cs`.
-6. **The doors:** `StoreServer/Program.cs`, `MapGet("/api/recommendations")` and
-   `MapPost("/api/recommendations/decide")`.
-7. **The screen:** `waymark-admin/src/Board.tsx`, and `src/index.css` for the brand tokens.
-   The page decides nothing — it renders the board the server already filtered.
-8. **The proof:** `Domain.Tests/CardAudienceTests.cs` (yours, three skipped) and
-   `Integration.Tests/RecommendationBoardTests.cs` (thirteen, four skipped).
-
-With StoreServer and the admin app running, the board fills for the owner and stays empty —
-with a count of what was withheld — for the cashier.
+The reading guides (a scan, a sale, a basket, a batch, a card, each in the order data moves) are
+in `recaps/phase-0.5.md` §9. Phase 1's own map is §9 below.
 
 ---
 
@@ -371,8 +226,6 @@ The guide is `src/Waymark.Generator/README.md`.
 
 ---
 
----
-
 ## Division of labour
 
 Phase 1 moves Hakim from reviewing to writing the core. `phase-1-plan.md` §3 is the full
@@ -389,299 +242,60 @@ table; this is the short form.
 
 ---
 
-## 9. Block A — done 24/09, reviewed 25/09
+## 9. Phase 1 so far: Blocks A and B
 
-Each session's reasoning is its decision; the files are where to start reading. ✍ marks Hakim's
-pieces, each with its rules in its doc comment and its tests beside it.
+What each session decided and why is in `recaps/phase-1.md`; this is only where to start
+reading. ✍ marks Hakim's pieces, each with its rules in its doc comment and its tests beside it.
+Every rule was broken on purpose (D-012) and caught by its own tests.
 
 | Session | What it did | Decision | Start at |
 | :---- | :---- | :---- | :---- |
-| A1 | The TVA rate from the product's categories, 19% marked `StandardFallback` when they are silent or disagree; a promotional price beats a retail one | D-075, D-076 | ✍ `Domain/Catalogue/TvaRate.cs`, `Persistence/Catalogue/ProductLookup.cs` |
-| A2 | Who may do what, from `roles.rank`; a synthetic PIN never signs in | D-077 | ✍ `Domain/Organisation/StaffPermissions.cs`, ✍ `StaffPin.IsUsable` |
-| A3 | Reason codes read as data: active, ordered, what the foreign key accepts | D-079 | `Persistence/Reference/ReasonCodes.cs`, `GET /api/reason-codes` |
-| A4 | The till's shell to G1: a tested screen model, one palette file, French and Arabic | D-080–D-082 | `Pos/Screen/TillScreen.cs`, `Pos/Ui/TillPalette.cs`, `Pos/TillWindow.cs` |
-| A5 | Sign-in: Argon2id in StoreServer, a session token that names the seller, five wrong PINs lock five minutes, `--set-pin` | D-083 | ✍ `StaffPin.IsWellFormed`, ✍ `SignInLockout.cs`, ✍ `StoreServer/Security/Argon2PinHasher.cs`, `TillSessions.cs`, `Pos/Checkout/SignInFlow.cs` |
-| Review | The window keeps the cashier's place and the scanner's focus; an unconfirmed sale closes Encaisser; the window is tested in CI | D-084–D-086 | `Pos/Screen/CartFollow.cs`, `TillSession.Unconfirmed`, `Pos.Tests/TillWindowTests.cs` |
+| A1 | TVA rate from the categories, 19 % fallback; a promotional price beats retail | D-075, D-076 | ✍ `Domain/Catalogue/TvaRate.cs`, `Persistence/Catalogue/ProductLookup.cs` |
+| A2 | Who may do what, from `roles.rank` | D-077 | ✍ `Domain/Organisation/StaffPermissions.cs`, ✍ `StaffPin` |
+| A3 | Reason codes read as data | D-079 | `Persistence/Reference/ReasonCodes.cs` |
+| A4 | The till's shell: a tested screen model, one palette file, French and Arabic | D-080–D-082 | `Pos/Screen/TillScreen.cs`, `Pos/Ui/TillPalette.cs`, `Pos/TillWindow.cs` |
+| A5 | Sign-in: Argon2id, a session that names the seller, a lockout, `--set-pin` | D-083 | ✍ `SignInLockout.cs`, `StoreServer/Security/TillSessions.cs`, `Pos/Checkout/SignInFlow.cs` |
+| A review | The window keeps its place and the scanner's focus; an unconfirmed sale; headless window tests | D-084–D-086 | `Pos/Screen/CartFollow.cs`, `Pos.Tests/TillWindowTests.cs` |
+| B1 | One field: scan, code or name; past tickets read-only | D-088, D-089 | `Domain/Catalogue/NameSearch.cs`, `Persistence/Sales/PastTickets.cs` |
+| B2 | Tickets on hold, drafts, the count stepper | D-087 | `Pos/Checkout/Cart.cs`, `Pos/Checkout/TillSession.cs` |
+| B3 | Weighed goods, scale labels | D-090 | ✍ `Domain/Sales/WeighedLine.cs`, `Domain/Catalogue/ScaleLabelFormat.cs` |
+| B4 | A discount at the counter, the manager's PIN step | D-091, D-093 | ✍ `Domain/Sales/Discounts.cs`, `POST /api/till/authorise` |
+| B5 | A price override within a band | D-092 | ✍ `Domain/Sales/PriceOverride.cs` |
+| B6 | Split tender; the floating payment panel | D-094, D-095 | ✍ `Domain/Sales/Tender.cs`, `PaymentReference.cs`, `Pos/Screen/Payment.cs` |
+| B7 | Customers and the tab | D-096, D-099, D-100 | ✍ `Domain/Customers/Tab.cs`, `Application/Customers/CustomerCommands.cs`, `Pos/Screen/Customers.cs` |
+| B8 | Cancels and struck lines, recorded | D-097 | ✍ `Domain/Sales/Voids.cs`, `VoidTicketHandler` in `CompleteSale.cs` |
+| B9 | Refunds; store credit spent and given back | D-098, D-101 | ✍ `Domain/Sales/Refunds.cs`, ✍ `Domain/Customers/StoreCredit.cs`, `Application/Sales/RefundSale.cs` |
+| B10 | Cash in and out with no sale; the clock | D-102 | `Application/Sales/CashMovements.cs` |
+| B review | Seven decisions and the design steps, below | D-103–D-109 | `Domain/Sales/SaleArithmetic.cs`, `Contracts/Pos/Refusal.cs`, `Pos/Screen/RefusalText.cs` |
 
-Every session was broken on purpose (D-012), each mutation caught by its own tests.
+**The Block B review (03/10).** Every feature was run against a live encrypted StoreServer and its
+rows audited; every screen was walked headlessly; the rules were taken out one at a time. What it
+found and fixed is `recaps/phase-1.md` §5. What it decided:
 
-**Carried out of block A, and where each goes:**
-
-- `StaffPermissions.May` has no caller yet, and there is no reason picker on the till: **B4, B5, B8**.
-- The − / + stepper under a line and parked tickets as tabs (asked at the G1 review): **done in B2**.
-- Clock-in and "Pointer sans ouvrir la caisse": **B10**. Admin sign-in: **I1**.
-- Rounding moves no earlier: a weight inferred from a price is **B3** (D-090), a ticket discount
-  spread with `Allocate` is **B4**, only the cash portion rounds in **B6**, counted cash is **C2**.
-- seed-42 has no promotion (**E2**); listing products sold on the TVA fallback is **E**.
-- Still Hakim's to confirm: the dark focus ring `#C6B6EE` (D-082), and the Arabic strings marked
-  `// ar: à relire` in `Pos/Screen/TillText.cs`.
-
-**To look at the till:** a Debug build takes `--snapshot=out.png`, with `--scan=code,...`,
-`--select`, `--pay`, `--staff=<id> [--pin=digits [--open]]`, `--theme=light|dark` and `--lang=ar`;
-it renders the window to a PNG and exits. `--pay` sells for real on whichever store is open.
-
----
-
-## 10. Session B2 — more than one ticket (D-087)
-
-| Where | What |
+| | |
 | :---- | :---- |
-| `Pos/Checkout/Cart.cs` | `CartLine.LineId`; `TakesAnotherScan`, the merge rule B3–B5 extend; `SetCount`, never below one |
-| `Pos/Checkout/TillSession.cs` | `Parked` and `Drafts` (in memory, the till's); `Park`, `CancelTicket`, `ResumeParked`, `ResumeDraft`, `SetCount`; a change of cashier parks the ticket |
-| `Pos/Screen/TillScreen.cs` | The tabs (`TopBar.Parked`), the stepper (`LineActions`), the rail's `OperationKey`s and `Rail.Drafts` |
-| `Pos/Screen/QuantityEntry.cs` | A count typed between − and +: 1 to 9 999, digits 0 to 9, Entrée confirms |
-| `Pos/Ui/TillViews.cs` | The tab strip (scrolls when full), the stepper, the operation tiles, the drafts panel, built from the G1 kit |
+| D-103 | A line is priced once, then split over its batches |
+| D-104 | `transaction_items.line_number` gives a ticket its order |
+| D-105 | An approval is the till's, for the store's day |
+| D-106 | A strike after "Encaisser" needs the cancel's PIN; a ticket struck empty is cancelled |
+| D-107 | A refusal is a code; the sentence is the till's |
+| D-108 | A tab repaid in cash rounds like a cash sale |
+| D-109 | A manager's PIN opens an earlier day's ticket for a cashier |
 
-**The tests:** `TillHoldTests` (on hold, drafts, the date boundary in the till's zone, a change of
-cashier), `CartTests` and `TillScreenTests` (the B2 sections), and three `TillWindowTests` through
-the real keys: F3 and a tab, the stepper, Annuler → Brouillons → Reprendre. **Broken on purpose**,
-eleven mutations, each caught by its own tests.
+**The till on a narrow screen** (below 1200 px, `TillTheme.Narrow`): a 400 px rail, a line's keys
+on two rows, the carnet's tiles two by two, payment methods three abreast at most. At any width a
+line's chips go under its name when the name needs the line, and tickets on hold are counted on
+the bar.
 
-**For Hakim's review:** the drafts panel has no board; it is built from the kit and is yours to
-correct. The Arabic words are `// ar: à relire`. **To look at it:** `--scan=code,code,|,code`
-parks at each `|`, `--cancel` cancels the ticket, `--drafts` opens the list.
+**Waiting on Hakim:**
 
-**Carried out:** the "QTÉ × n" multiplier and opening an old ticket are **B1**; what a cancellation
-leaves behind, and the manager PIN on "Annuler ticket", are **B8**; the rail's other keys arrive
-with their sessions.
+- O-34 (F-30): a count lowered after "Encaisser".
+- The Arabic strings marked `// ar: à relire` in `Pos/Screen/TillText.cs` (F-33).
+- The narrow layout on a real 1024 × 768 screen: it was judged from headless screenshots only.
+- The dark focus ring `#C6B6EE` (D-082); the drafts panel and the weight card, built from the kit
+  with no board of their own; the manager chosen by name before the PIN.
 
----
-
-## 11. Session B1 — done 26/09 (D-088, D-089)
-
-**✍ Hakim's piece:** `Persistence/Sales/PastTickets.cs`, the rules in its doc comment, its 20 tests
-in `PastTicketsTests`. Money is merged in memory: a converted column cannot be grouped in SQL.
-
-| Where | What |
-| :---- | :---- |
-| `Domain/Catalogue/NameSearch.cs` | Every word typed starts a word of the name; accents and case folded; whole words first; 2 characters, 20 results |
-| `Persistence/Catalogue/ProductLookup.cs` | Barcode, then PLU; `SearchAsync` answers each result as a scan would; `no_code` |
-| `StoreServer/Sales/TicketsWire.cs` | Who may see (today at one's till, else rank 2), the store's day as instants, the wire |
-| `GET /api/products/search`, `/api/tickets`, `/api/tickets/one` | The search; a day's list; one ticket, the rank asked of its own day and till |
-| `Pos/Screen/FieldInput.cs` | What the field holds: a code, a name, a ticket number, or `3*` |
-| `Pos/Checkout/TillSession.cs` | `NextCount`, `AddFoundAsync`, `View` / `CloseView` (nothing sold under a past ticket) |
-| `Pos/Screen/TillScreen.cs`, `Ui/TillViews.cs` | The floating results, the field's chip, the Tickets panel, the past ticket read-only |
-
-**Broken on purpose**, twelve mutations, each caught by its own tests; the ranking one was not at
-first, and its test was rewritten until it was. **For Hakim's review:** the results and the Tickets
-panel have no board; they are built from the kit; the Arabic words are `// ar: à relire`.
-
----
-
-## 12. Session B3 — done 28/09 (D-090)
-
-**`Domain/Sales/WeighedLine.cs`**, the O-26 arithmetic: a weight's line, a price label's quantity
-worked back and rounded once by the store's policy, its price split over batches, and whether a
-stored row recomputes. Written by Claude on Hakim's word (28/09) after his start; the rules are its
-doc comment, its 29 tests `WeighedLineTests`.
-
-| Where | What |
-| :---- | :---- |
-| `Domain/Values/RationalRounding.cs` | The one rounding implementation, lifted out of `Money.Times`, which now calls it |
-| `Domain/Catalogue/ScaleLabelFormat.cs` | The mask, the presets, the EAN-13 check digit, a PLU compared without its zeros |
-| `Persistence/Catalogue/ProductLookup.cs` | Barcode, then PLU, then the store's label format; a typed weight; the new refusals |
-| `Application/Sales/CompleteSale.cs` | A weighed line takes its weight; a price label is split with `Allocate`; `quantity_source` on every row |
-| Migration `WeighedGoods` | `transaction_items.quantity_source` (a CHECK, so the table is rebuilt: its columns come back in alphabetical order), `stores.scale_label_format` |
-| `StoreServer --scale-format=` | Sets the store's format; `list` prints the presets (`Application/Organisation/SetScaleLabelFormat.cs`) |
-| `Pos/Checkout/Cart.cs`, `TillSession.cs` | `LineWeight`, `AddWeighed`, `SetWeight`; `Weighing`, `ConfirmWeight`, `PreviewWeightAsync`, `Reweigh` |
-| `Pos/Screen/WeightEntry.cs`, `TillScreen.cs`, `Ui/TillViews.cs` | What a typed weight is; the weight card; a weighed line's row, chip and "Poids" |
-
-**The tests:** `ScaleLabelFormatTests`, `WeighedGoodsTests` (lookup, sale rows, the format command),
-`TillWeighTests`, `WeightEntryTests`, and the B3 sections of `CartTests`, `TillScreenTests`,
-`TillWindowTests`, `ProductLookupWireTests`, `SaleWireTests`. **Broken on purpose**, 29 mutations,
-each caught by its own tests; a split rounded part by part survived at first, and a three-way split
-test was added until it did not.
-
-**For Hakim's review:** the weight is typed in the field, with a card where the results float,
-rather than the pad agreed; the Arabic words are `// ar: à relire`. **To try it:** seed-42 has
-nothing weighed. `python tools/dev-weighed/add_weighed.py <generated>/waymark-store.db` adds tomatoes
-(PLU 4011, weight labels) and olives (PLU 537, price labels) before the import, and prints a label of
-each to scan. An already imported store is migrated at StoreServer's next start, but has no weighed
-product: import a fresh copy into a new data directory to try one.
-
----
-
-## 13. Session B4 — done 29/09 (D-091)
-
-**✍ Hakim's piece, finished by Claude on his word (29/09):** `Domain/Sales/Discounts.cs`: a line's
-discount from a percent or an amount, a ticket's worked out once and split over the lines, and a
-line's spread over its batch rows. The rules are its doc comment; its 18 tests are `DiscountsTests`,
-broken on purpose five ways (an even split over rows survived at first, until a test of unequal rows).
-
-| Where | What |
-| :---- | :---- |
-| `Application/Sales/CompleteSale.cs` | Two passes: batches and gross, then the discounts; the reason checked (D-079); `discount_total`; the basket's flag |
-| `StoreServer/Security/TillSessions.cs` | `AuthoriseAsync`, `AuthorisedBy`: sign-in's PIN check and lockout, the rank through `StaffPermissions.May`, approvals per session |
-| `POST /api/till/authorise`, `Contracts/Pos/Authorisation.cs` | The seller alone, or a manager's PIN; the sale's `DiscountRequest` cites the answer |
-| `Pos/Checkout/Cart.cs` | `CounterDiscount`, `SetDiscount`, `SetTicketDiscount`; `Subtotal`, `DiscountTotal`, `Total`; the store's `Policy` |
-| `Pos/Screen/DiscountEntry.cs`, `TillScreen.cs`, `Ui/TillViews.cs` | What a value is; the "REMISE" rows; the panel and the manager step; Sous-total and Remises |
-| `Pos/TillWindow.cs` | F4 on a line, F6 on the ticket; the value typed in the field; the manager's digits to the dots, never the field |
-
-**The tests:** `DiscountsTests`, `TillDiscountTests`, and the B4 sections of `CompleteSaleTests`,
-`TillSessionsTests`, `SaleWireTests`, `TillWindowTests`. **Broken on purpose**, 16 mutations, each caught; which reason a row keeps survived at first, and a two-reason test was added until it did not. **For Hakim's review:** the panel and the
-manager step have no board of their own (built from the kit and 09-pin); the manager is picked by
-name; the Arabic words are `// ar: à relire`.
-
----
-
-## 14. Session B5 — done 29/09 (D-092)
-
-**✍ Hakim's piece:** `Domain/Sales/PriceOverride.cs`: whether a typed unit price may replace the
-price in force, below cost said; its 16 tests are `PriceOverrideTests`. The ceiling is rounded down by
-whole-number division, not by a `Rounding` policy, which has no truncation on purpose: a limit is not
-a charged amount. **The manager step is compact and never scrolls** (Hakim, 29/09): a scroll viewer
-rebuilt on each digit jumped back to the top; a window test holds it.
-
-| Where | What |
-| :---- | :---- |
-| Migration `OverridesAndDiscountReasons` | The override on the row, the ticket discount's reason on the ticket, the notes (F-28, closed) |
-| `Application/Sales/CompleteSale.cs` | The band checked again, the line sold at the new price with `list_price` kept; override reasons, and a note when a reason asks for one |
-| `POST /api/till/authorise` | Now also `override_price`, rank 3; a discount's authorisation allows no override |
-| `Persistence/Catalogue/ProductLookup.cs` | The oldest batch in stock's unit cost, for the below-cost warning |
-| `Pos/Checkout/Cart.cs`, `TillSession.cs` | `PriceOverride`, `ChargedPrice`, `SetOverride`, `OverridePrice`; a discount's `Note` |
-| `Pos/Screen/TillScreen.cs`, `Ui/TillViews.cs`, `TillWindow.cs` | "Prix" under a line; the price panel (B4's, without % and DA); "PRIX MODIFIÉ" on the line; the note step |
-
-**The tests:** `PriceOverrideTests`, `TillOverrideTests`, and the B5 sections of `CompleteSaleTests`,
-`SaleWireTests`, `TillWindowTests`. **Broken on purpose**, 11 mutations, each caught. **For Hakim's
-review:** the price panel and the note step have no board (built from the kit); the Arabic words are
-`// ar: à relire`.
-
-**Three fixes, 30/09, before B6** (D-093):
-- **The manager step floats** over the screen on a scrim, closed by a ✕. It no longer runs into
-  the bottom bar.
-- **A PIN is typed at the pace it is touched.** A second touch inside the double-tap time was
-  a `DoubleTapped`, and was lost. `TillKey` now reads the touch itself.
-- **The last character typed shows at once.** The scanner's silence timer could fire early
-  and give up, so the character waited for the next key.
-
-Each fix has a test that failed before the fix, and five mutations are each caught.
-
-## 15. Session B6 — done 30/09 (D-094, D-095)
-
-**✍ Hakim's piece:** `Domain/Sales/Tender.cs`, `Tender.Settle`: the parts in order, then the exact cash
-rest, rounded once; refused above the total, at zero or less, or for a method that is not a card or a
-wallet. Its 21 tests are `TenderTests`. **Until it is written**, a sale with a card or BaridiMob part is
-refused by the stub; a sale in cash never asks it, on the till or the server, and works as before.
-Three server tests (`CompleteSaleTests`, split tender), `TillTenderTests.Two_parts_…` and two window
-tests wait on it too; run against a throwaway `Settle`, all of them pass (the stub was put back).
-
-| Where | What |
-| :---- | :---- |
-| `Domain/Sales/PaymentReference.cs` | A part's reference: optional, trimmed, 32 characters at most; a card number (Luhn, 13–19 digits) refused |
-| `Contracts/Pos/Sale.cs` | `tenders` on the request (left out for all cash), `payments` on the answer; `TenderRequest`, `PaymentLine`, `TenderMethods` |
-| `Application/Sales/CompleteSale.cs`, `StoreServer/Sales/SaleWire.cs` | The parts settled on the server's total before an invoice number is taken; a row per part with its reference, then the cash rest |
-| `Pos/Screen/Payment.cs` | The panel's state and rules, tested without a window: prefilled rest, a part above the rest refused as typed, a card number cleared |
-| `Pos/Ui/TillViews.Floating.cs` | The floating frame (D-094): the payment, and the manager's PIN moved into it at 880 px |
-| `Pos/TillWindow.cs` | F12 opens the panel, F12 or Entrée goes on, Échap or ✕ closes; the pad and the keyboard type the part; scans ignored under either panel |
-
-**The keys:** F12 opens "Encaisser" on cash; Entrée (or F12) pays it all in cash: one key more than
-before. Carte or BaridiMob starts a part at the rest; the first key typed replaces it; Tab or a touch
-moves to the reference; Entrée adds the part and cash is chosen again. **Left out of the board, on
-purpose (D-095):** "Espèces reçues", "À rendre", the note keys, "rendez 180,00"; "Réessayer" after no
-answer (D-085: the rail's card takes over); "Ticket imprimé" and the drawer (D1, D2).
-
-**The tests:** `TenderTests`, `PaymentReferenceTests`, `TillTenderTests`, and the B6 sections of
-`CompleteSaleTests`, `SaleWireTests`, `TillWindowTests`. **For Hakim's review:** the panel on screen at
-1024 × 768 and 1366 × 768; the Arabic words are `// ar: à relire` except those from the Arabic board.
-
-## 16. Session B7 — done 30/09; its screens 02/10 (D-096, D-099)
-
-**✍ Hakim's piece:** `Domain/Customers/Tab.cs`: `Age` (the balance, repayments paying the oldest
-charges first), `Check` (a charge: no tab, frozen, overdue, past the limit), `MayLimit`, `MayRepay`; its
-tests are `TabTests`. And **the tab part of your `Tender.Settle`**: `OnAccount` is a part, once per ticket,
-and the whole ticket when `tabMayBePart` is false (new cases at the end of `TenderTests`). **Written by
-Claude at Hakim's request (30/09)**, the oldest-first matching explained in `Tab.Age`'s comments; the
-tests and the build are Hakim's to run. Against throwaway rules every test passed (the rules were put back). Of 16 mutations of the rest, 14
-were each caught; two ("no limit event", "past the limit without an override") were stopped by the
-compiler, which proves nothing, and are to be rewritten so they compile.
-
-| Where | What |
-| :---- | :---- |
-| Migration `CustomersAndTab` | `credit_limit_events`; `customers.tab_frozen_at`, `collection_notice_version`; `receivable_movements.override_authorised_by`; `notice_type` `information` |
-| `Domain/Organisation/TenantConfiguration.cs`, `Persistence/Organisation/TenantConfigurationStore.cs` | The four settings as `system_config` keys; a missing key is its default |
-| `Domain/Customers/PhoneNumber.cs` | A number in one form, +213 and nine digits |
-| `Application/Customers/` | Find, create, open a tab, change a limit, repay in cash; `TabCharges`, the sale's customer and tab part |
-| `Application/Sales/CompleteSale.cs`, `CashSessions.cs` | The tab part charged with its payment row, the override named; the drawer's session shared with repayments |
-| `StoreServer/Customers/CustomerEndpoints.cs` | `GET /api/customers?phone=`, `POST /api/customers`, `GET …/tab`, `POST …/repayments`, `POST …/limit`; the actor is the seller if their rank allows, else a cited authorisation |
-| `StoreServer/Organisation/TenantSwitch.cs` | `--customer-module`, `--max-credit-limit`, `--credit-overdue-days`, `--tab-as-part`, `--publish-information-notice` |
-| `Pos/Server/StoreServerClient.cs` | The five calls, the cash reasons, and a sale's `customer_id` and `tab_override` |
-| `Pos/Screen/Customers.cs`, `Ui/TillViews.Customers.cs` | 02/10 (D-099): the customer key (F5), the search and the creation floating, the carnet in the ticket's place, the tab's change and repayment; Carnet in the payment panel (`Payment.cs`), `Tab.Check` asked on the server's figures |
-
-**Built 02/10 from the board** (D-099), with what was left out of it and why; 6 mutations of the till's customer rules were each caught (one after its test was made to press Entrée where the key was unavailable). **For Hakim to decide:** the tenant key
-is opened, or made the first time, when StoreServer first names a customer; a store that already has
-data gets one then. And a repayment takes a `cash_movement` reason chosen at the till, since
-`reason_codes` carries no "this one is the repayment".
-
-## 17. Session B8 — done 01/10 (D-097)
-
-**✍ Hakim's piece:** `Domain/Sales/Voids.cs`: `NeedsAuthorisation` (a cashier after "Encaisser" only)
-and `Flags` (after "Encaisser"; more than the count in a cash session; more than the value); its 16
-tests are `VoidsTests`. Written by Hakim 01/10; 10 mutations of the rest were each caught.
-
-| Where | What |
-| :---- | :---- |
-| Migration `SalesVoid` (Hakim's, with Claude's CHECKs) | `transactions.payment_opened_at`, `void_authorised_by`; `transaction_items.removed_at`, `removed_by`; a struck line has no batch |
-| `Application/Sales/CompleteSale.cs` | `VoidTicketHandler`: the reason checked, a manager after "Encaisser", then the ticket written as its sale would be, voided; struck lines on a sale or a cancel |
-| `Persistence/Sales/PastTickets.cs` | A cancel (no number) is not listed; a struck line is not a line of the ticket paid |
-| `StoreServer/Program.cs` | `POST /api/sales/void`, the seller's rank asked for `VoidTransaction`; `pin_required` when a manager must authorise |
-| `system_config`, `TenantSwitch.cs` | `void_alert_count`, `void_alert_value`; `--void-alert-count=5`, `--void-alert-value=5000.00`, `off` |
-| `Pos/` | "Annuler ticket" asks a cancel reason in the rail (the discount panel's reasons); after "Encaisser" the warning, then the floating PIN step; recorded before the drafts; no answer, the ticket stays |
-
-**Not on the till, on purpose:** the flags, shown in the Z-report (C2) and Admin's review queue.
-**No-sale** waits for the drawer (D2).
-
-
-## 18. Session B9a — built 01/10 (D-098)
-
-**✍ Hakim's piece:** `Domain/Sales/Refunds.cs`: `Take` (which rows a quantity comes from, first row
-first; nothing, too much, part of a weighed line refused), `Share` (what comes back: the row's total and
-TVA over its units with `Allocate`, so partial refunds sum exactly), `ToTab` (the tab first, never past
-the sale's tab part or what is owed), `StatusAfter`, `Restocks` (never an expired batch); and
-`StaffPermissions.May(rank, capability, raisedTo)` (a shop's setting raises a rank, never lowers it).
-Tests: `RefundsTests` and the six B9 `StaffPermissionsTests`. **Written by Claude at Hakim's request
-(01/10), for Hakim to review**, quantities first; Domain and Integration all green,
-and 14 mutations of the rest were each caught (one only after its test was made to check the reason it refuses).
-
-| Where | What |
-| :---- | :---- |
-| `Application/Sales/RefundSale.cs` | `RefundSaleHandler`: the refund ticket with its own number, negative rows on the sold batches, `returns`, `return_in`, the tab's negative charge, cash rounded once or store credit with `customers.credit` in step, the sale's status; a quote writes nothing |
-| `Application/Sales/InvoiceNumbers.cs` | The sales' sequence, now shared with refunds |
-| `Persistence/Sales/RefundLedger.cs` | The sale, what came back of each row, its tab part and what refunds took back off it |
-| `Persistence/Sales/PastTickets.cs` | A line says what came back of it; a refund names its sale |
-| `system_config`, `TenantSwitch.cs` | `refund_min_rank`; `--refund-min-rank=2`, `off` |
-| `StoreServer/Program.cs` | `POST /api/sales/refund` (D-088's rank rule for another day or till, `pin_required` below the setting); `refund` authorised with the setting |
-| `Pos/` | "Rembourser" on a past ticket; lines touched in the ticket view, − 1 / + 1 / En rayon and the return reasons in the rail; the server's quote floating (Espèces, Avoir where the server allows it); the PIN step when asked; then the refund's own ticket |
-
-**Not in B9a:** spending store credit (B9b). **02/10 (D-099):** store credit on a ticket with no
-customer attaches one first (F5) and is quoted again for them; the credit is shown once issued.
-
-## 19. Session B9b — built 02/10, waiting on Hakim's piece (D-101)
-
-**✍ Hakim's piece:** `Domain/Customers/StoreCredit.cs`: `Age` (the balance as a sum, the oldest credit
-spent first, what has expired by the tenant's days) and `MayRedeem`; store credit as a part of
-`Tender.Settle` (once per ticket, `CreditTwice`); `Refunds.ToCredit` (the credit share of a refund back
-as credit). Tests: `StoreCreditTests`, the B9b `TenderTests` and `RefundsTests`. **Until it is written**
-27 Domain tests, 3 `CompleteSaleTests` and 2 till tests fail; against a throwaway rule every suite
-passed (the stubs were put back), and 6 mutations of the rest were each caught. A customer who never had credit is read without the
-rule, so B7's tab works meanwhile; choosing "Avoir" in a running till asks the rule and throws.
-
-| Where | What |
-| :---- | :---- |
-| `system_config`, `TenantSwitch.cs` | `credit_expiry_days`; `--credit-expiry-days=365`, `off` |
-| `Application/Customers/TabCharges.cs`, `Sales/CompleteSale.cs` | The store credit part: customer and module asked, the rule asked; `expire` then `redeem` with their balances after; `customers.credit` in step |
-| `Application/Sales/RefundSale.cs`, `Persistence/Sales/RefundLedger.cs` | The tab first, then the credit share back as credit (`to_credit`), then cash or credit |
-| `Application/Customers/CustomerCommands.cs` | The tab's answer carries `credit_available` |
-| `Pos/` | "Avoir" in the payment panel for a customer with credit: prefilled with the smaller of the credit and the rest, "PLUS QUE L'AVOIR" above it; "Rendu en avoir" in the refund panel |
-
-## 20. Session B10 — built 02/10 (D-102)
-
-All Claude's (the plan's "C"); the migration too, at Hakim's request. Its tests pass (4 Integration, 5 till); 5 mutations were each caught.
-
-| Where | What |
-| :---- | :---- |
-| Migration `CashReasonDirection` | `reason_codes.direction`: `in`, `out` or null, a cash reason's only (CHECK) |
-| `system_config`, `TenantSwitch.cs` | `paid_out_min_rank`; `--paid-out-min-rank=2`, `off` |
-| `Application/Sales/CashMovements.cs` | `RecordCashMovementHandler` (a paid-in or paid-out on the session, the reason's direction and note asked); `ToggleClockHandler` (a shift opened or closed) |
-| `Persistence/Organisation/ShiftLedger.cs` | The person's open shift at this store; closing it |
-| `StoreServer/Program.cs` | `POST /api/cash/movements` (`pin_required` below the setting for cash out); `POST /api/till/clock` (the PIN with sign-in's lockout); `paid_out` authorised with the setting |
-| `Pos/` | "Petite caisse" in the rail: in or out, the reasons for that way, the amount, a note when asked, the PIN step for cash out when asked; "Plus…" then "Pointage": a name, a PIN as dots, the arrival or the departure |
+**To look at the till without a server's data in the way:** a Debug build takes
+`--snapshot=out.png` with `--scan=code,code,|,code`, `--select`, `--pay`, `--cancel`, `--drafts`,
+`--staff=<id> [--pin=digits [--open]]`, `--theme=light|dark` and `--lang=ar`; it draws the window
+to a PNG and exits. `--pay` sells for real on whichever store is open.

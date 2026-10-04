@@ -1,5 +1,6 @@
 using Waymark.Contracts;
 using Waymark.Contracts.Sync;
+using Waymark.Domain.Enums;
 using Waymark.Domain.Values;
 
 namespace Waymark.Application.Sync;
@@ -31,6 +32,38 @@ public static class AnonymousBasket
 
     /// <summary>The payment classes of D-043: a method, never an instrument.</summary>
     public const string Cash = "cash";
+
+    /// <summary>A ticket paid in more than one way.</summary>
+    public const string Mixed = "mixed";
+
+    /// <summary>A ticket that took no payment: everything on it was given away.</summary>
+    public const string None = "none";
+
+    /// <summary>
+    /// The class of a sale's payment rows: its method when there is one, <see cref="Mixed"/> for
+    /// several, <see cref="None"/> for a ticket that took no payment. <c>on_account</c> is a method,
+    /// not a debt (D-043). The till wrote <see cref="Cash"/> on every basket, whatever was paid
+    /// (block B review); the generator and the till now ask this one function.
+    /// </summary>
+    public static string PaymentClassOf(IEnumerable<PaymentMethod> methods)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        var distinct = methods.Distinct().ToList();
+        return distinct.Count switch
+        {
+            0 => None,
+            1 => distinct[0] switch
+            {
+                PaymentMethod.Cash => Cash,
+                PaymentMethod.Card => "card",
+                PaymentMethod.MobileWallet => "mobile_wallet",
+                PaymentMethod.StoreCredit => "store_credit",
+                PaymentMethod.OnAccount => "on_account",
+                _ => throw new ArgumentOutOfRangeException(nameof(methods), distinct[0], "A payment method with no class."),
+            },
+            _ => Mixed,
+        };
+    }
 
     public static AnonymousBasketRecord From(
         string basketId,

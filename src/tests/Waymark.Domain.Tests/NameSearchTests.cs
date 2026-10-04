@@ -48,6 +48,26 @@ public sealed class NameSearchTests
     }
 
     [Fact]
+    public void Among_names_that_answer_equally_the_ones_the_typed_word_begins_come_first()
+    {
+        // Entrée sells the first result: "lait" sold biscuits, which the name's order put first (block B review).
+        var ranked = NameSearch.Rank("lait", ["Biscuits au lait", "Café au lait", "Lait UHT Candia", "Laitue"], name => name);
+
+        Assert.Equal(["Lait UHT Candia", "Biscuits au lait", "Café au lait", "Laitue"], ranked);
+    }
+
+    [Theory]
+    [InlineData("lait", "Lait UHT Candia", true)]
+    [InlineData("lai", "Laitue batavia", true)]
+    [InlineData("LAIT", "lait entier", true)]
+    [InlineData("lait", "Biscuits au lait", false)]
+    [InlineData("candia lait", "Lait UHT Candia", false)] // the first word typed, not any of them
+    [InlineData("", "Lait", false)]
+    [InlineData("lait", "", false)]
+    public void A_name_is_led_by_the_first_word_typed_when_it_begins_with_it(string typed, string name, bool leads) =>
+        Assert.Equal(leads, NameSearch.Leads(typed, name));
+
+    [Fact]
     public void Ties_are_in_the_order_of_the_name()
     {
         var ranked = NameSearch.Rank("br", ["Brique Candia", "Brioche", "Bretzel"], name => name);

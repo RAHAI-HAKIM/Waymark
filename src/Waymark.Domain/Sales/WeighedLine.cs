@@ -38,7 +38,10 @@ public readonly record struct DeclaredLine(Quantity Quantity, LineAmounts Amount
 ///   when its quantity is within <b>one step</b> of <c>(line_total + discount) ÷ sell_price</c> (a split row's
 ///   share is rounded again by <c>Allocate</c>, which is why it is one step and not half). For every
 ///   other source the quantity is exact, and the row holds when
-///   <c>line_total == round(quantity × sell_price) − discount</c>, exactly.</description></item>
+///   <c>line_total == round(quantity × sell_price) − discount</c>, exactly. <b>That is a line on one
+///   row.</b> A weighed line taken from two batches is priced once and split (D-103), so a row of it
+///   may sit a centime off its own product: <see cref="SaleArithmetic.LineRecomputes"/> checks such a
+///   line whole.</description></item>
 /// </list>
 /// <para>
 /// <b>What you have to build with:</b> <see cref="RationalRounding.Divide"/> is the one rounding
@@ -99,13 +102,10 @@ public static class WeighedLine
     /// <param name="declared">The label's price.</param>
     /// <param name="taken">What each batch gave, in the order <c>BatchAllocation.Take</c> gave it.</param>
     /// <returns>One share per batch, in the same order, summing to <paramref name="declared"/>.</returns>
-    public static IReadOnlyList<Money> SplitDeclared(Money declared, IReadOnlyList<Quantity> taken)
-    {
-        ArgumentNullException.ThrowIfNull(taken);
-
-        // Largest remainder, weighted by what each batch gave: the shares sum to the label.
-        return declared.Allocate([.. taken.Select(quantity => quantity.Thousandths)]);
-    }
+    public static IReadOnlyList<Money> SplitDeclared(Money declared, IReadOnlyList<Quantity> taken) =>
+        // Largest remainder, weighted by what each batch gave: the shares sum to the label. Every
+        // line is split this way since D-103, so the rule is SaleArithmetic's.
+        SaleArithmetic.Split(declared, taken);
 
     /// <summary>Whether a stored sale row agrees with itself (D-053, D-090).</summary>
     public static bool Recomputes(

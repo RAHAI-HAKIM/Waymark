@@ -7,11 +7,19 @@ using Waymark.Domain.Reference;
 using Waymark.Domain.Sales;
 using Waymark.Domain.Values;
 using Waymark.Domain.Work;
+using RefusalCodes = Waymark.Contracts.Pos.RefusalCodes;
 
 namespace Waymark.Application.Sales;
 
 /// <summary>A cash movement refused, for a reason the cashier is told. Nothing is written.</summary>
-public sealed class CashMovementRefusedException(string reason) : Exception(reason);
+/// <param name="code">One of <c>RefusalCodes</c> when a cashier meets this refusal in ordinary work (D-107); null otherwise.</param>
+/// <param name="args">What the code's sentence names, in its own order.</param>
+public sealed class CashMovementRefusedException(string reason, string? code = null, params string[] args) : Exception(reason)
+{
+    public string? Code { get; } = code;
+
+    public IReadOnlyList<string> Args { get; } = args;
+}
 
 /// <summary>
 /// Cash into the drawer or out of it with no sale behind it (B10, D-102): a paid-in or a paid-out, on
@@ -44,7 +52,7 @@ public sealed class RecordCashMovementHandler(ISalesLedger ledger, IStaging stag
 
         if (command.Direction == CashDirection.Out && !command.SellerMay && string.IsNullOrWhiteSpace(command.AuthorisedBy))
         {
-            throw new CashMovementRefusedException("This shop asks for a manager to take cash out of the drawer.");
+            throw new CashMovementRefusedException("This shop asks for a manager to take cash out of the drawer.", RefusalCodes.PaidOutNeedsManager);
         }
 
         if (command.Amount <= 0)
@@ -53,7 +61,8 @@ public sealed class RecordCashMovementHandler(ISalesLedger ledger, IStaging stag
         }
 
         var reason = (await reasons.ForAsync(ReasonCodeAppliesTo.CashMovement, cancellationToken)).FirstOrDefault(r => r.Code == command.ReasonCode)
-            ?? throw new CashMovementRefusedException($"'{command.ReasonCode}' is not a reason this shop gives for cash in or out.");
+            ?? throw new CashMovementRefusedException(
+                $"'{command.ReasonCode}' is not a reason this shop gives for cash in or out.", RefusalCodes.ReasonUnknown, command.ReasonCode);
         if (reason.Direction is { } direction && direction != command.Direction)
         {
             throw new CashMovementRefusedException($"'{command.ReasonCode}' is a reason for cash {(direction == CashDirection.In ? "in" : "out")}, not {(command.Direction == CashDirection.In ? "in" : "out")}.");
@@ -61,7 +70,7 @@ public sealed class RecordCashMovementHandler(ISalesLedger ledger, IStaging stag
 
         if (reason.RequiresNote && string.IsNullOrWhiteSpace(command.Note))
         {
-            throw new CashMovementRefusedException($"'{command.ReasonCode}' asks for a note, and none was written.");
+            throw new CashMovementRefusedException($"'{command.ReasonCode}' asks for a note, and none was written.", RefusalCodes.NoteMissing);
         }
 
         var store = await ledger.CurrentStoreAsync(cancellationToken)

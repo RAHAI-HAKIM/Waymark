@@ -20,8 +20,16 @@ namespace Waymark.Pos.Server;
 /// than guessed around.
 /// </para>
 /// </summary>
-public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreSales, ITillServer
+/// <param name="http">The connection every question goes through, with a scan's patience.</param>
+/// <param name="patient">
+/// The connection a sale, a cancel and a refund go through, with <see cref="SaleTimeout"/>; null, and
+/// they go through <paramref name="http"/> (tests).
+/// </param>
+public sealed class StoreServerClient(HttpClient http, HttpClient? patient = null) : IProductSource, IStoreSales, ITillServer
 {
+    /// <summary>What writes a ticket goes through this one: it prices every line, and takes longer than a scan.</summary>
+    private readonly HttpClient _patient = patient ?? http;
+
     /// <summary>StoreServer's development address (its launch profile).</summary>
     public static readonly Uri DefaultAddress = new("http://localhost:5290/");
 
@@ -30,6 +38,14 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     /// or the same LAN; three seconds is already an outage to a cashier.
     /// </summary>
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// How long a sale, a cancel or a refund may wait. The server prices every line again, and a
+    /// ticket of a hundred lines took five seconds on a slow till: at a scan's three seconds it was
+    /// shown as "not confirmed" though it had been recorded (block B review). Twenty is still short
+    /// of a cashier giving up, and a sale with no answer by then is treated as before (D-085).
+    /// </summary>
+    public static readonly TimeSpan SaleTimeout = TimeSpan.FromSeconds(20);
 
     /// <summary>An <see cref="HttpClient"/> for StoreServer at <paramref name="address"/>.</summary>
     public static HttpClient CreateHttp(Uri address, TimeSpan? timeout = null) => new()
@@ -123,7 +139,7 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
                 Content = JsonContent.Create(request),
             };
             message.Headers.Add(TillSessionHeader.Name, sessionToken);
-            using var response = await http.SendAsync(message, cancellationToken);
+            using var response = await _patient.SendAsync(message, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return new SaleAnswer.Unknown($"StoreServer answered {(int)response.StatusCode} {response.ReasonPhrase}.");
@@ -134,14 +150,14 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
             {
                 { Outcome: SaleOutcomes.Completed, InvoiceNumber: not null, TotalTtc: not null, CashToCollect: not null, Currency: not null } =>
                     new SaleAnswer.Completed(outcome),
-                { Outcome: SaleOutcomes.Refused, Reason: { } reason } => new SaleAnswer.Refused(reason),
+                { Outcome: SaleOutcomes.Refused, Reason: { } reason } => new SaleAnswer.Refused(reason, outcome.Refusal),
                 { Outcome: SaleOutcomes.NotSignedIn } => new SaleAnswer.NotSignedIn(),
                 _ => new SaleAnswer.Unknown("StoreServer's answer could not be read."),
             };
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new SaleAnswer.Unknown($"StoreServer did not answer within {http.Timeout.TotalSeconds:0} s.");
+            return new SaleAnswer.Unknown($"StoreServer did not answer within {_patient.Timeout.TotalSeconds:0} s.");
         }
         catch (HttpRequestException exception)
         {
@@ -171,10 +187,20 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     }
 
     /// <summary>One past ticket by its id or number (B1). Null when the server could not say.</summary>
-    public async Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default)
+    public Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default) =>
+        OpenTicketAsync(idOrNumber, sessionToken, null, cancellationToken);
+
+    /// <summary>
+    /// One past ticket, citing a manager's authorisation when it is an earlier day's or another till's
+    /// and the seller is below rank 2 (D-109). Null when the server could not say.
+    /// </summary>
+    public async Task<TicketAnswer?> OpenTicketAsync(
+        string idOrNumber, string sessionToken, string? authorisation, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(idOrNumber);
-        var answer = await GetWithSessionAsync<TicketAnswer>($"api/tickets/one?ticket={Uri.EscapeDataString(idOrNumber)}", sessionToken, cancellationToken);
+        var path = $"api/tickets/one?ticket={Uri.EscapeDataString(idOrNumber)}"
+            + (string.IsNullOrEmpty(authorisation) ? string.Empty : $"&authorisation={Uri.EscapeDataString(authorisation)}");
+        var answer = await GetWithSessionAsync<TicketAnswer>(path, sessionToken, cancellationToken);
         return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Ticket is null) ? null : answer;
     }
 
@@ -197,7 +223,7 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     /// not say: the ticket stays, since nothing says the cancel was recorded.
     /// </summary>
     public Task<VoidAnswer?> VoidAsync(VoidRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
-        SendAsync<VoidAnswer>(HttpMethod.Post, "api/sales/void", request, sessionToken, cancellationToken);
+        SendAsync<VoidAnswer>(HttpMethod.Post, "api/sales/void", request, sessionToken, cancellationToken, _patient);
 
     /// <summary>The shop's reasons for money into the drawer (B7, a tab repaid). Null when the server could not say.</summary>
     public async Task<ReasonCodeList?> CashReasonsAsync(CancellationToken cancellationToken = default)
@@ -218,7 +244,7 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     /// be refunded, and the cashier asks again rather than paying out what nothing recorded.
     /// </summary>
     public Task<RefundAnswer?> RefundAsync(RefundRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
-        SendAsync<RefundAnswer>(HttpMethod.Post, "api/sales/refund", request, sessionToken, cancellationToken);
+        SendAsync<RefundAnswer>(HttpMethod.Post, "api/sales/refund", request, sessionToken, cancellationToken, _patient);
 
     /// <summary>A paid-in or a paid-out (B10, D-102). Null when the server could not say: nothing is taken as recorded.</summary>
     public Task<CashMovementAnswer?> CashMovementAsync(CashMovementRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
@@ -303,7 +329,8 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
         SendAsync<TabAnswer>(HttpMethod.Post, $"api/customers/{Uri.EscapeDataString(customerId)}/limit", request, sessionToken, cancellationToken);
 
     /// <summary>A request carrying the session's token, answered in JSON; null for an outage or an answer that is not a 200.</summary>
-    private async Task<T?> SendAsync<T>(HttpMethod method, string path, object? body, string sessionToken, CancellationToken cancellationToken)
+    private async Task<T?> SendAsync<T>(
+        HttpMethod method, string path, object? body, string sessionToken, CancellationToken cancellationToken, HttpClient? through = null)
         where T : class
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionToken);
@@ -317,7 +344,7 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
             }
 
             message.Headers.Add(TillSessionHeader.Name, sessionToken);
-            using var response = await http.SendAsync(message, cancellationToken);
+            using var response = await (through ?? http).SendAsync(message, cancellationToken);
             return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<T>(cancellationToken) : null;
         }
         catch (Exception exception) when (IsOutage(exception, cancellationToken))
@@ -330,6 +357,13 @@ public sealed class StoreServerClient(HttpClient http) : IProductSource, IStoreS
     public async Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default)
     {
         var staff = await GetAsync<TillStaff>("api/till/staff", cancellationToken);
+        return staff?.Staff is null ? null : staff;
+    }
+
+    /// <summary>Who may approve <paramref name="capability"/> with their PIN: the manager step's list. Null when the server could not say.</summary>
+    public async Task<TillStaff?> ApproversAsync(string capability, CancellationToken cancellationToken = default)
+    {
+        var staff = await GetAsync<TillStaff>($"api/till/staff?may={Uri.EscapeDataString(capability)}", cancellationToken);
         return staff?.Staff is null ? null : staff;
     }
 
@@ -509,7 +543,14 @@ public interface ITillServer
 
     Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default);
 
+    /// <summary>One past ticket, citing a manager's authorisation to open it (D-109). A server that knows none answers as it always did.</summary>
+    Task<TicketAnswer?> OpenTicketAsync(string idOrNumber, string sessionToken, string? authorisation, CancellationToken cancellationToken = default) =>
+        TicketAsync(idOrNumber, sessionToken, cancellationToken);
+
     Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Who may approve a capability with their PIN: the manager step's list. A server that cannot say lists everyone who may open the till.</summary>
+    Task<TillStaff?> ApproversAsync(string capability, CancellationToken cancellationToken = default) => StaffAsync(cancellationToken);
 
     Task<SignInAnswer?> SignInAsync(SignInRequest request, CancellationToken cancellationToken = default);
 
@@ -613,7 +654,8 @@ public abstract record SaleAnswer
     public sealed record Completed(SaleOutcome Outcome) : SaleAnswer;
 
     /// <summary>Not written, for this reason.</summary>
-    public sealed record Refused(string Reason) : SaleAnswer;
+    /// <param name="Coded">The reason as a code the till says in its own language (D-107); null when it has none.</param>
+    public sealed record Refused(string Reason, Refusal? Coded = null) : SaleAnswer;
 
     /// <summary>Not written: the server holds no session for this till. The till asks for a PIN again.</summary>
     public sealed record NotSignedIn : SaleAnswer;

@@ -27,6 +27,26 @@ public sealed class VoidsTests
         Assert.Equal(needed, Voids.NeedsAuthorisation(sellerMayVoid, paymentOpened));
     }
 
+    // ------------------------------------------------------------------ StrikeNeedsAuthorisation (D-106)
+
+    private static readonly DateTimeOffset Opened = new(2026, 10, 3, 10, 0, 0, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(false, 1, true)]    // a cashier strikes a line after "Encaisser": the cancel's theft, one line at a time
+    [InlineData(false, 0, true)]    // at the very moment it opened
+    [InlineData(false, -1, false)]  // a second before: an ordinary correction
+    [InlineData(true, 1, false)]    // a manager or the owner: never asked
+    public void A_pin_is_asked_of_a_cashier_striking_a_line_once_payment_was_opened(bool sellerMayVoid, int secondsAfter, bool needed)
+    {
+        Assert.Equal(needed, Voids.StrikeNeedsAuthorisation(sellerMayVoid, Opened, Opened.AddSeconds(secondsAfter)));
+    }
+
+    [Fact]
+    public void A_line_struck_on_a_ticket_never_opened_for_payment_needs_nobody()
+    {
+        Assert.False(Voids.StrikeNeedsAuthorisation(false, null, Opened));
+    }
+
     // ------------------------------------------------------------------ Flags
 
     [Fact]

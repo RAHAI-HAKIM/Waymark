@@ -14,6 +14,8 @@ using Waymark.Domain.Statistics;
 using Waymark.Domain.Sync;
 using Waymark.Domain.Values;
 using Waymark.Domain.Work;
+using Figures = Waymark.Contracts.Figures;
+using RefusalCodes = Waymark.Contracts.Pos.RefusalCodes;
 
 namespace Waymark.Application.Sales;
 
@@ -26,15 +28,21 @@ namespace Waymark.Application.Sales;
 /// till's authorisation; null when none was cited.
 /// </param>
 /// <param name="Removed">Lines struck on the ticket before it was paid (B8, D-097): recorded, never charged.</param>
+/// <param name="PaymentOpenedAt">When "Encaisser" was first opened on the ticket (D-106); null when it never was, or when no line was struck.</param>
+/// <param name="SellerMayVoid">The seller's rank reaches <c>VoidTransaction</c>, as the host asked <c>StaffPermissions</c> (D-106).</param>
 public sealed record CompleteSale(
     string TerminalId, string StaffId, IReadOnlyList<SaleLineRequest> Lines, GivenDiscount? TicketDiscount = null,
     IReadOnlyList<GivenTender>? Tenders = null, string? CustomerId = null, string? TabOverrideBy = null,
-    IReadOnlyList<RemovedLine>? Removed = null)
+    IReadOnlyList<RemovedLine>? Removed = null, DateTimeOffset? PaymentOpenedAt = null, bool SellerMayVoid = true)
     : ICommand<CompletedSale>;
 
 /// <summary>A line struck before the ticket was paid or cancelled (B8, D-097): what it was, and when.</summary>
 /// <param name="WeightThousandths">For a typed weight, as on <see cref="SaleLineRequest"/>.</param>
-public sealed record RemovedLine(string Barcode, int Count, long? WeightThousandths, DateTimeOffset RemovedAt);
+/// <param name="AuthorisedBy">
+/// The person of <c>VoidTransaction</c> whose PIN let it be struck after "Encaisser" (D-106), resolved
+/// by the host from the till's authorisation; null when none was cited.
+/// </param>
+public sealed record RemovedLine(string Barcode, int Count, long? WeightThousandths, DateTimeOffset RemovedAt, string? AuthorisedBy = null);
 
 /// <summary>
 /// A ticket cancelled at the till (B8, D-097): recorded as a <c>voided</c> transaction, priced as its
@@ -103,7 +111,15 @@ public sealed record CompletedSale(
     string TransactionId, string InvoiceNumber, Money Total, Money TaxTotal, CashTender Cash, IReadOnlyList<TenderPart> Payments);
 
 /// <summary>The sale cannot be completed, for a reason the cashier is told. Nothing is written.</summary>
-public sealed class SaleRefusedException(string reason) : Exception(reason);
+/// <param name="reason">In words, for the logs and for a till that does not know the code.</param>
+/// <param name="code">One of <c>RefusalCodes</c> when a cashier meets this refusal in ordinary work (D-107); null otherwise.</param>
+/// <param name="args">What the code's sentence names, in its own order.</param>
+public sealed class SaleRefusedException(string reason, string? code = null, params string[] args) : Exception(reason)
+{
+    public string? Code { get; } = code;
+
+    public IReadOnlyList<string> Args { get; } = args;
+}
 
 /// <summary>
 /// Completes a cash sale (D-070). It stages, for the executor to commit together or not at all
@@ -111,8 +127,10 @@ public sealed class SaleRefusedException(string reason) : Exception(reason);
 /// <list type="bullet">
 /// <item>the <c>transactions</c> row, completed, with the store's rounding policy copied onto it
 /// (D-053) and the next invoice number;</item>
-/// <item>one <c>transaction_items</c> row per line and batch, the TVA extracted from the TTC total
-/// (D-033) by <see cref="SaleArithmetic"/>, the same code the synthetic store uses;</item>
+/// <item>one <c>transaction_items</c> row per line and batch, the line priced once and split over
+/// its batches (D-103), the TVA extracted from each row's TTC total (D-033) by
+/// <see cref="SaleArithmetic"/>, the same code the synthetic store uses; each row carries its line's
+/// place on the ticket (D-104);</item>
 /// <item>one <c>stock_movements</c> row per item, and the batch's level lowered to match;</item>
 /// <item>a <c>transaction_payments</c> row per card or BaridiMob part, then one cash row for the
 /// exact rest (<see cref="Tender"/>, B6), and the difference the cash step makes to that rest in
@@ -159,9 +177,44 @@ public sealed class CompleteSaleHandler(
         ArgumentException.ThrowIfNullOrWhiteSpace(command.TerminalId);
         ArgumentException.ThrowIfNullOrWhiteSpace(command.StaffId);
 
-        if (command.Lines.Count == 0 || command.Lines.Any(line => line.Count <= 0))
+        // A cancel is never refused for an approval (D-105): a discount whose approval the server no
+        // longer holds is left off, and the ticket is recorded at the price in force.
+        if (voiding is not null)
+        {
+            command = WithoutUnapproved(command);
+        }
+
+        // A sale sells at least one line. A cancel may have none left: a ticket whose every line was
+        // struck is still a ticket somebody rang up and let go, and it is recorded (D-106).
+        var struck = command.Removed ?? [];
+        if (command.Lines.Any(line => line.Count <= 0) || (command.Lines.Count == 0 && (voiding is null || struck.Count == 0)))
         {
             throw new SaleRefusedException("A sale needs at least one line, each of at least one unit.");
+        }
+
+        // The till's own ceilings, asked again here: a request is not a till, and a count of two
+        // thousand million was sold when one was sent (block B review). A struck line is a row too.
+        if (command.Lines.Any(line => line.Count > SaleLimits.MaxUnitsPerLine)
+            || struck.Any(line => line.Count is <= 0 or > SaleLimits.MaxUnitsPerLine))
+        {
+            throw new SaleRefusedException(
+                $"A line holds from one to {SaleLimits.MaxUnitsPerLine} units.", RefusalCodes.LineTooLarge, Text(SaleLimits.MaxUnitsPerLine));
+        }
+
+        if (command.Lines.Select(line => line.WeightThousandths).Concat(struck.Select(line => line.WeightThousandths))
+            .Any(weight => weight > SaleLimits.MaxWeightThousandths))
+        {
+            throw new SaleRefusedException(
+                "A typed weight is at most 99,999 of its unit.", RefusalCodes.LineTooLarge, Figures.Quantity(SaleLimits.MaxWeightThousandths));
+        }
+
+        // A line struck once "Encaisser" had been opened is a cancel one line at a time (D-106): a
+        // cashier's needs a manager, whose authorisation the till cites; a cancel's own covers them.
+        if (struck.Any(line => line.AuthorisedBy is null && voiding?.AuthorisedBy is null
+            && Voids.StrikeNeedsAuthorisation(command.SellerMayVoid, command.PaymentOpenedAt ?? voiding?.PaymentOpenedAt, line.RemovedAt)))
+        {
+            throw new SaleRefusedException(
+                "A line was struck after the ticket was being paid: a manager authorises it.", RefusalCodes.StrikeNeedsPin);
         }
 
         var store = await ledger.CurrentStoreAsync(cancellationToken)
@@ -176,7 +229,14 @@ public sealed class CompleteSaleHandler(
             priced.Add(await Price(line, cancellationToken));
         }
 
-        var currency = priced[0].Product.PriceTtc.Currency;
+        // The struck lines, priced as a scan of them would be: each a row at the price in force.
+        var pricedStruck = new List<(ProductForSale Product, int Count, WeighedQuantity? Weighed)>();
+        foreach (var removed in struck)
+        {
+            pricedStruck.Add(await Price(new SaleLineRequest(removed.Barcode, removed.Count, removed.WeightThousandths), cancellationToken));
+        }
+
+        var currency = (priced.Count > 0 ? priced[0] : pricedStruck[0]).Product.PriceTtc.Currency;
         var zero = Money.Zero(currency);
         await CheckReasonsAsync(command, cancellationToken);
         var sessionId = await CashSessions.OpenAsync(ledger, staging, context, store, command.TerminalId, command.StaffId, now, cancellationToken);
@@ -205,7 +265,9 @@ public sealed class CompleteSaleHandler(
                 var check = PriceOverride.Check(product.PriceTtc, newPrice, null);
                 if (!check.MayCharge)
                 {
-                    throw new SaleRefusedException($"{product.ProductName}: the price cannot be {newPrice} ({check.Verdict}; at most {check.Ceiling}).");
+                    throw new SaleRefusedException(
+                        $"{product.ProductName}: the price cannot be {newPrice} ({check.Verdict}; at most {check.Ceiling}).",
+                        RefusalCodes.PriceOutOfBand, product.ProductName, Text(newPrice), Text(check.Ceiling));
                 }
 
                 listPrice = product.PriceTtc;
@@ -228,21 +290,22 @@ public sealed class CompleteSaleHandler(
                 var batches = await ledger.BatchesAsync(product.VariantId, product.Unit.Code, cancellationToken);
                 if (batches.Count == 0)
                 {
-                    throw new SaleRefusedException($"{product.ProductName} has never been received: there is no batch to sell it from.");
+                    throw new SaleRefusedException(
+                        $"{product.ProductName} has never been received: there is no batch to sell it from.",
+                        RefusalCodes.NeverReceived, product.ProductName);
                 }
 
                 takes = [.. BatchAllocation.Take(batches, wanted, today).Select(take => ((BatchLevel?)take.Batch, take.Taken))];
             }
 
-            // A price label's price is exact, so it is split over the batches with Allocate and
-            // sums back to the label (O-26). Every other line is priced per batch, as D-070 does:
-            // each row is then its own quantity × price, and recomputes from itself.
-            var shares = source == QuantitySource.LabelPrice
-                ? WeighedLine.SplitDeclared(weighed!.Amounts.LineTotal, [.. takes.Select(take => take.Taken)])
-                : null;
-
-            var rowGross = shares
-                ?? [.. takes.Select(take => SaleArithmetic.Line(product.PriceTtc, take.Taken, zero, product.TvaRate, policy).Gross)];
+            // The line is priced once (D-103): a label's price as printed (O-26), every other line
+            // its quantity × price rounded once, the figure the scan showed. Its batch rows are that
+            // figure split with Allocate, so they sum back to it; priced each on its own they came to
+            // a centime more or less than the till had said.
+            var lineGross = source == QuantitySource.LabelPrice
+                ? weighed!.Amounts.LineTotal
+                : SaleArithmetic.Line(product.PriceTtc, wanted, zero, product.TvaRate, policy).Gross;
+            var rowGross = SaleArithmetic.Split(lineGross, [.. takes.Select(take => take.Taken)]);
             plans.Add(new LinePlan(product, source, takes, rowGross, command.Lines[index].Discount, listPrice, command.Lines[index].Override));
 
             // Lowered now, as each line is taken, so a second line of the same product reads the
@@ -278,9 +341,7 @@ public sealed class CompleteSaleHandler(
             {
                 var (batch, taken) = takes[i];
                 var part = parts[i];
-                var amounts = source == QuantitySource.LabelPrice
-                    ? new LineAmounts(rowGross[i], rowGross[i] - part, (rowGross[i] - part).SplitTaxInclusive(product.TvaRate, policy))
-                    : SaleArithmetic.Line(product.PriceTtc, taken, part, product.TvaRate, policy);
+                var amounts = SaleArithmetic.Row(rowGross[i], part, product.TvaRate, policy);
                 (net, tax, total, discounted) =
                     (net + amounts.Split.Net, tax + amounts.Split.Tax, total + amounts.LineTotal, discounted + part);
 
@@ -305,6 +366,8 @@ public sealed class CompleteSaleHandler(
                     LineTotal = amounts.LineTotal,
                     CreatedAt = now,
                     QuantitySource = source,
+                    // The line's place on the ticket (D-104): its batch rows share it.
+                    LineNumber = index + 1,
                 });
 
                 // Stock moves only for a sale: a cancelled ticket's row has no batch.
@@ -337,9 +400,10 @@ public sealed class CompleteSaleHandler(
 
         // Lines struck before the ticket was paid or cancelled (B8, D-097): each a row priced at the
         // price in force, with who struck it and when, no batch, and outside every total.
-        foreach (var removed in command.Removed ?? [])
+        for (var index = 0; index < struck.Count; index++)
         {
-            var (product, count, weighed) = await Price(new SaleLineRequest(removed.Barcode, removed.Count, removed.WeightThousandths), cancellationToken);
+            var removed = struck[index];
+            var (product, count, weighed) = pricedStruck[index];
             var quantity = weighed?.Quantity ?? product.Unit.Whole(count);
             var amounts = weighed?.Amounts ?? SaleArithmetic.Line(product.PriceTtc, quantity, zero, product.TvaRate, policy);
             staging.Add(new TransactionItem
@@ -357,6 +421,13 @@ public sealed class CompleteSaleHandler(
                 QuantitySource = weighed?.Source ?? QuantitySource.Count,
                 RemovedAt = removed.RemovedAt,
                 RemovedBy = command.StaffId,
+                // Named only when the strike needed someone (D-106): a cashier's, after "Encaisser".
+                RemovedAuthorisedBy = Voids.StrikeNeedsAuthorisation(
+                    command.SellerMayVoid, command.PaymentOpenedAt ?? voiding?.PaymentOpenedAt, removed.RemovedAt)
+                    ? removed.AuthorisedBy ?? voiding?.AuthorisedBy
+                    : null,
+                // After the lines sold, in the order they were struck (D-104).
+                LineNumber = plans.Count + index + 1,
             });
         }
 
@@ -521,7 +592,9 @@ public sealed class CompleteSaleHandler(
             });
         }
 
-        await EmitBasket(sold, today, context, now, store.StoreId, discounted.IsPositive, cancellationToken);
+        await EmitBasket(
+            sold, today, context, now, store.StoreId, discounted.IsPositive,
+            AnonymousBasket.PaymentClassOf(settlement.Payments.Select(payment => payment.Method)), cancellationToken);
         tier2.Record(new Tier2Sale(transactionId, today, calendar.HourOfDay, tier2Lines));
 
         return new CompletedSale(transactionId, invoice, total, tax, cash, settlement.Payments);
@@ -546,7 +619,9 @@ public sealed class CompleteSaleHandler(
         {
             if (PaymentReference.Read(tender.Reference, out var reference) != ReferenceVerdict.Accepted)
             {
-                throw new SaleRefusedException("A payment reference was refused: it reads as a card number, or no terminal prints it. Nothing was kept.");
+                throw new SaleRefusedException(
+                    "A payment reference was refused: it reads as a card number, or no terminal prints it. Nothing was kept.",
+                    RefusalCodes.ReferenceRefused);
             }
 
             parts.Add(new TenderPart(tender.Method, Money.FromMinorUnits(tender.Amount, total.Currency), reference));
@@ -557,7 +632,7 @@ public sealed class CompleteSaleHandler(
         {
             TenderVerdict.Settled => settled,
             TenderVerdict.AboveTotal => throw new SaleRefusedException(
-                $"The parts come to more than the ticket's {total}: a card gives no change."),
+                $"The parts come to more than the ticket's {total}: a card gives no change.", RefusalCodes.PartsAboveTotal, Text(total)),
             TenderVerdict.NotAboveZero => throw new SaleRefusedException("A part of zero or less."),
             TenderVerdict.TabTwice => throw new SaleRefusedException("A ticket goes on the tab once."),
             TenderVerdict.TabNotWhole => throw new SaleRefusedException("This shop puts a ticket on the tab whole, or not at all."),
@@ -579,6 +654,7 @@ public sealed class CompleteSaleHandler(
         DateTimeOffset now,
         string storeId,
         bool hasDiscount,
+        string paymentClass,
         CancellationToken cancellationToken)
     {
         var basket = AnonymousBasket.From(
@@ -587,7 +663,7 @@ public sealed class CompleteSaleHandler(
             today,
             calendar.HourOfDay,
             sold,
-            AnonymousBasket.Cash,
+            paymentClass,
             hasDiscount);
 
         staging.Add(new OutboxMessage
@@ -617,7 +693,7 @@ public sealed class CompleteSaleHandler(
     {
         DiscountForm.Percent when given.Value is > 0 and <= BasisPoints.Scale => new Discount.Percent(new BasisPoints((int)given.Value)),
         DiscountForm.Amount => new Discount.Amount(Money.FromMinorUnits(given.Value, currency)),
-        _ => throw new SaleRefusedException("A discount is above 0 and at most 100 %."),
+        _ => throw new SaleRefusedException("A discount is above 0 and at most 100 %.", RefusalCodes.DiscountInvalid),
     };
 
     /// <summary>A discount the rules refuse (nothing off, over 100 %) is a refused sale, never a server error.</summary>
@@ -627,9 +703,12 @@ public sealed class CompleteSaleHandler(
         {
             return work();
         }
-        catch (ArgumentOutOfRangeException refused)
+        catch (ArgumentOutOfRangeException)
         {
-            throw new SaleRefusedException($"A discount cannot be given: {refused.Message}");
+            // In words of its own: the exception's text names a parameter and prints a value, and it
+            // reached the cashier as written (block B review).
+            throw new SaleRefusedException(
+                "A discount cannot be given: it takes more than nothing off, and at most 100 %.", RefusalCodes.DiscountInvalid);
         }
     }
 
@@ -643,15 +722,24 @@ public sealed class CompleteSaleHandler(
         if (given.Count > 0)
         {
             var accepted = (await reasons.ForAsync(ReasonCodeAppliesTo.Discount, cancellationToken)).ToDictionary(reason => reason.Code, StringComparer.Ordinal);
-            if (given.FirstOrDefault(discount => !accepted.ContainsKey(discount.ReasonCode) || string.IsNullOrWhiteSpace(discount.AuthorisedBy)) is { } wrong)
+            if (given.FirstOrDefault(discount => !accepted.ContainsKey(discount.ReasonCode)) is { } wrong)
             {
-                throw new SaleRefusedException($"'{wrong.ReasonCode}' is not a discount reason this shop accepts, or nobody allowed it.");
+                throw new SaleRefusedException(
+                    $"'{wrong.ReasonCode}' is not a discount reason this shop accepts.", RefusalCodes.ReasonUnknown, wrong.ReasonCode);
+            }
+
+            // Said apart from the reason (D-105): the approval the till cites is one the server no
+            // longer holds, and the cashier is told to have it given again, not that the reason is wrong.
+            if (given.Any(discount => string.IsNullOrWhiteSpace(discount.AuthorisedBy)))
+            {
+                throw new SaleRefusedException(
+                    "A discount cites an approval this server does not hold: it is given again.", RefusalCodes.ApprovalExpired);
             }
 
             // A reason that asks for a note is not recorded without one (F-28, D-092).
             if (given.FirstOrDefault(discount => accepted[discount.ReasonCode].RequiresNote && string.IsNullOrWhiteSpace(discount.Note)) is { } bare)
             {
-                throw new SaleRefusedException($"'{bare.ReasonCode}' asks for a note, and none was written.");
+                throw new SaleRefusedException($"'{bare.ReasonCode}' asks for a note, and none was written.", RefusalCodes.NoteMissing);
             }
         }
 
@@ -659,9 +747,16 @@ public sealed class CompleteSaleHandler(
         if (overrides.Count > 0)
         {
             var accepted = (await reasons.ForAsync(ReasonCodeAppliesTo.PriceOverride, cancellationToken)).Select(reason => reason.Code).ToHashSet(StringComparer.Ordinal);
-            if (overrides.FirstOrDefault(given => !accepted.Contains(given.ReasonCode) || string.IsNullOrWhiteSpace(given.AuthorisedBy)) is { } wrong)
+            if (overrides.FirstOrDefault(given => !accepted.Contains(given.ReasonCode)) is { } wrong)
             {
-                throw new SaleRefusedException($"'{wrong.ReasonCode}' is not a price override reason this shop accepts, or nobody allowed it.");
+                throw new SaleRefusedException(
+                    $"'{wrong.ReasonCode}' is not a price override reason this shop accepts.", RefusalCodes.ReasonUnknown, wrong.ReasonCode);
+            }
+
+            if (overrides.Any(given => string.IsNullOrWhiteSpace(given.AuthorisedBy)))
+            {
+                throw new SaleRefusedException(
+                    "A price cites an approval this server does not hold: it is given again.", RefusalCodes.ApprovalExpired);
             }
         }
     }
@@ -672,8 +767,9 @@ public sealed class CompleteSaleHandler(
         var found = await products.FindForSaleAsync(line.Barcode, line.WeightThousandths, cancellationToken) switch
         {
             ProductLookupResult.Found answer => answer,
-            ProductLookupResult.NotSellable refused => throw new SaleRefusedException($"{line.Barcode}: not sellable ({refused.Reason})."),
-            _ => throw new SaleRefusedException($"{line.Barcode}: no product carries this code."),
+            ProductLookupResult.NotSellable refused => throw new SaleRefusedException(
+                $"{line.Barcode}: not sellable ({refused.Reason}).", RefusalCodes.NotSellable, line.Barcode),
+            _ => throw new SaleRefusedException($"{line.Barcode}: no product carries this code.", RefusalCodes.UnknownCode, line.Barcode),
         };
 
         // A weighed product sells by its weight, once: never by a count, never without a weight
@@ -690,13 +786,30 @@ public sealed class CompleteSaleHandler(
 
         return (found.Product, line.Count, found.Weighed);
     }
+
+    /// <summary>The ticket with every discount and price nobody is on record as having allowed taken off (D-105).</summary>
+    private static CompleteSale WithoutUnapproved(CompleteSale command) => command with
+    {
+        Lines = [.. command.Lines.Select(line => line with
+        {
+            Discount = string.IsNullOrWhiteSpace(line.Discount?.AuthorisedBy) ? null : line.Discount,
+            Override = string.IsNullOrWhiteSpace(line.Override?.AuthorisedBy) ? null : line.Override,
+        })],
+        TicketDiscount = string.IsNullOrWhiteSpace(command.TicketDiscount?.AuthorisedBy) ? null : command.TicketDiscount,
+    };
+
+    /// <summary>An amount as a refusal names it (D-107): exact decimal text, which the till writes its own way.</summary>
+    private static string Text(Money amount) => Figures.Amount(amount.MinorUnits);
+
+    private static string Text(int count) => count.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>
 /// A ticket cancelled (B8, D-097). A cashier's cancel after the payment panel was opened needs a
 /// manager's authorisation (<see cref="Voids.NeedsAuthorisation"/>); every cancel needs a reason. Then
 /// it is written as the sale would have been, voided, by <see cref="CompleteSaleHandler"/>: one pricing,
-/// never two. Refused, nothing is written.
+/// never two. Refused, nothing is written. <b>A ticket with no line left</b>, every one struck, is
+/// cancelled like any other (D-106): its struck rows hang on a voided transaction worth nothing.
 /// </summary>
 public sealed class VoidTicketHandler(CompleteSaleHandler sales, IReasonCodes reasons) : ICommandHandler<VoidTicket, VoidedTicket>
 {
@@ -710,11 +823,14 @@ public sealed class VoidTicketHandler(CompleteSaleHandler sales, IReasonCodes re
 
         if ((await reasons.ForAsync(ReasonCodeAppliesTo.Void, cancellationToken)).All(reason => reason.Code != command.ReasonCode))
         {
-            throw new SaleRefusedException($"'{command.ReasonCode}' is not a reason this shop gives for cancelling a ticket.");
+            throw new SaleRefusedException(
+                $"'{command.ReasonCode}' is not a reason this shop gives for cancelling a ticket.", RefusalCodes.ReasonUnknown, command.ReasonCode);
         }
 
         var written = await sales.RecordAsync(
-            new CompleteSale(command.TerminalId, command.StaffId, command.Lines, command.TicketDiscount, Removed: command.Removed),
+            new CompleteSale(
+                command.TerminalId, command.StaffId, command.Lines, command.TicketDiscount, Removed: command.Removed,
+                PaymentOpenedAt: command.PaymentOpenedAt, SellerMayVoid: command.SellerMayVoid),
             command, context, cancellationToken);
         return new VoidedTicket(written.TransactionId, written.Total);
     }

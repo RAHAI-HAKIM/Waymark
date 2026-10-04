@@ -133,7 +133,24 @@ public sealed record FormPanel(
     bool Locked,
     string PrimaryKey,
     string CloseKey,
-    string? Footer);
+    string? Footer)
+{
+    /// <summary>
+    /// Whether the pad reads 1 2 3 on top, as a phone's and every PIN pad of the till do, rather than
+    /// 7 8 9 as the payment pad does for money: the field with the keys holds a number or a PIN, which
+    /// shows no currency. One till had both layouts for a PIN (block B review).
+    /// </summary>
+    public bool PhonePad => Fields.FirstOrDefault(entry => entry.Active) is { Suffix: null };
+
+    /// <summary>
+    /// The keys are the panel's first choice and are drawn before its field: cash in or cash out is
+    /// decided before the amount. They were drawn last, under the reasons (block B review).
+    /// </summary>
+    public bool KeysFirst { get; init; }
+
+    /// <summary>The rows are the panel's first choice and are drawn before its field: who clocks, then their PIN.</summary>
+    public bool RowsFirst { get; init; }
+}
 
 /// <summary>A field of a panel: what it is, what it holds, and whether it has the keys or is refused.</summary>
 public sealed record FormField(string Id, string Title, string Value, string? Placeholder, bool Active, bool Invalid, string? Suffix = null);
@@ -441,20 +458,34 @@ public static class CustomerScreen
         var amount = DiscountEntry.TryParse(panel.Typed, DiscountForms.Amount, out var minor)
             ? Domain.Values.Money.FromMinorUnits(minor, Currency.FromCode(currency))
             : (Money?)null;
-        var verdict = amount is { } a && balance is { } b ? Domain.Customers.Tab.MayRepay(b, a) : (RepaymentVerdict?)null;
+        // The tab's own rule, the one the server applies (D-108): the whole due clears the tab and the
+        // cash rounds once; a part is a multiple of the cash step.
+        var plan = amount is { } a && balance is { } b ? Domain.Customers.Tab.Repay(b, a) : (TabRepayment?)null;
+        var verdict = plan?.Verdict;
         var reasons = ReasonsFor(panel.Reasons, CashInKey);
+        var step = Domain.Values.Money.FromMinorUnits(Currency.FromCode(currency).CashRoundingStep, Currency.FromCode(currency));
 
         var message = panel.Refused is { } refused ? new PanelMessage(text.RepayRefused, refused)
             : verdict == RepaymentVerdict.AboveBalance ? new PanelMessage(text.AboveDue, text.AboveDueDetail(Short(tab), Shown(tab?.Balance, currency, text, "?")))
             : verdict == RepaymentVerdict.NotAboveZero ? new PanelMessage(text.NothingRepaid, text.NothingRepaidDetail)
+            : verdict == RepaymentVerdict.NotOnCashStep ? new PanelMessage(text.RepayOnStep, text.RepayOnStepDetail(DisplayFigures.AmountWithCurrency(step, text)))
             : panel.Reasons is not null && reasons.Count == 0 ? new PanelMessage(text.RepayRefused, text.NoCashReasons)
             : null;
+
+        // What the drawer takes, said before "Encaisser" when the cash step moves it: "286,00 dû,
+        // arrondi −1,00, espèces à encaisser 285,00".
+        List<Figure> figures = [new Figure(text.BalanceDue, Shown(tab?.Balance, currency, text, "?"))];
+        if (plan is { Accepted: true } rounded && !rounded.Variance.IsZero)
+        {
+            figures.Add(new Figure(text.CashRounding, DisplayFigures.Amount(rounded.Variance)));
+            figures.Add(new Figure(text.CashTaken, DisplayFigures.AmountWithCurrency(rounded.Cash, text)));
+        }
 
         return new FormPanel(
             text.CarnetLabel,
             text.RepayTitle(Short(tab)),
             text.RepaySubtitle,
-            [new Figure(text.BalanceDue, Shown(tab?.Balance, currency, text, "?"))],
+            figures,
             [new FormField(AmountField, text.AmountRepaid, Typed(panel.Typed), null, true, message is not null && panel.Refused is null, text.CurrencySymbol(Currency.FromCode(currency)))],
             null,
             null,
@@ -483,6 +514,18 @@ public static class CustomerScreen
         var after = Money(panel.After?.Balance, currency);
         var when = panel.At is { } at ? DisplayFigures.Clock(TimeZoneInfo.ConvertTime(at, state.Zone)) : string.Empty;
 
+        // What came off the tab, and what the drawer took for it: the same, unless the cash step
+        // rounded the whole due (D-108). "Solde avant 286,00, arrondi −1,00, réglé en espèces 285,00".
+        var cleared = before is { } x && after is { } y ? x - y : (Money?)null;
+        var cash = Money(panel.After?.CashCollected, currency) ?? cleared;
+        List<Figure> paid = [new Figure(text.BalanceBefore, before is { } b ? DisplayFigures.Amount(b) : "?")];
+        if (cash is { } taken && cleared is { } off && taken != off)
+        {
+            paid.Add(new Figure(text.CashRounding, DisplayFigures.Amount(taken - off)));
+        }
+
+        paid.Add(new Figure(text.RepaidInCash, cash is { } collected ? DisplayFigures.Amount(collected) : "?"));
+
         return new FormPanel(
             text.CarnetLabel,
             text.RepaidTitle,
@@ -498,10 +541,8 @@ public static class CustomerScreen
             [],
             text.NewBalanceDue,
             after is { } shown ? DisplayFigures.AmountWithCurrency(shown, text) : "?",
-            [
-                new Figure(text.BalanceBefore, before is { } b ? DisplayFigures.Amount(b) : "?"),
-                new Figure(text.RepaidInCash, before is { } x && after is { } y ? DisplayFigures.Amount(y - x) : "?"),
-            ],
+            // What came into the drawer, as the amount it is: "Réglé en espèces 286,00", never "−286,00".
+            paid,
             false,
             text.Finish,
             true,
@@ -517,7 +558,12 @@ public static class CustomerScreen
         var issued = panel.Issued;
         var currency = issued?.Currency ?? "DZD";
         var after = Money(issued?.CreditBalance, currency);
-        var rest = Money(issued?.Rest, currency);
+
+        // What this refund issued: the rest given as credit, and the share the sale had paid in credit,
+        // which came back as credit first (B9b, D-101). Both are in the balance after.
+        var rest = Money(issued?.Rest, currency) is { } given
+            ? given + (Money(issued?.ToCredit, currency) ?? Domain.Values.Money.Zero(given.Currency))
+            : (Money?)null;
         var number = issued?.InvoiceNumber ?? "?";
         var when = panel.At is { } at ? DisplayFigures.Clock(TimeZoneInfo.ConvertTime(at, state.Zone)) : string.Empty;
 
@@ -581,7 +627,7 @@ public static class CustomerScreen
             panel.Refused is { } refused ? new PanelMessage(text.ClientRefused, refused)
                 : panel.Reasons is not null && panel.Direction is not null && reasons.Count == 0 ? new PanelMessage(text.ClientRefused, text.NoCashReasons)
                 : null,
-            panel.Direction is null ? null : text.CashReasonTitle,
+            panel.Direction is null ? null : panel.Direction == CashOutKey ? text.CashOutReasonTitle : text.CashReasonTitle,
             [.. reasons.Select(reason => new FormRow(reason.Code, text.RightToLeft ? reason.LabelAr : reason.LabelFr, null, reason.Code == panel.ReasonCode))],
             null,
             [
@@ -597,7 +643,10 @@ public static class CustomerScreen
             panel.Direction == CashOutKey,
             text.EnterKey,
             text.EscapeKey,
-            null);
+            null)
+        {
+            KeysFirst = true,
+        };
     }
 
     private static FormPanel PettyCashDonePanel(ScreenState state, CustomerPanelState panel)
@@ -640,7 +689,10 @@ public static class CustomerScreen
             false,
             text.EnterKey,
             text.EscapeKey,
-            null);
+            null)
+        {
+            RowsFirst = true,
+        };
     }
 
     private static FormPanel ClockDonePanel(ScreenState state, CustomerPanelState panel)
@@ -674,7 +726,9 @@ public static class CustomerScreen
         var footer = text.OpeningLogged(opened, carnet.OpenedBy ?? string.Empty);
         if (carnet.Tab is not { Outcome: CustomerOutcomes.Ok } tab)
         {
-            var reason = carnet.Offline ? text.CarnetOffline : carnet.Tab?.Reason ?? text.CarnetOffline;
+            var reason = carnet.Offline || carnet.Tab is null
+                ? text.CarnetOffline
+                : RefusalText.Say(text, carnet.Tab.Refusal, carnet.Tab.Reason, carnet.Tab.Currency ?? "DZD");
             return new CarnetView(
                 text.CarnetLabel, text.CarnetLabel, string.Empty, null, [], text.StatementTitle, [], [], null, reason, footer,
                 new FormKey(ChangeKey, text.ChangeTabKey, false, true), text.RepayKey, false, text.EnterKey, text.EscapeKey);

@@ -22,7 +22,7 @@ public sealed class StaffCredentials(WaymarkDbContext context) : IStaffCredentia
                 from member in context.Staff
                 join role in context.Roles on member.Role equals role.RoleCode
                 where member.Status == StaffStatus.Active && role.IsActive
-                select new { member.StaffId, member.StaffName, role.LabelFr, role.LabelAr, member.PinHash })
+                select new { member.StaffId, member.StaffName, role.LabelFr, role.LabelAr, member.PinHash, role.Rank })
             .ToListAsync(cancellationToken);
 
         // Ordered here rather than in SQL: SQLite's collation is byte order, which sorts "Émilie"
@@ -32,7 +32,7 @@ public sealed class StaffCredentials(WaymarkDbContext context) : IStaffCredentia
             .OrderBy(row => row.StaffName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(row => row.StaffId, StringComparer.Ordinal)
             .Select(row => new SignInCandidate(
-                row.StaffId, row.StaffName, row.LabelFr, row.LabelAr, StaffPin.IsUsable(row.PinHash)))];
+                row.StaffId, row.StaffName, row.LabelFr, row.LabelAr, StaffPin.IsUsable(row.PinHash), row.Rank))];
     }
 
     public async Task<string?> PinHashAsync(string staffId, CancellationToken cancellationToken = default)

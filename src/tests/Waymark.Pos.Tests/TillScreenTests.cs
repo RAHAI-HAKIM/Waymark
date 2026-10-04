@@ -133,6 +133,36 @@ public sealed class TillScreenTests
     }
 
     [Fact]
+    public void Encaisser_is_closed_while_the_till_knows_the_server_is_out_of_reach()
+    {
+        // The sale could only come back unconfirmed: a ticket to check for a sale never sent (block B review).
+        var cart = CartWith(("a", "65.00", 1));
+
+        Assert.True(TillScreen.Build(State(cart)).Bottom.Primary.Enabled);
+        Assert.False(TillScreen.Build(State(cart, server: new ServerState(Now))).Bottom.Primary.Enabled);
+    }
+
+    [Fact]
+    public void Tickets_on_hold_are_counted_on_the_bar_and_none_is_no_count()
+    {
+        var first = new HeldTicket("H1", CartWith(("a", "65.00", 1)), Now, "nabil", "Nabil B.");
+        var second = new HeldTicket("H2", CartWith(("b", "10.00", 2)), Now, "nabil", "Nabil B.");
+
+        Assert.Null(TillScreen.Build(State()).Top.Held);
+        Assert.Equal("2 EN ATTENTE", TillScreen.Build(State(parked: [first, second])).Top.Held);
+    }
+
+    [Fact]
+    public void A_refund_paid_in_cash_says_again_what_to_hand_back()
+    {
+        // The panel that showed it has closed, and the refund's ticket reads −143,00 where the drawer gives 145,00.
+        var notice = TillScreen.Build(State(notice: new TillNotice(TillNoticeKind.RefundPaid, "S-2026-000009", "145.00"))).Notice;
+
+        Assert.Equal((Tone.Neutral, "RETOUR ENREGISTRÉ"), (notice.Tone, notice.Label));
+        Assert.Equal("Espèces à rendre au client : 145,00 DA", notice.Text.Replace('\u00A0', ' ').Replace('\u202F', ' '));
+    }
+
+    [Fact]
     public void Online_is_a_label_with_no_colour_and_offline_is_critical()
     {
         // There is no positive state (CLAUDE.md §6): "EN LIGNE" is the absence of a problem.

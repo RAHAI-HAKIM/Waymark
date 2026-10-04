@@ -80,6 +80,9 @@ public static class Capabilities
 
     /// <summary>Cash taken out of the drawer (B10, D-102): anyone with a rank, unless the shop raised it (<c>paid_out_min_rank</c>).</summary>
     public const string PaidOut = "paid_out";
+
+    /// <summary>An earlier day's or another till's ticket opened by a cashier, for its refund (D-109).</summary>
+    public const string ViewOtherTickets = "view_other_tickets";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

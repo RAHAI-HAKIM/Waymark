@@ -10,7 +10,7 @@ public static class WeightEntry
     /// The most one weighing may be, in thousandths of the unit: 99,999 kg, what five digits of a
     /// scale label can carry. A weight past it was typed with a digit too many.
     /// </summary>
-    public const long MaxThousandths = 99_999;
+    public const long MaxThousandths = Domain.Sales.SaleLimits.MaxWeightThousandths;
 
     /// <summary>
     /// A weight above zero and at most <see cref="MaxThousandths"/>, with no more decimals than the

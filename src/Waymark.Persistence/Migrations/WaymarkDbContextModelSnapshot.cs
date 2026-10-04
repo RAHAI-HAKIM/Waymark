@@ -3037,7 +3037,7 @@ namespace Waymark.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_rounding_variance_policy", "policy IN ('half_even','half_up')");
 
-                            t.HasCheckConstraint("ck_rounding_variance_reference_type", "reference_type IN ('transaction','purchase_order','batch')");
+                            t.HasCheckConstraint("ck_rounding_variance_reference_type", "reference_type IN ('transaction','purchase_order','batch','receivable_movement')");
 
                             t.HasCheckConstraint("ck_rounding_variance_source", "source IN ('cash_tender','currency_conversion')");
                         });
@@ -3993,6 +3993,12 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("discount_reason_code");
 
+                    b.Property<int>("LineNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0)
+                        .HasColumnName("line_number");
+
                     b.Property<long>("LineTotal")
                         .HasColumnType("INTEGER")
                         .HasColumnName("line_total");
@@ -4027,6 +4033,10 @@ namespace Waymark.Persistence.Migrations
                     b.Property<string>("RemovedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("removed_at");
+
+                    b.Property<string>("RemovedAuthorisedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("removed_authorised_by");
 
                     b.Property<string>("RemovedBy")
                         .HasColumnType("TEXT")
@@ -4078,6 +4088,8 @@ namespace Waymark.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_transaction_items_discount_amount_2", "discount_amount = 0 OR discount_reason_code IS NOT NULL");
 
+                            t.HasCheckConstraint("ck_transaction_items_line_number", "line_number >= 0");
+
                             t.HasCheckConstraint("ck_transaction_items_list_price", "list_price IS NULL OR list_price >= 0");
 
                             t.HasCheckConstraint("ck_transaction_items_override", "(list_price IS NULL AND override_reason_code IS NULL AND override_authorised_by IS NULL) OR (list_price IS NOT NULL AND override_reason_code IS NOT NULL AND override_authorised_by IS NOT NULL)");
@@ -4087,6 +4099,8 @@ namespace Waymark.Persistence.Migrations
                             t.HasCheckConstraint("ck_transaction_items_quantity_source", "quantity_source IN ('count','typed_weight','label_weight','label_price')");
 
                             t.HasCheckConstraint("ck_transaction_items_removed", "(removed_at IS NULL) = (removed_by IS NULL) AND (removed_at IS NULL OR batch_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_transaction_items_removed_authorised", "removed_authorised_by IS NULL OR removed_at IS NOT NULL");
 
                             t.HasCheckConstraint("ck_transaction_items_sell_price", "sell_price >= 0");
                         });
@@ -5345,6 +5359,11 @@ namespace Waymark.Persistence.Migrations
                     b.HasOne("Waymark.Domain.Pricing.Promotion", null)
                         .WithMany()
                         .HasForeignKey("PromotionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Waymark.Domain.Organisation.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("RemovedAuthorisedBy")
                         .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Waymark.Domain.Organisation.Staff", null)

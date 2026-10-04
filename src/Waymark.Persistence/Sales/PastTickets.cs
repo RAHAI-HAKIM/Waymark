@@ -101,7 +101,7 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
         // in memory: Money sums with +, which SQL cannot do on a converted column.
         var rows = await _context.TransactionItems
             .Where(item => item.TransactionId == sale.TransactionId && item.RemovedAt == null)
-            .OrderBy(item => item.CreatedAt).ThenBy(item => item.TransactionItemId)
+            .OrderBy(item => item.LineNumber).ThenBy(item => item.CreatedAt).ThenBy(item => item.TransactionItemId)
             .Join(_context.Variants, item => item.VariantId, variant => variant.VariantId, (item, variant) => new { item, variant })
             .Join(_context.Products, row => row.variant.ProductId, product => product.ProductId,
                 (row, product) => new { row.item, row.variant.VariantName, product.ProductName })

@@ -242,9 +242,11 @@ public static class RefundScreen
             figures.Add(new Figure(text.RefundToCredit, DisplayFigures.Amount(back)));
         }
 
+        // What the cash step adds to or takes off what is handed back: "À rendre 143,00", "Arrondi
+        // espèces 2,00", "ESPÈCES À RENDRE 145,00" add up as they read (block B review: it said −2,00).
         if (!credit && Money(quote.Rest, currency) is { } rest && Money(quote.CashOut, currency) is { } cashOut && rest != cashOut)
         {
-            figures.Add(new Figure(text.CashRounding, DisplayFigures.Amount(rest - cashOut)));
+            figures.Add(new Figure(text.CashRounding, DisplayFigures.Amount(cashOut - rest)));
         }
 
         var due = credit ? quote.Rest : quote.CashOut ?? quote.Rest;

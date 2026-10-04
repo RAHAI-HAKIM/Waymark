@@ -88,4 +88,10 @@ public static class TicketOutcomes
 
     /// <summary>Another day or another till, and the person's rank does not reach 2 (D-088).</summary>
     public const string NotAllowed = "not_allowed";
+
+    /// <summary>
+    /// An earlier day's or another till's ticket, asked by someone below rank 2 (D-109): a manager's
+    /// PIN for <see cref="Capabilities.ViewOtherTickets"/>, then asked again with the authorisation.
+    /// </summary>
+    public const string PinRequired = "pin_required";
 }

@@ -25,7 +25,7 @@ public sealed class Cart
     /// The most units one line may hold (B2): a count typed with one digit too many is refused, not
     /// sold. B3's weighed lines are counted in their unit and have their own rule.
     /// </summary>
-    public const int MaxCount = 9_999;
+    public const int MaxCount = SaleLimits.MaxUnitsPerLine;
 
     private readonly List<CartLine> _lines = [];
     private int _lastLineId;
@@ -39,6 +39,12 @@ public sealed class Cart
 
     /// <summary>The lines still in the sale: what is charged, and what <c>Pay</c> sends.</summary>
     public IReadOnlyList<CartLine> ActiveLines => [.. _lines.Where(line => !line.IsRemoved)];
+
+    /// <summary>
+    /// Every line was struck: a ticket somebody rang up and let go (D-106). It is recorded as a
+    /// cancelled ticket before the till lets it go, never dropped.
+    /// </summary>
+    public bool HasOnlyStruckLines => _lines.Count > 0 && _lines.All(line => line.IsRemoved);
 
     /// <summary>
     /// The store's rounding policy (D-053), which a discount's preview is worked out with (B4): the
@@ -271,7 +277,11 @@ public sealed class Cart
     /// (G1). False if the sale holds no such line still in it. The reason and the log entry
     /// arrive with B8's dialog; until then the struck line is the trace.
     /// </summary>
-    public bool Remove(string lineId, DateTimeOffset at)
+    /// <param name="authorisation">
+    /// What the server answered for <c>void_transaction</c> when the line is struck after "Encaisser"
+    /// was opened on the ticket (D-106); null before it. The sale cites it for the struck row.
+    /// </param>
+    public bool Remove(string lineId, DateTimeOffset at, string? authorisation = null)
     {
         var index = ActiveIndex(lineId);
         if (index < 0)
@@ -279,7 +289,7 @@ public sealed class Cart
             return false;
         }
 
-        _lines[index] = _lines[index] with { RemovedAt = at };
+        _lines[index] = _lines[index] with { RemovedAt = at, RemovedAuthorisation = authorisation };
         if (LastAdded?.LineId == lineId)
         {
             LastAdded = null;
@@ -305,6 +315,12 @@ public sealed class Cart
         _lines[index] = _lines[index] with { Count = count };
         return true;
     }
+
+    /// <summary>
+    /// Drops the struck lines, once they have been recorded with the ticket's cancel (D-097): a
+    /// cancelled ticket taken back from the drafts starts with what was still on it.
+    /// </summary>
+    public void ForgetStruck() => _lines.RemoveAll(line => line.IsRemoved);
 
     private int ActiveIndex(string lineId) => _lines.FindIndex(line => line.LineId == lineId && !line.IsRemoved);
 
@@ -359,6 +375,7 @@ public sealed class Cart
 /// <param name="Discount">A discount given on this line at the counter (B4), or null.</param>
 /// <param name="Override">A unit price typed in place of the price in force (B5), or null.</param>
 /// <param name="UnitCost">What a unit cost the shop, from the lookup; only for the below-cost warning (B5).</param>
+/// <param name="RemovedAuthorisation">The authorisation cited for a line struck after "Encaisser" (D-106); null otherwise.</param>
 public sealed record CartLine(
     string LineId,
     string VariantId,
@@ -374,7 +391,8 @@ public sealed record CartLine(
     LineWeight? Weight = null,
     CounterDiscount? Discount = null,
     PriceOverride? Override = null,
-    Money? UnitCost = null)
+    Money? UnitCost = null,
+    string? RemovedAuthorisation = null)
 {
     /// <summary>What a unit is charged: the price typed at the counter when there is one (B5), else the price in force.</summary>
     public Money ChargedPrice => Override?.NewPrice ?? UnitPrice;

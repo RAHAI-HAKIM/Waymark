@@ -26,7 +26,7 @@ public sealed class RefundLedger(WaymarkDbContext context) : IRefundLedger
         // The rows the customer paid for, in the order the sale wrote them; a struck line (B8) was not one.
         var items = await context.TransactionItems.AsNoTracking()
             .Where(item => item.TransactionId == sale.TransactionId && item.RemovedAt == null)
-            .OrderBy(item => item.CreatedAt).ThenBy(item => item.TransactionItemId)
+            .OrderBy(item => item.LineNumber).ThenBy(item => item.CreatedAt).ThenBy(item => item.TransactionItemId)
             .ToListAsync(cancellationToken);
         var ids = items.Select(item => item.TransactionItemId).ToList();
 

@@ -47,7 +47,7 @@ POS · StoreServer · Admin API → Application → Domain ← Persistence · Ha
 ### 2.2 The POS talks HTTP to StoreServer
 
 Even at Basic tier where both run on one machine. One code path, not two. The POS never
-opens the store database directly.
+opens the store database directly. **A refusal a cashier meets carries a `RefusalCodes` code; the sentence is the till's** (D-107).
 
 ### 2.3 Handlers stage. The executor commits. — D-050
 
@@ -67,10 +67,10 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - C# side is always `Money`. Never `double` or `float` for money, quantity, or anything summed.
 - **`Money` carries its currency and throws on mismatch.** No implicit conversion, ever. Conversion is a recorded event with a rate and a date, and is presentation-only.
 - **No arithmetic that can round exists as an operator.** `Times`, `Percent`, `Allocate` take an explicit policy, so grepping them enumerates every site where a centime can be created. **Never add `operator *(Money, decimal)`.**
-- **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently.
+- **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently. **A sale line is priced once, then split over its batch rows** (`SaleArithmetic.Line`, `Split`, D-103).
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **A scale label's price is exact** (D-090): the weight is worked back from it, `quantity_source` says which figure a row keeps exact, and a weight is priced by the server, never the till.
-- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034). Card and BaridiMob parts are exact and the cash rest rounds once; a payment reference is never a card number (D-095).
+- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034). Card and BaridiMob parts are exact and the cash rest rounds once; a payment reference is never a card number (D-095). **A tab repaid in cash rounds the same way** (`Tab.Repay`, D-108): the whole due clears the tab exactly, the `paid_in` is the rounded cash; a part is a multiple of the step.
 - **The TVA rate comes from `TvaRate.Resolve`**, never from a query (D-075): categories that agree give their rate; none, a null, or a disagreement gives 19% marked `StandardFallback`.
 - **Reasons come from `IReasonCodes`** (D-079): active only, ordered, and the list is what the foreign key will accept. `requires_manager` is carried, never enforced — rank is `StaffPermissions`.
 - **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero. The `promotions` tables are B4's.
@@ -81,7 +81,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 ### 3.2 Identity — D-038
 
 - **Every primary key is a ULID generated in application code.** No autoincrement, anywhere.
-- Ids come from `IIdGenerator`, a port in Domain. **Never `Ulid.NewUlid()` in an entity constructor** — it cannot be substituted, and W10's seeded generator needs it to be.
+- Ids come from `IIdGenerator`, a port in Domain. **Never `Ulid.NewUlid()` in an entity constructor** — it cannot be substituted, and W10's seeded generator needs it to be. **Ids do not sort within a millisecond**: where order matters a column says so (`transaction_items.line_number`, `sequence`, D-104).
 - The `Ulid` package lives in `Waymark.Application`, never Domain.
 
 ### 3.3 Store scoping is a global query filter
@@ -152,12 +152,12 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 - **Every `on_account` payment row has exactly one `charge`** of the same amount (`payment_id`, unique): a refund of an on-account sale is a negative charge, never cash out of the drawer.
 - **A cash repayment is also a `paid_in`** on the open session (`cash_movement_id`), or the drawer stops reconciling.
 - **No tab without `customers.credit_limit`**, and none beyond it but by an owner's override, named on the charge; every limit change is a `credit_limit_events` row (D-096). Null means no tab.
-- **Outstanding debt never reaches the outbox**: not banded, not flagged (D-043). **The customer module and the carnet settings are the tenant's**, in `system_config`, never a store's (D-096). **A cancelled ticket and a struck line are recorded before the till lets them go**, and never counted in a total (D-097). **A refund is its own numbered ticket linked to its sale**, gives back what was paid (`Refunds.Share`), the tab first; store credit is a sum, `customers.credit` kept equal (D-098).
+- **Outstanding debt never reaches the outbox**: not banded, not flagged (D-043). **The customer module and the carnet settings are the tenant's**, in `system_config`, never a store's (D-096). **A cancelled ticket and a struck line are recorded before the till lets them go**, and never counted in a total (D-097). **A refund is its own numbered ticket linked to its sale**, gives back what was paid (`Refunds.Share`), the tab first; store credit is a sum, `customers.credit` kept equal (D-098). **A line struck after "Encaisser" needs the cancel's PIN, and a ticket struck empty is cancelled, never dropped** (D-106).
 
 ### 3.10 Access — D-074, D-077, D-083
 
 - **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked.
-- **Who acts is the session's, never a field the till sends.** A PIN is checked in StoreServer only, and the lockout is asked first.
+- **Who acts is the session's, never a field the till sends.** A PIN is checked in StoreServer only, and the lockout is asked first. **An approval is the till's, for the store's day**, not the session's (D-105); a manager's PIN opens an earlier day's ticket for a cashier (D-109).
 
 ---
 

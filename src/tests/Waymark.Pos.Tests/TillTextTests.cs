@@ -125,4 +125,19 @@ public sealed class TillTextTests
         Assert.True(TillText.Arabic.RightToLeft);
         Assert.False(TillText.French.RightToLeft);
     }
+
+    [Theory]
+    [InlineData(TillLanguage.French)]
+    [InlineData(TillLanguage.Arabic)]
+    public void A_past_ticket_names_a_wallet_part_as_the_payment_panel_named_it(TillLanguage language)
+    {
+        // Block B review: "BaridiMob" when it was paid, "Mobile" once the ticket was opened again.
+        var text = TillText.For(language);
+
+        Assert.Equal(text.MethodWallet, text.PaymentMethod("mobile_wallet"));
+        Assert.Equal(text.MethodCard, text.PaymentMethod("card"));
+        Assert.Equal(text.MethodTab, text.PaymentMethod("on_account"));
+        Assert.Equal(text.MethodStoreCredit, text.PaymentMethod("store_credit"));
+        Assert.Equal(text.MethodCash, text.PaymentMethod("cash"));
+    }
 }

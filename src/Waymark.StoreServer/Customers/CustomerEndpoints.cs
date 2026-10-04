@@ -36,7 +36,7 @@ public static class CustomerEndpoints
             }
             catch (CustomerRefusedException refusal)
             {
-                return Results.Ok(new CustomerSearchAnswer(Outcome(refusal), null, refusal.Message));
+                return Results.Ok(new CustomerSearchAnswer(Outcome(refusal), null, refusal.Message, Coded(refusal)));
             }
         });
 
@@ -61,7 +61,7 @@ public static class CustomerEndpoints
             }
             catch (CustomerRefusedException refusal)
             {
-                return Results.Ok(new CustomerAnswer(Outcome(refusal), null, refusal.Message));
+                return Results.Ok(new CustomerAnswer(Outcome(refusal), null, refusal.Message, Coded(refusal)));
             }
         });
 
@@ -80,7 +80,7 @@ public static class CustomerEndpoints
             }
             catch (CustomerRefusedException refusal)
             {
-                return Results.Ok(Refused(Outcome(refusal), refusal.Message));
+                return Results.Ok(Refused(Outcome(refusal), refusal.Message, Coded(refusal)));
             }
         });
 
@@ -102,7 +102,7 @@ public static class CustomerEndpoints
             }
             catch (CustomerRefusedException refusal)
             {
-                return Results.Ok(Refused(Outcome(refusal), refusal.Message));
+                return Results.Ok(Refused(Outcome(refusal), refusal.Message, Coded(refusal)));
             }
         });
 
@@ -146,7 +146,7 @@ public static class CustomerEndpoints
             }
             catch (CustomerRefusedException refusal)
             {
-                return Results.Ok(Refused(Outcome(refusal), refusal.Message));
+                return Results.Ok(Refused(Outcome(refusal), refusal.Message, Coded(refusal)));
             }
         });
     }
@@ -203,7 +203,8 @@ public static class CustomerEndpoints
             tab.Balance.Currency.Code,
             [.. tab.Movements.Select(movement => new TabMovementWire(Kind(movement), WireText.Figure(movement.Amount), movement.OccurredAt))],
             null,
-            WireText.Figure(tab.CreditAvailable));
+            WireText.Figure(tab.CreditAvailable),
+            tab.CashCollected is { } collected ? WireText.Figure(collected) : null);
     }
 
     private static string Kind(ReceivableMovement movement) => movement.MovementType switch
@@ -214,6 +215,9 @@ public static class CustomerEndpoints
         _ => "write_off",
     };
 
-    private static TabAnswer Refused(string outcome, string? reason) =>
-        new(outcome, null, null, null, null, false, null, null, null, null, reason);
+    private static TabAnswer Refused(string outcome, string? reason, Refusal? refusal = null) =>
+        new(outcome, null, null, null, null, false, null, null, null, null, reason, Refusal: refusal);
+
+    /// <summary>A customer refusal's code, when it has one, for the till to say in its own language (D-107).</summary>
+    private static Refusal? Coded(CustomerRefusedException refusal) => Sales.SaleWire.Coded(refusal.Code, refusal.Args);
 }

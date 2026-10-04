@@ -125,6 +125,14 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     public bool MayPutAside => Cart.ActiveLines.Count > 0 && Paid is null && Unconfirmed is null && Viewing is null && Weighing is null;
 
     /// <summary>
+    /// Whether the ticket on screen can be cancelled: as <see cref="MayPutAside"/>, and also when
+    /// every line of it was struck (D-106). That ticket is recorded like any other cancel; it used
+    /// to be dropped when the cashier changed, leaving no trace of what was rung up and let go.
+    /// </summary>
+    public bool MayCancel =>
+        (Cart.ActiveLines.Count > 0 || Cart.HasOnlyStruckLines) && Paid is null && Unconfirmed is null && Viewing is null && Weighing is null;
+
+    /// <summary>
     /// Whether a discount can be given or taken off now (B4): the ticket on screen has a line in the
     /// sale, and nothing else is under way (a sale unconfirmed, a past ticket open, a weight awaited).
     /// </summary>
@@ -213,9 +221,10 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// Takes a line out of the sale. It stays on the ticket, struck through with the time (G1);
     /// the reason and its log entry arrive with B8.
     /// </summary>
-    public void Remove(string lineId)
+    /// <param name="authorisation">The authorisation for a strike after "Encaisser" (D-106); null before it.</param>
+    public void Remove(string lineId, string? authorisation = null)
     {
-        if (Cart.Remove(lineId, _clock.GetUtcNow()))
+        if (Cart.Remove(lineId, _clock.GetUtcNow(), authorisation))
         {
             Raise();
         }
@@ -249,17 +258,25 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     }
 
     /// <summary>
-    /// "Annuler ticket": the ticket on screen goes to <see cref="Drafts"/>, with who cancelled it
-    /// and when, and an empty one takes its place. Nothing reaches the server (D-087).
+    /// "Annuler ticket", once the server has recorded the cancel (D-097): the ticket on screen goes
+    /// to <see cref="Drafts"/>, with who cancelled it and when, and an empty one takes its place. A
+    /// ticket with only struck lines leaves no draft: there is nothing on it to take back (D-106).
     /// </summary>
     public bool CancelTicket()
     {
-        if (!MayPutAside)
+        if (!MayCancel)
         {
             return false;
         }
 
-        _drafts.Insert(0, Hold(Cart));
+        if (Cart.ActiveLines.Count > 0)
+        {
+            // The struck lines went with the cancel just recorded: taken back, the ticket would
+            // carry them again and they would be written twice.
+            Cart.ForgetStruck();
+            _drafts.Insert(0, Hold(Cart));
+        }
+
         Cart = NewCart();
         Notice = null;
         Raise();
@@ -304,8 +321,16 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             return null;
         }
 
-        // A ticket with lines is put on hold, for whoever takes the till next (D-087); one with only
-        // struck lines is an abandoned ticket, not a sale, and the next person starts clean.
+        // A ticket with only struck lines is recorded before it goes (D-106): the cashier cancels it
+        // first. It used to be dropped here, and nothing said what had been rung up and let go.
+        if (Cart.HasOnlyStruckLines)
+        {
+            Notice = new TillNotice(TillNoticeKind.StruckTicketOpen, "-", string.Empty);
+            Raise();
+            return null;
+        }
+
+        // A ticket with lines is put on hold, for whoever takes the till next (D-087).
         if (MayPutAside)
         {
             _parked.Add(Hold(Cart));
@@ -367,9 +392,10 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     }
 
     /// <summary>What the window learnt and the cashier must be told: a ticket not found, not allowed, the server gone.</summary>
-    public void Tell(TillNoticeKind kind, string code, string detail)
+    /// <param name="refusal">A server's refusal as a code (D-107), for <see cref="TillNoticeKind.SaleRefused"/>.</param>
+    public void Tell(TillNoticeKind kind, string code, string detail, Contracts.Pos.Refusal? refusal = null)
     {
-        Notice = new TillNotice(kind, code, detail);
+        Notice = new TillNotice(kind, code, detail, refusal);
         Raise();
     }
 
@@ -509,6 +535,14 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
         var index = from.FindIndex(held => held.Id == heldId);
         if (index < 0 || Unconfirmed is not null)
         {
+            return false;
+        }
+
+        // The ticket on screen is not dropped for the one taken back: struck lines are recorded first (D-106).
+        if (Paid is null && Cart.HasOnlyStruckLines)
+        {
+            Notice = new TillNotice(TillNoticeKind.StruckTicketOpen, "-", string.Empty);
+            Raise();
             return false;
         }
 
@@ -726,7 +760,10 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             customerId,
             tabOverride,
             // The struck lines, recorded and never charged (B8, D-097).
-            RemovedLines());
+            RemovedLines(),
+            // When "Encaisser" was first opened, said only with struck lines: the server asks a
+            // manager's authorisation for the ones struck after it by a cashier (D-106).
+            Cart.Lines.Any(line => line.IsRemoved) ? Cart.PaymentOpenedAt : null);
 
         switch (await sales.CompleteSaleAsync(request, seller.Token))
         {
@@ -742,7 +779,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
 
             case SaleAnswer.Refused refused:
                 Observe(reachable: true);
-                Notice = new TillNotice(TillNoticeKind.SaleRefused, "-", refused.Reason);
+                Notice = new TillNotice(TillNoticeKind.SaleRefused, "-", refused.Reason, refused.Coded);
                 break;
 
             case SaleAnswer.NotSignedIn:
@@ -785,7 +822,8 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
             line.Barcode,
             line.Count,
             line.Weight is { IsTyped: true } typed ? Figures.Quantity(typed.Quantity.Thousandths) : null,
-            line.RemovedAt!.Value))];
+            line.RemovedAt!.Value,
+            line.RemovedAuthorisation))];
         return removed.Count > 0 ? removed : null;
     }
 
@@ -799,7 +837,7 @@ public sealed class TillSession(IProductSource products, IStoreSales sales, Till
     /// </summary>
     public VoidRequest? VoidRequestFor(string reasonCode, string? authorisation)
     {
-        if (!MayPutAside || string.IsNullOrWhiteSpace(till.TerminalId))
+        if (!MayCancel || string.IsNullOrWhiteSpace(till.TerminalId))
         {
             return null;
         }
@@ -861,6 +899,12 @@ public enum TillNoticeKind
     /// <summary>"Changer de caissier" while the ticket has lines in the sale.</summary>
     SwitchRefused,
 
+    /// <summary>The ticket holds only struck lines, and the cashier asked to leave it: it is cancelled first (D-106).</summary>
+    StruckTicketOpen,
+
+    /// <summary>A refund in cash was written: the detail is what comes out of the drawer, as the wire spells it.</summary>
+    RefundPaid,
+
     /// <summary>A ticket number this store has no finished sale for (B1).</summary>
     TicketUnknown,
 
@@ -916,7 +960,8 @@ public sealed record HeldTicket(string Id, Cart Cart, DateTimeOffset At, string?
 /// <c>TillText</c> says in the till's language; for the others it is what the server or this
 /// client reported.
 /// </summary>
-public sealed record TillNotice(TillNoticeKind Kind, string Code, string Detail);
+/// <param name="Refusal">For <see cref="TillNoticeKind.SaleRefused"/>: the server's refusal as a code (D-107), when it gave one.</param>
+public sealed record TillNotice(TillNoticeKind Kind, string Code, string Detail, Contracts.Pos.Refusal? Refusal = null);
 
 /// <summary>A sale just completed: its outcome, the lines as they stood, and when.</summary>
 /// <param name="Lines">Every line, the removed ones struck, as the cashier saw them when paying.</param>

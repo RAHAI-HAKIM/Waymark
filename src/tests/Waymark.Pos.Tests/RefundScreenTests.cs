@@ -81,4 +81,41 @@ public sealed class RefundScreenTests
         Assert.Equal(new RefundLineRequest("v-4011", "180.00", "1.24", false), Assert.Single(request.Lines));
         Assert.Equal(("t-1", RefundDestinations.StoreCredit, "auth-1", false), (request.Original, request.RefundTo, request.Authorisation, request.Quote));
     }
+
+    // ------------------------------------------------------------------ the floating panel's figures
+
+    private static string Plain(string shown) => shown.Replace(' ', ' ').Replace(' ', ' ');
+
+    /// <summary>The refund's panel once the server has quoted it.</summary>
+    private static PaymentPanel Quoted(RefundAnswer quote)
+    {
+        var ticket = Ticket();
+        var state = new ScreenState(
+            TillText.For(TillLanguage.French), TimeZoneInfo.Utc, DateTimeOffset.UnixEpoch, new Waymark.Pos.Checkout.Cart(), null, null, null, null,
+            Waymark.Pos.Checkout.ServerState.Reachable, null, null, null, 0,
+            Viewing: ticket, Refunding: RefundState.For(ticket) with { Quote = quote });
+        return Assert.IsType<PaymentPanel>(RefundScreen.Panel(state));
+    }
+
+    [Theory]
+    [InlineData("143.00", "145.00", "2,00")]    // the step adds two dinars to what is handed back
+    [InlineData("142.00", "140.00", "−2,00")]   // and here takes two off
+    public void The_cash_rounding_adds_up_with_what_is_given_back_and_what_is_handed_over(string rest, string cashOut, string rounding)
+    {
+        // Block B review: "À rendre 143,00 · Arrondi espèces −2,00 · ESPÈCES À RENDRE 145,00" did not add up.
+        var panel = Quoted(new RefundAnswer(
+            RefundOutcomes.Quoted, Total: rest, ToTab: "0.00", Rest: rest, RefundTo: RefundDestinations.Cash, CashOut: cashOut, Currency: "DZD"));
+
+        Assert.Equal([$"À rendre {rest.Replace('.', ',')}", $"Arrondi espèces {rounding}"], panel.Figures.Select(figure => Plain($"{figure.Label} {figure.Value}")));
+        Assert.Equal($"{cashOut.Replace('.', ',')} DA", Plain(panel.Due));
+    }
+
+    [Fact]
+    public void A_refund_on_the_cash_step_shows_no_rounding()
+    {
+        var panel = Quoted(new RefundAnswer(
+            RefundOutcomes.Quoted, Total: "150.00", ToTab: "0.00", Rest: "150.00", RefundTo: RefundDestinations.Cash, CashOut: "150.00", Currency: "DZD"));
+
+        Assert.Equal(["À rendre 150,00"], panel.Figures.Select(figure => Plain($"{figure.Label} {figure.Value}")));
+    }
 }

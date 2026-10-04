@@ -22,6 +22,10 @@ namespace Waymark.Contracts.Pos;
 /// price. Cash is never a part: it is whatever the server finds left. Null, and left out of the JSON,
 /// when the whole ticket is cash.
 /// </param>
+/// <param name="PaymentOpenedAt">
+/// When "Encaisser" was first opened on this ticket (D-106): a line struck after it by someone who
+/// may not cancel alone cites a manager's authorisation. Null, and left out, when no line was struck.
+/// </param>
 public sealed record SaleRequest(
     [property: JsonPropertyName("terminal_id")] string TerminalId,
     [property: JsonPropertyName("lines")] IReadOnlyList<SaleRequestLine> Lines,
@@ -29,16 +33,22 @@ public sealed record SaleRequest(
     [property: JsonPropertyName("tenders"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<TenderRequest>? Tenders = null,
     [property: JsonPropertyName("customer_id"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CustomerId = null,
     [property: JsonPropertyName("tab_override"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TabOverride = null,
-    [property: JsonPropertyName("removed"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<RemovedLineRequest>? Removed = null);
+    [property: JsonPropertyName("removed"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<RemovedLineRequest>? Removed = null,
+    [property: JsonPropertyName("payment_opened_at"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? PaymentOpenedAt = null);
 
 /// <summary>A line struck on the ticket before it was paid or cancelled (B8, D-097): recorded, never charged.</summary>
 /// <param name="Weight">A typed weight, as on <see cref="SaleRequestLine"/>; null for a count or a label.</param>
 /// <param name="RemovedAt">When it was struck, as the till's clock said.</param>
+/// <param name="Authorisation">
+/// What <c>/api/till/authorise</c> answered for <see cref="Capabilities.VoidTransaction"/> when the
+/// line was struck after "Encaisser" (D-106); left out otherwise.
+/// </param>
 public sealed record RemovedLineRequest(
     [property: JsonPropertyName("barcode")] string Barcode,
     [property: JsonPropertyName("count")] int Count,
     [property: JsonPropertyName("weight")] string? Weight,
-    [property: JsonPropertyName("removed_at")] DateTimeOffset RemovedAt);
+    [property: JsonPropertyName("removed_at")] DateTimeOffset RemovedAt,
+    [property: JsonPropertyName("authorisation"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Authorisation = null);
 
 /// <summary>
 /// A ticket cancelled at the till (B8, D-097): its lines as a sale would send them, why, and whether
@@ -58,11 +68,13 @@ public sealed record VoidRequest(
 
 /// <summary>A cancel recorded, or why not.</summary>
 /// <param name="Outcome">"voided", "refused", "not_signed_in", or "pin_required" when a manager must authorise it first.</param>
+/// <param name="Refusal">Why, as a code the till says in its own language (D-107); null when the refusal has none.</param>
 public sealed record VoidAnswer(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("transaction_id")] string? TransactionId,
     [property: JsonPropertyName("total")] string? Total,
-    [property: JsonPropertyName("reason")] string? Reason);
+    [property: JsonPropertyName("reason")] string? Reason,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 /// <summary>The values of <see cref="VoidAnswer.Outcome"/>.</summary>
 public static class VoidOutcomes
@@ -142,6 +154,7 @@ public sealed record SaleRequestLine(
 /// <param name="Currency">The currency of the figures.</param>
 /// <param name="Reason">Why the sale was refused, in words, when refused.</param>
 /// <param name="Payments">The payment rows written, in order (B6); null when refused, and from a server before B6.</param>
+/// <param name="Refusal">Why the sale was refused, as a code the till says in its own language (D-107); null when the refusal has none.</param>
 public sealed record SaleOutcome(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("transaction_id")] string? TransactionId,
@@ -151,7 +164,8 @@ public sealed record SaleOutcome(
     [property: JsonPropertyName("cash_to_collect")] string? CashToCollect,
     [property: JsonPropertyName("currency")] string? Currency,
     [property: JsonPropertyName("reason")] string? Reason,
-    [property: JsonPropertyName("payments")] IReadOnlyList<PaymentLine>? Payments = null);
+    [property: JsonPropertyName("payments")] IReadOnlyList<PaymentLine>? Payments = null,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 /// <summary>The values of <see cref="SaleOutcome.Outcome"/>.</summary>
 public static class SaleOutcomes

@@ -28,6 +28,16 @@ public static class TillSizes
     public const double CartRow = 40; // this needs 2b revised
 
     public const double Rail = 472;
+
+    /// <summary>
+    /// The rail on a narrow till (F-29): at 1024 px the full rail left the ticket 504 px, and an
+    /// article's name what its columns and its chip did not take, which was nothing. 400 still
+    /// holds three operation keys abreast with their labels whole.
+    /// </summary>
+    public const double RailNarrow = 400;
+
+    /// <summary>Below this window width the till is narrow: many tills are 1024 × 768.</summary>
+    public const double NarrowBelow = 1200;
     public const double Margin = 16;
     public const double Gap = 16;
 
@@ -54,6 +64,16 @@ public static class TillSizes
 public sealed partial class TillTheme
 {
     private const string Fonts = "avares://Waymark.Pos/Assets/Fonts/";
+
+    /// <summary>
+    /// The window is narrower than <see cref="TillSizes.NarrowBelow"/> (F-29). The window says so and
+    /// draws again; the views that have something to give up read it: the rail, the bar's place
+    /// name, the carnet's tiles. Not a colour and not a rule: only where things fit.
+    /// </summary>
+    public bool Narrow { get; set; }
+
+    /// <summary>The rail's width for this window.</summary>
+    public double Rail => Narrow ? TillSizes.RailNarrow : TillSizes.Rail;
 
     public TillTheme(TillPalette palette, TillLanguage language)
     {

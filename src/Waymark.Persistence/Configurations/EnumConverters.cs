@@ -1728,6 +1728,7 @@ internal static class EnumConverters
         VarianceReferenceType.Transaction => "transaction",
         VarianceReferenceType.PurchaseOrder => "purchase_order",
         VarianceReferenceType.Batch => "batch",
+        VarianceReferenceType.ReceivableMovement => "receivable_movement",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped VarianceReferenceType.")
     };
@@ -1737,6 +1738,7 @@ internal static class EnumConverters
         "transaction" => VarianceReferenceType.Transaction,
         "purchase_order" => VarianceReferenceType.PurchaseOrder,
         "batch" => VarianceReferenceType.Batch,
+        "receivable_movement" => VarianceReferenceType.ReceivableMovement,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown VarianceReferenceType value in the database.")
     };

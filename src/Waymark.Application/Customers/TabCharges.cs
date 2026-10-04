@@ -6,6 +6,8 @@ using Waymark.Domain.Enums;
 using Waymark.Domain.Organisation;
 using Waymark.Domain.Privacy;
 using Waymark.Domain.Values;
+using Figures = Waymark.Contracts.Figures;
+using RefusalCodes = Waymark.Contracts.Pos.RefusalCodes;
 
 namespace Waymark.Application.Customers;
 
@@ -46,11 +48,11 @@ public sealed class TabCharges(ICustomerLedger customers, ITenantConfiguration c
 
         if (!settings.CustomerModule)
         {
-            throw new SaleRefusedException("This shop keeps no customers: the customer module is off.");
+            throw new SaleRefusedException("This shop keeps no customers: the customer module is off.", RefusalCodes.ModuleOff);
         }
 
         var customer = await customers.FindAsync(customerId, cancellationToken)
-            ?? throw new SaleRefusedException("No such customer.");
+            ?? throw new SaleRefusedException("No such customer.", RefusalCodes.CustomerUnknown);
         if (tabPart is not { } charge)
         {
             return new TabSale(customer.CustomerId, null);
@@ -65,10 +67,13 @@ public sealed class TabCharges(ICustomerLedger customers, ITenantConfiguration c
             TabVerdict.Accepted => new TabSale(customer.CustomerId, null),
             TabVerdict.AboveLimit when overrideBy is not null => new TabSale(customer.CustomerId, overrideBy),
             TabVerdict.AboveLimit => throw new SaleRefusedException(
-                $"{customer.CustomerName}: past the tab's limit, {check.Available} left. The owner may let it through."),
-            TabVerdict.NoTab => throw new SaleRefusedException($"{customer.CustomerName} has no tab."),
-            TabVerdict.Frozen => throw new SaleRefusedException($"{customer.CustomerName}'s tab is frozen."),
-            _ => throw new SaleRefusedException($"{customer.CustomerName}'s oldest charge is overdue: something is repaid first."),
+                $"{customer.CustomerName}: past the tab's limit, {check.Available} left. The owner may let it through.",
+                RefusalCodes.TabAboveLimit, customer.CustomerName, Figures.Amount(check.Available?.MinorUnits ?? 0)),
+            TabVerdict.NoTab => throw new SaleRefusedException($"{customer.CustomerName} has no tab.", RefusalCodes.TabNone, customer.CustomerName),
+            TabVerdict.Frozen => throw new SaleRefusedException(
+                $"{customer.CustomerName}'s tab is frozen.", RefusalCodes.TabFrozen, customer.CustomerName),
+            _ => throw new SaleRefusedException(
+                $"{customer.CustomerName}'s oldest charge is overdue: something is repaid first.", RefusalCodes.TabOverdue, customer.CustomerName),
         };
     }
 
@@ -89,16 +94,16 @@ public sealed class TabCharges(ICustomerLedger customers, ITenantConfiguration c
 
         if (customerId is null)
         {
-            throw new SaleRefusedException("Store credit is a named customer's: attach them first.");
+            throw new SaleRefusedException("Store credit is a named customer's: attach them first.", RefusalCodes.CreditNeedsCustomer);
         }
 
         if (!settings.CustomerModule)
         {
-            throw new SaleRefusedException("This shop keeps no customers: the customer module is off.");
+            throw new SaleRefusedException("This shop keeps no customers: the customer module is off.", RefusalCodes.ModuleOff);
         }
 
         var customer = await customers.FindAsync(customerId, cancellationToken)
-            ?? throw new SaleRefusedException("No such customer.");
+            ?? throw new SaleRefusedException("No such customer.", RefusalCodes.CustomerUnknown);
         var movements = await customers.CreditMovementsAsync(customer.CustomerId, cancellationToken);
         var age = StoreCredit.Age(
             ledgerCurrency.Currency, [.. movements.Select(movement => new CreditLine(movement.OccurredAt, movement.Amount))], now, settings.CreditExpiryDays);
@@ -107,7 +112,9 @@ public sealed class TabCharges(ICustomerLedger customers, ITenantConfiguration c
         {
             RedeemVerdict.Accepted => new CreditSpend(customer.CustomerId, age.Balance, age.Expired),
             RedeemVerdict.NotAboveZero => throw new SaleRefusedException("A store credit part is above zero."),
-            _ => throw new SaleRefusedException($"{customer.CustomerName} has {age.Available} of store credit: the part cannot be more."),
+            _ => throw new SaleRefusedException(
+                $"{customer.CustomerName} has {age.Available} of store credit: the part cannot be more.",
+                RefusalCodes.CreditInsufficient, customer.CustomerName, Figures.Amount(age.Available.MinorUnits)),
         };
     }
 
