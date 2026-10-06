@@ -122,6 +122,12 @@ public sealed class TillWindow : Window, IDisposable
     // "Plus…" open in the rail (B10).
     private bool _moreOpen;
 
+    // The till's cash session as the server last gave it (C1, D-111); null until it answered.
+    private CashSessionState? _drawer;
+
+    // A blind count once confirmed (D-111): closing again starts from it, never from a new count.
+    private string? _frozenCount;
+
     /// <summary>D-100: how long the cashier stops typing before a customer search is asked by itself.</summary>
     public static readonly TimeSpan CustomerSearchAfter = TimeSpan.FromSeconds(3);
 
@@ -160,6 +166,13 @@ public sealed class TillWindow : Window, IDisposable
         {
             // A scan at the sign-in screen belongs to no sale, and a barcode is not a PIN.
             // Nor while a panel freezes the ticket (D-094): the notice slot says the scan was ignored.
+            // With the drawer shut the opening panel says so itself, where the cashier is looking (C1).
+            if (_customerPanel is { Kind: CustomerPanelKind.DrawerOpen, Sending: false } shut)
+            {
+                _customerPanel = shut with { Checked = true };
+                Render();
+            }
+
             if (_session.SignedIn is not null && _payment is null && _discount is not { Authorising: true } && _refund is null
                 && _customerPanel is null && _carnet is null)
             {
@@ -710,7 +723,8 @@ public sealed class TillWindow : Window, IDisposable
             _payment,
             _refund,
             new CustomerScreenState(_context?.CustomerModule ?? false, _context?.TabAsPart ?? true, _customerTab, _carnet, _customerPanel),
-            _moreOpen));
+            _moreOpen,
+            _drawer));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
@@ -939,6 +953,13 @@ public sealed class TillWindow : Window, IDisposable
         {
             await _signIn.LoadAsync();
         }
+
+        // The drawer, asked again until the server has said (C1): a till signed in before its server
+        // answered would otherwise never show that the drawer is shut.
+        if (_session.SignedIn is not null && _drawer is null)
+        {
+            await LoadDrawerAsync();
+        }
     }
 
     private async void Decide(string recommendationId, string decision, string? optionId)
@@ -1090,7 +1111,7 @@ public sealed class TillWindow : Window, IDisposable
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket })
+                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket or CounterKind.CloseSession })
                 {
                     // Back from a customer's PIN step to what asked for it (B7).
                     _pin = string.Empty;
@@ -1761,6 +1782,11 @@ public sealed class TillWindow : Window, IDisposable
                 _discount = null;
                 _ = SendCashAsync(authorisation);
                 return;
+            case CounterKind.CloseSession:
+                _pin = string.Empty;
+                _discount = null;
+                _ = SendCloseAsync(authorisation);
+                return;
             case CounterKind.TabOverride:
                 _pin = string.Empty;
                 _discount = null;
@@ -1838,6 +1864,7 @@ public sealed class TillWindow : Window, IDisposable
         CounterKind.CreateCustomer => Capabilities.CreateCustomer,
         CounterKind.ChangeTab or CounterKind.TabOverride => Capabilities.ManageCredit,
         CounterKind.PaidOut => Capabilities.PaidOut,
+        CounterKind.CloseSession => Capabilities.CloseSession,
         _ => Capabilities.ApplyDiscount,
     };
 
@@ -2007,7 +2034,8 @@ public sealed class TillWindow : Window, IDisposable
 
     private void CloseCustomerPanel()
     {
-        if (_customerPanel is { Sending: true })
+        // The drawer's opening and a close's result have no way out but their own key (C1, D-111).
+        if (_customerPanel is { Sending: true } or { Kind: CustomerPanelKind.DrawerOpen or CustomerPanelKind.DrawerClosed })
         {
             return;
         }
@@ -2074,6 +2102,14 @@ public sealed class TillWindow : Window, IDisposable
                 break;
             case CustomerScreen.CloseTabKey:
                 AskChange(LimitActions.Set, null);
+                break;
+            case DrawerScreen.SwitchUserKey when panel.Kind == CustomerPanelKind.DrawerOpen:
+                // Somebody else opens the drawer: the till asks who (C1).
+                SwitchCashier();
+                break;
+            case DrawerScreen.RecountKey when panel is { Kind: CustomerPanelKind.DrawerConfirm, Frozen: false }:
+                _customerPanel = panel with { Kind = CustomerPanelKind.DrawerCount, Name = string.Empty, OnName = false, Refused = null };
+                Render();
                 break;
             case CustomerScreen.CashInKey or CustomerScreen.CashOutKey:
                 // Which way (B10): a reason for the other way no longer fits.
@@ -2149,6 +2185,48 @@ public sealed class TillWindow : Window, IDisposable
 
             case CustomerPanelKind.Clock:
                 await ClockAsync(panel, person.Token);
+                break;
+
+            case CustomerPanelKind.DrawerOpen:
+                await OpenDrawerAsync(panel, person.Token);
+                break;
+
+            case CustomerPanelKind.DrawerCount:
+                // 1 of 3 to 2 of 3: nothing is sent yet. The note has the keys where there is one to write.
+                if (DrawerScreen.TypedHundredths(panel) is not null && !panel.Checked && panel.Drawer?.Open is not null)
+                {
+                    _customerPanel = panel with { Kind = CustomerPanelKind.DrawerConfirm, OnName = DrawerScreen.ShowsFigures(panel), Refused = null };
+                    Render();
+                }
+
+                break;
+
+            case CustomerPanelKind.DrawerConfirm:
+                if (!DrawerScreen.ShowsFigures(panel))
+                {
+                    // A blind count is frozen here, before anything is said of it (D-111).
+                    _frozenCount = panel.Typed;
+                    _customerPanel = panel with { Frozen = true };
+                    await SendCloseAsync(null);
+                }
+                else if (DrawerScreen.MayConfirm(panel, _context?.Currency ?? "DZD"))
+                {
+                    await SendCloseAsync(null);
+                }
+
+                break;
+
+            case CustomerPanelKind.DrawerNote:
+                if (panel.Name.Trim().Length > 0)
+                {
+                    await SendCloseAsync(null);
+                }
+
+                break;
+
+            case CustomerPanelKind.DrawerClosed:
+                // "Terminer ramène à la connexion": the till asks who is next, and they count a float.
+                SwitchCashier();
                 break;
 
             default:
@@ -2511,6 +2589,182 @@ public sealed class TillWindow : Window, IDisposable
         Render();
     }
 
+    // =================================================================== C1: the drawer opened and closed
+
+    /// <summary>
+    /// The till's cash session, asked of the server (C1, D-111). With none open, the opening panel
+    /// floats over the empty ticket and stays until a float is counted: nothing sells without it.
+    /// No answer: nothing is shown of the drawer, and the health check asks again.
+    /// </summary>
+    private async Task LoadDrawerAsync()
+    {
+        if (_session.SignedIn is not { } person || string.IsNullOrWhiteSpace(_till.TerminalId))
+        {
+            return;
+        }
+
+        var state = await _server.CashSessionAsync(_till.TerminalId, person.Token);
+        if (state is not { Outcome: CashSessionOutcomes.Ok } || _session.SignedIn?.Token != person.Token)
+        {
+            return;
+        }
+
+        _drawer = state;
+        if (state.Open is null && _customerPanel is null or { Kind: CustomerPanelKind.DrawerOpen })
+        {
+            _search = null;
+            _moreOpen = false;
+            _customerPanel = (_customerPanel ?? new CustomerPanelState(CustomerPanelKind.DrawerOpen)) with { Drawer = state };
+        }
+        else if (state.Open is not null && _customerPanel is { Kind: CustomerPanelKind.DrawerOpen })
+        {
+            // Opened meanwhile, from another sign-in at this till.
+            _customerPanel = null;
+        }
+
+        Render();
+    }
+
+    /// <summary>"Ouvrir la caisse": the counted float to the server, which opens the session before the till sells.</summary>
+    private async Task OpenDrawerAsync(CustomerPanelState panel, string token)
+    {
+        if (DrawerScreen.TypedHundredths(panel) is not { } hundredths)
+        {
+            return;
+        }
+
+        _customerPanel = panel with { Sending = true, Refused = null };
+        Render();
+        var answer = await _server.OpenCashSessionAsync(
+            new OpenCashSessionRequest(_till.TerminalId ?? string.Empty, Contracts.Figures.Amount(hundredths)), token);
+        if (_customerPanel is not { Kind: CustomerPanelKind.DrawerOpen } now)
+        {
+            return;
+        }
+
+        if (answer is { Outcome: CashSessionOutcomes.Opened, State: { } state })
+        {
+            _drawer = state;
+            _customerPanel = null;
+            Render();
+            _input.Focus();
+            return;
+        }
+
+        if (answer?.Refusal?.Code == RefusalCodes.SessionAlreadyOpen)
+        {
+            // It is open already: the till reads it and sells.
+            _customerPanel = now with { Sending = false };
+            await LoadDrawerAsync();
+            return;
+        }
+
+        _customerPanel = now with { Sending = false, Refused = answer is null ? _text.DrawerOffline : RefusalText.Say(_text, answer.Refusal, answer.Reason) };
+        Render();
+    }
+
+    /// <summary>
+    /// "Clôturer la caisse": the session read again, then the count. A ticket with lines, or one on
+    /// hold, is settled first (D-111): the panel says so and goes no further. A blind count already
+    /// confirmed is not typed again.
+    /// </summary>
+    private async Task OpenCloseAsync()
+    {
+        if (_session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        var pending = (_session.Paid is null && _session.Cart.Lines.Count > 0) || _session.Parked.Count > 0 || _session.Unconfirmed is not null;
+        OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.DrawerCount, Drawer: _drawer, Checked: pending));
+        var state = await _server.CashSessionAsync(_till.TerminalId ?? string.Empty, person.Token);
+        if (_customerPanel is not { Kind: CustomerPanelKind.DrawerCount } panel)
+        {
+            return;
+        }
+
+        if (state is { Outcome: CashSessionOutcomes.Ok })
+        {
+            _drawer = state;
+            if (state.Open is null)
+            {
+                // Closed meanwhile: there is nothing to count, and a float to.
+                _customerPanel = null;
+                await LoadDrawerAsync();
+                return;
+            }
+
+            panel = panel with { Drawer = state };
+        }
+        else
+        {
+            panel = panel with { Refused = _text.DrawerOffline };
+        }
+
+        if (_frozenCount is { } frozen && !DrawerScreen.ShowsFigures(panel) && !pending)
+        {
+            panel = panel with { Kind = CustomerPanelKind.DrawerConfirm, Typed = frozen, Frozen = true };
+        }
+
+        _customerPanel = panel;
+        Render();
+    }
+
+    /// <summary>
+    /// The count to the server, which works out what the drawer should hold and closes the session
+    /// before the till says so (C1, D-111). A note asked: the note's panel. Somebody who may not close
+    /// alone: the PIN step, then this again with the authorisation. Refused or no answer: the panel
+    /// stays and says why.
+    /// </summary>
+    private async Task SendCloseAsync(string? authorisation)
+    {
+        if (_customerPanel is not { Kind: CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote, Sending: false } panel
+            || _session.SignedIn is not { } person
+            || DrawerScreen.TypedHundredths(panel) is not { } hundredths)
+        {
+            return;
+        }
+
+        _customerPanel = panel with { Sending = true, Refused = null };
+        Render();
+        var note = panel.Name.Trim();
+        var counted = Contracts.Figures.Amount(hundredths);
+        var answer = await _server.CloseCashSessionAsync(
+            new CloseCashSessionRequest(_till.TerminalId ?? string.Empty, counted, note.Length == 0 ? null : note, authorisation), person.Token);
+        if (_customerPanel is not { Kind: CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote } now)
+        {
+            return;
+        }
+
+        switch (answer?.Outcome)
+        {
+            case CashSessionOutcomes.Closed when answer.Closed is { } closed:
+                _frozenCount = null;
+                _customerPanel = now with { Kind = CustomerPanelKind.DrawerClosed, Closed = closed, Sending = false, OnName = false };
+                _drawer = _drawer is { } before
+                    ? before with { Open = null, LastClose = new LastCloseWire(closed.ZReportNumber, closed.ClosedAt, closed.ValidatedBy) }
+                    : null;
+                break;
+
+            case CashSessionOutcomes.NoteRequired:
+                _customerPanel = now with { Kind = CustomerPanelKind.DrawerNote, Sending = false, OnName = true, Frozen = true };
+                break;
+
+            case CashSessionOutcomes.PinRequired:
+                _customerPanel = now with { Sending = false };
+                await AuthoriseCustomerAsync(
+                    CounterKind.CloseSession, $"{_text.CloseDrawerTitle} · {_context?.TerminalName}",
+                    _text.ApproveCloseSummary(ShownWire(counted, _context?.Currency), note.Length > 0));
+                return;
+
+            default:
+                _customerPanel = now with { Sending = false, Refused = answer is null ? _text.DrawerOffline : RefusalText.Say(_text, answer.Refusal, answer.Reason) };
+                break;
+        }
+
+        Render();
+    }
+
     /// <summary>"Pointer" (B10, D-102): the person and their PIN to the server, which checks it with sign-in's lockout, then clocks them in or out.</summary>
     private async Task ClockAsync(CustomerPanelState panel, string token)
     {
@@ -2811,6 +3065,12 @@ public sealed class TillWindow : Window, IDisposable
                 Render();
                 break;
 
+            case Operation.CloseDrawer:
+                // C1 (D-111): the drawer counted, then the session closed.
+                _moreOpen = false;
+                _ = OpenCloseAsync();
+                break;
+
             case Operation.Clock:
                 _moreOpen = false;
                 OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.Clock));
@@ -2877,6 +3137,9 @@ public sealed class TillWindow : Window, IDisposable
                 _session.SignIn(person);
                 await LoadContextAsync();
                 await RefreshBoardAsync();
+
+                // C1 (D-111): with no session open, the float is counted before anything is sold.
+                await LoadDrawerAsync();
             }
         }
         catch (Exception)
@@ -2901,6 +3164,11 @@ public sealed class TillWindow : Window, IDisposable
 
             _selected = null;
             _board = null;
+
+            // The drawer is asked again for whoever is next: what they may see of it is theirs (C1).
+            _customerPanel = null;
+            _drawer = null;
+            _frozenCount = null;
             await _server.SignOutAsync(token);
             await LoadContextAsync();
             await _signIn.LoadAsync();
@@ -3138,6 +3406,7 @@ public sealed class TillWindow : Window, IDisposable
                 _session.SignIn(person);
                 await LoadContextAsync();
                 await RefreshBoardAsync();
+                await LoadDrawerAsync();
             }
         }
 

@@ -17,15 +17,29 @@ namespace Waymark.Domain.Organisation;
 /// <param name="VoidAlertValue">B8 (D-097): a cancelled ticket worth more than this is flagged for the owner. Null: not flagged.</param>
 /// <param name="RefundMinRank">
 /// B9 (D-098): the lowest <c>roles.rank</c> that refunds alone; anyone below needs the PIN of someone at
-/// it or above. Null: anyone with a rank refunds. It raises <c>Capability.Refund</c>, never lowers it.
+/// it or above. Null: anyone with a rank refunds. It sets <c>Capability.Refund</c> (D-110).
 /// </param>
 /// <param name="PaidOutMinRank">B10 (D-102): the lowest <c>roles.rank</c> that takes cash out of the drawer alone. Null: anyone with a rank.</param>
 /// <param name="CreditExpiryDays">B9b (D-101): store credit unspent this many days after it was issued expires. Null: it never does.</param>
+/// <param name="CloseSessionMinRank">
+/// C1 (D-110, D-111): the lowest <c>roles.rank</c> that counts the drawer and closes the cash session alone.
+/// Null: the ladder's. It <b>sets</b> <c>Capability.CloseSession</c>, above the ladder or below it.
+/// </param>
+/// <param name="XReportMinRank">C2 (D-110): the lowest <c>roles.rank</c> that reads an open session's figures. Null: the ladder's.</param>
+/// <param name="BlindClose">
+/// C1 (D-111): whoever counts is not shown what the drawer should hold, before or after, unless they may
+/// close alone. Off: the expected figure is beside the count.
+/// </param>
+/// <param name="VarianceAlertValue">C1 (D-111): a close whose variance is larger than this, short or over, needs a note and is flagged. Null: never.</param>
 public sealed record TenantSettings(
     bool CustomerModule, Money? MaxCreditLimit, int? CreditOverdueDays, bool TabAsPart, int? VoidAlertCount = null, Money? VoidAlertValue = null,
     long? RefundMinRank = null,
     int? CreditExpiryDays = null,
-    long? PaidOutMinRank = null)
+    long? PaidOutMinRank = null,
+    long? CloseSessionMinRank = null,
+    long? XReportMinRank = null,
+    bool BlindClose = false,
+    Money? VarianceAlertValue = null)
 {
     /// <summary><c>system_config.config_key</c> of each setting.</summary>
     public const string CustomerModuleKey = "customer_module";
@@ -45,6 +59,14 @@ public sealed record TenantSettings(
     public const string CreditExpiryDaysKey = "credit_expiry_days";
 
     public const string PaidOutMinRankKey = "paid_out_min_rank";
+
+    public const string CloseSessionMinRankKey = "close_session_min_rank";
+
+    public const string XReportMinRankKey = "x_report_min_rank";
+
+    public const string BlindCloseKey = "blind_close";
+
+    public const string VarianceAlertValueKey = "variance_alert_value";
 
     /// <summary>A tenant never configured: no customers kept; the tab, once switched on, may be a part.</summary>
     public static TenantSettings Defaults { get; } = new(false, null, null, true);

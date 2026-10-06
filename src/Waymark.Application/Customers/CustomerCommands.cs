@@ -436,7 +436,8 @@ public sealed class RepayTabHandler(
         var store = await ledger.CurrentStoreAsync(cancellationToken)
             ?? throw new CustomerRefusedException(CustomerRefusal.Refused, "This store has no row in stores; it is not commissioned.");
         var now = clock.GetUtcNow();
-        var session = await CashSessions.OpenAsync(ledger, staging, context, store, command.TerminalId, command.StaffId, now, cancellationToken);
+        var session = await CashSessions.OpenIdAsync(ledger, command.TerminalId, cancellationToken)
+            ?? throw new CustomerRefusedException(CustomerRefusal.Refused, CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
 
         // What the drawer took: nothing at all when the step rounds the whole due away (D-108).
         var paidIn = plan.Cash.IsPositive

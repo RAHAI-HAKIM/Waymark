@@ -20,12 +20,14 @@ public static class TillStaffWire
         Capabilities.Refund => Domain.Organisation.Capability.Refund,
         Capabilities.PaidOut => Domain.Organisation.Capability.PaidOut,
         Capabilities.ViewOtherTickets => Domain.Organisation.Capability.ViewOtherTickets,
+        Capabilities.CloseSession => Domain.Organisation.Capability.CloseSession,
+        Capabilities.ReadXReport => Domain.Organisation.Capability.ReadXReport,
         _ => null,
     };
 
     /// <summary>
-    /// What the shop raised a capability to: a refund and a paid-out have a tenant setting (B9, B10);
-    /// everything else is the ladder alone, null.
+    /// What the shop set a capability to: a refund, a paid-out, closing the drawer and reading it have
+    /// a tenant setting (B9, B10, C1; D-110); everything else is the ladder alone, null.
     /// </summary>
     public static long? RaisedTo(Capability capability, TenantSettings settings)
     {
@@ -34,6 +36,8 @@ public static class TillStaffWire
         {
             Domain.Organisation.Capability.Refund => settings.RefundMinRank,
             Domain.Organisation.Capability.PaidOut => settings.PaidOutMinRank,
+            Domain.Organisation.Capability.CloseSession => settings.CloseSessionMinRank,
+            Domain.Organisation.Capability.ReadXReport => settings.XReportMinRank,
             _ => null,
         };
     }

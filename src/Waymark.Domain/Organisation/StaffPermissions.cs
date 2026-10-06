@@ -57,6 +57,18 @@ public enum Capability
     /// tenant's <c>paid_out_min_rank</c>, as <see cref="Refund"/> is.
     /// </summary>
     PaidOut,
+
+    /// <summary>
+    /// Read the cash session's figures while it is open, the X-report (C2): what the drawer should
+    /// hold. The tenant's <c>x_report_min_rank</c> sets it (D-110).
+    /// </summary>
+    ReadXReport,
+
+    /// <summary>
+    /// Count the drawer and close the cash session, which gives it its Z number (C1, D-111). The
+    /// tenant's <c>close_session_min_rank</c> sets it (D-110).
+    /// </summary>
+    CloseSession,
 }
 
 /// <summary>
@@ -114,6 +126,10 @@ public static class StaffPermissions
 
         // The floor too: a shop raises it with paid_out_min_rank (D-102).
         { Capability.PaidOut, 1 },
+
+        // A manager's, each with its tenant key, which may put it above or below (D-110, Hakim 05/10).
+        { Capability.ReadXReport, 2 },
+        { Capability.CloseSession, 2 },
     };
 
     /// <summary>
@@ -161,21 +177,40 @@ public static class StaffPermissions
     }
 
     /// <summary>
-    /// <b>Session B9</b> Whether a person of this rank may do this, when the shop has raised
-    /// what it needs (D-098: <c>refund_min_rank</c>, the tenant's).
+    /// <b>Session C1</b> Whether the shop may move what this capability needs (D-110): the
+    /// ones with a tenant key, <see cref="Capability.Refund"/>, <see cref="Capability.PaidOut"/>,
+    /// <see cref="Capability.ReadXReport"/> and <see cref="Capability.CloseSession"/>. Every other
+    /// stays where the ladder puts it.
+    /// </summary>
+    public static bool IsConfigurable(Capability capability) =>
+        capability is Capability.Refund or Capability.PaidOut or Capability.ReadXReport or Capability.CloseSession;
+
+    /// <summary>
+    /// <b>Sessions B9, C1</b> Whether a person of this rank may do this, when the shop has set
+    /// what it needs (D-098, D-110: <c>refund_min_rank</c>, <c>close_session_min_rank</c>…, the tenant's).
     ///
-    /// <para><b>The rules <c>StaffPermissionsTests</c> hold you to:</b> a null rank is never
-    /// permission, whatever the setting. With no setting (null), this is <see cref="May(long?, Capability)"/>
-    /// exactly. A setting <b>raises and never lowers</b>: what is needed is the higher of the ladder's
-    /// rank and the setting, so a setting of 1 cannot hand price overrides to a cashier. A setting of
-    /// zero or less throws: <c>roles.rank</c> is always above zero, and a setting below every rank is
-    /// a mistake, not "everyone".</para>
+    /// <para><b>The rules <c>StaffPermissionsTests</c> hold you to (C1 changes the third):</b> a null
+    /// rank is never permission, whatever the setting. With no setting (null), this is
+    /// <see cref="May(long?, Capability)"/> exactly. A setting <b>sets</b> what is needed, above the
+    /// ladder or below it (Hakim, 05/10: the owner may hand closing to a cashier); it used to raise
+    /// only. What kept a setting of 1 from handing price overrides to a cashier is now
+    /// <see cref="IsConfigurable"/>: <b>a setting on a capability the shop may not move throws
+    /// <see cref="ArgumentException"/></b>, before anything else is looked at. A setting of zero or
+    /// less throws: <c>roles.rank</c> is always above zero, and a setting below every rank is a
+    /// mistake, not "everyone".</para>
     /// </summary>
     /// <param name="staffRank">As for <see cref="May(long?, Capability)"/>: null when there is no rank.</param>
     /// <param name="capability">What they are trying to do.</param>
     /// <param name="raisedTo">The shop's setting for it; null when the shop set nothing.</param>
     public static bool May(long? staffRank, Capability capability, long? raisedTo)
     {
+        // Before anything else: now that a setting lowers, one on a price override would hand it to
+        // every cashier. It is refused outright, whoever asks, rather than ignored.
+        if (raisedTo is not null && !IsConfigurable(capability))
+        {
+            throw new ArgumentException($"{capability} has no tenant setting: the shop may not move what it needs.", nameof(capability));
+        }
+
         if (raisedTo is <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(raisedTo), raisedTo, "A setting names a rank, and roles.rank is above zero.");
@@ -186,7 +221,7 @@ public static class StaffPermissions
             return false;
         }
 
-        // The higher of the ladder and the setting: a setting raises, never lowers.
-        return staffRank >= Math.Max(RequiredRank(capability), raisedTo ?? 0);
+        // The setting where there is one, the ladder otherwise: a setting sets (D-110).
+        return staffRank >= (raisedTo ?? RequiredRank(capability));
     }
 }

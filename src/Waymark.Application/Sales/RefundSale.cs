@@ -246,7 +246,8 @@ public sealed class RefundSaleHandler(
         }
 
         // Everything asked and answered: now the number, then the rows.
-        var sessionId = await CashSessions.OpenAsync(ledger, staging, context, store, command.TerminalId, command.StaffId, now, cancellationToken);
+        var sessionId = await CashSessions.OpenIdAsync(ledger, command.TerminalId, cancellationToken)
+            ?? throw new SaleRefusedException(CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
         var invoice = await InvoiceNumbers.NextAsync(ledger, store, today, cancellationToken);
         var refundId = context.NewId();
         var method = rest.IsPositive ? (command.To == RefundTo.Cash ? RefundMethod.Cash : RefundMethod.StoreCredit)

@@ -70,7 +70,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently. **A sale line is priced once, then split over its batch rows** (`SaleArithmetic.Line`, `Split`, D-103).
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **A scale label's price is exact** (D-090): the weight is worked back from it, `quantity_source` says which figure a row keeps exact, and a weight is priced by the server, never the till.
-- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034). Card and BaridiMob parts are exact and the cash rest rounds once; a payment reference is never a card number (D-095). **A tab repaid in cash rounds the same way** (`Tab.Repay`, D-108): the whole due clears the tab exactly, the `paid_in` is the rounded cash; a part is a multiple of the step.
+- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034). Card and BaridiMob parts are exact and the cash rest rounds once; a payment reference is never a card number (D-095). **A tab repaid in cash rounds the same way** (`Tab.Repay`, D-108): the whole due clears the tab exactly, the `paid_in` is the rounded cash; a part is a multiple of the step. **Nothing touches the drawer without an open cash session; what it should hold is `Drawer.Expected`, a tab repayment's rounding never added; a closed session is final** (D-111).
 - **The TVA rate comes from `TvaRate.Resolve`**, never from a query (D-075): categories that agree give their rate; none, a null, or a disagreement gives 19% marked `StandardFallback`.
 - **Reasons come from `IReasonCodes`** (D-079): active only, ordered, and the list is what the foreign key will accept. `requires_manager` is carried, never enforced — rank is `StaffPermissions`.
 - **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero. The `promotions` tables are B4's.
@@ -156,7 +156,7 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 
 ### 3.10 Access — D-074, D-077, D-083
 
-- **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked.
+- **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked. A tenant key sets a rank only where `IsConfigurable` (D-110).
 - **Who acts is the session's, never a field the till sends.** A PIN is checked in StoreServer only, and the lockout is asked first. **An approval is the till's, for the store's day**, not the session's (D-105); a manager's PIN opens an earlier day's ticket for a cashier (D-109).
 
 ---

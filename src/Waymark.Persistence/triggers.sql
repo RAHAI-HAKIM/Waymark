@@ -307,3 +307,40 @@ BEFORE INSERT ON rounding_variance
 BEGIN
     SELECT RAISE(ABORT, 'rounding_variance is append-only: a row is never replaced');
 END;
+
+-- -----------------------------------------------------------------------------
+-- cash_sessions: a closed session is final (C1, D-111). Its count, what the
+-- drawer should have held, the variance and the Z number are what the owner
+-- reads to know whether money is missing: a row that could be edited afterwards
+-- would let a shortage be made to balance. An open session is still written
+-- once more, by its own close; nothing else is. The REPLACE guard covers both of
+-- the table's keys a conflict could delete through: its id, and its till's Z
+-- number (ux_cash_sessions_z_number).
+-- -----------------------------------------------------------------------------
+
+DROP TRIGGER IF EXISTS trg_cash_sessions_closed_final;
+CREATE TRIGGER trg_cash_sessions_closed_final
+BEFORE UPDATE ON cash_sessions
+    WHEN OLD.status = 'closed'
+BEGIN
+    SELECT RAISE(ABORT, 'a closed cash session is final: its count and its Z number are never rewritten');
+END;
+
+DROP TRIGGER IF EXISTS trg_cash_sessions_closed_no_delete;
+CREATE TRIGGER trg_cash_sessions_closed_no_delete
+BEFORE DELETE ON cash_sessions
+    WHEN OLD.status = 'closed'
+BEGIN
+    SELECT RAISE(ABORT, 'a closed cash session is final: it is never deleted');
+END;
+
+DROP TRIGGER IF EXISTS trg_cash_sessions_closed_no_replace;
+CREATE TRIGGER trg_cash_sessions_closed_no_replace
+BEFORE INSERT ON cash_sessions
+    WHEN EXISTS (SELECT 1 FROM cash_sessions WHERE status = 'closed' AND session_id = NEW.session_id)
+      OR (NEW.z_report_number IS NOT NULL AND EXISTS (
+            SELECT 1 FROM cash_sessions
+            WHERE status = 'closed' AND terminal_id = NEW.terminal_id AND z_report_number = NEW.z_report_number))
+BEGIN
+    SELECT RAISE(ABORT, 'a closed cash session is final: it is never replaced');
+END;

@@ -1006,10 +1006,229 @@ public abstract class TillText
 
     public abstract string FinishBeforeSwitching { get; }
 
+    // ------------------------------------------------------------ C1: the drawer opened and closed (D-111)
+
+    public abstract string DrawerOpenLabel { get; }
+
+    public abstract string DrawerOpenTitle { get; }
+
+    public abstract string DrawerOpenSubtitle { get; }
+
+    public abstract string DrawerTillTile { get; }
+
+    public abstract string DrawerOpenedByTile { get; }
+
+    public abstract string DrawerDateTile { get; }
+
+    public abstract string LastClose(long number, string day, string clock, string by);
+
+    public abstract string FloatTitle { get; }
+
+    public abstract string FloatHelp { get; }
+
+    public abstract string SwitchUserKey { get; }
+
+    public abstract string NoSaleWithoutDrawer { get; }
+
+    public abstract string NoSaleWithoutDrawerDetail { get; }
+
+    public abstract string CloseStep(int number);
+
+    public abstract string CloseDrawerTitle { get; }
+
+    public abstract string SessionOpened(string till, string clock, string by);
+
+    public abstract string OpeningFloatTile { get; }
+
+    public abstract string TicketsTile { get; }
+
+    public abstract string CountedTitle { get; }
+
+    public abstract string CountHelpBlind { get; }
+
+    public abstract string CountHelpShown { get; }
+
+    public abstract string BlindCloseFooter { get; }
+
+    public abstract string ShownCloseFooter { get; }
+
+    public abstract string ExpectedInDrawer { get; }
+
+    public abstract string DrawerLineFloat { get; }
+
+    public abstract string DrawerLineSales { get; }
+
+    public abstract string DrawerLineRefunds { get; }
+
+    public abstract string DrawerLinePaidIn { get; }
+
+    public abstract string DrawerLinePaidOut { get; }
+
+    public abstract string DrawerLineTab { get; }
+
+    public abstract string DrawerLineDrops { get; }
+
+    public abstract string ConfirmCloseTitle { get; }
+
+    public abstract string ConfirmCountTitle { get; }
+
+    public abstract string YouCounted { get; }
+
+    public abstract string ExpectedTile { get; }
+
+    public abstract string CountedTile { get; }
+
+    public abstract string ShortPastThreshold { get; }
+
+    public abstract string ShortWithin { get; }
+
+    public abstract string OverCount { get; }
+
+    public abstract string OverPastThreshold { get; }
+
+    public abstract string NoVariance { get; }
+
+    public abstract string NoVarianceDetail { get; }
+
+    public abstract string NoteThresholdIs(string amount);
+
+    public abstract string WithinThreshold(string amount);
+
+    public abstract string MoreCashThanExpected { get; }
+
+    public abstract string LessCashThanExpected { get; }
+
+    public abstract string NoteRequiredTitle { get; }
+
+    public abstract string NoteOptionalTitle { get; }
+
+    public abstract string NotePlaceholder { get; }
+
+    public abstract string ManagerPinFooter { get; }
+
+    public abstract string RecountKey { get; }
+
+    public abstract string CountBecomesFinal { get; }
+
+    public abstract string ExplainCountTitle { get; }
+
+    public abstract string ExplainCountSubtitle { get; }
+
+    public abstract string CountConfirmed { get; }
+
+    public abstract string NoteAsked { get; }
+
+    public abstract string NoteAskedDetail { get; }
+
+    public abstract string NoteForManager { get; }
+
+    public abstract string PinNextFooter { get; }
+
+    public abstract string ApproveCloseSummary(string counted, bool noted);
+
+    public abstract string DrawerClosedTitle { get; }
+
+    public abstract string ClosedSubtitle(string till, string clock, string by);
+
+    public abstract string ZNumberLabel { get; }
+
+    public abstract string NoteAttached(string amount);
+
+    public abstract string FinishReturnsToSignIn { get; }
+
+    public abstract string SeeZReport { get; }
+
+    public abstract string ZWithManager { get; }
+
+    public abstract string CloseDrawerKey { get; }
+
+    public abstract string XReportKey { get; }
+
+    public abstract string DrawerOpenSince(string clock);
+
+    public abstract string DrawerShut { get; }
+
+    public abstract string SettleTicketsFirst { get; }
+
+    public abstract string DrawerOffline { get; }
     // ================================================================== French
 
     private sealed class FrenchText : TillText
     {
+        // C1: the drawer (D-111)
+        public override string DrawerOpenLabel => "OUVERTURE DE CAISSE";
+        public override string DrawerOpenTitle => "Ouvrir la caisse";
+        public override string DrawerOpenSubtitle => "Aucune session ouverte sur cette caisse";
+        public override string DrawerTillTile => "CAISSE";
+        public override string DrawerOpenedByTile => "OUVERTE PAR";
+        public override string DrawerDateTile => "DATE";
+        public override string LastClose(long number, string day, string clock, string by) => $"Dernière clôture : Z n° {number}, le {day} à {clock}, par {by}";
+        public override string FloatTitle => "FOND DE CAISSE COMPTÉ";
+        public override string FloatHelp => "Comptez les espèces du tiroir avant la première vente. Le fond entre dans l'attendu de la clôture.";
+        public override string SwitchUserKey => "Changer d'utilisateur";
+        public override string NoSaleWithoutDrawer => "VENTE IMPOSSIBLE SANS CAISSE OUVERTE";
+        public override string NoSaleWithoutDrawerDetail => "L'article scanné n'a pas été ajouté. Comptez le fond, ouvrez la caisse, puis scannez-le à nouveau.";
+        public override string CloseStep(int number) => $"CLÔTURE · {number} SUR 3";
+        public override string CloseDrawerTitle => "Clôturer la caisse";
+        public override string SessionOpened(string till, string clock, string by) => $"{till} · session ouverte à {clock} par {by}";
+        public override string OpeningFloatTile => "FOND D'OUVERTURE";
+        public override string TicketsTile => "TICKETS";
+        public override string CountedTitle => "ESPÈCES COMPTÉES · FOND COMPRIS";
+        public override string CountHelpBlind => "Comptez tout le tiroir, fond compris. L'attendu ne s'affiche pas sur cette caisse : la clôture se fait à l'aveugle.";
+        public override string CountHelpShown => "Comptez tout le tiroir, fond compris. L'écart s'affiche à l'étape suivante.";
+        public override string BlindCloseFooter => "Clôture à l'aveugle";
+        public override string ShownCloseFooter => "Clôture avec l'attendu affiché";
+        public override string ExpectedInDrawer => "ATTENDU EN CAISSE";
+        public override string DrawerLineFloat => "Fond d'ouverture";
+        public override string DrawerLineSales => "+ Espèces encaissées";
+        public override string DrawerLineRefunds => "− Retours en espèces";
+        public override string DrawerLinePaidIn => "+ Entrées de caisse";
+        public override string DrawerLinePaidOut => "− Sorties de caisse";
+        public override string DrawerLineTab => "+ Remboursements de carnet";
+        public override string DrawerLineDrops => "− Dépôts";
+        public override string ConfirmCloseTitle => "Confirmer la clôture";
+        public override string ConfirmCountTitle => "Confirmer le compte";
+        public override string YouCounted => "VOUS AVEZ COMPTÉ";
+        public override string ExpectedTile => "ATTENDU";
+        public override string CountedTile => "COMPTÉ";
+        public override string ShortPastThreshold => "MANQUE AU-DELÀ DU SEUIL";
+        public override string ShortWithin => "MANQUE";
+        public override string OverCount => "EXCÉDENT";
+        public override string OverPastThreshold => "EXCÉDENT AU-DELÀ DU SEUIL";
+        public override string NoVariance => "AUCUN ÉCART";
+        public override string NoVarianceDetail => "Le compte correspond à l'attendu.";
+        public override string NoteThresholdIs(string amount) => $"Seuil de note : {amount}";
+        public override string WithinThreshold(string amount) => $"Dans le seuil de {amount} : la note est facultative.";
+        public override string MoreCashThanExpected => "Plus d'espèces que l'attendu.";
+        public override string LessCashThanExpected => "Moins d'espèces que l'attendu.";
+        public override string NoteRequiredTitle => "NOTE · OBLIGATOIRE AU-DELÀ DU SEUIL";
+        public override string NoteOptionalTitle => "NOTE · FACULTATIVE";
+        public override string NotePlaceholder => "Ajoutez une explication si vous en avez une";
+        public override string ManagerPinFooter => "Un caissier passe par le PIN d'un responsable.";
+        public override string RecountKey => "Recompter";
+        public override string CountBecomesFinal => "CE COMPTE DEVIENT DÉFINITIF · Une fois confirmé, il ne se corrige plus. La note, si elle est demandée, vient après.";
+        public override string ExplainCountTitle => "Expliquer le compte";
+        public override string ExplainCountSubtitle => "Clôture à l'aveugle · le compte ne se modifie plus";
+        public override string CountConfirmed => "COMPTE CONFIRMÉ";
+        public override string NoteAsked => "UNE NOTE EST DEMANDÉE";
+        public override string NoteAskedDetail => "Le compte s'écarte de l'attendu au-delà du seuil. Le montant de l'écart n'est montré qu'au responsable.";
+        public override string NoteForManager => "NOTE POUR LE RESPONSABLE";
+        public override string PinNextFooter => "PIN d'un responsable à l'étape suivante.";
+        public override string ApproveCloseSummary(string counted, bool noted) => $"Compté {counted}{(noted ? " · note jointe" : string.Empty)}";
+        public override string DrawerClosedTitle => "Caisse clôturée";
+        public override string ClosedSubtitle(string till, string clock, string by) => $"{till} · {clock} · validé par {by}";
+        public override string ZNumberLabel => "Z N°";
+        public override string NoteAttached(string amount) => $"Note jointe · seuil {amount}";
+        public override string FinishReturnsToSignIn => "Terminer ramène à la connexion.";
+        public override string SeeZReport => "Voir le rapport Z";
+        public override string ZWithManager => "Caisse clôturée. Le rapport Z est chez le responsable.";
+        public override string CloseDrawerKey => "Clôturer la caisse";
+        public override string XReportKey => "Rapport X";
+        public override string DrawerOpenSince(string clock) => $"ouverte {clock}";
+        public override string DrawerShut => "fermée";
+        public override string SettleTicketsFirst => "Un ticket est en cours ou en attente : encaissez-le ou annulez-le avant de clôturer.";
+        public override string DrawerOffline => "Serveur injoignable : la caisse ne peut pas être lue.";
+
         public override TillLanguage Language => TillLanguage.French;
 
         public override string CurrencySymbol(Currency currency) => currency == Currency.Dzd ? "DA" : currency.Code;
@@ -1363,6 +1582,11 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.RepayAboveBalance => $"Plus que le dû : {Named(args, 0)}.",
             Contracts.Pos.RefusalCodes.RepayNotOnStep => $"En espèces, par pas de {Named(args, 0)} : ou tout le dû.",
             Contracts.Pos.RefusalCodes.PaidOutNeedsManager => "Un responsable autorise la sortie de caisse.",
+            Contracts.Pos.RefusalCodes.DrawerShort => "Le tiroir ne contient pas cette somme.",
+            Contracts.Pos.RefusalCodes.NoOpenSession => "Aucune caisse ouverte : comptez le fond et ouvrez la caisse.",
+            Contracts.Pos.RefusalCodes.SessionAlreadyOpen => "Une caisse est déjà ouverte sur ce poste.",
+            Contracts.Pos.RefusalCodes.CloseNeedsManager => "Un responsable valide la clôture.",
+            Contracts.Pos.RefusalCodes.CloseNeedsNote => "Une note est demandée pour ce compte.",
             _ => null,
         };
 
@@ -1512,6 +1736,80 @@ public abstract class TillText
 
     private sealed class ArabicText : TillText
     {
+        // C1: the drawer (D-111)
+        public override string DrawerOpenLabel => "فتح الصندوق"; // ar: à relire
+        public override string DrawerOpenTitle => "فتح الصندوق"; // ar: à relire
+        public override string DrawerOpenSubtitle => "لا توجد جلسة مفتوحة على هذا الصندوق"; // ar: à relire
+        public override string DrawerTillTile => "الصندوق"; // ar: à relire
+        public override string DrawerOpenedByTile => "يفتحه"; // ar: à relire
+        public override string DrawerDateTile => "التاريخ"; // ar: à relire
+        public override string LastClose(long number, string day, string clock, string by) => $"آخر إقفال: Z رقم {number}، يوم {day} على {clock}، من طرف {by}"; // ar: à relire
+        public override string FloatTitle => "الرصيد الافتتاحي المعدود"; // ar: à relire
+        public override string FloatHelp => "عُدَّ نقود الدرج قبل أول بيع. الرصيد الافتتاحي يدخل في المنتظر عند الإقفال."; // ar: à relire
+        public override string SwitchUserKey => "تغيير المستخدم"; // ar: à relire
+        public override string NoSaleWithoutDrawer => "لا بيع دون صندوق مفتوح"; // ar: à relire
+        public override string NoSaleWithoutDrawerDetail => "لم تُضَف السلعة الممسوحة. عُدَّ الرصيد، افتح الصندوق، ثم امسحها من جديد."; // ar: à relire
+        public override string CloseStep(int number) => $"الإقفال · {number} من 3"; // ar: à relire
+        public override string CloseDrawerTitle => "إقفال الصندوق"; // ar: à relire
+        public override string SessionOpened(string till, string clock, string by) => $"{till} · فُتحت الجلسة على {clock} من طرف {by}"; // ar: à relire
+        public override string OpeningFloatTile => "الرصيد الافتتاحي"; // ar: à relire
+        public override string TicketsTile => "التذاكر"; // ar: à relire
+        public override string CountedTitle => "النقود المعدودة · مع الرصيد الافتتاحي"; // ar: à relire
+        public override string CountHelpBlind => "عُدَّ كل الدرج مع الرصيد الافتتاحي. المنتظر لا يظهر على هذا الصندوق: الإقفال يتم دون رؤيته."; // ar: à relire
+        public override string CountHelpShown => "عُدَّ كل الدرج مع الرصيد الافتتاحي. الفارق يظهر في الخطوة التالية."; // ar: à relire
+        public override string BlindCloseFooter => "إقفال دون رؤية المنتظر"; // ar: à relire
+        public override string ShownCloseFooter => "إقفال مع عرض المنتظر"; // ar: à relire
+        public override string ExpectedInDrawer => "المنتظر في الصندوق"; // ar: à relire
+        public override string DrawerLineFloat => "الرصيد الافتتاحي"; // ar: à relire
+        public override string DrawerLineSales => "+ نقد مُحصَّل"; // ar: à relire
+        public override string DrawerLineRefunds => "− مرتجعات نقدًا"; // ar: à relire
+        public override string DrawerLinePaidIn => "+ إدخالات نقد"; // ar: à relire
+        public override string DrawerLinePaidOut => "− إخراجات نقد"; // ar: à relire
+        public override string DrawerLineTab => "+ تسديدات دفتر الديون"; // ar: à relire
+        public override string DrawerLineDrops => "− إيداعات"; // ar: à relire
+        public override string ConfirmCloseTitle => "تأكيد الإقفال"; // ar: à relire
+        public override string ConfirmCountTitle => "تأكيد العدّ"; // ar: à relire
+        public override string YouCounted => "عددتَ"; // ar: à relire
+        public override string ExpectedTile => "المنتظر"; // ar: à relire
+        public override string CountedTile => "المعدود"; // ar: à relire
+        public override string ShortPastThreshold => "نقص يتجاوز العتبة"; // ar: à relire
+        public override string ShortWithin => "نقص"; // ar: à relire
+        public override string OverCount => "زيادة"; // ar: à relire
+        public override string OverPastThreshold => "زيادة تتجاوز العتبة"; // ar: à relire
+        public override string NoVariance => "لا فارق"; // ar: à relire
+        public override string NoVarianceDetail => "العدّ يطابق المنتظر."; // ar: à relire
+        public override string NoteThresholdIs(string amount) => $"عتبة الملاحظة: {amount}"; // ar: à relire
+        public override string WithinThreshold(string amount) => $"ضمن عتبة {amount}: الملاحظة اختيارية."; // ar: à relire
+        public override string MoreCashThanExpected => "نقود أكثر من المنتظر."; // ar: à relire
+        public override string LessCashThanExpected => "نقود أقل من المنتظر."; // ar: à relire
+        public override string NoteRequiredTitle => "ملاحظة · إلزامية فوق العتبة"; // ar: à relire
+        public override string NoteOptionalTitle => "ملاحظة · اختيارية"; // ar: à relire
+        public override string NotePlaceholder => "أضف تفسيرًا إن وُجد"; // ar: à relire
+        public override string ManagerPinFooter => "أمين الصندوق يمرّ برمز مسؤول."; // ar: à relire
+        public override string RecountKey => "إعادة العدّ"; // ar: à relire
+        public override string CountBecomesFinal => "هذا العدّ يصير نهائيًا · بعد تأكيده لا يُصحَّح. الملاحظة، إن طُلبت، تأتي بعده."; // ar: à relire
+        public override string ExplainCountTitle => "تفسير العدّ"; // ar: à relire
+        public override string ExplainCountSubtitle => "إقفال دون رؤية المنتظر · العدّ لا يُعدَّل"; // ar: à relire
+        public override string CountConfirmed => "العدّ المؤكَّد"; // ar: à relire
+        public override string NoteAsked => "مطلوب ملاحظة"; // ar: à relire
+        public override string NoteAskedDetail => "العدّ يبتعد عن المنتظر بأكثر من العتبة. مبلغ الفارق لا يُعرض إلا على المسؤول."; // ar: à relire
+        public override string NoteForManager => "ملاحظة للمسؤول"; // ar: à relire
+        public override string PinNextFooter => "رمز مسؤول في الخطوة التالية."; // ar: à relire
+        public override string ApproveCloseSummary(string counted, bool noted) => $"المعدود {counted}{(noted ? " · مع ملاحظة" : string.Empty)}"; // ar: à relire
+        public override string DrawerClosedTitle => "أُقفل الصندوق"; // ar: à relire
+        public override string ClosedSubtitle(string till, string clock, string by) => $"{till} · {clock} · صادق عليه {by}"; // ar: à relire
+        public override string ZNumberLabel => "Z رقم"; // ar: à relire
+        public override string NoteAttached(string amount) => $"مع ملاحظة · العتبة {amount}"; // ar: à relire
+        public override string FinishReturnsToSignIn => "«إنهاء» يعيد إلى شاشة الدخول."; // ar: à relire
+        public override string SeeZReport => "عرض تقرير Z"; // ar: à relire
+        public override string ZWithManager => "أُقفل الصندوق. تقرير Z عند المسؤول."; // ar: à relire
+        public override string CloseDrawerKey => "إقفال الصندوق"; // ar: à relire
+        public override string XReportKey => "تقرير X"; // ar: à relire
+        public override string DrawerOpenSince(string clock) => $"مفتوح منذ {clock}"; // ar: à relire
+        public override string DrawerShut => "مُقفل"; // ar: à relire
+        public override string SettleTicketsFirst => "توجد تذكرة جارية أو معلّقة: حصِّلها أو ألغِها قبل الإقفال."; // ar: à relire
+        public override string DrawerOffline => "الخادم غير متاح: لا يمكن قراءة الصندوق."; // ar: à relire
+
         public override TillLanguage Language => TillLanguage.Arabic;
 
         public override string CurrencySymbol(Currency currency) => currency == Currency.Dzd ? "د.ج" : currency.Code;
@@ -1866,6 +2164,11 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.RepayAboveBalance => $"أكثر من المستحق: {Named(args, 0)}.",
             Contracts.Pos.RefusalCodes.RepayNotOnStep => $"نقدًا، بمضاعفات {Named(args, 0)}: أو كل المستحق.",
             Contracts.Pos.RefusalCodes.PaidOutNeedsManager => "إخراج النقد يأذن به مسؤول.",
+            Contracts.Pos.RefusalCodes.DrawerShort => "الدرج لا يحتوي على هذا المبلغ.", // ar: à relire
+            Contracts.Pos.RefusalCodes.NoOpenSession => "لا يوجد صندوق مفتوح: عُدَّ الرصيد الافتتاحي وافتح الصندوق.", // ar: à relire
+            Contracts.Pos.RefusalCodes.SessionAlreadyOpen => "يوجد صندوق مفتوح على هذا الجهاز.", // ar: à relire
+            Contracts.Pos.RefusalCodes.CloseNeedsManager => "الإقفال يصادق عليه مسؤول.", // ar: à relire
+            Contracts.Pos.RefusalCodes.CloseNeedsNote => "مطلوب ملاحظة لهذا العدّ.", // ar: à relire
             _ => null,
         };
 

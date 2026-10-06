@@ -134,4 +134,24 @@ public static class RefusalCodes
 
     /// <summary>The shop asks for a manager to take cash out of the drawer.</summary>
     public const string PaidOutNeedsManager = "paid_out_needs_manager";
+
+    /// <summary>
+    /// More cash asked of the drawer than it should hold (C1, F-35). Names nothing: what the drawer
+    /// holds is not a cashier's to be told when the close is blind.
+    /// </summary>
+    public const string DrawerShort = "drawer_short";
+
+    // ------------------------------------------------------------------ the cash session
+
+    /// <summary>No cash session is open on this till: the drawer is counted and opened first (C1, D-111).</summary>
+    public const string NoOpenSession = "no_open_session";
+
+    /// <summary>A cash session is already open on this till.</summary>
+    public const string SessionAlreadyOpen = "session_already_open";
+
+    /// <summary>The shop asks for a manager to close the cash session.</summary>
+    public const string CloseNeedsManager = "close_needs_manager";
+
+    /// <summary>The count is too far from what the drawer should hold to close without a note. Names nothing.</summary>
+    public const string CloseNeedsNote = "close_needs_note";
 }

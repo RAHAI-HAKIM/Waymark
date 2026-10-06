@@ -19,6 +19,9 @@ public sealed class TenantSettingRefusedException(string reason) : Exception(rea
 /// <param name="MaxCreditLimit">Minor units; with <paramref name="NoCeiling"/> the ceiling is removed instead.</param>
 /// <param name="CreditOverdueDays">With <paramref name="OverdueOff"/> the rule is switched off instead.</param>
 /// <param name="RefundMinRank">B9 (D-098): a rank an active role has; with <paramref name="RefundRankOff"/> anyone with a rank refunds instead.</param>
+/// <param name="CloseSessionMinRank">C1 (D-110): a rank an active role has; with <paramref name="CloseRankOff"/> the ladder's instead.</param>
+/// <param name="XReportMinRank">C2 (D-110): a rank an active role has; with <paramref name="XReportRankOff"/> the ladder's instead.</param>
+/// <param name="VarianceAlertValue">C1 (D-111): minor units; with <paramref name="VarianceAlertOff"/> no close asks for a note instead.</param>
 public sealed record SetTenantSettings(
     bool? CustomerModule = null,
     long? MaxCreditLimit = null,
@@ -35,7 +38,14 @@ public sealed record SetTenantSettings(
     int? CreditExpiryDays = null,
     bool CreditExpiryOff = false,
     long? PaidOutMinRank = null,
-    bool PaidOutRankOff = false) : ICommand<TenantSettings>;
+    bool PaidOutRankOff = false,
+    long? CloseSessionMinRank = null,
+    bool CloseRankOff = false,
+    long? XReportMinRank = null,
+    bool XReportRankOff = false,
+    bool? BlindClose = null,
+    long? VarianceAlertValue = null,
+    bool VarianceAlertOff = false) : ICommand<TenantSettings>;
 
 public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration, ILedgerCurrency ledgerCurrency, TimeProvider clock)
     : ICommandHandler<SetTenantSettings, TenantSettings>
@@ -74,6 +84,20 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
             throw new TenantSettingRefusedException($"No active role has rank {paidOutRank}: nobody could take cash out.");
         }
 
+        // A rank nobody holds would leave a drawer nobody could close, nor read (D-110).
+        foreach (var asked in new[] { command.CloseSessionMinRank, command.XReportMinRank })
+        {
+            if (asked is { } sessionRank && !(await configuration.ActiveRanksAsync(cancellationToken)).Contains(sessionRank))
+            {
+                throw new TenantSettingRefusedException($"No active role has rank {sessionRank}: nobody could close the drawer or read it.");
+            }
+        }
+
+        if (command.VarianceAlertValue is < 0)
+        {
+            throw new TenantSettingRefusedException("A variance threshold is zero or more; switch it off instead.");
+        }
+
         var current = await configuration.CurrentAsync(cancellationToken);
         var next = current with
         {
@@ -90,6 +114,12 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
             RefundMinRank = command.RefundRankOff ? null : command.RefundMinRank ?? current.RefundMinRank,
             CreditExpiryDays = command.CreditExpiryOff ? null : command.CreditExpiryDays ?? current.CreditExpiryDays,
             PaidOutMinRank = command.PaidOutRankOff ? null : command.PaidOutMinRank ?? current.PaidOutMinRank,
+            CloseSessionMinRank = command.CloseRankOff ? null : command.CloseSessionMinRank ?? current.CloseSessionMinRank,
+            XReportMinRank = command.XReportRankOff ? null : command.XReportMinRank ?? current.XReportMinRank,
+            BlindClose = command.BlindClose ?? current.BlindClose,
+            VarianceAlertValue = command.VarianceAlertOff ? null
+                : command.VarianceAlertValue is { } gap ? Money.FromMinorUnits(gap, ledgerCurrency.Currency)
+                : current.VarianceAlertValue,
         };
 
         await configuration.StageAsync(next, null, clock.GetUtcNow(), cancellationToken);

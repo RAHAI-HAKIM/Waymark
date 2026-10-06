@@ -681,6 +681,8 @@ public static partial class TillViews
             Operation.PettyCash => LucideIcons.Coins,
             Operation.More => LucideIcons.Ellipsis,
             Operation.Clock => LucideIcons.User,
+            Operation.CloseDrawer => LucideIcons.Lock,
+            Operation.XReport => LucideIcons.History,
             _ => LucideIcons.Archive,
         };
 

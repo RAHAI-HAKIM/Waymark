@@ -18,6 +18,8 @@ namespace Waymark.StoreServer.Organisation;
 ///   <item><description><c>--refund-min-rank=2|off</c></description></item>
 ///   <item><description><c>--credit-expiry-days=365|off</c></description></item>
 ///   <item><description><c>--paid-out-min-rank=2|off</c></description></item>
+///   <item><description><c>--close-session-min-rank=1|off</c>, <c>--x-report-min-rank=1|off</c> (off: the ladder's rank)</description></item>
+///   <item><description><c>--blind-close=on|off</c>, <c>--variance-alert-value=200.00|off</c></description></item>
 ///   <item><description><c>--publish-information-notice=&lt;path to the text&gt;</c>, with
 ///   <c>--notice-language=ar|fr|en</c> (Arabic when left out)</description></item>
 /// </list>
@@ -48,6 +50,18 @@ public static class TenantSwitch
     /// <summary>B10 (D-102): the lowest rank that takes cash out of the drawer alone; <c>off</c> for anyone with a rank.</summary>
     public const string PaidOutMinRank = "paid-out-min-rank";
 
+    /// <summary>C1 (D-110): the lowest rank that closes the cash session alone, above the ladder's or below it; <c>off</c> for the ladder's.</summary>
+    public const string CloseSessionMinRank = "close-session-min-rank";
+
+    /// <summary>C2 (D-110): the lowest rank that reads an open session's figures; <c>off</c> for the ladder's.</summary>
+    public const string XReportMinRank = "x-report-min-rank";
+
+    /// <summary>C1 (D-111): whoever counts the drawer is not shown what it should hold.</summary>
+    public const string BlindClose = "blind-close";
+
+    /// <summary>C1 (D-111): a close whose variance is larger than this needs a note; <c>off</c> for never.</summary>
+    public const string VarianceAlertValue = "variance-alert-value";
+
     public const string PublishNotice = "publish-information-notice";
 
     public const string NoticeLanguage = "notice-language";
@@ -56,7 +70,8 @@ public static class TenantSwitch
     public static bool Asked(IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice, VoidAlertCount, VoidAlertValue, RefundMinRank, CreditExpiryDays, PaidOutMinRank }
+        return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice, VoidAlertCount, VoidAlertValue, RefundMinRank, CreditExpiryDays, PaidOutMinRank,
+                CloseSessionMinRank, XReportMinRank, BlindClose, VarianceAlertValue }
             .Any(key => configuration[key] is not null);
     }
 
@@ -106,7 +121,11 @@ public static class TenantSwitch
                 + $"and above {now.VoidAlertValue?.ToString() ?? "no value (off)"}; "
                 + $"refunds alone from {(now.RefundMinRank is { } rank ? $"rank {rank}" : "any rank (off)")}; "
                 + $"store credit expires {(now.CreditExpiryDays is { } expiry ? $"after {expiry} days" : "never (off)")}; "
-                + $"cash out alone from {(now.PaidOutMinRank is { } outRank ? $"rank {outRank}" : "any rank (off)")}.");
+                + $"cash out alone from {(now.PaidOutMinRank is { } outRank ? $"rank {outRank}" : "any rank (off)")}; "
+                + $"the drawer closed alone from {(now.CloseSessionMinRank is { } closeRank ? $"rank {closeRank}" : "the ladder's rank (off)")}, "
+                + $"read from {(now.XReportMinRank is { } xRank ? $"rank {xRank}" : "the ladder's rank (off)")}; "
+                + $"blind close {(now.BlindClose ? "on" : "off")}; "
+                + $"a note asked past a variance of {now.VarianceAlertValue?.ToString() ?? "nothing (off)"}.");
             return 0;
         }
         catch (Exception refusal) when (refusal is TenantSettingRefusedException or IOException or UnauthorizedAccessException)
@@ -132,6 +151,12 @@ public static class TenantSwitch
         var expiryOff = string.Equals(expiry, "off", StringComparison.OrdinalIgnoreCase);
         var paidOut = configuration[PaidOutMinRank];
         var paidOutOff = string.Equals(paidOut, "off", StringComparison.OrdinalIgnoreCase);
+        var close = configuration[CloseSessionMinRank];
+        var closeOff = string.Equals(close, "off", StringComparison.OrdinalIgnoreCase);
+        var xReport = configuration[XReportMinRank];
+        var xReportOff = string.Equals(xReport, "off", StringComparison.OrdinalIgnoreCase);
+        var gap = configuration[VarianceAlertValue];
+        var gapOff = string.Equals(gap, "off", StringComparison.OrdinalIgnoreCase);
 
         return new SetTenantSettings(
             OnOff(configuration[CustomerModule], CustomerModule),
@@ -166,8 +191,21 @@ public static class TenantSwitch
                 : long.TryParse(paidOut, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var outRank) && outRank > 0
                     ? outRank
                     : throw new FormatException($"--{PaidOutMinRank}: a rank, 2, or off."),
-            paidOutOff);
+            paidOutOff,
+            close is null || closeOff ? null : Rank(close, CloseSessionMinRank),
+            closeOff,
+            xReport is null || xReportOff ? null : Rank(xReport, XReportMinRank),
+            xReportOff,
+            OnOff(configuration[BlindClose], BlindClose),
+            gap is null || gapOff ? null
+                : WireText.TryHundredths(gap, out var gapCents) ? gapCents : throw new FormatException($"--{VarianceAlertValue}: an amount, 200.00, or off."),
+            gapOff);
     }
+
+    private static long Rank(string value, string key) =>
+        long.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var rank) && rank > 0
+            ? rank
+            : throw new FormatException($"--{key}: a rank, 2, or off.");
 
     private static bool? OnOff(string? value, string key) => value?.Trim().ToLowerInvariant() switch
     {

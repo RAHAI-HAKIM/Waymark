@@ -37,11 +37,13 @@ public sealed record RecordCashMovement(
 public sealed record RecordedCashMovement(string MovementId, CashDirection Direction, Money Amount);
 
 /// <summary>
-/// Records a paid-in or a paid-out (B10, D-102): the session opened if there is none (D-070, until C1),
-/// one <c>cash_movements</c> row, never a negative amount (the type says the direction). The Z-report
-/// reads them (C2).
+/// Records a paid-in or a paid-out (B10, D-102) on the till's open cash session (C1: refused when it
+/// has none), one <c>cash_movements</c> row, never a negative amount (the type says the direction).
+/// <b>A paid-out the drawer cannot cover is refused</b> (F-35, <see cref="Drawer.Covers"/>): cash that
+/// was never there cannot leave. The Z-report reads them (C2).
 /// </summary>
-public sealed class RecordCashMovementHandler(ISalesLedger ledger, IStaging staging, IReasonCodes reasons, TimeProvider clock)
+public sealed class RecordCashMovementHandler(
+    ISalesLedger ledger, ICashSessionLedger sessions, IStaging staging, IReasonCodes reasons, TimeProvider clock)
     : ICommandHandler<RecordCashMovement, RecordedCashMovement>
 {
     public async Task<RecordedCashMovement> HandleAsync(RecordCashMovement command, CommandContext context, CancellationToken cancellationToken = default)
@@ -76,8 +78,17 @@ public sealed class RecordCashMovementHandler(ISalesLedger ledger, IStaging stag
         var store = await ledger.CurrentStoreAsync(cancellationToken)
             ?? throw new CashMovementRefusedException("This store has no row in stores; it is not commissioned.");
         var now = clock.GetUtcNow();
-        var session = await CashSessions.OpenAsync(ledger, staging, context, store, command.TerminalId, command.StaffId, now, cancellationToken);
+        var open = await ledger.OpenCashSessionAsync(command.TerminalId, cancellationToken)
+            ?? throw new CashMovementRefusedException(CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
+        var session = open.SessionId;
         var amount = Money.FromMinorUnits(command.Amount, Currency.FromCode(store.Currency));
+
+        if (command.Direction == CashDirection.Out
+            && !Drawer.Covers(Drawer.Expected(await sessions.MovementsAsync(open, cancellationToken)), amount))
+        {
+            // It names nothing: what the drawer holds is not said to who will count it blind (D-111).
+            throw new CashMovementRefusedException("The drawer does not hold that much.", RefusalCodes.DrawerShort);
+        }
 
         var movement = new CashMovement
         {

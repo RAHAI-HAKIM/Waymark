@@ -321,7 +321,7 @@ public static partial class TillViews
     /// <summary>The card on its scrim: an optional label, the title and its subtitle, the ✕ with its key in the corner, then the two columns.</summary>
     private static Border Floating(
         TillTheme theme, string? label, string title, string closeKey, string closeName, string closeTag, Action close,
-        Control left, Control right, object tag, string? subtitle = null)
+        Control left, Control right, object tag, string? subtitle = null, bool closable = true)
     {
         var heading = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         if (label is not null)
@@ -343,7 +343,12 @@ public static partial class TillViews
         Avalonia.Automation.AutomationProperties.SetName(x, closeName);
 
         var head = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
-        head.Children.Add(Docked(x, Dock.Right));
+        // A panel with no way out but its own key has no ✕ (C1): the drawer's opening, a close's result.
+        if (closable)
+        {
+            head.Children.Add(Docked(x, Dock.Right));
+        }
+
         head.Children.Add(heading);
 
         var columns = new Grid { ColumnDefinitions = new ColumnDefinitions($"*,20,{FloatingRight}") };
@@ -405,9 +410,17 @@ public static partial class TillViews
     }
 
     /// <summary>A refusal: labelled first, on the critical ground with its edge (label before colour).</summary>
-    private static Border Refusal(TillTheme theme, PanelMessage message)
+    /// <param name="figure">A figure the message is about, drawn large between its label and its sentence: a variance (C1).</param>
+    private static Border Refusal(TillTheme theme, PanelMessage message, string? figure = null)
     {
         var (mark, ink, fill) = theme.ToneOnSurface(message.Tone);
+        var lines = new StackPanel { Spacing = 2, Children = { theme.Label(message.Title, ink) } };
+        if (figure is not null)
+        {
+            lines.Children.Add(TillTheme.Figure(figure, 26, theme.Text));
+        }
+
+        lines.Children.Add(Wrapped(theme.BodySmall(message.Body, theme.Text)));
         return new Border
         {
             Background = fill,
@@ -420,11 +433,7 @@ public static partial class TillViews
                 BorderBrush = mark,
                 BorderThickness = new Thickness(TillSizes.SignalRule, 0, 0, 0),
                 Padding = new Thickness(10, 6),
-                Child = new StackPanel
-                {
-                    Spacing = 2,
-                    Children = { theme.Label(message.Title, ink), Wrapped(theme.BodySmall(message.Body, theme.Text)) },
-                },
+                Child = lines,
             },
         };
     }

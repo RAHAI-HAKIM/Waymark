@@ -20,7 +20,8 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
     [
         TenantSettings.CustomerModuleKey, TenantSettings.MaxCreditLimitKey, TenantSettings.CreditOverdueDaysKey, TenantSettings.TabAsPartKey,
         TenantSettings.VoidAlertCountKey, TenantSettings.VoidAlertValueKey, TenantSettings.RefundMinRankKey, TenantSettings.CreditExpiryDaysKey,
-        TenantSettings.PaidOutMinRankKey,
+        TenantSettings.PaidOutMinRankKey, TenantSettings.CloseSessionMinRankKey, TenantSettings.XReportMinRankKey, TenantSettings.BlindCloseKey,
+        TenantSettings.VarianceAlertValueKey,
     ];
 
     public async Task<TenantSettings> CurrentAsync(CancellationToken cancellationToken = default)
@@ -49,7 +50,7 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
                 && long.TryParse(worth, NumberStyles.None, CultureInfo.InvariantCulture, out var cents)
                 ? Money.FromMinorUnits(cents, ledgerCurrency.Currency)
                 : defaults.VoidAlertValue,
-            // A rank that cannot be read is no rank needed beyond the ladder's: the setting only ever raises.
+            // A rank that cannot be read is the ladder's: no setting at all.
             values.TryGetValue(TenantSettings.RefundMinRankKey, out var refund)
                 && long.TryParse(refund, NumberStyles.None, CultureInfo.InvariantCulture, out var rank) && rank > 0
                 ? rank
@@ -61,7 +62,22 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             values.TryGetValue(TenantSettings.PaidOutMinRankKey, out var paidOut)
                 && long.TryParse(paidOut, NumberStyles.None, CultureInfo.InvariantCulture, out var paidOutRank) && paidOutRank > 0
                 ? paidOutRank
-                : defaults.PaidOutMinRank);
+                : defaults.PaidOutMinRank,
+            // A rank that cannot be read is the ladder's: a key nobody can read hands closing to nobody new.
+            values.TryGetValue(TenantSettings.CloseSessionMinRankKey, out var close)
+                && long.TryParse(close, NumberStyles.None, CultureInfo.InvariantCulture, out var closeRank) && closeRank > 0
+                ? closeRank
+                : defaults.CloseSessionMinRank,
+            values.TryGetValue(TenantSettings.XReportMinRankKey, out var xReport)
+                && long.TryParse(xReport, NumberStyles.None, CultureInfo.InvariantCulture, out var xRank) && xRank > 0
+                ? xRank
+                : defaults.XReportMinRank,
+            values.TryGetValue(TenantSettings.BlindCloseKey, out var blind) && bool.TryParse(blind, out var isBlind) ? isBlind : defaults.BlindClose,
+            // NumberStyles.None: a threshold below zero is not one, and reads as none.
+            values.TryGetValue(TenantSettings.VarianceAlertValueKey, out var gap)
+                && long.TryParse(gap, NumberStyles.None, CultureInfo.InvariantCulture, out var gapCents)
+                ? Money.FromMinorUnits(gapCents, ledgerCurrency.Currency)
+                : defaults.VarianceAlertValue);
     }
 
     public async Task StageAsync(TenantSettings settings, string? updatedBy, DateTimeOffset at, CancellationToken cancellationToken = default)
@@ -118,6 +134,14 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             "Days after which unspent store credit expires; absent: it never does (D-101).");
         Put(TenantSettings.PaidOutMinRankKey, settings.PaidOutMinRank?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
             "The lowest roles.rank that takes cash out of the drawer alone; below it a PIN is asked; absent: anyone with a rank (D-102).");
+        Put(TenantSettings.CloseSessionMinRankKey, settings.CloseSessionMinRank?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "The lowest roles.rank that counts the drawer and closes the cash session alone; absent: the ladder's (D-110, D-111).");
+        Put(TenantSettings.XReportMinRankKey, settings.XReportMinRank?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "The lowest roles.rank that reads an open cash session's figures; absent: the ladder's (D-110).");
+        Put(TenantSettings.BlindCloseKey, settings.BlindClose ? "true" : "false", SystemConfigEntryDataType.Bool,
+            "Whoever counts the drawer is not shown what it should hold (D-111).");
+        Put(TenantSettings.VarianceAlertValueKey, settings.VarianceAlertValue?.MinorUnits.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Money,
+            "A close whose variance is larger than this, in minor units, needs a note and is flagged; absent: never (D-111).");
     }
 
     public async Task<IReadOnlyList<long>> ActiveRanksAsync(CancellationToken cancellationToken = default) =>

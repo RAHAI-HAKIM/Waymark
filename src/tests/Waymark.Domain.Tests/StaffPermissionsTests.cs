@@ -161,7 +161,9 @@ public sealed class StaffPermissionsTests
             StaffPermissions.RequiredRank(Capability.NoSale) > 1,
             "Opening the drawer with no sale behind it is permission-gated (ICashDrawer).");
     }
-    // ------------------------------- a shop's setting raises, never lowers (B9, D-098) ✍ Hakim
+    // ------------------------------- a shop's setting sets what its own capabilities need (B9, C1; D-098, D-110) ✍ Hakim
+
+    private static readonly Capability[] Configurable = [Capability.Refund, Capability.PaidOut, Capability.ReadXReport, Capability.CloseSession];
 
     [Fact]
     public void A_refund_is_anyones_with_a_rank_until_the_shop_says_otherwise()
@@ -182,6 +184,28 @@ public sealed class StaffPermissionsTests
     }
 
     [Fact]
+    public void Reading_an_X_and_closing_are_a_managers_until_the_shop_says_otherwise()
+    {
+        // Hakim, 05/10: both at 2, each with its key.
+        Assert.Equal(2, StaffPermissions.RequiredRank(Capability.ReadXReport));
+        Assert.Equal(2, StaffPermissions.RequiredRank(Capability.CloseSession));
+        Assert.False(StaffPermissions.May(1, Capability.CloseSession, null));
+        Assert.True(StaffPermissions.May(2, Capability.CloseSession, null));
+    }
+
+    [Theory]
+    [InlineData(1, 1, true)]  // the owner handed closing to the cashiers
+    [InlineData(1, 2, true)]
+    [InlineData(3, 2, false)] // or kept it: a manager no longer closes
+    [InlineData(3, 3, true)]
+    [InlineData(3, 4, true)]
+    public void A_setting_sets_what_closing_needs_below_the_ladder_or_above_it(long setting, long rank, bool allowed)
+    {
+        Assert.Equal(allowed, StaffPermissions.May(rank, Capability.CloseSession, setting));
+        Assert.Equal(allowed, StaffPermissions.May(rank, Capability.ReadXReport, setting));
+    }
+
+    [Fact]
     public void With_no_setting_the_ladder_answers_alone()
     {
         foreach (var capability in All)
@@ -194,19 +218,27 @@ public sealed class StaffPermissionsTests
     }
 
     [Fact]
-    public void A_setting_never_lowers_the_ladder()
+    public void Only_the_capabilities_with_a_tenant_key_may_be_moved()
     {
-        // A setting of 1 on a price override would hand it to every cashier, with no error anywhere.
-        var required = StaffPermissions.RequiredRank(Capability.OverridePrice);
+        Assert.Equal(Configurable.Order(), All.Where(StaffPermissions.IsConfigurable).Order());
+    }
 
-        Assert.False(StaffPermissions.May(required - 1, Capability.OverridePrice, 1), "A setting lowered what a price override needs.");
-        Assert.True(StaffPermissions.May(required, Capability.OverridePrice, 1));
+    [Fact]
+    public void A_setting_on_a_capability_the_shop_may_not_move_throws_whoever_asks()
+    {
+        // A setting of 1 on a price override would hand it to every cashier, with no error anywhere:
+        // now that a setting lowers, it is refused outright rather than ignored.
+        foreach (var capability in All.Except(Configurable))
+        {
+            Assert.Throws<ArgumentException>(() => StaffPermissions.May(3, capability, 1));
+            Assert.Throws<ArgumentException>(() => StaffPermissions.May(null, capability, 3));
+        }
     }
 
     [Fact]
     public void No_rank_is_never_permission_whatever_the_setting()
     {
-        foreach (var capability in All)
+        foreach (var capability in Configurable)
         {
             Assert.False(StaffPermissions.May(null, capability, 1), $"somebody with no rank was allowed {capability} under a setting.");
         }

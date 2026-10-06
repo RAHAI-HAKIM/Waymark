@@ -78,6 +78,10 @@ public static partial class TillViews
     public static Control Form(FormPanel panel, TillTheme theme, FormActions? actions)
     {
         var left = new StackPanel { Spacing = 8 };
+        Control? tilesBlock = null;
+        Control? noticeBlock = null;
+        Control? messageBlock = null;
+        Control? bigBlock = null;
 
         if (panel.Tiles.Count > 0)
         {
@@ -88,6 +92,7 @@ public static partial class TillViews
             }
 
             left.Children.Add(tiles);
+            tilesBlock = tiles;
         }
 
         foreach (var field in panel.Fields)
@@ -139,27 +144,30 @@ public static partial class TillViews
 
         if (panel.Notice is { } notice)
         {
-            left.Children.Add(new Border
+            noticeBlock = new Border
             {
                 Background = theme.Tile,
                 CornerRadius = new CornerRadius(TillSizes.KeyRadius),
                 Padding = new Thickness(12, 8),
                 Child = Wrapped(theme.BodySmall(notice, theme.Text)),
-            });
+            };
+            left.Children.Add(noticeBlock);
         }
 
         if (panel.Message is { } message)
         {
-            left.Children.Add(Refusal(theme, message));
+            messageBlock = Refusal(theme, message, panel.MessageFigure);
+            left.Children.Add(messageBlock);
         }
 
         if (panel.BigLabel is { } bigLabel)
         {
-            left.Children.Add(theme.Label(bigLabel, theme.TextSecondary));
-            left.Children.Add(TillTheme.Figure(panel.Big ?? string.Empty, 36, theme.Text));
+            var big = new StackPanel { Spacing = 8 };
+            big.Children.Add(theme.Label(bigLabel, theme.TextSecondary));
+            big.Children.Add(TillTheme.Figure(panel.Big ?? string.Empty, 36, theme.Text));
             foreach (var figure in panel.Figures)
             {
-                left.Children.Add(new Border
+                big.Children.Add(new Border
                 {
                     BorderBrush = theme.BorderSubtle,
                     BorderThickness = new Thickness(0, 0, 0, 1),
@@ -167,6 +175,9 @@ public static partial class TillViews
                     Child = Row(theme.BodySmall(figure.Label, theme.Text), TillTheme.Figure(figure.Value, 15, theme.Text)),
                 });
             }
+
+            left.Children.Add(big);
+            bigBlock = big;
         }
 
         Control? rowsLabel = null;
@@ -248,6 +259,21 @@ public static partial class TillViews
             left.Children.Insert(first, rowsBlock);
         }
 
+        // The drawer's panels (C1) are read from the top: the figure a count or a close is about, its
+        // tiles, then what is said of it, before any field; an opening says what it is about first.
+        var lead = panel.BigFirst ? new[] { bigBlock, tilesBlock, noticeBlock, messageBlock }
+            : panel.NoticeFirst ? [messageBlock, noticeBlock]
+            : [];
+        var at = 0;
+        foreach (var block in lead)
+        {
+            if (block is not null)
+            {
+                left.Children.Remove(block);
+                left.Children.Insert(at++, block);
+            }
+        }
+
         if (panel.Footer is { } footer)
         {
             left.Children.Add(Wrapped(theme.BodySmall(footer, theme.TextSecondary)));
@@ -276,7 +302,7 @@ public static partial class TillViews
             right.Children.Add(new Border());
         }
 
-        return Floating(theme, panel.Label, panel.Title, panel.CloseKey, panel.Title, PaymentCloseTag, () => actions?.Close(), left, right, panel, panel.Subtitle);
+        return Floating(theme, panel.Label, panel.Title, panel.CloseKey, panel.Title, PaymentCloseTag, () => actions?.Close(), left, right, panel, panel.Subtitle, !panel.NoClose);
     }
 
     /// <summary>

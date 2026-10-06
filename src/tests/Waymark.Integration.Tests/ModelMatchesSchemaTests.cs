@@ -173,6 +173,9 @@ public sealed class ModelMatchesSchemaTests
     private static readonly Dictionary<string, string> TriggersAddedAfterTheReviewedSchema = new(StringComparer.Ordinal)
     {
         ["trg_processing_log_no_update"] = "the logbook is append-only against edits (D-045, DPIA §5.5)",
+        ["trg_cash_sessions_closed_final"] = "a closed cash session is final: count, variance and Z number (C1, D-111)",
+        ["trg_cash_sessions_closed_no_delete"] = "a closed cash session is final: count, variance and Z number (C1, D-111)",
+        ["trg_cash_sessions_closed_no_replace"] = "a closed cash session is final: count, variance and Z number (C1, D-111)",
         ["trg_erasure_ledger_facts_fixed"] = "erasure evidence: facts fixed, outcome forward only (D-060, F-18)",
         ["trg_erasure_ledger_executed_final"] = "erasure evidence: facts fixed, outcome forward only (D-060, F-18)",
         ["trg_erasure_ledger_time_flow"] = "erasure evidence: facts fixed, outcome forward only (D-060, F-18)",

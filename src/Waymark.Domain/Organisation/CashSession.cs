@@ -38,6 +38,12 @@ public sealed class CashSession : IStoreScoped
 
     public string? ClosedBy { get; init; }
 
+    /// <summary>
+    /// Whose PIN allowed the close, when who counted (<see cref="ClosedBy"/>) may not close alone
+    /// (C1, D-111); null when they may.
+    /// </summary>
+    public string? ClosedAuthorisedBy { get; init; }
+
     public DateTimeOffset? ClosedAt { get; init; }
 
     public Money? CountedCash { get; init; }

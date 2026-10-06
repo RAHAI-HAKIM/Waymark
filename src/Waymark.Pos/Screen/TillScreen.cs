@@ -42,6 +42,7 @@ public enum Tone
 /// <param name="Refunding">A refund being prepared on the past ticket open (B9).</param>
 /// <param name="Customer">The tenant's customer switches, the attached customer's tab, and the customer screens open (B7).</param>
 /// <param name="MoreOpen">The rail shows "Plus…"'s keys (B10).</param>
+/// <param name="Drawer">The till's cash session as the server last gave it (C1, D-111); null until asked.</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -69,7 +70,8 @@ public sealed record ScreenState(
     PaymentState? Paying = null,
     RefundState? Refunding = null,
     CustomerScreenState? Customer = null,
-    bool MoreOpen = false);
+    bool MoreOpen = false,
+    CashSessionState? Drawer = null);
 
 /// <summary>
 /// A discount being given at the counter (B4, D-091): on which line, or the ticket when
@@ -134,6 +136,9 @@ public enum CounterKind
 
     /// <summary>An earlier day's or another till's ticket opened by a cashier (D-109): the PIN step only, rank 2.</summary>
     OpenTicket,
+
+    /// <summary>The drawer counted and closed by someone who may not close alone (C1, D-111): the PIN step only.</summary>
+    CloseSession,
 }
 
 /// <summary>What the discount panel has to say is wrong.</summary>
@@ -419,8 +424,15 @@ public sealed record TillScreen(
             text.ParkedAt(DisplayFigures.Clock(Local(state, held.At))),
             text.Lines(held.Cart.ActiveLines.Count))).ToList();
 
+        // The drawer's state beside the till's name (the board, 2B): "Caisse 1 · ouverte 08:12", "· fermée".
+        var place = context is null ? null : $"{context.StoreName} · {context.TerminalName}";
+        if (place is not null && state.Drawer is { } drawer)
+        {
+            place += " · " + (drawer.Open is { } open ? text.DrawerOpenSince(DisplayFigures.Clock(Local(state, open.OpenedAt))) : text.DrawerShut);
+        }
+
         return new TopBar(
-            context is null ? null : $"{context.StoreName} · {context.TerminalName}",
+            place,
             tab,
             connection,
             staff,
@@ -831,6 +843,9 @@ public sealed record TillScreen(
         {
             return
             [
+                // The drawer (C1): closed from here, once it is open. The X report is C2's: shown, not yet available.
+                new OperationKey(Operation.XReport, text.XReportKey, null, false),
+                new OperationKey(Operation.CloseDrawer, text.CloseDrawerKey, null, state.Drawer?.Open is not null && state.Unconfirmed is null),
                 new OperationKey(Operation.Clock, text.ClockKey, null, true),
                 new OperationKey(Operation.More, text.BackFromMore, null, true),
             ];
@@ -1698,6 +1713,12 @@ public enum Operation
 
     /// <summary>"Pointage" (B10), under "Plus…".</summary>
     Clock,
+
+    /// <summary>"Clôturer la caisse" (C1, D-111), under "Plus…".</summary>
+    CloseDrawer,
+
+    /// <summary>"Rapport X" (C2), under "Plus…".</summary>
+    XReport,
 }
 
 /// <summary>An operation key in the rail: its label, its F key when it has one, and whether it is available now.</summary>

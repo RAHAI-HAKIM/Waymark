@@ -36,6 +36,11 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             table.HasCheckConstraint(
                 "ck_cash_sessions_status_2",
                 @"status <> 'closed' OR counted_cash IS NOT NULL");
+
+            // C1 (D-111): nobody is named as having allowed a close that has not happened.
+            table.HasCheckConstraint(
+                "ck_cash_sessions_closed_authorised_by",
+                @"closed_authorised_by IS NULL OR status = 'closed'");
         });
 
         builder.HasKey(x => x.SessionId);
@@ -56,6 +61,8 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             .HasDefaultValue(WaymarkConverters.ZeroMoney);
         builder.Property(x => x.ClosedBy)
             .HasColumnName("closed_by");
+        builder.Property(x => x.ClosedAuthorisedBy)
+            .HasColumnName("closed_authorised_by");
         builder.Property(x => x.ClosedAt)
             .HasColumnName("closed_at")
             .HasConversion(WaymarkConverters.Timestamp);
@@ -88,10 +95,26 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
         builder.HasIndex(x => new { x.TerminalId, x.OpenedAt })
             .HasDatabaseName("ix_cash_sessions_terminal");
 
+        // C1 (D-111): a till has one drawer, so one session open at a time; and a Z number is
+        // given once per till. Both were only the code's habit before.
+        builder.HasIndex(x => x.TerminalId)
+            .HasDatabaseName("ux_cash_sessions_one_open")
+            .IsUnique()
+            .HasFilter(@"status = 'open'");
+        builder.HasIndex(x => new { x.TerminalId, x.ZReportNumber })
+            .HasDatabaseName("ux_cash_sessions_z_number")
+            .IsUnique()
+            .HasFilter(@"z_report_number IS NOT NULL");
+
         // Foreign keys are dropped by a rebuild too, for the same reason.
         builder.HasOne<Staff>()
             .WithMany()
             .HasForeignKey(x => x.ClosedBy)
+            .HasPrincipalKey(x => x.StaffId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Staff>()
+            .WithMany()
+            .HasForeignKey(x => x.ClosedAuthorisedBy)
             .HasPrincipalKey(x => x.StaffId)
             .OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<Staff>()

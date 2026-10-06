@@ -108,6 +108,12 @@ public sealed class WeighedGoodsTests(MigratedDatabaseFixture database) : IClass
                 CreatedAt = Moment,
                 UpdatedAt = Moment,
             });
+            // C1 (D-111): a sale needs the till's cash session open.
+            context.CashSessions.Add(new CashSession
+            {
+                SessionId = $"session-{_suffix}", StoreId = StoreId, TerminalId = TerminalId, OpenedBy = StaffId, OpenedAt = Moment,
+                OpeningFloat = Money.Zero(Currency.Dzd), CreatedAt = Moment, UpdatedAt = Moment,
+            });
             context.UnitsOfMeasure.Add(new UnitOfMeasure
             {
                 UnitCode = Kg,

@@ -606,6 +606,63 @@ difference a `rounding_variance` row; a part is a multiple of the cash step.
 
 ---
 
+# **Phase 1, Block C (in full until the block is reviewed)**
+
+### D-110 — A tenant key sets a rank, above the ladder or below it; only where a key exists (C1, 05/10)
+D-098's rule was "a setting raises and never lowers": the ladder was a floor. Hakim, 05/10: the
+owner may hand closing to a cashier, so a floor is the wrong shape. **A setting now sets**:
+what is needed is the setting where there is one, the ladder's rank otherwise
+(`StaffPermissions.May`, three arguments). What kept a setting of 1 from handing price overrides
+to every cashier was the floor; it is now **`StaffPermissions.IsConfigurable`**: refunds,
+paid-outs, reading an X and closing have a tenant key, and **a setting on any other capability
+throws**, whoever asks. `ReadXReport` and `CloseSession` sit at 2 on the ladder, with
+`x_report_min_rank` and `close_session_min_rank`. Refunds and paid-outs are unchanged in
+practice: their ladder rank was already 1. **Rejected:** closing at 3 on the ladder, which no
+shop could lower and which leaves a drawer nobody can close on the owner's evening off; a
+`role_permissions` table before H2 needs one.
+
+### D-111 — C1: a till sells only in an open cash session, opened with a counted float and closed with a count
+Replaces D-070's session, which the first sale opened with nothing in it and nothing closed.
+
+- **Nothing touches the drawer without an open session.** A sale, a cancel, a refund, cash in
+  or out and a tab's repayment are refused as `no_open_session`; none opens one. Anyone signed
+  in opens, with a typed float of zero or more; who did is on the row. One figure, not a count
+  by denomination (Hakim, 05/10).
+- **What the drawer should hold is `Drawer.Expected`** (Hakim's, in Domain), the generator's
+  formula: float + cash sales − cash refunds + paid-in + tab repayments − paid-out − drops +
+  tender rounding. **Only a ticket's rounding row is added**: a tab repayment's `paid_in` is the
+  rounded cash already (D-108), and adding its row counts those centimes twice.
+  `cash_sessions.variance` is counted minus expected and nothing else (D-034).
+- **The count at close is required; whether it is blind is the tenant's** (`blind_close`).
+  Blind, whoever counts is sent neither the expected figure, the variance nor the threshold,
+  unless they close alone. The count freezes when confirmed: the till does not let it be typed
+  again, or the note's question would find the drawer's figure in a dozen tries.
+- **A variance is recorded, never refused** (as D-097 for a cancel). Past the tenant's
+  `variance_alert_value`, short or over, a note is asked first, then the PIN: the note before
+  the PIN, as the board asks them. No recount once sent.
+- **Who closes is `close_session_min_rank`** (D-110); below it a manager's PIN, and the row
+  names both: `closed_by` counted, `closed_authorised_by` allowed it.
+- **A closed session is final**: three triggers refuse its update, its delete and its replace,
+  by its id and by its till's Z number. A till has one session open
+  (`ux_cash_sessions_one_open`) and gives each Z number once (`ux_cash_sessions_z_number`),
+  from 1, per terminal; a store's figure for a day is the sum of its tills', a report and not a
+  second number (Hakim, 05/10).
+- **A session belongs to the store's day it opened on** and nothing closes it by itself: a
+  shop open past midnight closes when it closes (Hakim, 05/10).
+- **Tickets are settled first**: the till does not count a drawer while a ticket has lines or
+  one is on hold, so no ticket straddles two sessions.
+- **One session, many cashiers.** Changing cashier opens and closes nothing; the variance is
+  the drawer's, and C3 is the Z's per-cashier section, read off each row's `staff_id` (Hakim,
+  05/10: cashiers swap tills too often for a count at each swap).
+- **F-35:** a paid-out larger than the drawer should hold is refused (`Drawer.Covers`), naming
+  no figure.
+
+**Rejected:** a handover that closes and reopens; a stored count at each swap (a table);
+the Z's figures stored beyond expected, counted and variance, since the rest is recomputed
+from the session's rows; a PIN that could turn a variance down.
+
+---
+
 ## Open — waiting on Hakim
 
 | # | Question | Why it can't be defaulted | Blocks |

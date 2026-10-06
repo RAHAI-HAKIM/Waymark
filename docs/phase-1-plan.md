@@ -142,7 +142,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | :-- | :---- | :---- | :--: | :--: |
 | C1 | Float count, counted close, variance — **replaces D-070's auto-opened session** | `CompleteSale.CashSession` | **H** | M |
 | C2 | X-report and Z-report, reconciling to counted cash | `rounding_variance` (D-034), `cash_movements` | **H** arithmetic, C rendering | M |
-| C3 | Handover | C1 | C | S |
+| C3 | The Z's per-cashier section: one session, many cashiers, no count at a swap (D-111) | C2 | C | S |
 
 ### Block D — Receipts and hardware (3 sessions)
 

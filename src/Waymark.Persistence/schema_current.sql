@@ -122,24 +122,27 @@ CREATE TABLE "cash_movements" (
 
 CREATE TABLE "cash_sessions" (
     "session_id" TEXT NOT NULL CONSTRAINT "PK_cash_sessions" PRIMARY KEY,
+    "closed_at" TEXT NULL,
+    "closed_authorised_by" TEXT NULL,
+    "closed_by" TEXT NULL,
+    "counted_cash" INTEGER NULL,
+    "created_at" TEXT NOT NULL,
+    "expected_cash" INTEGER NULL,
+    "notes" TEXT NULL,
+    "opened_at" TEXT NOT NULL,
+    "opened_by" TEXT NOT NULL,
+    "opening_float" INTEGER NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'open',
     "store_id" TEXT NOT NULL,
     "terminal_id" TEXT NOT NULL,
-    "opened_by" TEXT NOT NULL,
-    "opened_at" TEXT NOT NULL,
-    "opening_float" INTEGER NOT NULL DEFAULT 0,
-    "closed_by" TEXT NULL,
-    "closed_at" TEXT NULL,
-    "counted_cash" INTEGER NULL,
-    "expected_cash" INTEGER NULL,
+    "updated_at" TEXT NOT NULL,
     "variance" INTEGER NULL,
     "z_report_number" INTEGER NULL,
-    "status" TEXT NOT NULL DEFAULT 'open',
-    "notes" TEXT NULL,
-    "created_at" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL,
     CONSTRAINT "ck_cash_sessions_closed_at" CHECK (closed_at IS NULL OR closed_at >= opened_at),
+    CONSTRAINT "ck_cash_sessions_closed_authorised_by" CHECK (closed_authorised_by IS NULL OR status = 'closed'),
     CONSTRAINT "ck_cash_sessions_status" CHECK (status IN ('open','closed','suspended')),
     CONSTRAINT "ck_cash_sessions_status_2" CHECK (status <> 'closed' OR counted_cash IS NOT NULL),
+    CONSTRAINT "FK_cash_sessions_staff_closed_authorised_by" FOREIGN KEY ("closed_authorised_by") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_cash_sessions_staff_closed_by" FOREIGN KEY ("closed_by") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_cash_sessions_staff_opened_by" FOREIGN KEY ("opened_by") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_cash_sessions_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id"),
@@ -1426,6 +1429,10 @@ CREATE INDEX "ix_variants_status" ON "variants" ("status");
 
 CREATE INDEX "ix_vav_attribute" ON "variant_attribute_values" ("attribute_code");
 
+CREATE UNIQUE INDEX "ux_cash_sessions_one_open" ON "cash_sessions" ("terminal_id") WHERE status = 'open';
+
+CREATE UNIQUE INDEX "ux_cash_sessions_z_number" ON "cash_sessions" ("terminal_id", "z_report_number") WHERE z_report_number IS NOT NULL;
+
 CREATE UNIQUE INDEX "ux_parameter_current" ON "parameter_registry" ("parameter_code", "scope_type", "scope_id") WHERE is_current = 1;
 
 CREATE UNIQUE INDEX "ux_processing_counters_day" ON "processing_counters" ("store_id", "day", "operation", "purpose");
@@ -1442,6 +1449,30 @@ CREATE UNIQUE INDEX "ux_transactions_invoice" ON "transactions" ("store_id", "in
 -- =============================================================================
 -- TRIGGERS
 -- =============================================================================
+
+CREATE TRIGGER trg_cash_sessions_closed_final
+BEFORE UPDATE ON cash_sessions
+    WHEN OLD.status = 'closed'
+BEGIN
+    SELECT RAISE(ABORT, 'a closed cash session is final: its count and its Z number are never rewritten');
+END;
+
+CREATE TRIGGER trg_cash_sessions_closed_no_delete
+BEFORE DELETE ON cash_sessions
+    WHEN OLD.status = 'closed'
+BEGIN
+    SELECT RAISE(ABORT, 'a closed cash session is final: it is never deleted');
+END;
+
+CREATE TRIGGER trg_cash_sessions_closed_no_replace
+BEFORE INSERT ON cash_sessions
+    WHEN EXISTS (SELECT 1 FROM cash_sessions WHERE status = 'closed' AND session_id = NEW.session_id)
+      OR (NEW.z_report_number IS NOT NULL AND EXISTS (
+            SELECT 1 FROM cash_sessions
+            WHERE status = 'closed' AND terminal_id = NEW.terminal_id AND z_report_number = NEW.z_report_number))
+BEGIN
+    SELECT RAISE(ABORT, 'a closed cash session is final: it is never replaced');
+END;
 
 CREATE TRIGGER trg_consent_events_no_delete
 BEFORE DELETE ON consent_events

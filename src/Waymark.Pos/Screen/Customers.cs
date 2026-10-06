@@ -39,6 +39,21 @@ public enum CustomerPanelKind
 
     /// <summary>The arrival or the departure recorded, once.</summary>
     ClockDone,
+
+    /// <summary>"Ouvrir la caisse" (C1, D-111): the float counted. It has no way out but opening, or another person.</summary>
+    DrawerOpen,
+
+    /// <summary>"Clôturer la caisse", 1 of 3: the drawer counted.</summary>
+    DrawerCount,
+
+    /// <summary>2 of 3: the count confirmed, with its variance and its note to who may see them.</summary>
+    DrawerConfirm,
+
+    /// <summary>A blind count past the threshold: the note the server asked for, the count frozen.</summary>
+    DrawerNote,
+
+    /// <summary>3 of 3: closed, with its Z number. It has no way out but "Terminer", which signs out.</summary>
+    DrawerClosed,
 }
 
 /// <summary>
@@ -59,6 +74,9 @@ public enum CustomerPanelKind
 /// <param name="Pin">"Pointage" (B10): the PIN typed, shown as dots, sent once.</param>
 /// <param name="Staff">"Pointage": who may clock, the sign-in list.</param>
 /// <param name="Clocked">"Pointage": the server's answer once in or out.</param>
+/// <param name="Drawer">The drawer's panels (C1): the till's cash session as the server last gave it.</param>
+/// <param name="Closed">The close as the server recorded it, for the result.</param>
+/// <param name="Frozen">A blind count was confirmed: it is not typed again (D-111).</param>
 public sealed record CustomerPanelState(
     CustomerPanelKind Kind,
     string Phone = "",
@@ -81,7 +99,10 @@ public sealed record CustomerPanelState(
     string? Direction = null,
     string Pin = "",
     TillStaff? Staff = null,
-    ClockAnswer? Clocked = null);
+    ClockAnswer? Clocked = null,
+    CashSessionState? Drawer = null,
+    ClosedCashSessionWire? Closed = null,
+    bool Frozen = false);
 
 /// <summary>The carnet open in the ticket's place (B7): the server's answer, and when and by whom it was opened, which the server logged.</summary>
 public sealed record CarnetState(TabAnswer? Tab, bool Offline, DateTimeOffset OpenedAt, string? OpenedBy);
@@ -150,6 +171,24 @@ public sealed record FormPanel(
 
     /// <summary>The rows are the panel's first choice and are drawn before its field: who clocks, then their PIN.</summary>
     public bool RowsFirst { get; init; }
+
+    /// <summary>
+    /// The large figure leads, then the tiles and the message, then the fields (C1): a count to confirm
+    /// and a close's result are read from the figure down.
+    /// </summary>
+    public bool BigFirst { get; init; }
+
+    /// <summary>
+    /// The panel has no ✕ and Échap does nothing (C1, D-111): nothing sells without an open drawer,
+    /// and a close is finished, not left.
+    /// </summary>
+    public bool NoClose { get; init; }
+
+    /// <summary>The notice and the message lead, before the field (C1): what the drawer's opening is about, then its float.</summary>
+    public bool NoticeFirst { get; init; }
+
+    /// <summary>The message's figure, drawn large inside it: a variance, read before its sentence.</summary>
+    public string? MessageFigure { get; init; }
 }
 
 /// <summary>A field of a panel: what it is, what it holds, and whether it has the keys or is refused.</summary>
@@ -307,6 +346,8 @@ public static class CustomerScreen
             CustomerPanelKind.PettyCashDone => PettyCashDonePanel(state, panel),
             CustomerPanelKind.Clock => ClockPanel(state, panel),
             CustomerPanelKind.ClockDone => ClockDonePanel(state, panel),
+            CustomerPanelKind.DrawerOpen or CustomerPanelKind.DrawerCount or CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote
+                or CustomerPanelKind.DrawerClosed => DrawerScreen.Panel(state, panel),
             _ => IssuedPanel(state, panel),
         };
     }
@@ -811,6 +852,12 @@ public static class CustomerScreen
             return key is >= '0' and <= '9' && panel.Pin.Length < 12 ? panel with { Pin = panel.Pin + key, Refused = null } : panel;
         }
 
+        if (panel.Kind is CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote or CustomerPanelKind.DrawerClosed)
+        {
+            // The note, where the panel has one; the count is no longer typed here.
+            return panel.OnName && panel.Name.Length < 200 && !char.IsControl(key) ? panel with { Name = panel.Name + key, Refused = null } : panel;
+        }
+
         if (panel.Kind == CustomerPanelKind.PettyCash && panel.OnName)
         {
             return panel.Name.Length >= 200 || char.IsControl(key) ? panel : panel with { Name = panel.Name + key, Refused = null };
@@ -837,7 +884,8 @@ public static class CustomerScreen
                 : panel;
         }
 
-        if (panel.Kind is not (CustomerPanelKind.ChangeTab or CustomerPanelKind.Repay or CustomerPanelKind.PettyCash))
+        if (panel.Kind is not (CustomerPanelKind.ChangeTab or CustomerPanelKind.Repay or CustomerPanelKind.PettyCash
+            or CustomerPanelKind.DrawerOpen or CustomerPanelKind.DrawerCount))
         {
             return panel;
         }
@@ -861,6 +909,9 @@ public static class CustomerScreen
             CustomerPanelKind.Clock => panel with { Pin = panel.Pin.Length > 0 ? panel.Pin[..^1] : string.Empty, Refused = null },
             CustomerPanelKind.PettyCash when panel.OnName => panel with { Name = panel.Name.Length > 0 ? panel.Name[..^1] : string.Empty, Refused = null },
             CustomerPanelKind.Create when panel.OnName => panel with { Name = panel.Name.Length > 0 ? panel.Name[..^1] : string.Empty, Refused = null },
+            CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote or CustomerPanelKind.DrawerClosed => panel.OnName
+                ? panel with { Name = panel.Name.Length > 0 ? panel.Name[..^1] : string.Empty, Refused = null }
+                : panel,
             CustomerPanelKind.Search or CustomerPanelKind.Create => panel with
             {
                 Phone = panel.Phone.Length > 0 ? panel.Phone[..^1] : string.Empty,
@@ -881,6 +932,9 @@ public static class CustomerScreen
             CustomerPanelKind.Clock => panel with { Pin = string.Empty, Refused = null },
             CustomerPanelKind.PettyCash when panel.OnName => panel with { Name = string.Empty, Refused = null },
             CustomerPanelKind.Create when panel.OnName => panel with { Name = string.Empty, Refused = null },
+            CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote or CustomerPanelKind.DrawerClosed => panel.OnName
+                ? panel with { Name = string.Empty, Refused = null }
+                : panel,
             CustomerPanelKind.Search or CustomerPanelKind.Create => panel with { Phone = string.Empty, Found = panel.Kind == CustomerPanelKind.Search ? null : panel.Found, Chosen = null, Refused = null },
             _ => panel with { Typed = string.Empty, Refused = null },
         };

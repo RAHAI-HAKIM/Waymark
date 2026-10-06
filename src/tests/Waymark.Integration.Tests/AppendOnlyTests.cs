@@ -65,6 +65,9 @@ public sealed class AppendOnlyTests : IClassFixture<MigratedDatabaseFixture>
     [InlineData("trg_erasure_ledger_no_replace")]
     [InlineData("trg_processing_log_no_replace")]
     [InlineData("trg_rounding_variance_no_replace")]
+    [InlineData("trg_cash_sessions_closed_final")]
+    [InlineData("trg_cash_sessions_closed_no_delete")]
+    [InlineData("trg_cash_sessions_closed_no_replace")]
     public void Append_only_trigger_is_present(string triggerName)
     {
         var found = _schema.Scalar(

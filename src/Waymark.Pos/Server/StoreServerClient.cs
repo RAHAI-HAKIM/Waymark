@@ -250,6 +250,18 @@ public sealed class StoreServerClient(HttpClient http, HttpClient? patient = nul
     public Task<CashMovementAnswer?> CashMovementAsync(CashMovementRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         SendAsync<CashMovementAnswer>(HttpMethod.Post, "api/cash/movements", request, sessionToken, cancellationToken);
 
+    /// <summary>The till's cash session (C1, D-111). Null when the server could not say: the till then shows nothing of it.</summary>
+    public Task<CashSessionState?> CashSessionAsync(string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<CashSessionState>(HttpMethod.Get, $"api/cash/session?terminal={Uri.EscapeDataString(terminalId)}", null, sessionToken, cancellationToken);
+
+    /// <summary>The drawer opened with its counted float (C1). Null when the server could not say: nothing is taken as opened.</summary>
+    public Task<CashSessionAnswer?> OpenCashSessionAsync(OpenCashSessionRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<CashSessionAnswer>(HttpMethod.Post, "api/cash/session/open", request, sessionToken, cancellationToken);
+
+    /// <summary>The drawer counted and closed (C1). Null when the server could not say: nothing is taken as closed.</summary>
+    public Task<CashSessionAnswer?> CloseCashSessionAsync(CloseCashSessionRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<CashSessionAnswer>(HttpMethod.Post, "api/cash/session/close", request, sessionToken, cancellationToken, _patient);
+
     /// <summary>A person clocking in or out (B10, D-102). Null when the server could not say.</summary>
     public Task<ClockAnswer?> ClockAsync(ClockRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         SendAsync<ClockAnswer>(HttpMethod.Post, "api/till/clock", request, sessionToken, cancellationToken);
@@ -594,6 +606,18 @@ public interface ITillServer
     /// <summary>A paid-in or a paid-out (B10). Null when the server could not say.</summary>
     Task<CashMovementAnswer?> CashMovementAsync(CashMovementRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         Task.FromResult<CashMovementAnswer?>(null);
+
+    /// <summary>The till's cash session (C1). Null when the server could not say.</summary>
+    Task<CashSessionState?> CashSessionAsync(string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CashSessionState?>(null);
+
+    /// <summary>The drawer opened with its counted float (C1). Null when the server could not say.</summary>
+    Task<CashSessionAnswer?> OpenCashSessionAsync(OpenCashSessionRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CashSessionAnswer?>(null);
+
+    /// <summary>The drawer counted and closed (C1). Null when the server could not say.</summary>
+    Task<CashSessionAnswer?> CloseCashSessionAsync(CloseCashSessionRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CashSessionAnswer?>(null);
 
     /// <summary>A person clocking in or out (B10). Null when the server could not say.</summary>
     Task<ClockAnswer?> ClockAsync(ClockRequest request, string sessionToken, CancellationToken cancellationToken = default) =>

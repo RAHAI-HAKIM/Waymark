@@ -58,7 +58,9 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
 
         private readonly string _suffix = Guid.NewGuid().ToString("N")[..10];
 
-        public Shop(MigratedDatabaseFixture database)
+        /// <param name="drawerOpen">The till's cash session is open: what every sale needs (C1). False for the tests that open it.</param>
+        /// <param name="openingFloat">What that session was opened with, for the tests that take cash out of the drawer (F-35).</param>
+        public Shop(MigratedDatabaseFixture database, bool drawerOpen = true, long openingFloat = 0)
         {
             StoreId = $"store-{_suffix}";
             TerminalId = $"till-{_suffix}";
@@ -103,6 +105,15 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
                 Dimension = Dimension.Count,
                 CreatedAt = Moment,
             });
+            if (drawerOpen)
+            {
+                context.CashSessions.Add(new CashSession
+                {
+                    SessionId = $"session-{_suffix}", StoreId = StoreId, TerminalId = TerminalId, OpenedBy = StaffId, OpenedAt = Moment,
+                    OpeningFloat = Money.FromMinorUnits(openingFloat, Currency.Dzd), CreatedAt = Moment, UpdatedAt = Moment,
+                });
+            }
+
             context.SaveChanges();
 
             Milk = AddProduct(database, "milk", 900, price: 14_300);
@@ -291,7 +302,7 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
     public async Task A_refused_line_writes_nothing_at_all()
     {
         // The second line's code is unknown. The first line was already priced, its batch
-        // found, maybe its session opened: none of that may reach the database.
+        // found: none of that may reach the database.
         var shop = new Shop(database);
         var milkBatch = shop.Receive(database, shop.Milk, 10, daysAgo: 5);
 
@@ -302,7 +313,6 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
         Assert.Equal(0, await read.Transactions.CountAsync());
         Assert.Equal(0, await read.TransactionItems.CountAsync(i => i.VariantId == shop.Milk.VariantId));
         Assert.Equal(0, await read.StockMovements.CountAsync());
-        Assert.Equal(0, await read.CashSessions.CountAsync());
         Assert.Equal(0, await read.RoundingVariances.CountAsync());
         Assert.Equal(10 * Quantity.Scale, (await read.Inventories.SingleAsync(i => i.BatchId == milkBatch)).Quantity);
     }
@@ -506,8 +516,9 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
     }
 
     [Fact]
-    public async Task The_first_sale_opens_the_terminals_session_and_later_ones_reuse_it()
+    public async Task Every_sale_is_on_the_terminals_open_session_and_none_opens_one()
     {
+        // C1 (D-111): the session a first sale used to open with nothing in it (D-070) is gone.
         var shop = new Shop(database);
         shop.Receive(database, shop.Milk, 10, daysAgo: 5);
 
@@ -517,7 +528,6 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
         using var read = Read(shop);
         var session = await read.CashSessions.SingleAsync();
         Assert.Equal(CashSessionStatus.Open, session.Status);
-        Assert.Equal(shop.StaffId, session.OpenedBy);
         var sessions = await read.Transactions.Select(t => t.CashSessionId).Distinct().ToListAsync();
         Assert.Equal([session.SessionId], sessions);
         Assert.NotEqual(first.TransactionId, second.TransactionId);

@@ -83,6 +83,12 @@ public static class Capabilities
 
     /// <summary>An earlier day's or another till's ticket opened by a cashier, for its refund (D-109).</summary>
     public const string ViewOtherTickets = "view_other_tickets";
+
+    /// <summary>Counting the drawer and closing the cash session (C1, D-111): the ladder's rank, or the shop's <c>close_session_min_rank</c>.</summary>
+    public const string CloseSession = "close_session";
+
+    /// <summary>Reading an open cash session's figures (C2): the ladder's rank, or the shop's <c>x_report_min_rank</c>.</summary>
+    public const string ReadXReport = "read_x_report";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

@@ -89,7 +89,8 @@ public sealed class TriggerApplicationTests : IDisposable
         // A change to this count is a change to what the database promises.
         var declared = TriggerScript.DeclaredNames();
 
-        Assert.Equal(32, declared.Count);
+        // and cash_sessions' three: a closed session is final (C1, D-111).
+        Assert.Equal(35, declared.Count);
         Assert.Contains("trg_consent_events_no_update", declared);
         Assert.Contains("trg_erasure_ledger_no_delete", declared);
         Assert.Equal(declared.Count, declared.Distinct(StringComparer.Ordinal).Count());

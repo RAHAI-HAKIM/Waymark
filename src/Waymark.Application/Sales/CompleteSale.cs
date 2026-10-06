@@ -135,7 +135,6 @@ public sealed class SaleRefusedException(string reason, string? code = null, par
 /// <item>a <c>transaction_payments</c> row per card or BaridiMob part, then one cash row for the
 /// exact rest (<see cref="Tender"/>, B6), and the difference the cash step makes to that rest in
 /// <c>rounding_variance</c>, never in the drawer's variance (D-034);</item>
-/// <item>a cash session for the terminal, when it has none open;</item>
 /// <item>the anonymous basket, as an <c>outbox</c> row on the statistics channel (D-043,
 /// D-064, hop 3). <b>It goes in with the sale</b>: both rows or neither (CLAUDE.md §3.6).
 /// Tier 2 is handed the same sale and keeps nothing in the skeleton (D-065).</item>
@@ -239,7 +238,8 @@ public sealed class CompleteSaleHandler(
         var currency = (priced.Count > 0 ? priced[0] : pricedStruck[0]).Product.PriceTtc.Currency;
         var zero = Money.Zero(currency);
         await CheckReasonsAsync(command, cancellationToken);
-        var sessionId = await CashSessions.OpenAsync(ledger, staging, context, store, command.TerminalId, command.StaffId, now, cancellationToken);
+        var sessionId = await CashSessions.OpenIdAsync(ledger, command.TerminalId, cancellationToken)
+            ?? throw new SaleRefusedException(CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
         var transactionId = context.NewId();
         var (net, tax, total, discounted) = (zero, zero, zero, zero);
         var sold = new List<SoldLine>();

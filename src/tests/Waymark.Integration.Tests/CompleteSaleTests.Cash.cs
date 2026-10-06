@@ -42,7 +42,7 @@ public sealed partial class CompleteSaleTests
 
     private Task<RecordedCashMovement> Cash(
         Shop shop, CashDirection direction, long amount, string reason, string? note = null, bool sellerMay = true, string? authorisedBy = null) =>
-        Run(shop, (context, work) => new RecordCashMovementHandler(new SalesLedger(context), work, new ReasonCodes(context), new FixedClock()),
+        Run(shop, (context, work) => new RecordCashMovementHandler(new SalesLedger(context), new CashSessionLedger(context), work, new ReasonCodes(context), new FixedClock()),
             new RecordCashMovement(shop.TerminalId, shop.StaffId, direction, amount, reason, note, sellerMay, authorisedBy));
 
     private Task<Clocked> Clock(Shop shop) =>
@@ -69,7 +69,7 @@ public sealed partial class CompleteSaleTests
     public async Task Cash_out_below_the_shops_rank_needs_an_authorisation_and_names_it()
     {
         CashReasons();
-        var shop = new Shop(database);
+        var shop = new Shop(database, openingFloat: 100_000);
 
         await Assert.ThrowsAsync<CashMovementRefusedException>(() => Cash(shop, CashDirection.Out, 50_000, BankDeposit, sellerMay: false));
         await Cash(shop, CashDirection.Out, 50_000, BankDeposit, sellerMay: false, authorisedBy: shop.StaffId);
@@ -82,7 +82,7 @@ public sealed partial class CompleteSaleTests
     public async Task A_reason_for_the_other_way_a_missing_note_or_nothing_is_refused_and_nothing_is_written()
     {
         CashReasons();
-        var shop = new Shop(database);
+        var shop = new Shop(database, openingFloat: 100_000);
 
         await Assert.ThrowsAsync<CashMovementRefusedException>(() => Cash(shop, CashDirection.Out, 50_000, Float));       // a reason for cash in
         await Assert.ThrowsAsync<CashMovementRefusedException>(() => Cash(shop, CashDirection.In, 50_000, BankDeposit));   // a reason for cash out

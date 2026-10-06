@@ -102,8 +102,8 @@ public sealed class ParentScopeTests : IClassFixture<MigratedDatabaseFixture>
                 VALUES ('item-{store}', 'tx-{store}', 'v', 1000, 'piece', 100, 100, '{at}');
                 INSERT INTO transaction_payments (payment_id, transaction_id, sequence, payment_method, amount, created_at)
                 VALUES ('pay-{store}', 'tx-{store}', 1, 'cash', 100, '{at}');
-                INSERT INTO cash_sessions (session_id, store_id, terminal_id, opened_by, opened_at, created_at, updated_at)
-                VALUES ('session-{store}', '{store}', 'till', 'staff', '{at}', '{at}', '{at}');
+                INSERT INTO cash_sessions (session_id, store_id, terminal_id, opened_by, opened_at, closed_at, counted_cash, status, created_at, updated_at)
+                VALUES ('session-{store}', '{store}', 'till', 'staff', '{at}', '{at}', 0, 'closed', '{at}', '{at}');
                 INSERT INTO cash_movements (movement_id, session_id, movement_type, amount, reason_code, staff_id, occurred_at)
                 VALUES ('cash-{store}', 'session-{store}', 'paid_in', 100, 'R', 'staff', '{at}');
                 INSERT INTO batches (batch_id, product_id, store_id, received_date, created_at)

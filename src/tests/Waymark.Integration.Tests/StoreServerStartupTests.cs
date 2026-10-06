@@ -363,8 +363,40 @@ public sealed class StoreServerStartupTests : IDisposable
         Assert.Equal("signed_in", right.GetProperty("outcome").GetString());
         var token = right.GetProperty("session_token").GetString()!;
 
+        // C1 (D-111) on the real process: the generator closed every session, so nothing sells until
+        // the drawer is counted and opened; then the till is told its session, and a second is refused.
+        var before = Sell(client, terminal, barcode, token);
+        Assert.Equal("refused", before.GetProperty("outcome").GetString());
+        Assert.Equal("no_open_session", before.GetProperty("refusal").GetProperty("code").GetString());
+
+        var opened = Drawer(client, token, "/api/cash/session/open", $$"""{"terminal_id":"{{terminal}}","opening_float":"5000.00"}""");
+        Assert.Equal("opened", opened.GetProperty("outcome").GetString());
+        Assert.Equal("5000.00", opened.GetProperty("state").GetProperty("open").GetProperty("opening_float").GetString());
+        Assert.Equal(
+            "session_already_open",
+            Drawer(client, token, "/api/cash/session/open", $$"""{"terminal_id":"{{terminal}}","opening_float":"0.00"}""")
+                .GetProperty("refusal").GetProperty("code").GetString());
+
         var invoice = AssertSale(client, barcode, terminal, token);
         AssertTickets(client, token, invoice);
+
+        // The session as the till reads it: the figures, since the shop's close is not blind; and a
+        // cashier does not close alone, so the count asks a manager's PIN and closes nothing.
+        using (var state = new HttpRequestMessage(HttpMethod.Get, new Uri($"/api/cash/session?terminal={terminal}", UriKind.Relative)))
+        {
+            state.Headers.Add("X-Waymark-Session", token);
+            using var answered = client.SendAsync(state).GetAwaiter().GetResult();
+            using var session = JsonDocument.Parse(answered.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+            Assert.False(session.RootElement.GetProperty("may_close").GetBoolean(), "A generated cashier closes the drawer alone.");
+            var open = session.RootElement.GetProperty("open");
+            Assert.Equal(1, open.GetProperty("tickets").GetInt32());
+            Assert.Equal("5000.00", open.GetProperty("drawer").GetProperty("opening_float").GetString());
+            Assert.NotEqual("5000.00", open.GetProperty("drawer").GetProperty("expected").GetString());
+        }
+
+        Assert.Equal(
+            "pin_required",
+            Drawer(client, token, "/api/cash/session/close", $$"""{"terminal_id":"{{terminal}}","counted":"5000.00"}""").GetProperty("outcome").GetString());
 
         // The token is this till's: at another till's id it sells nothing.
         Assert.Equal("not_signed_in", Sell(client, "no-such-till", barcode, token).GetProperty("outcome").GetString());
@@ -394,6 +426,16 @@ public sealed class StoreServerStartupTests : IDisposable
             JsonBody($$"""{"terminal_id":"{{terminal}}","staff_id":"{{staff}}","pin":"{{pin}}"}""")).GetAwaiter().GetResult();
         var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
         Assert.True(response.StatusCode == HttpStatusCode.OK, $"The sign-in failed ({response.StatusCode}): {body}");
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    private static JsonElement Drawer(HttpClient client, string token, string path, string json)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(path, UriKind.Relative)) { Content = JsonBody(json) };
+        request.Headers.Add("X-Waymark-Session", token);
+        using var response = client.SendAsync(request).GetAwaiter().GetResult();
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"{path} failed ({response.StatusCode}):\n{body}");
         return JsonDocument.Parse(body).RootElement.Clone();
     }
 
