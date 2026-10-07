@@ -192,7 +192,11 @@ public sealed record FormPanel(
 }
 
 /// <summary>A field of a panel: what it is, what it holds, and whether it has the keys or is refused.</summary>
-public sealed record FormField(string Id, string Title, string Value, string? Placeholder, bool Active, bool Invalid, string? Suffix = null);
+/// <param name="Wraps">
+/// The field holds a sentence, a note: its text wraps and the field grows with it. On one line, a
+/// note longer than the field ran out of it over the panel's edge (found 07/10).
+/// </param>
+public sealed record FormField(string Id, string Title, string Value, string? Placeholder, bool Active, bool Invalid, string? Suffix = null, bool Wraps = false);
 
 /// <summary>A row to touch: a customer found, a reason.</summary>
 public sealed record FormRow(string Id, string Label, string? Detail, bool Selected);
@@ -654,7 +658,7 @@ public static class CustomerScreen
         var fields = new List<FormField> { new(AmountField, text.AmountTitle, panel.Typed, null, !panel.OnName, panel.Typed.Length > 0 && !typedOk, text.CurrencySymbol(currency)) };
         if (noteNeeded)
         {
-            fields.Add(new FormField(NameField, text.NoteTitle, panel.Name, null, panel.OnName, false));
+            fields.Add(new FormField(NameField, text.NoteTitle, panel.Name, null, panel.OnName, false, Wraps: true));
         }
 
         return new FormPanel(

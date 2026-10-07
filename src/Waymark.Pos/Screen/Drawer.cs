@@ -240,7 +240,7 @@ public static class DrawerScreen
             [
                 new FormField(
                     CustomerScreen.NameField, reading.NoteNeeded ? text.NoteRequiredTitle : text.NoteOptionalTitle, panel.Name, text.NotePlaceholder, true,
-                    false),
+                    false, Wraps: true),
             ],
             null,
             notice,
@@ -275,7 +275,7 @@ public static class DrawerScreen
             text.ExplainCountTitle,
             text.ExplainCountSubtitle,
             [],
-            [new FormField(CustomerScreen.NameField, text.NoteForManager, panel.Name, null, true, false)],
+            [new FormField(CustomerScreen.NameField, text.NoteForManager, panel.Name, null, true, false, Wraps: true)],
             null,
             null,
             panel.Refused is { } refused ? new PanelMessage(text.ClientRefused, refused) : new PanelMessage(text.NoteAsked, text.NoteAskedDetail, Tone.Warning),

@@ -123,7 +123,15 @@ public static partial class TillViews
                     },
                 },
             });
-            var box = Field(theme, field.Active, content);
+            var box = Field(theme, field.Active, field.Wraps ? Sentence(theme, field) : content);
+            if (field.Wraps)
+            {
+                // A note: as tall as what is written in it, never shorter than two lines.
+                box.Height = double.NaN;
+                box.MinHeight = NoteMinHeight;
+                box.Padding = new Thickness(12, 8);
+            }
+
             if (field.Invalid)
             {
                 var (mark, _, _) = theme.ToneOnSurface(Tone.Critical);
@@ -430,6 +438,31 @@ public static partial class TillViews
     }
 
     /// <summary>A text caret, blinking once a second while it is on screen, and stopped when it leaves it.</summary>
+    /// <summary>The least a note's field stands: two lines of it.</summary>
+    public const double NoteMinHeight = 64;
+
+    /// <summary>
+    /// A note as it is typed: the words wrap inside the field and the caret follows the last of them,
+    /// where a single line ran out of the field once the note was longer than it.
+    /// </summary>
+    private static TextBlock Sentence(TillTheme theme, FormField field)
+    {
+        var empty = field.Value.Length == 0;
+        var block = Wrapped(theme.BodySmall(string.Empty, empty ? theme.TextMuted : theme.Text));
+        block.FontSize = 15;
+        block.LineHeight = 22;
+        block.VerticalAlignment = VerticalAlignment.Top;
+        block.Inlines = [new Avalonia.Controls.Documents.Run(empty ? field.Placeholder ?? string.Empty : field.Value)];
+        if (field.Active)
+        {
+            var caret = Caret(theme);
+            caret.Height = 18;
+            block.Inlines.Add(new Avalonia.Controls.Documents.InlineUIContainer(caret) { BaselineAlignment = BaselineAlignment.Center });
+        }
+
+        return block;
+    }
+
     private static Rectangle Caret(TillTheme theme)
     {
         var caret = new Rectangle
@@ -452,12 +485,19 @@ public static partial class TillViews
                 new KeyFrame { Cue = new Cue(1), Setters = { new Setter(Visual.OpacityProperty, 0d) } },
             },
         };
-        var stop = new CancellationTokenSource();
-        caret.AttachedToVisualTree += (_, _) => _ = blink.RunAsync(caret, stop.Token);
+        // One source for each time it is on screen: a caret inside a wrapping note is taken off the
+        // tree and put back as the text is laid out again, and a source cancelled once is spent.
+        CancellationTokenSource? stop = null;
+        caret.AttachedToVisualTree += (_, _) =>
+        {
+            stop = new CancellationTokenSource();
+            _ = blink.RunAsync(caret, stop.Token);
+        };
         caret.DetachedFromVisualTree += (_, _) =>
         {
-            stop.Cancel();
-            stop.Dispose();
+            stop?.Cancel();
+            stop?.Dispose();
+            stop = null;
         };
         return caret;
     }

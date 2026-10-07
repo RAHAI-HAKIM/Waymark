@@ -201,6 +201,41 @@ public sealed partial class TillWindowTests
     });
 
     [Fact]
+    public Task A_long_note_wraps_inside_its_field_which_grows_and_never_runs_out_of_it() => Headless.Run(() =>
+    {
+        // Found 07/10: on one line, a note longer than its field was drawn past the field's edge.
+        using var till = OpenTill(server => server.MayClose = true);
+        StartClose(till);
+        Keys(till, "48000");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => FormOf(till)?.Title == TillText.French.ConfirmCloseTitle);
+        var before = NoteField(till).Bounds.Height;
+
+        // The longest note the till takes, 200 characters: three lines and more. A word at a time,
+        // slower than a scanner's burst (D-063).
+        for (var word = 0; word < 30; word++)
+        {
+            till.Window.KeyTextInput("billet ");
+            Thread.Sleep(120);
+            till.Pump();
+        }
+
+        till.WaitFor(() => FormOf(till)!.Fields[0].Value.Length == 200);
+        Shot(till, "2e-long-note");
+
+        var field = NoteField(till);
+        var words = field.GetVisualDescendants().OfType<TextBlock>().Single();
+        Assert.True(field.Bounds.Height > before, $"The field stayed {before} high under {FormOf(till)!.Fields[0].Value.Length} characters.");
+        Assert.True(words.Bounds.Width <= field.Bounds.Width, $"The note is {words.Bounds.Width} wide in a field of {field.Bounds.Width}.");
+        Assert.True(words.Bounds.Height <= field.Bounds.Height);
+        var card = till.Window.GetVisualDescendants().OfType<Border>().Single(border => border.Tag is FormPanel);
+        Assert.True(card.Bounds.Height <= till.Window.Bounds.Height, "The panel grew past the window.");
+    });
+
+    private static Border NoteField(Till till) =>
+        till.Window.GetVisualDescendants().OfType<Border>().Single(border => Equals(border.Tag, $"field-{CustomerScreen.NameField}"));
+
+    [Fact]
     public Task Recompter_goes_back_to_the_count_and_sends_nothing() => Headless.Run(() =>
     {
         using var till = OpenTill(server => server.MayClose = true);
