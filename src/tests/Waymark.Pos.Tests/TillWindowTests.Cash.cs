@@ -76,6 +76,7 @@ public sealed partial class TillWindowTests
         till.WaitFor(() => FormOf(till)?.Rows.Count == 2);
         till.Tap(Keyed<FormRow>(till, row => row.Id == "samia"), new Point(20, 10));
         Keys(till, "1357");
+        till.WaitFor(() => FormOf(till)!.Fields[0].Value.Length == 4); // each key is released by the scanner's timer
         Assert.Equal("●●●●", FormOf(till)!.Fields[0].Value); // dots, never the digits
         till.Key(Key.Enter, PhysicalKey.Enter);
         till.WaitFor(() => FormOf(till)?.Title == TillText.French.ClockedInTitle);

@@ -36,6 +36,12 @@ public sealed partial class TillWindowTests
             Thread.Sleep(70);
             till.Pump();
         }
+
+        // The scanner releases a key as typing once its window has passed in silence, from a timer:
+        // on a loaded machine the last key's release can come after the 70 ms above (seen on CI,
+        // 07/10: three dots of four). Twice the window more, so what was typed is all on screen.
+        Thread.Sleep(150);
+        till.Pump();
     }
 
     private static Till WithCustomers(Action<FakeStoreServer>? more = null) => Till.SignedIn(server =>
