@@ -81,6 +81,7 @@ The full text is in `decisions.md`, "Open — waiting on Hakim".
 | O-32 | Does an archived product stop its variants selling? Today only the variant's status is read | A D-066 rule. **E1** |
 | O-33 | Is the person deciding a card at the till the session's person? Today the till sends `staff_id` and the server believes it | CLAUDE.md §3.10 against D-083's gap. The till's half is an hour's work |
 | O-34 | Does lowering a line's count after "Encaisser" need the cancel's PIN, and is it recorded? (D-106 covers a strike only) | An access rule. **Before a pilot** (F-30) |
+| O-35 | What of suppliers does Phase 1 build, and what stays Phase 2's? F1 receives "against a PO" that no Phase 1 screen can make; deliveries with no PO, what is owed to a supplier and goods sent back are unplanned | Raised 07/10, left open on purpose: it needs planning. **Before F1 opens** |
 
 ---
 
@@ -134,7 +135,7 @@ starting point is always code already reviewed. `recaps/phase-0.5.md` §9 is the
 | **C** | Shift: counted float, X and Z reports, the Z per cashier | 3 | **C1 done 06/10** (§9) |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
-| **F** | Stock: receive against a PO, adjustments, counts, views | 4 | |
+| **F** | Stock: receive against a PO, adjustments, counts, views | 4 | **Suppliers to plan first (O-35)**; may grow |
 | **G** | Customers and compliance: consents, objection, loyalty, rights tooling, `processing_log` | 7 | Needs design gate **G3**. The block most likely to grow |
 | **H** | Staff and store | 2 | |
 | **I** | Platform: Admin over the LAN, offline and the Level-2 cache, backup and restore, the recovery code, the evaluator nightly | 6 | |

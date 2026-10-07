@@ -170,6 +170,12 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | F3 | Physical and cycle counts | `stock_counts`, the generator's `StockCounter.cs` | C | M |
 | F4 | Stock views; manual near-expiry flag | `NearExpiry` (D-073) | C | M |
 
+**Block F is not fully specified: suppliers (O-35).** F1 receives against a PO, and nothing in
+Phase 1 makes a supplier or a PO: the Build Plan has those screens in Phase 2. Before F1 opens,
+a planning step decides what moves here and what stays there: at the least a supplier to name
+and a delivery received with no PO; perhaps what is owed to a supplier, and goods sent back. The
+block may grow by a session or more. Nothing is decided yet (Hakim, 07/10).
+
 ### Block G — Customers and compliance (7 sessions) — **G3 first; almost entirely Hakim's**
 
 | # | Work | Expands (0.5 / Phase 0) | Who | Size |
@@ -217,6 +223,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | **Block G is underestimated** | Seven sessions for consent, objection, rights and the processing log, all Hakim's, all legally load-bearing. It is the block most likely to double | Start it earlier than comfort suggests; its screens can be plain, its rules cannot be rushed |
 | **The frontend is the time sink** | The Build Plan says so outright | Admin plain, batched, and cuttable. POS function never cut |
 | **Writing more is slower per feature** | That is the trade being made deliberately | Tests-first handover; a piece sized to 4 h, never a whole block |
+| **Block F rests on suppliers nobody has planned** | F1 needs a supplier and a PO that Phase 1 has no screen for; supplier debt and returns are in no document (O-35) | A planning step before F1, splitting the work with Phase 2; re-forecast the block then |
 | **Hardware may not exist yet** | Real ESC/POS, a drawer and a scale are needed for D2, B3 and J3. Scale protocols are an open item pending the hardware survey | Build against the fakes; flag B3 and D2 as blocked-on-hardware as soon as we know |
 | **O-24 blocks checkout** | A1 cannot start without it | Decided in the transition session, before Phase 1 opens |
 | **23–46 days is a wide range** | 184 h is the honest number; what varies is how often a second session happens, and whether Hakim's pieces land inside their 4 h | Re-forecast at the end of blocks B and G, not at the end |
