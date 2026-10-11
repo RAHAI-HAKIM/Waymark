@@ -570,6 +570,13 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("customer_id");
 
+                    b.Property<string>("GivenBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("subject")
+                        .HasColumnName("given_by");
+
                     b.Property<string>("Method")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -599,6 +606,8 @@ namespace Waymark.Persistence.Migrations
                             t.HasCheckConstraint("ck_consent_events_action", "action IN ('granted','withdrawn','renewed')");
 
                             t.HasCheckConstraint("ck_consent_events_consent_type", "consent_type IN ('processing','marketing')");
+
+                            t.HasCheckConstraint("ck_consent_events_given_by", "given_by IN ('subject','legal_representative')");
 
                             t.HasCheckConstraint("ck_consent_events_method", "method IN ('verbal','written','digital')");
                         });
@@ -963,7 +972,7 @@ namespace Waymark.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_erasure_ledger_status_3", "status <> 'executed' OR executed_at IS NOT NULL");
 
-                            t.HasCheckConstraint("ck_erasure_ledger_subject_type", "subject_type IN ('customer','staff')");
+                            t.HasCheckConstraint("ck_erasure_ledger_subject_type", "subject_type IN ('customer','staff','supplier')");
                         });
                 });
 
@@ -1061,6 +1070,10 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("store_id");
 
+                    b.Property<long?>("SubjectCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("subject_count");
+
                     b.Property<string>("SubjectId")
                         .HasColumnType("TEXT")
                         .HasColumnName("subject_id");
@@ -1084,11 +1097,13 @@ namespace Waymark.Persistence.Migrations
 
                     b.ToTable("processing_log", null, t =>
                         {
-                            t.HasCheckConstraint("ck_processing_log_actor_type", "actor_type IN ('staff','system','engine')");
+                            t.HasCheckConstraint("ck_processing_log_actor_type", "actor_type IN ('staff','system','engine','processor')");
 
-                            t.HasCheckConstraint("ck_processing_log_operation", "operation IN ('collection','consultation','disclosure','transmission', 'modification','erasure','pseudonymisation','re_identification')");
+                            t.HasCheckConstraint("ck_processing_log_operation", "operation IN ('collection','consultation','disclosure','transmission', 'modification','erasure','pseudonymisation','re_identification', 'recording','organisation','storage','extraction','use','dissemination','alignment','interconnection','locking','encryption','destruction')");
 
-                            t.HasCheckConstraint("ck_processing_log_subject_type", "subject_type IN ('customer','staff')");
+                            t.HasCheckConstraint("ck_processing_log_subject_count", "subject_count IS NULL OR (subject_count > 0 AND subject_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_processing_log_subject_type", "subject_type IN ('customer','staff','supplier')");
                         });
                 });
 
@@ -2234,6 +2249,18 @@ namespace Waymark.Persistence.Migrations
                     b.Property<long?>("Variance")
                         .HasColumnType("INTEGER")
                         .HasColumnName("variance");
+
+                    b.Property<long?>("VarianceAlertValue")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("variance_alert_value");
+
+                    b.Property<long?>("VoidAlertCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("void_alert_count");
+
+                    b.Property<long?>("VoidAlertValue")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("void_alert_value");
 
                     b.Property<long?>("ZReportNumber")
                         .HasColumnType("INTEGER")
@@ -3545,7 +3572,7 @@ namespace Waymark.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_retention_policies_action_on_expiry", "action_on_expiry IN ('delete','unlink','archive')");
 
-                            t.HasCheckConstraint("ck_retention_policies_entity_type", "entity_type IN ('transaction','customer','staff','processing_log', 'consent_event','recommendation','stock_movement')");
+                            t.HasCheckConstraint("ck_retention_policies_entity_type", "entity_type IN ('transaction','customer','staff','processing_log', 'consent_event','recommendation','stock_movement', 'receivable','supplier_contact','data_subject_request','tier2_record')");
 
                             t.HasCheckConstraint("ck_retention_policies_is_active", "is_active IN (0,1)");
 

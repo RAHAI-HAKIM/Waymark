@@ -8,7 +8,7 @@
 namespace Waymark.Domain.Enums;
 
 /// <summary>
-/// Stored as TEXT with a CHECK constraint: 'transaction', 'customer', 'staff', 'processing_log', 'consent_event', 'recommendation', 'stock_movement'.
+/// Stored as TEXT with a CHECK constraint: 'transaction', 'customer', 'staff', 'processing_log', 'consent_event', 'recommendation', 'stock_movement', 'receivable', 'supplier_contact', 'data_subject_request', 'tier2_record'.
 /// </summary>
 public enum EntityType
 {
@@ -31,5 +31,17 @@ public enum EntityType
     Recommendation,
 
     /// <summary>Stored as <c>stock_movement</c>.</summary>
-    StockMovement
+    StockMovement,
+
+    /// <summary>Stored as <c>receivable</c> (D-115).</summary>
+    Receivable,
+
+    /// <summary>Stored as <c>supplier_contact</c> (D-115).</summary>
+    SupplierContact,
+
+    /// <summary>Stored as <c>data_subject_request</c> (D-115).</summary>
+    DataSubjectRequest,
+
+    /// <summary>Stored as <c>tier2_record</c> (D-115).</summary>
+    Tier2Record
 }

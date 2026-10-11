@@ -37,5 +37,8 @@ public sealed class ConsentEvent
 
     public required Method Method { get; init; }
 
+    /// <summary>Who gave it (D-113): the person themself unless said otherwise; a legal representative for a minor.</summary>
+    public ConsentGivenBy GivenBy { get; init; } = ConsentGivenBy.Subject;
+
     public string? TerminalId { get; init; }
 }

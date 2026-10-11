@@ -155,6 +155,7 @@ builder.Services.AddScoped<RecordCashMovementHandler>();
 builder.Services.AddScoped<ICashSessionLedger, Waymark.Persistence.Organisation.CashSessionLedger>();
 builder.Services.AddScoped<OpenCashSessionHandler>();
 builder.Services.AddScoped<CloseCashSessionHandler>();
+builder.Services.AddScoped<ShiftReports>();
 builder.Services.AddScoped<ToggleClockHandler>();
 builder.Services.AddScoped<IShiftLedger, Waymark.Persistence.Organisation.ShiftLedger>();
 
@@ -573,6 +574,7 @@ app.MapPost("/api/sales", async (
 // B7 (D-096): the customers and their tabs.
 app.MapCustomers();
 app.MapCashSessions(oneSaleAtATime);
+app.MapShiftReports();
 
 // B8 (D-097): a ticket cancelled at the till, recorded before the till lets it go. Who cancels is the
 // session's; whether they may alone is their rank's (VoidTransaction), asked here, never at the till;

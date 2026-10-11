@@ -51,6 +51,13 @@ public sealed class ProcessingLogWriter(
                 nameof(processingEvent));
         }
 
+        // A count belongs to a row about many (D-115): never beside a pseudonym, never zero or less.
+        if (!processingEvent.CountIsValid)
+        {
+            throw new ArgumentException(
+                "A count of subjects is above zero and goes on an entry that names no one (D-115).", nameof(processingEvent));
+        }
+
         context.ProcessingLog.Add(new ProcessingLogEntry
         {
             LogId = ids.NewId(),
@@ -71,6 +78,7 @@ public sealed class ProcessingLogWriter(
             Purpose = processingEvent.Purpose,
             LegalBasis = processingEvent.LegalBasis,
             Recipient = processingEvent.Recipient,
+            SubjectCount = processingEvent.SubjectCount,
             SourceModule = processingEvent.SourceModule,
             StoreId = currentStore.StoreId,
             TerminalId = processingEvent.TerminalId,

@@ -218,6 +218,16 @@ public sealed class StaffPermissionsTests
     }
 
     [Fact]
+    public void A_reports_flags_are_the_owners_and_no_setting_moves_them()
+    {
+        // D-112 (Hakim, 08/10): they name the people a manager works beside, and the manager too.
+        Assert.Equal(3, StaffPermissions.RequiredRank(Capability.ReadShiftFlags));
+        Assert.False(StaffPermissions.May(2, Capability.ReadShiftFlags));
+        Assert.False(StaffPermissions.IsConfigurable(Capability.ReadShiftFlags));
+        Assert.Throws<ArgumentException>(() => StaffPermissions.May(2, Capability.ReadShiftFlags, 2));
+    }
+
+    [Fact]
     public void Only_the_capabilities_with_a_tenant_key_may_be_moved()
     {
         Assert.Equal(Configurable.Order(), All.Where(StaffPermissions.IsConfigurable).Order());

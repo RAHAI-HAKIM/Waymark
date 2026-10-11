@@ -122,6 +122,9 @@ internal static class EnumConverters
     public static readonly ValueConverter<LoyaltyMovementType, string> LoyaltyMovementTypeConverter =
         new(value => ToDatabase(value), text => ToLoyaltyMovementType(text));
 
+    public static readonly ValueConverter<ConsentGivenBy, string> ConsentGivenByConverter =
+        new(value => ToDatabase(value), text => ToConsentGivenBy(text));
+
     public static readonly ValueConverter<Method, string> MethodConverter =
         new(value => ToDatabase(value), text => ToMethod(text));
 
@@ -302,6 +305,7 @@ internal static class EnumConverters
         ActorType.Staff => "staff",
         ActorType.System => "system",
         ActorType.Engine => "engine",
+        ActorType.Processor => "processor",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped ActorType.")
     };
@@ -311,6 +315,7 @@ internal static class EnumConverters
         "staff" => ActorType.Staff,
         "system" => ActorType.System,
         "engine" => ActorType.Engine,
+        "processor" => ActorType.Processor,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown ActorType value in the database.")
     };
@@ -684,6 +689,10 @@ internal static class EnumConverters
         EntityType.ConsentEvent => "consent_event",
         EntityType.Recommendation => "recommendation",
         EntityType.StockMovement => "stock_movement",
+        EntityType.Receivable => "receivable",
+        EntityType.SupplierContact => "supplier_contact",
+        EntityType.DataSubjectRequest => "data_subject_request",
+        EntityType.Tier2Record => "tier2_record",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped EntityType.")
     };
@@ -697,6 +706,10 @@ internal static class EnumConverters
         "consent_event" => EntityType.ConsentEvent,
         "recommendation" => EntityType.Recommendation,
         "stock_movement" => EntityType.StockMovement,
+        "receivable" => EntityType.Receivable,
+        "supplier_contact" => EntityType.SupplierContact,
+        "data_subject_request" => EntityType.DataSubjectRequest,
+        "tier2_record" => EntityType.Tier2Record,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown EntityType value in the database.")
     };
@@ -723,6 +736,7 @@ internal static class EnumConverters
     {
         ErasureLedgerEntrySubjectType.Customer => "customer",
         ErasureLedgerEntrySubjectType.Staff => "staff",
+        ErasureLedgerEntrySubjectType.Supplier => "supplier",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped ErasureLedgerEntrySubjectType.")
     };
@@ -731,6 +745,7 @@ internal static class EnumConverters
     {
         "customer" => ErasureLedgerEntrySubjectType.Customer,
         "staff" => ErasureLedgerEntrySubjectType.Staff,
+        "supplier" => ErasureLedgerEntrySubjectType.Supplier,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown ErasureLedgerEntrySubjectType value in the database.")
     };
@@ -885,6 +900,22 @@ internal static class EnumConverters
             nameof(text), text, "Unknown LoyaltyMovementType value in the database.")
     };
 
+    private static string ToDatabase(ConsentGivenBy value) => value switch
+    {
+        ConsentGivenBy.Subject => "subject",
+        ConsentGivenBy.LegalRepresentative => "legal_representative",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped ConsentGivenBy.")
+    };
+
+    private static ConsentGivenBy ToConsentGivenBy(string text) => text switch
+    {
+        "subject" => ConsentGivenBy.Subject,
+        "legal_representative" => ConsentGivenBy.LegalRepresentative,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown ConsentGivenBy value in the database.")
+    };
+
     private static string ToDatabase(Method value) => value switch
     {
         Method.Verbal => "verbal",
@@ -933,6 +964,17 @@ internal static class EnumConverters
         Operation.Erasure => "erasure",
         Operation.Pseudonymisation => "pseudonymisation",
         Operation.ReIdentification => "re_identification",
+        Operation.Recording => "recording",
+        Operation.Organisation => "organisation",
+        Operation.Storage => "storage",
+        Operation.Extraction => "extraction",
+        Operation.Use => "use",
+        Operation.Dissemination => "dissemination",
+        Operation.Alignment => "alignment",
+        Operation.Interconnection => "interconnection",
+        Operation.Locking => "locking",
+        Operation.Encryption => "encryption",
+        Operation.Destruction => "destruction",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped Operation.")
     };
@@ -947,6 +989,17 @@ internal static class EnumConverters
         "erasure" => Operation.Erasure,
         "pseudonymisation" => Operation.Pseudonymisation,
         "re_identification" => Operation.ReIdentification,
+        "recording" => Operation.Recording,
+        "organisation" => Operation.Organisation,
+        "storage" => Operation.Storage,
+        "extraction" => Operation.Extraction,
+        "use" => Operation.Use,
+        "dissemination" => Operation.Dissemination,
+        "alignment" => Operation.Alignment,
+        "interconnection" => Operation.Interconnection,
+        "locking" => Operation.Locking,
+        "encryption" => Operation.Encryption,
+        "destruction" => Operation.Destruction,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown Operation value in the database.")
     };
@@ -1067,6 +1120,7 @@ internal static class EnumConverters
     {
         ProcessingLogEntrySubjectType.Customer => "customer",
         ProcessingLogEntrySubjectType.Staff => "staff",
+        ProcessingLogEntrySubjectType.Supplier => "supplier",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped ProcessingLogEntrySubjectType.")
     };
@@ -1075,6 +1129,7 @@ internal static class EnumConverters
     {
         "customer" => ProcessingLogEntrySubjectType.Customer,
         "staff" => ProcessingLogEntrySubjectType.Staff,
+        "supplier" => ProcessingLogEntrySubjectType.Supplier,
         _ => throw new ArgumentOutOfRangeException(
             nameof(text), text, "Unknown ProcessingLogEntrySubjectType value in the database.")
     };

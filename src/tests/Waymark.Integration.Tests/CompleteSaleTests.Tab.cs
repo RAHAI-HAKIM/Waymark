@@ -77,11 +77,11 @@ public sealed partial class CompleteSaleTests
         return await executor.ExecuteAsync(build(context, unitOfWork), command);
     }
 
-    private Task<CustomerSummary> Create(Shop shop, string name, string phone) =>
+    private Task<CustomerSummary> Create(Shop shop, string name, string phone, AgeAttestation? age = AgeAttestation.Adult) =>
         Run(shop, (context, work) => new CreateCustomerHandler(
                 new CustomerLedger(context), new TenantConfigurationStore(context, TabChargesFor.Dzd), TabChargesFor.Pseudonymiser, TabChargesFor.Dzd,
                 work, new FixedCalendar(), new FixedClock()),
-            new CreateCustomer(shop.StaffId, name, phone, shop.TerminalId));
+            new CreateCustomer(shop.StaffId, name, phone, shop.TerminalId, age));
 
     private Task<IReadOnlyList<CustomerSummary>> Find(Shop shop, string phone) =>
         Run(shop, (context, _) => new FindCustomersHandler(
@@ -168,6 +168,78 @@ public sealed partial class CompleteSaleTests
         var logged = await read.ProcessingLog.SingleAsync(entry => entry.SubjectId == PseudonymOf(created.CustomerId));
         Assert.Equal((Operation.Collection, ProcessingPurpose.CreditManagement, shop.StaffId), (logged.Operation, logged.Purpose, logged.ActorId));
         Assert.DoesNotContain(created.CustomerId, logged.SubjectId, StringComparison.Ordinal); // a pseudonym, never the id
+    }
+
+    // ------------------------------------------------------------------ D-113: the age, confirmed and not kept
+
+    [Fact]
+    public async Task Nobody_is_created_until_their_age_is_confirmed_and_nothing_is_written()
+    {
+        var shop = new Shop(database);
+        await ConfigureAsync(shop);
+        var phone = NewPhone();
+
+        var refusal = await Assert.ThrowsAsync<CustomerRefusedException>(() => Create(shop, "Karim B.", phone, age: null));
+
+        Assert.Equal(Waymark.Contracts.Pos.RefusalCodes.AgeNotConfirmed, refusal.Code);
+        var stored = "+213" + phone[1..];
+        using var read = Read(shop);
+        Assert.False(await read.Customers.AnyAsync(row => row.ContactPhone == stored));
+        Assert.False(await read.ConsentEvents.AnyAsync(consent => consent.CapturedBy == shop.StaffId)); // the table is the tenant's: this shop's alone
+    }
+
+    [Fact]
+    public async Task An_adult_leaves_no_trace_of_their_age_and_a_minor_only_their_representatives_consent()
+    {
+        // The one thing kept is a consent event given by the legal representative, which implies a
+        // minor and is accepted (D-113). Nothing else tells the two apart: not a column of the
+        // customer, not an entry of the log.
+        var shop = new Shop(database);
+        await ConfigureAsync(shop);
+
+        var adult = await Create(shop, "Karim B.", NewPhone(), AgeAttestation.Adult);
+        var minor = await Create(shop, "Karim B.", NewPhone(), AgeAttestation.GuardianAgreed);
+
+        using var read = Read(shop);
+        static string Shape(object row, params string[] own) => System.Text.Json.JsonSerializer.Serialize(
+            row.GetType().GetProperties().Where(property => !own.Contains(property.Name)).ToDictionary(property => property.Name, property => property.GetValue(row)?.ToString()));
+
+        var customers = await read.Customers.Where(row => row.CustomerId == adult.CustomerId || row.CustomerId == minor.CustomerId).ToListAsync();
+        Assert.Equal(2, customers.Count);
+        Assert.Equal(Shape(customers[0], "CustomerId", "ContactPhone"), Shape(customers[1], "CustomerId", "ContactPhone"));
+
+        var adultLog = await read.ProcessingLog.SingleAsync(entry => entry.SubjectId == PseudonymOf(adult.CustomerId));
+        var minorLog = await read.ProcessingLog.SingleAsync(entry => entry.SubjectId == PseudonymOf(minor.CustomerId));
+        Assert.Equal(Shape(adultLog, "LogId", "SubjectId"), Shape(minorLog, "LogId", "SubjectId"));
+
+        Assert.False(await read.ConsentEvents.AnyAsync(consent => consent.CustomerId == adult.CustomerId));
+        var consent = await read.ConsentEvents.SingleAsync(row => row.CustomerId == minor.CustomerId);
+        Assert.Equal(
+            (ConsentEventAction.Granted, ConsentType.Processing, ConsentGivenBy.LegalRepresentative, Method.Verbal),
+            (consent.Action, consent.ConsentType, consent.GivenBy, consent.Method));
+        Assert.Equal(("information-ar-test", shop.StaffId, shop.TerminalId, Now), (consent.NoticeVersion, consent.CapturedBy, consent.TerminalId, consent.OccurredAt));
+    }
+
+    [Fact]
+    public async Task A_consent_is_the_subjects_own_unless_said_otherwise_and_nobody_else_may_give_one()
+    {
+        var shop = new Shop(database);
+        await ConfigureAsync(shop);
+        var karim = await Create(shop, "Karim B.", NewPhone());
+
+        using var write = Read(shop);
+        await write.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO consent_events (consent_event_id, customer_id, occurred_at, action, consent_type, notice_version, method)
+            VALUES ({"own-" + karim.CustomerId}, {karim.CustomerId}, '2026-01-01 08:00:00', 'granted', 'processing', 'information-ar-test', 'verbal')
+            """);
+        Assert.Equal(ConsentGivenBy.Subject, (await write.ConsentEvents.SingleAsync(row => row.CustomerId == karim.CustomerId)).GivenBy);
+
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => write.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO consent_events (consent_event_id, customer_id, occurred_at, action, consent_type, notice_version, method, given_by)
+            VALUES ({"other-" + karim.CustomerId}, {karim.CustomerId}, '2026-01-01 08:00:00', 'granted', 'processing', 'information-ar-test', 'verbal', 'a_friend')
+            """));
     }
 
     [Theory]

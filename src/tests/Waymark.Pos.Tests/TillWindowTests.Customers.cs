@@ -156,12 +156,21 @@ public sealed partial class TillWindowTests
         Assert.Equal(TillText.French.NewClientTitle, FormOf(till)!.Title);
 
         Keys(till, "Nadia Ouali");
+
+        // D-113: nothing goes on, not even to the manager's step, until the age is confirmed.
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        Assert.Equal(TillText.French.AgeToConfirm, FormOf(till)!.Message?.Title);
+        Assert.Empty(till.Server.Created);
+        till.Tap(Keyed<FormKey>(till, key => key.Id == CustomerScreen.GuardianKey), new Point(10, 10));
+        Assert.True(FormOf(till)!.Keys.Single(key => key.Id == CustomerScreen.GuardianKey).Chosen);
+
         till.Key(Key.Enter, PhysicalKey.Enter); // Créer et rattacher: a cashier asks a manager
         SamiaAuthorises(till);
         till.WaitFor(() => till.Session.Cart.Customer is not null);
 
         var created = till.Server.Created.Single();
         Assert.Equal(("Nadia Ouali", "0661457890", "auth-samia"), (created.Name, created.Phone, created.Authorisation));
+        Assert.Equal(AgeAttestations.GuardianAgreed, created.AgeAttestation);
         Assert.Equal("Nadia O.", till.Session.Cart.Customer!.ShortName);
     });
 

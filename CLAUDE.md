@@ -70,7 +70,7 @@ once that closes. Wanting to save inside a handler means it is a second command.
 - **Splitting a known total** → `Allocate`, largest remainder; `sum(parts) == total` always. Never round parts independently. **A sale line is priced once, then split over its batch rows** (`SaleArithmetic.Line`, `Split`, D-103).
 - **Deriving a value** → `HalfEven` or `HalfUp` from `stores.rounding_policy`, stamped on `transactions.rounding_policy` so a receipt recomputes from its own row. **`Transaction.RoundingPolicy` is `required`**: copy it from the store, never default it (D-053).
 - **A scale label's price is exact** (D-090): the weight is worked back from it, `quantity_source` says which figure a row keeps exact, and a weight is priced by the server, never the till.
-- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034). Card and BaridiMob parts are exact and the cash rest rounds once; a payment reference is never a card number (D-095). **A tab repaid in cash rounds the same way** (`Tab.Repay`, D-108): the whole due clears the tab exactly, the `paid_in` is the rounded cash; a part is a multiple of the step. **Nothing touches the drawer without an open cash session; what it should hold is `Drawer.Expected`, a tab repayment's rounding never added; a closed session is final** (D-111).
+- **Cash tender** → to `Currency.CashRoundingStep` (500 DZD). The tender rounds, never the invoice, and only the cash portion; the difference goes to `rounding_variance`, never `cash_sessions.variance` (D-034). Card and BaridiMob parts are exact and the cash rest rounds once; a payment reference is never a card number (D-095). **A tab repaid in cash rounds the same way** (`Tab.Repay`, D-108): the whole due clears the tab exactly, the `paid_in` is the rounded cash; a part is a multiple of the step. **Nothing touches the drawer without an open cash session; what it should hold is `Drawer.Expected`, a tab repayment's rounding never added; a closed session is final** (D-111). **An X or a Z is recomputed by `ShiftReport`, never stored; a Z is judged by the thresholds frozen at its close** (D-112).
 - **The TVA rate comes from `TvaRate.Resolve`**, never from a query (D-075): categories that agree give their rate; none, a null, or a disagreement gives 19% marked `StandardFallback`.
 - **Reasons come from `IReasonCodes`** (D-079): active only, ordered, and the list is what the foreign key will accept. `requires_manager` is carried, never enforced — rank is `StaffPermissions`.
 - **A promotional `prices` row beats a retail one, and is a price, not a discount** (D-076): `discount_amount` stays zero. The `promotions` tables are B4's.
@@ -156,7 +156,7 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 
 ### 3.10 Access — D-074, D-077, D-083
 
-- **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked. A tenant key sets a rank only where `IsConfigurable` (D-110).
+- **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked. A tenant key sets a rank only where `IsConfigurable` (D-110); a report's flags are rank 3 with no key (D-112).
 - **Who acts is the session's, never a field the till sends.** A PIN is checked in StoreServer only, and the lockout is asked first. **An approval is the till's, for the store's day**, not the session's (D-105); a manager's PIN opens an earlier day's ticket for a cashier (D-109).
 
 ---
@@ -169,9 +169,9 @@ Breaking one of these is a legal problem, not a bug.
 - **`processing_log` is append-only against edits** (`trg_processing_log_no_update`); DELETE is reserved for the retention roll-up (D-045).
 - **`processing_log` is written at every access site**, through `IProcessingLog.Record`, which takes a `ProcessingEvent` and nothing else. Writes belong in `Waymark.Application`.
 - **The caller does not set `log_id`, `occurred_at` or `store_id`** — they come from `IIdGenerator`, the injected `TimeProvider` and `ICurrentStore`.
-- **An operation about one person names them** (D-061): consultation, modification, disclosure, transmission, erasure and re-identification need a `Pseudonym` unless a system task logs them. The writer refuses otherwise.
+- **An operation about one person names them** (D-061, D-115): `ProcessingEvent.NamesOnePerson` says which; a system task alone may not. A bulk one is a row with no subject and a `subject_count`. The writer refuses otherwise.
 - **`objection_flag` is checked before any customer-directed output.**
-- **Consent is two separate consents**, processing and marketing, each with its own timestamp, notice version, staff member and method. `consent_events` is append-only; withdrawal is a new event, never an update.
+- **Consent is two separate consents**, processing and marketing, each with its own timestamp, notice version, staff member and method. `consent_events` is append-only; withdrawal is a new event, never an update. **No customer is created before their age is confirmed; a minor's only trace is a consent event given by the legal representative** (D-113).
 - **Sensitive categories are excluded from customer-level processing**, evaluated across *all* category links.
 - **Nothing decides automatically.** Every recommendation is accepted, adjusted or dismissed by a human.
 

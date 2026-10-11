@@ -118,6 +118,9 @@ public static class RefusalCodes
     /// <summary>Not a full name.</summary>
     public const string NameInvalid = "name_invalid";
 
+    /// <summary>Nobody confirmed the person is 18 or older, or that a parent read the notice and agreed (D-113).</summary>
+    public const string AgeNotConfirmed = "age_not_confirmed";
+
     /// <summary>No information notice is published: nobody is created without being told what is kept.</summary>
     public const string NoNotice = "no_notice";
 

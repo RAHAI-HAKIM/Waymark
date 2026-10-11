@@ -29,13 +29,19 @@ internal sealed class ProcessingLogEntryConfiguration : IEntityTypeConfiguration
             // it does not know about (decisions.md D-022).
             table.HasCheckConstraint(
                 "ck_processing_log_operation",
-                @"operation IN ('collection','consultation','disclosure','transmission', 'modification','erasure','pseudonymisation','re_identification')");
+                @"operation IN ('collection','consultation','disclosure','transmission', 'modification','erasure','pseudonymisation','re_identification', 'recording','organisation','storage','extraction','use','dissemination','alignment','interconnection','locking','encryption','destruction')");
             table.HasCheckConstraint(
                 "ck_processing_log_subject_type",
-                @"subject_type IN ('customer','staff')");
+                @"subject_type IN ('customer','staff','supplier')");
             table.HasCheckConstraint(
                 "ck_processing_log_actor_type",
-                @"actor_type IN ('staff','system','engine')");
+                @"actor_type IN ('staff','system','engine','processor')");
+
+            // D-115: a bulk operation says how many subjects it ran over, and only a row that names
+            // no one may: a count beside a pseudonym would be a row about one person claiming many.
+            table.HasCheckConstraint(
+                "ck_processing_log_subject_count",
+                @"subject_count IS NULL OR (subject_count > 0 AND subject_id IS NULL)");
         });
 
         builder.HasKey(x => x.LogId);
@@ -66,6 +72,8 @@ internal sealed class ProcessingLogEntryConfiguration : IEntityTypeConfiguration
             .HasConversion(EnumConverters.ProcessingLegalBasisConverter);
         builder.Property(x => x.Recipient)
             .HasColumnName("recipient");
+        builder.Property(x => x.SubjectCount)
+            .HasColumnName("subject_count");
         builder.Property(x => x.SourceModule)
             .HasColumnName("source_module");
         builder.Property(x => x.StoreId)

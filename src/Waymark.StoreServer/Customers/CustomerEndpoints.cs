@@ -56,7 +56,7 @@ public static class CustomerEndpoints
 
             try
             {
-                var created = await executor.ExecuteAsync(handler, new CreateCustomer(actor, request.Name, request.Phone, request.TerminalId), cancellationToken);
+                var created = await executor.ExecuteAsync(handler, new CreateCustomer(actor, request.Name, request.Phone, request.TerminalId, Age(request.AgeAttestation)), cancellationToken);
                 return Results.Ok(new CustomerAnswer(CustomerOutcomes.Ok, Wire(created)));
             }
             catch (CustomerRefusedException refusal)
@@ -177,6 +177,17 @@ public static class CustomerEndpoints
         ArgumentNullException.ThrowIfNull(authorisedBy);
         return StaffPermissions.May(sellerRank, capability) ? sellerId : authorisedBy();
     }
+
+    /// <summary>
+    /// The age attestation as the handler reads it (D-113). Anything the server does not know is no
+    /// attestation at all, never taken as "adult". Public so it is tested without a server.
+    /// </summary>
+    public static AgeAttestation? Age(string? attestation) => attestation switch
+    {
+        AgeAttestations.Adult => AgeAttestation.Adult,
+        AgeAttestations.GuardianAgreed => AgeAttestation.GuardianAgreed,
+        _ => null,
+    };
 
     private static string Outcome(CustomerRefusedException refusal) => refusal.Refusal switch
     {

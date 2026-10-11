@@ -54,6 +54,9 @@ public enum CustomerPanelKind
 
     /// <summary>3 of 3: closed, with its Z number. It has no way out but "Terminer", which signs out.</summary>
     DrawerClosed,
+
+    /// <summary>"Rapport X réservé au responsable" (C2): why a cashier under a blind close reads none, and the PIN step's key.</summary>
+    ReportReserved,
 }
 
 /// <summary>
@@ -77,6 +80,7 @@ public enum CustomerPanelKind
 /// <param name="Drawer">The drawer's panels (C1): the till's cash session as the server last gave it.</param>
 /// <param name="Closed">The close as the server recorded it, for the result.</param>
 /// <param name="Frozen">A blind count was confirmed: it is not typed again (D-111).</param>
+/// <param name="Age">A creation: one of <c>AgeAttestations</c> once the staff member has confirmed it (D-113); sent with the creation.</param>
 public sealed record CustomerPanelState(
     CustomerPanelKind Kind,
     string Phone = "",
@@ -102,7 +106,8 @@ public sealed record CustomerPanelState(
     ClockAnswer? Clocked = null,
     CashSessionState? Drawer = null,
     ClosedCashSessionWire? Closed = null,
-    bool Frozen = false);
+    bool Frozen = false,
+    string? Age = null);
 
 /// <summary>The carnet open in the ticket's place (B7): the server's answer, and when and by whom it was opened, which the server logged.</summary>
 public sealed record CarnetState(TabAnswer? Tab, bool Offline, DateTimeOffset OpenedAt, string? OpenedBy);
@@ -258,6 +263,11 @@ public static class CustomerScreen
 
     public const string CloseTabKey = "close_tab";
 
+    /// <summary>A creation's two age keys (D-113): the wire's own words.</summary>
+    public const string AdultKey = AgeAttestations.Adult;
+
+    public const string GuardianKey = AgeAttestations.GuardianAgreed;
+
     /// <summary>"Petite caisse": which way the cash goes (B10); the wire's own words.</summary>
     public const string CashInKey = CashDirections.In;
 
@@ -350,6 +360,7 @@ public static class CustomerScreen
             CustomerPanelKind.PettyCashDone => PettyCashDonePanel(state, panel),
             CustomerPanelKind.Clock => ClockPanel(state, panel),
             CustomerPanelKind.ClockDone => ClockDonePanel(state, panel),
+            CustomerPanelKind.ReportReserved => DrawerScreen.ReservedPanel(state),
             CustomerPanelKind.DrawerOpen or CustomerPanelKind.DrawerCount or CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote
                 or CustomerPanelKind.DrawerClosed => DrawerScreen.Panel(state, panel),
             _ => IssuedPanel(state, panel),
@@ -419,7 +430,8 @@ public static class CustomerScreen
         var nameOk = panel.Name.Trim().Length is > 0 and <= 100;
         var phoneOk = PhoneNumber.TryNormalise(panel.Phone, out _);
         var message = panel.Refused is { } refused ? new PanelMessage(text.ClientRefused, refused)
-            : panel.NeedsCorrecting() ? new PanelMessage(text.FieldsToCorrect(Count(!nameOk, !phoneOk)), text.FieldsToCorrectDetail)
+            : panel.NeedsCorrecting() && (!nameOk || !phoneOk) ? new PanelMessage(text.FieldsToCorrect(Count(!nameOk, !phoneOk)), text.FieldsToCorrectDetail)
+            : panel.NeedsCorrecting() ? new PanelMessage(text.AgeToConfirm, text.AgeToConfirmDetail)
             : null;
 
         return new FormPanel(
@@ -437,7 +449,11 @@ public static class CustomerScreen
             null,
             [],
             null,
-            [],
+            // The person's age, confirmed by whoever creates them (D-113): one of the two, never neither.
+            [
+                new FormKey(AdultKey, text.AgeAdultKey, !panel.Sending, false, panel.Age == AdultKey),
+                new FormKey(GuardianKey, text.AgeGuardianKey, !panel.Sending, false, panel.Age == GuardianKey),
+            ],
             null,
             null,
             [],
@@ -949,7 +965,7 @@ public static class CustomerScreen
     {
         ArgumentNullException.ThrowIfNull(panel);
         return panel.Kind == CustomerPanelKind.Create && panel.Refused is null && panel.Checked
-            && (panel.Name.Trim().Length is 0 or > 100 || !PhoneNumber.TryNormalise(panel.Phone, out _));
+            && (panel.Name.Trim().Length is 0 or > 100 || !PhoneNumber.TryNormalise(panel.Phone, out _) || panel.Age is null);
     }
 
     /// <summary>"0550 12 34 56": a number in the way it is read out, from the digits or the stored "+213" form.</summary>

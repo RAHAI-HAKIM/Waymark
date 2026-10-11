@@ -193,6 +193,119 @@ public sealed class ProcessingLogWriterTests
         Assert.Single(context.ChangeTracker.Entries());
     }
 
+    // ---------------------------------------------------------------- D-115: art. 41 bis 3's list
+
+    [Fact]
+    public void Every_operation_and_every_actor_the_enums_offer_survives_a_write_and_reads_back_as_the_statutes_word()
+    {
+        // The CHECK and the converter are two lists of the same words: one missing from either
+        // refuses the write here, not on a till.
+        using var context = _database.NewContext(enforceForeignKeys: false);
+        foreach (var operation in Enum.GetValues<Operation>())
+        {
+            WriterFor(context, $"01D115OP{(int)operation:D2}").Record(AConsultation() with { Operation = operation, ActorType = ActorType.System, Subject = default });
+        }
+
+        foreach (var actor in Enum.GetValues<ActorType>())
+        {
+            WriterFor(context, $"01D115ACTOR{(int)actor}").Record(AConsultation() with { ActorType = actor });
+        }
+
+        context.SaveChanges();
+
+        Assert.Equal(
+            ["alignment", "collection", "consultation", "destruction", "disclosure", "dissemination", "encryption", "erasure", "extraction", "interconnection",
+                "locking", "modification", "organisation", "pseudonymisation", "re_identification", "recording", "storage", "transmission", "use"],
+            _database.Query("SELECT DISTINCT operation FROM processing_log WHERE log_id LIKE '01D115OP%' ORDER BY operation"));
+        Assert.Equal(
+            ["engine", "processor", "staff", "system"],
+            _database.Query("SELECT DISTINCT actor_type FROM processing_log WHERE log_id LIKE '01D115ACTOR%' ORDER BY actor_type"));
+    }
+
+    [Fact]
+    public void A_bulk_operation_is_one_row_that_names_no_one_and_says_how_many()
+    {
+        using var context = _database.NewContext(enforceForeignKeys: false);
+
+        WriterFor(context, "01D115BULK").Record(AConsultation() with
+        {
+            Operation = Operation.Use, ActorType = ActorType.Engine, Subject = default, SubjectCount = 4_000,
+        });
+        context.SaveChanges();
+
+        Assert.Equal(["|4000"], _database.Query("SELECT coalesce(subject_id, '') || '|' || subject_count FROM processing_log WHERE log_id = '01D115BULK'"));
+    }
+
+    [Theory]
+    [InlineData(0, false)]  // a count of nothing
+    [InlineData(-3, false)]
+    [InlineData(12, true)]  // a count beside a pseudonym: a row about one person claiming many
+    public void A_count_that_is_not_above_zero_or_sits_beside_a_subject_is_refused_before_it_is_staged(int count, bool withSubject)
+    {
+        using var context = _database.NewContext(enforceForeignKeys: false);
+        var bulk = AConsultation() with { Operation = Operation.Use, ActorType = ActorType.Engine, SubjectCount = count };
+
+        Assert.Throws<ArgumentException>(() => WriterFor(context, $"01D115BADCOUNT{count}").Record(withSubject ? bulk : bulk with { Subject = default }));
+        Assert.Empty(context.ChangeTracker.Entries());
+    }
+
+    [Theory]
+    [InlineData("0", "NULL")]
+    [InlineData("5", "'a-pseudonym'")]
+    public void The_database_refuses_such_a_count_whoever_writes_it(string count, string subject)
+    {
+        using var connection = _database.Connect(enforceForeignKeys: false);
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            $"""
+            INSERT INTO processing_log (log_id, occurred_at, operation, subject_type, subject_id, actor_type, purpose, source_module, legal_basis, subject_count)
+            VALUES ('01D115RAW{count}', '2026-09-12 12:00:00', 'use', 'customer', {subject}, 'engine', 'sales_execution', 'test', 'contract', {count})
+            """;
+
+        var refused = Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => command.ExecuteNonQuery());
+        Assert.Contains("ck_processing_log_subject_count", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_supplier_contact_is_a_subject_of_the_logbook_and_of_an_erasure()
+    {
+        using var context = _database.NewContext(enforceForeignKeys: false);
+        WriterFor(context, "01D115SUPPLIER").Record(AConsultation() with
+        {
+            SubjectType = ProcessingLogEntrySubjectType.Supplier,
+            Subject = _keys.Pseudonymiser.PseudonymFor(Waymark.Domain.Privacy.SubjectDomain.Supplier, "01SUPPLIERCONTACT"),
+        });
+        context.SaveChanges();
+        Assert.Equal(["supplier"], _database.Query("SELECT subject_type FROM processing_log WHERE log_id = '01D115SUPPLIER'"));
+
+        using var connection = _database.Connect(enforceForeignKeys: false);
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO erasure_ledger (erasure_id, subject_type, subject_id, requested_at, scope_json, status, created_at)
+            VALUES ('01D115ERASURE', 'supplier', 'a-pseudonym', '2026-09-12 12:00:00', '["suppliers"]', 'pending', '2026-09-12 12:00:00')
+            """;
+        Assert.Equal(1, command.ExecuteNonQuery());
+    }
+
+    [Theory]
+    [InlineData("receivable")]
+    [InlineData("supplier_contact")]
+    [InlineData("data_subject_request")]
+    [InlineData("tier2_record")]
+    public void A_retention_policy_may_name_what_D_115_adds(string entityType)
+    {
+        using var connection = _database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            $"""
+            INSERT INTO retention_policies (policy_code, action_on_expiry, created_at, entity_type, legal_basis_reference, retention_days, updated_at)
+            VALUES ('d115-{entityType}', 'archive', '2026-09-12 12:00:00', '{entityType}', 'test', 365, '2026-09-12 12:00:00')
+            """;
+
+        Assert.Equal(1, command.ExecuteNonQuery());
+    }
+
     [Fact]
     public void An_operation_with_no_subject_writes_a_null_subject_id()
     {

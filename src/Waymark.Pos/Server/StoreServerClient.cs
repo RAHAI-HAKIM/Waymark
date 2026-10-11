@@ -262,6 +262,23 @@ public sealed class StoreServerClient(HttpClient http, HttpClient? patient = nul
     public Task<CashSessionAnswer?> CloseCashSessionAsync(CloseCashSessionRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         SendAsync<CashSessionAnswer>(HttpMethod.Post, "api/cash/session/close", request, sessionToken, cancellationToken, _patient);
 
+    /// <summary>The till's list of reports (C2, D-112). Null when the server could not say.</summary>
+    public Task<ShiftReportList?> ShiftReportsAsync(string terminalId, string? authorisation, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<ShiftReportList>(HttpMethod.Get, $"api/cash/reports?terminal={Uri.EscapeDataString(terminalId)}{Cited(authorisation)}", null, sessionToken, cancellationToken);
+
+    /// <summary>The open session's X, or the Z of that number (C2, D-112). Null when the server could not say.</summary>
+    public Task<ShiftReportAnswer?> ShiftReportAsync(
+        string terminalId, long? zReportNumber, string? authorisation, string sessionToken, CancellationToken cancellationToken = default) =>
+        SendAsync<ShiftReportAnswer>(
+            HttpMethod.Get,
+            (zReportNumber is { } number ? $"api/cash/reports/z/{number.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : "api/cash/reports/x")
+                + $"?terminal={Uri.EscapeDataString(terminalId)}{Cited(authorisation)}",
+            null, sessionToken, cancellationToken);
+
+    /// <summary>An authorisation cited in a query: an opaque id the server gave this till, never a PIN.</summary>
+    private static string Cited(string? authorisation) =>
+        string.IsNullOrEmpty(authorisation) ? string.Empty : $"&authorisation={Uri.EscapeDataString(authorisation)}";
+
     /// <summary>A person clocking in or out (B10, D-102). Null when the server could not say.</summary>
     public Task<ClockAnswer?> ClockAsync(ClockRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         SendAsync<ClockAnswer>(HttpMethod.Post, "api/till/clock", request, sessionToken, cancellationToken);
@@ -618,6 +635,15 @@ public interface ITillServer
     /// <summary>The drawer counted and closed (C1). Null when the server could not say.</summary>
     Task<CashSessionAnswer?> CloseCashSessionAsync(CloseCashSessionRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         Task.FromResult<CashSessionAnswer?>(null);
+
+    /// <summary>The till's list of reports (C2). Null when the server could not say.</summary>
+    Task<ShiftReportList?> ShiftReportsAsync(string terminalId, string? authorisation, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ShiftReportList?>(null);
+
+    /// <summary>The open session's X, or the Z of that number (C2). Null when the server could not say.</summary>
+    Task<ShiftReportAnswer?> ShiftReportAsync(
+        string terminalId, long? zReportNumber, string? authorisation, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ShiftReportAnswer?>(null);
 
     /// <summary>A person clocking in or out (B10). Null when the server could not say.</summary>
     Task<ClockAnswer?> ClockAsync(ClockRequest request, string sessionToken, CancellationToken cancellationToken = default) =>

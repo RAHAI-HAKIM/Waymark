@@ -18,6 +18,66 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
             .OrderByDescending(session => session.ZReportNumber)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public Task<CashSession?> ClosedAsync(string terminalId, long zReportNumber, CancellationToken cancellationToken = default) =>
+        context.CashSessions.AsNoTracking()
+            .Where(session => session.TerminalId == terminalId && session.Status == CashSessionStatus.Closed && session.ZReportNumber == zReportNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<CashSession>> LatestClosedAsync(string terminalId, int take, CancellationToken cancellationToken = default) =>
+        await context.CashSessions.AsNoTracking()
+            .Where(session => session.TerminalId == terminalId && session.Status == CashSessionStatus.Closed)
+            .OrderByDescending(session => session.ZReportNumber)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
+    public async Task<ShiftRows> ReportRowsAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var tickets = await context.Transactions.AsNoTracking()
+            .Where(ticket => ticket.CashSessionId == sessionId
+                && ticket.Status != TransactionStatus.Open && ticket.Status != TransactionStatus.Parked)
+            .ToListAsync(cancellationToken);
+        var ids = tickets.Select(ticket => ticket.TransactionId).ToList();
+        var items = await context.TransactionItems.AsNoTracking()
+            .Where(item => ids.Contains(item.TransactionId))
+            .ToListAsync(cancellationToken);
+        var payments = await context.TransactionPayments.AsNoTracking()
+            .Where(payment => ids.Contains(payment.TransactionId))
+            .ToListAsync(cancellationToken);
+
+        var movements = await context.CashMovements.AsNoTracking()
+            .Where(movement => movement.SessionId == sessionId)
+            .Select(movement => new { movement.MovementId, movement.MovementType })
+            .ToListAsync(cancellationToken);
+        var movementIds = movements.Select(movement => movement.MovementId).ToList();
+        var repaid = (await context.ReceivableMovements.AsNoTracking()
+                .Where(row => row.CashMovementId != null && movementIds.Contains(row.CashMovementId))
+                .Select(row => row.CashMovementId)
+                .ToListAsync(cancellationToken))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return new ShiftRows(
+            [.. tickets.Select(ticket => new ReportTicket(
+                ticket.TransactionId,
+                // A cancel is voided; a refund names the sale it refunds (D-098); anything else was sold.
+                ticket.Status == TransactionStatus.Voided ? TicketKind.Cancel
+                    : ticket.OriginalTransactionId is not null ? TicketKind.Refund
+                    : TicketKind.Sale,
+                ticket.Status == TransactionStatus.Voided ? ticket.VoidedBy ?? ticket.StaffId : ticket.StaffId,
+                ticket.Status == TransactionStatus.Voided ? ticket.VoidedAt ?? ticket.OccurredAt : ticket.OccurredAt,
+                ticket.TotalAmount,
+                ticket.PaymentOpenedAt is not null,
+                ticket.DiscountReasonCode,
+                ticket.RoundingPolicy))],
+            [.. items.Select(item => new ReportRow(
+                item.TransactionId, item.LineNumber, item.RemovedAt is not null, item.Quantity, item.LineTotal, item.DiscountAmount,
+                item.DiscountReasonCode, item.ListPrice))],
+            [.. payments.Select(payment => new ReportPart(payment.TransactionId, payment.PaymentMethod, payment.Amount))],
+            new ShiftCashCounts(
+                movements.Count(movement => movement.MovementType is CashMovementType.PaidIn or CashMovementType.FloatAdd && !repaid.Contains(movement.MovementId)),
+                movements.Count(movement => movement.MovementType is CashMovementType.PaidOut or CashMovementType.FloatRemove),
+                movements.Count(movement => repaid.Contains(movement.MovementId))));
+    }
+
     public Task<long?> LastZReportNumberAsync(string terminalId, CancellationToken cancellationToken = default) =>
         context.CashSessions
             .Where(session => session.TerminalId == terminalId)
@@ -94,6 +154,9 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
         entry.Property(row => row.Variance).CurrentValue = close.Variance;
         entry.Property(row => row.ZReportNumber).CurrentValue = close.ZReportNumber;
         entry.Property(row => row.Notes).CurrentValue = close.Note;
+        entry.Property(row => row.VoidAlertCount).CurrentValue = close.Thresholds.VoidCount;
+        entry.Property(row => row.VoidAlertValue).CurrentValue = close.Thresholds.VoidValue;
+        entry.Property(row => row.VarianceAlertValue).CurrentValue = close.Thresholds.Variance;
         entry.Property(row => row.Status).CurrentValue = CashSessionStatus.Closed;
         entry.Property(row => row.UpdatedAt).CurrentValue = close.At;
     }

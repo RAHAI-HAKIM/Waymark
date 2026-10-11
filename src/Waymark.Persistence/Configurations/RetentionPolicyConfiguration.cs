@@ -28,7 +28,7 @@ internal sealed class RetentionPolicyConfiguration : IEntityTypeConfiguration<Re
             // it does not know about (decisions.md D-022).
             table.HasCheckConstraint(
                 "ck_retention_policies_entity_type",
-                @"entity_type IN ('transaction','customer','staff','processing_log', 'consent_event','recommendation','stock_movement')");
+                @"entity_type IN ('transaction','customer','staff','processing_log', 'consent_event','recommendation','stock_movement', 'receivable','supplier_contact','data_subject_request','tier2_record')");
             table.HasCheckConstraint(
                 "ck_retention_policies_retention_days",
                 @"retention_days > 0");

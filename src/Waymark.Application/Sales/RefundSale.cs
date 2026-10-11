@@ -100,6 +100,7 @@ public sealed class RefundSaleHandler(
     IRefundLedger refunds,
     ISalesLedger ledger,
     ICustomerLedger customers,
+    ICashSessionLedger sessions,
     ITenantConfiguration configuration,
     IStaging staging,
     IStoreCalendar calendar,
@@ -246,8 +247,19 @@ public sealed class RefundSaleHandler(
         }
 
         // Everything asked and answered: now the number, then the rows.
-        var sessionId = await CashSessions.OpenIdAsync(ledger, command.TerminalId, cancellationToken)
+        var open = await ledger.OpenCashSessionAsync(command.TerminalId, cancellationToken)
             ?? throw new SaleRefusedException(CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
+        var sessionId = open.SessionId;
+
+        // Cash that was never there cannot leave, for a refund as for a paid-out (F-38, D-112): asked
+        // of the rounded cash the drawer would give, and naming no figure.
+        if (rest.IsPositive && creditor is null
+            && -(-rest).ToCashTender().Tendered is { IsPositive: true } givenOut
+            && !Drawer.Covers(Drawer.Expected(await sessions.MovementsAsync(open, cancellationToken)), givenOut))
+        {
+            throw new SaleRefusedException("The drawer does not hold that much.", RefusalCodes.DrawerShort);
+        }
+
         var invoice = await InvoiceNumbers.NextAsync(ledger, store, today, cancellationToken);
         var refundId = context.NewId();
         var method = rest.IsPositive ? (command.To == RefundTo.Cash ? RefundMethod.Cash : RefundMethod.StoreCredit)
@@ -362,7 +374,9 @@ public sealed class RefundSaleHandler(
             CustomerId = customerId,
             InvoiceNumber = invoice,
             OccurredAt = now,
-            RoundingPolicy = store.RoundingPolicy,
+            // Its sale's policy, not the day's (F-35, D-112): the refund's rows were worked out from the
+            // sale's, and a receipt recomputes from its own row (D-053).
+            RoundingPolicy = sale.RoundingPolicy,
             Subtotal = -net,
             DiscountTotal = -discounted,
             TaxTotal = -tax,
@@ -431,7 +445,7 @@ public sealed class RefundSaleHandler(
                     ReferenceId = refundId,
                     Source = VarianceSource.CashTender,
                     Amount = cash.Variance,
-                    Policy = store.RoundingPolicy,
+                    Policy = sale.RoundingPolicy,
                     CreatedAt = now,
                 });
             }

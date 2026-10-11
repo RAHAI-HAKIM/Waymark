@@ -69,6 +69,13 @@ public enum Capability
     /// tenant's <c>close_session_min_rank</c> sets it (D-110).
     /// </summary>
     CloseSession,
+
+    /// <summary>
+    /// Read what a report flags for the owner (C2, D-112): cancels after "Encaisser", too many or too
+    /// large, a variance past its threshold. They name people, so it has no tenant key: no setting
+    /// hands them to the people they are about.
+    /// </summary>
+    ReadShiftFlags,
 }
 
 /// <summary>
@@ -130,6 +137,9 @@ public static class StaffPermissions
         // A manager's, each with its tenant key, which may put it above or below (D-110, Hakim 05/10).
         { Capability.ReadXReport, 2 },
         { Capability.CloseSession, 2 },
+
+        // The owner's, and nobody's to move (D-112, Hakim 08/10).
+        { Capability.ReadShiftFlags, 3 },
     };
 
     /// <summary>

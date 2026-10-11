@@ -8,7 +8,7 @@
 namespace Waymark.Domain.Enums;
 
 /// <summary>
-/// Stored as TEXT with a CHECK constraint: 'collection', 'consultation', 'disclosure', 'transmission', 'modification', 'erasure', 'pseudonymisation', 're_identification'.
+/// Stored as TEXT with a CHECK constraint: 'collection', 'consultation', 'disclosure', 'transmission', 'modification', 'erasure', 'pseudonymisation', 're_identification', 'recording', 'organisation', 'storage', 'extraction', 'use', 'dissemination', 'alignment', 'interconnection', 'locking', 'encryption', 'destruction'.
 /// </summary>
 public enum Operation
 {
@@ -34,5 +34,38 @@ public enum Operation
     Pseudonymisation,
 
     /// <summary>Stored as <c>re_identification</c>.</summary>
-    ReIdentification
+    ReIdentification,
+
+    /// <summary>Stored as <c>recording</c> (D-115).</summary>
+    Recording,
+
+    /// <summary>Stored as <c>organisation</c> (D-115).</summary>
+    Organisation,
+
+    /// <summary>Stored as <c>storage</c> (D-115).</summary>
+    Storage,
+
+    /// <summary>Stored as <c>extraction</c> (D-115).</summary>
+    Extraction,
+
+    /// <summary>Stored as <c>use</c> (D-115).</summary>
+    Use,
+
+    /// <summary>Stored as <c>dissemination</c> (D-115).</summary>
+    Dissemination,
+
+    /// <summary>Stored as <c>alignment</c> (D-115).</summary>
+    Alignment,
+
+    /// <summary>Stored as <c>interconnection</c> (D-115).</summary>
+    Interconnection,
+
+    /// <summary>Stored as <c>locking</c> (D-115).</summary>
+    Locking,
+
+    /// <summary>Stored as <c>encryption</c> (D-115).</summary>
+    Encryption,
+
+    /// <summary>Stored as <c>destruction</c> (D-115).</summary>
+    Destruction
 }

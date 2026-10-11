@@ -43,11 +43,27 @@ public sealed record CustomerSearchAnswer(
 
 /// <summary>A customer created at the till (B7): a name and a number; the information notice in force is recorded by the server.</summary>
 /// <param name="Authorisation">What <c>/api/till/authorise</c> answered for <see cref="Capabilities.CreateCustomer"/>, when the seller may not alone.</param>
+/// <param name="AgeAttestation">
+/// One of <see cref="AgeAttestations"/>: what the staff member confirmed of the person's age (D-113).
+/// Asked on every creation and checked by the server. An adult's leaves no trace; a minor's becomes
+/// one consent event given by the legal representative.
+/// </param>
 public sealed record CreateCustomerRequest(
     [property: JsonPropertyName("terminal_id")] string TerminalId,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("phone")] string Phone,
-    [property: JsonPropertyName("authorisation")] string? Authorisation = null);
+    [property: JsonPropertyName("authorisation")] string? Authorisation = null,
+    [property: JsonPropertyName("age_attestation")] string? AgeAttestation = null);
+
+/// <summary>What a staff member confirms before a customer is created (D-113).</summary>
+public static class AgeAttestations
+{
+    /// <summary>The person is 18 or older.</summary>
+    public const string Adult = "adult";
+
+    /// <summary>The person is under 18, and a parent has read the notice and agreed.</summary>
+    public const string GuardianAgreed = "guardian_agreed";
+}
 
 /// <summary>The customer created, or why not.</summary>
 public sealed record CustomerAnswer(

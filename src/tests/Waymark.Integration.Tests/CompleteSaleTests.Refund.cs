@@ -56,7 +56,7 @@ public sealed partial class CompleteSaleTests
         Shop shop, string original, IReadOnlyList<ReturnedLine> lines, RefundTo to = RefundTo.Cash, string reason = Faulty, string? note = null,
         string? customerId = null, bool sellerMay = true, string? authorisedBy = null, bool quote = false) =>
         Run(shop, (context, work) => new RefundSaleHandler(
-                new RefundLedger(context), new SalesLedger(context), new CustomerLedger(context), new TenantConfigurationStore(context, TabChargesFor.Dzd),
+                new RefundLedger(context), new SalesLedger(context), new CustomerLedger(context), new CashSessionLedger(context), new TenantConfigurationStore(context, TabChargesFor.Dzd),
                 work, new FixedCalendar(), new FixedClock(), new Waymark.Persistence.Reference.ReasonCodes(context), TabChargesFor.Context(context)),
             new RefundSale(shop.TerminalId, shop.StaffId, original, lines, reason, note, to, customerId, sellerMay, authorisedBy, quote));
 
@@ -106,7 +106,10 @@ public sealed partial class CompleteSaleTests
     {
         Reasons();
         ReturnReasons();
-        var shop = new Shop(database);
+
+        // A float in the drawer: three refunds each rounded to the cash step give back a little more
+        // than the one sale took, and the drawer covers what it gives (F-38, D-112).
+        var shop = new Shop(database, openingFloat: 100_000);
         shop.Receive(database, shop.Milk, 10, daysAgo: 5);
 
         // 3 × 143,00 less 1,00: 428,00 paid, which no unit price divides.

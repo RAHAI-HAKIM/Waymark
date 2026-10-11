@@ -54,6 +54,17 @@ public sealed class CashSession : IStoreScoped
 
     public long? ZReportNumber { get; init; }
 
+    /// <summary>
+    /// The tenant's thresholds in force when the session closed (C2, D-112), written with the close: a
+    /// Z is judged by them for good, so a threshold changed later rewrites no past Z. Null: that
+    /// threshold was off, or the session is open or was closed before the columns existed.
+    /// </summary>
+    public long? VoidAlertCount { get; init; }
+
+    public Money? VoidAlertValue { get; init; }
+
+    public Money? VarianceAlertValue { get; init; }
+
     public CashSessionStatus Status { get; init; } = CashSessionStatus.Open;
 
     public string? Notes { get; init; }

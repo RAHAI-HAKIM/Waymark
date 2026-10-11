@@ -1151,10 +1151,254 @@ public abstract class TillText
     public abstract string SettleTicketsFirst { get; }
 
     public abstract string DrawerOffline { get; }
+    // ------------------------------------------------------------ C2: the X and Z reports (D-112)
+
+    public abstract string ReportXTitle { get; }
+
+    public abstract string ReportZTitle(long number);
+
+    public abstract string ZListRow(long number);
+
+    public abstract string ReportReadOnly { get; }
+
+    public abstract string ReportOngoing { get; }
+
+    public abstract string FactTill { get; }
+
+    public abstract string FactDay { get; }
+
+    public abstract string FactOpened { get; }
+
+    public abstract string FactClosed { get; }
+
+    public abstract string FactZ { get; }
+
+    public abstract string FactSnapshot { get; }
+
+    public abstract string SessionOngoing { get; }
+
+    public abstract string ReportListSession { get; }
+
+    public abstract string ReportListCloses { get; }
+
+    public abstract string ReportListNote { get; }
+
+    public abstract string NoPastClose { get; }
+
+    public abstract string FlagsTitle(int count);
+
+    public abstract string OwnerOnly { get; }
+
+    public abstract string FlagsReserved(int count);
+
+    public abstract string FlagAfterEncaisser { get; }
+
+    public abstract string FlagVariance { get; }
+
+    public abstract string FlagTooMany { get; }
+
+    public abstract string FlagAboveValue { get; }
+
+    public abstract string FlagCancelDetail(string value, string who, string clock);
+
+    public abstract string FlagVarianceDetail(string value, string threshold);
+
+    public abstract string FlagTooManyDetail(string who, int count, string threshold);
+
+    public abstract string FlagAboveDetail(string value, string who, string clock, string threshold);
+
+    public abstract string TakingsTitle { get; }
+
+    public abstract string ColMethod { get; }
+
+    public abstract string ColParts { get; }
+
+    public abstract string ColAmount { get; }
+
+    public abstract string ColCount { get; }
+
+    public abstract string ColValue { get; }
+
+    public abstract string RefundOf(string method);
+
+    public abstract string TotalTaken { get; }
+
+    public abstract string TakingsNote { get; }
+
+    public abstract string ActivityTitle { get; }
+
+    public abstract string TicketsSold { get; }
+
+    public abstract string RefundsLine { get; }
+
+    public abstract string TicketsCancelled { get; }
+
+    public abstract string LinesStruck { get; }
+
+    public abstract string ReductionsTitle { get; }
+
+    public abstract string LineDiscounts { get; }
+
+    public abstract string TicketDiscounts { get; }
+
+    public abstract string ForcedPrices { get; }
+
+    public abstract string ReportTotal { get; }
+
+    public abstract string ReductionsNote { get; }
+
+    public abstract string CashMovesTitle { get; }
+
+    public abstract string CashInLine { get; }
+
+    public abstract string CashOutLine { get; }
+
+    public abstract string TabRepaymentsLine { get; }
+
+    public abstract string DrawerTitle { get; }
+
+    public abstract string DrawerLineRounding(int tickets);
+
+    public abstract string ExpectedLine { get; }
+
+    public abstract string ExpectedAt(string clock);
+
+    public abstract string CountedLine { get; }
+
+    public abstract string SessionOngoingNote { get; }
+
+    public abstract string NoteQuoted(string note);
+
+    public abstract string NoSaleTitle { get; }
+
+    public abstract string NoSaleNote { get; }
+
+    public abstract string NotReconciled { get; }
+
+    public abstract string NotReconciledDetail { get; }
+
+    public abstract string ReportTotalLabel(string title);
+
+    public abstract string PrintKey { get; }
+
+    public abstract string PrintNote { get; }
+
+    public abstract string CloseReport { get; }
+
+    public abstract string ReportOffline { get; }
+
+    public abstract string ReportLoading { get; }
+
+    public abstract string ApproveReportTitle(string report, string till);
+
+    public abstract string ApproveReportSummary { get; }
+
+    public abstract string ReservedTitle { get; }
+
+    public abstract string ReservedBody { get; }
+
+    public abstract string ReservedNotice { get; }
+
+    public abstract string ManagerPinKey { get; }
+
+    public abstract string DrawerOpenSinceDay(string day, string clock);
+    // ------------------------------------------------------------ D-113: a customer's age, confirmed before they are created
+
+    public abstract string AgeAdultKey { get; }
+
+    public abstract string AgeGuardianKey { get; }
+
+    public abstract string AgeToConfirm { get; }
+
+    public abstract string AgeToConfirmDetail { get; }
+
     // ================================================================== French
 
     private sealed class FrenchText : TillText
     {
+        // D-113: a customer's age
+        public override string AgeAdultKey => "18 ans ou plus";
+        public override string AgeGuardianKey => "Mineur · un parent a lu et accepté";
+        public override string AgeToConfirm => "ÂGE À CONFIRMER";
+        public override string AgeToConfirmDetail => "Confirmez que le client a 18 ans ou plus, ou qu'il est mineur et qu'un parent a lu la notice et accepté. Pour un mineur, le consentement du parent est enregistré.";
+
+        // C2: the X and Z reports (D-112)
+        public override string ReportXTitle => "Rapport X";
+        public override string ReportZTitle(long number) => $"Rapport Z n° {number}";
+        public override string ZListRow(long number) => $"Z n° {number}";
+        public override string ReportReadOnly => "LECTURE SEULE";
+        public override string ReportOngoing => "EN COURS";
+        public override string FactTill => "CAISSE";
+        public override string FactDay => "JOURNÉE";
+        public override string FactOpened => "OUVERTE";
+        public override string FactClosed => "CLÔTURÉE";
+        public override string FactZ => "Z N°";
+        public override string FactSnapshot => "INSTANTANÉ";
+        public override string SessionOngoing => "session en cours";
+        public override string ReportListSession => "SESSION";
+        public override string ReportListCloses => "CLÔTURES PRÉCÉDENTES";
+        public override string ReportListNote => "Les 30 derniers Z ici ; les plus anciens dans l'Admin.";
+        public override string NoPastClose => "Aucune clôture pour l'instant.";
+        public override string FlagsTitle(int count) => $"SIGNALEMENTS · {count}";
+        public override string OwnerOnly => "Propriétaire seulement";
+        public override string FlagsReserved(int count) => $"RÉSERVÉ AU PROPRIÉTAIRE · {count} signalement(s) sur cette session. Seul le propriétaire les lit, parce qu'ils nomment des personnes.";
+        public override string FlagAfterEncaisser => "ANNULATION APRÈS « ENCAISSER »";
+        public override string FlagVariance => "ÉCART AU-DELÀ DU SEUIL";
+        public override string FlagTooMany => "TROP D'ANNULATIONS";
+        public override string FlagAboveValue => "ANNULATION AU-DESSUS DE LA VALEUR";
+        public override string FlagCancelDetail(string value, string who, string clock) => $"Ticket annulé · {value} · {who} · {clock}";
+        public override string FlagVarianceDetail(string value, string threshold) => $"{value} pour un seuil de {threshold}";
+        public override string FlagTooManyDetail(string who, int count, string threshold) => $"{who} · {count} annulations, seuil {threshold} par session";
+        public override string FlagAboveDetail(string value, string who, string clock, string threshold) => $"Ticket annulé · {value} · {who} · {clock}, seuil {threshold}";
+        public override string TakingsTitle => "ENCAISSEMENTS PAR MOYEN";
+        public override string ColMethod => "MOYEN";
+        public override string ColParts => "PARTS";
+        public override string ColAmount => "MONTANT";
+        public override string ColCount => "NOMBRE";
+        public override string ColValue => "VALEUR";
+        public override string RefundOf(string method) => $"Retour · {method}";
+        public override string TotalTaken => "Total encaissé";
+        public override string TakingsNote => "Un ticket payé en plusieurs parts compte dans chaque moyen. Les espèces sont celles des tickets ; l'arrondi est dans le tiroir.";
+        public override string ActivityTitle => "ACTIVITÉ";
+        public override string TicketsSold => "Tickets vendus";
+        public override string RefundsLine => "Retours";
+        public override string TicketsCancelled => "Tickets annulés";
+        public override string LinesStruck => "Lignes retirées";
+        public override string ReductionsTitle => "REMISES ET PRIX FORCÉS";
+        public override string LineDiscounts => "Remises sur ligne";
+        public override string TicketDiscounts => "Remises sur ticket";
+        public override string ForcedPrices => "Prix forcés";
+        public override string ReportTotal => "Total";
+        public override string ReductionsNote => "Une ligne remisée sur un ticket remisé est comptée avec les lignes.";
+        public override string CashMovesTitle => "ENTRÉES ET SORTIES DE CAISSE";
+        public override string CashInLine => "Entrées de caisse";
+        public override string CashOutLine => "Sorties de caisse";
+        public override string TabRepaymentsLine => "Remboursements de carnet";
+        public override string DrawerTitle => "TIROIR";
+        public override string DrawerLineRounding(int tickets) => $"± Arrondi de caisse · {tickets} tickets";
+        public override string ExpectedLine => "= Attendu";
+        public override string ExpectedAt(string clock) => $"= Attendu à {clock}";
+        public override string CountedLine => "Compté";
+        public override string SessionOngoingNote => "Session en cours : le tiroir n'est compté qu'à la clôture. Un X n'a ni compté ni écart.";
+        public override string NoteQuoted(string note) => $"Note : « {note} »";
+        public override string NoSaleTitle => "OUVERTURES DU TIROIR SANS VENTE";
+        public override string NoSaleNote => "Aucune donnée avant le bloc D : la ligne garde sa place.";
+        public override string NotReconciled => "CE RAPPORT NE SE RECOUPE PAS";
+        public override string NotReconciledDetail => "Les encaissements ne correspondent pas aux tickets, ou le tiroir à ce qui a été enregistré à la clôture. Ne vous fiez pas aux totaux : prévenez le propriétaire.";
+        public override string ReportTotalLabel(string title) => $"{title.ToUpperInvariant()} · TOTAL ENCAISSÉ";
+        public override string PrintKey => "Imprimer";
+        public override string PrintNote => "avec l'imprimante · bloc D";
+        public override string CloseReport => "Fermer le rapport";
+        public override string ReportOffline => "Serveur injoignable : le rapport ne peut pas être lu.";
+        public override string ReportLoading => "Lecture du rapport…";
+        public override string ApproveReportTitle(string report, string till) => $"Lire le {report} · {till}";
+        public override string ApproveReportSummary => "Lecture seule · rien ne se clôture";
+        public override string ReservedTitle => "Rapport X réservé au responsable";
+        public override string ReservedBody => "Cette caisse se clôture à l'aveugle. Un rapport X montrerait les espèces encaissées, les entrées et les sorties : de quoi recalculer l'attendu.";
+        public override string ReservedNotice => "RIEN N'EST MASQUÉ À MOITIÉ · Cacher seulement le tiroir ne suffit pas : le reste du rapport permet de le retrouver. Le rapport entier est pour le responsable.";
+        public override string ManagerPinKey => "PIN responsable";
+        public override string DrawerOpenSinceDay(string day, string clock) => $"ouverte le {day} à {clock} · à clôturer";
+
         // C1: the drawer (D-111)
         public override string DrawerOpenLabel => "OUVERTURE DE CAISSE";
         public override string DrawerOpenTitle => "Ouvrir la caisse";
@@ -1581,6 +1825,7 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.LimitAboveCeiling => $"Plafond du magasin : {Named(args, 0)} au plus.",
             Contracts.Pos.RefusalCodes.RepayAboveBalance => $"Plus que le dû : {Named(args, 0)}.",
             Contracts.Pos.RefusalCodes.RepayNotOnStep => $"En espèces, par pas de {Named(args, 0)} : ou tout le dû.",
+            Contracts.Pos.RefusalCodes.AgeNotConfirmed => "Confirmez l'âge du client : 18 ans ou plus, ou un parent qui a lu la notice et accepté.",
             Contracts.Pos.RefusalCodes.PaidOutNeedsManager => "Un responsable autorise la sortie de caisse.",
             Contracts.Pos.RefusalCodes.DrawerShort => "Le tiroir ne contient pas cette somme.",
             Contracts.Pos.RefusalCodes.NoOpenSession => "Aucune caisse ouverte : comptez le fond et ouvrez la caisse.",
@@ -1736,6 +1981,89 @@ public abstract class TillText
 
     private sealed class ArabicText : TillText
     {
+        // D-113: a customer's age
+        public override string AgeAdultKey => "18 سنة أو أكثر"; // ar: à relire
+        public override string AgeGuardianKey => "قاصر · وليّ قرأ ووافق"; // ar: à relire
+        public override string AgeToConfirm => " يجب تأكيد السن";  // ar: à relire
+        public override string AgeToConfirmDetail => "تم التاكد أن الزبون عمره 18 سنة أو أكثر، أو أنه قاصر وأن وليّه قرأ الإشعار ووافق. للقاصر تُسجَّل موافقة الوليّ."; // ar: à relire
+
+        // C2: the X and Z reports (D-112)
+        public override string ReportXTitle => "تقرير X"; // ar: à relire
+        public override string ReportZTitle(long number) => $"تقرير Z رقم {number}"; // ar: à relire
+        public override string ZListRow(long number) => $"Z رقم {number}"; // ar: à relire
+        public override string ReportReadOnly => "للقراءة فقط"; // ar: à relire
+        public override string ReportOngoing => "جارٍ"; // ar: à relire
+        public override string FactTill => "الصندوق"; // ar: à relire
+        public override string FactDay => "اليوم"; // ar: à relire
+        public override string FactOpened => "فُتح"; // ar: à relire
+        public override string FactClosed => "أُقفل"; // ar: à relire
+        public override string FactZ => "Z رقم"; // ar: à relire
+        public override string FactSnapshot => "لحظة القراءة"; // ar: à relire
+        public override string SessionOngoing => "الجلسة جارية"; // ar: à relire
+        public override string ReportListSession => "الجلسة"; // ar: à relire
+        public override string ReportListCloses => "الإقفالات السابقة"; // ar: à relire
+        public override string ReportListNote => "آخر 30 تقرير Z هنا؛ الأقدم في الإدارة."; // ar: à relire
+        public override string NoPastClose => "لا إقفال حتى الآن."; // ar: à relire
+        public override string FlagsTitle(int count) => $"تنبيهات · {count}"; // ar: à relire
+        public override string OwnerOnly => "للمالك فقط"; // ar: à relire
+        public override string FlagsReserved(int count) => $"خاص بالمالك · {count} تنبيه(ات) على هذه الجلسة. المالك وحده يقرؤها لأنها تسمّي أشخاصًا."; // ar: à relire
+        public override string FlagAfterEncaisser => "إلغاء بعد فتح الدفع"; // ar: à relire
+        public override string FlagVariance => "فارق يتجاوز العتبة"; // ar: à relire
+        public override string FlagTooMany => "إلغاءات كثيرة"; // ar: à relire
+        public override string FlagAboveValue => "إلغاء فوق القيمة"; // ar: à relire
+        public override string FlagCancelDetail(string value, string who, string clock) => $"تذكرة ملغاة · {value} · {who} · {clock}"; // ar: à relire
+        public override string FlagVarianceDetail(string value, string threshold) => $"{value} مقابل عتبة {threshold}"; // ar: à relire
+        public override string FlagTooManyDetail(string who, int count, string threshold) => $"{who} · {count} إلغاءات، العتبة {threshold} لكل جلسة"; // ar: à relire
+        public override string FlagAboveDetail(string value, string who, string clock, string threshold) => $"تذكرة ملغاة · {value} · {who} · {clock}، العتبة {threshold}"; // ar: à relire
+        public override string TakingsTitle => "التحصيلات حسب الوسيلة"; // ar: à relire
+        public override string ColMethod => "الوسيلة"; // ar: à relire
+        public override string ColParts => "الأجزاء"; // ar: à relire
+        public override string ColAmount => "المبلغ"; // ar: à relire
+        public override string ColCount => "العدد"; // ar: à relire
+        public override string ColValue => "القيمة"; // ar: à relire
+        public override string RefundOf(string method) => $"مرتجع · {method}"; // ar: à relire
+        public override string TotalTaken => "مجموع المحصَّل"; // ar: à relire
+        public override string TakingsNote => "التذكرة المدفوعة بعدة أجزاء تُحسب في كل وسيلة. النقد هو نقد التذاكر؛ التقريب في الدرج."; // ar: à relire
+        public override string ActivityTitle => "النشاط"; // ar: à relire
+        public override string TicketsSold => "تذاكر مباعة"; // ar: à relire
+        public override string RefundsLine => "مرتجعات"; // ar: à relire
+        public override string TicketsCancelled => "تذاكر ملغاة"; // ar: à relire
+        public override string LinesStruck => "أسطر مُزالة"; // ar: à relire
+        public override string ReductionsTitle => "التخفيضات والأسعار المفروضة"; // ar: à relire
+        public override string LineDiscounts => "تخفيضات على السطر"; // ar: à relire
+        public override string TicketDiscounts => "تخفيضات على التذكرة"; // ar: à relire
+        public override string ForcedPrices => "أسعار مفروضة"; // ar: à relire
+        public override string ReportTotal => "المجموع"; // ar: à relire
+        public override string ReductionsNote => "السطر المخفَّض على تذكرة مخفَّضة يُحسب مع الأسطر."; // ar: à relire
+        public override string CashMovesTitle => "إدخالات وإخراجات النقد"; // ar: à relire
+        public override string CashInLine => "إدخالات نقد"; // ar: à relire
+        public override string CashOutLine => "إخراجات نقد"; // ar: à relire
+        public override string TabRepaymentsLine => "تسديدات دفتر الديون"; // ar: à relire
+        public override string DrawerTitle => "الدرج"; // ar: à relire
+        public override string DrawerLineRounding(int tickets) => $"± تقريب الصندوق · {tickets} تذاكر"; // ar: à relire
+        public override string ExpectedLine => "= المنتظر"; // ar: à relire
+        public override string ExpectedAt(string clock) => $"= المنتظر على {clock}"; // ar: à relire
+        public override string CountedLine => "المعدود"; // ar: à relire
+        public override string SessionOngoingNote => "الجلسة جارية: الدرج لا يُعدّ إلا عند الإقفال. تقرير X بلا عدّ ولا فارق."; // ar: à relire
+        public override string NoteQuoted(string note) => $"ملاحظة: «{note}»"; // ar: à relire
+        public override string NoSaleTitle => "فتح الدرج دون بيع"; // ar: à relire
+        public override string NoSaleNote => "لا بيانات قبل المرحلة D: السطر يحتفظ بمكانه."; // ar: à relire
+        public override string NotReconciled => "هذا التقرير لا يتطابق"; // ar: à relire
+        public override string NotReconciledDetail => "التحصيلات لا تطابق التذاكر، أو الدرج لا يطابق ما سُجّل عند الإقفال. لا تعتمد على المجاميع: أبلغ المالك."; // ar: à relire
+        public override string ReportTotalLabel(string title) => $"{title} · مجموع المحصَّل"; // ar: à relire
+        public override string PrintKey => "طباعة"; // ar: à relire
+        public override string PrintNote => "مع الطابعة · المرحلة D"; // ar: à relire
+        public override string CloseReport => "إغلاق التقرير"; // ar: à relire
+        public override string ReportOffline => "الخادم غير متاح: لا يمكن قراءة التقرير."; // ar: à relire
+        public override string ReportLoading => "قراءة التقرير…"; // ar: à relire
+        public override string ApproveReportTitle(string report, string till) => $"قراءة {report} · {till}"; // ar: à relire
+        public override string ApproveReportSummary => "للقراءة فقط · لا شيء يُقفل"; // ar: à relire
+        public override string ReservedTitle => "تقرير X خاص بالمسؤول"; // ar: à relire
+        public override string ReservedBody => "هذا الصندوق يُقفل دون رؤية المنتظر. تقرير X يُظهر النقد المحصَّل والإدخالات والإخراجات: ما يكفي لحساب المنتظر."; // ar: à relire
+        public override string ReservedNotice => "لا شيء يُخفى نصفه · إخفاء الدرج وحده لا يكفي: بقية التقرير تسمح بإيجاده. التقرير كله للمسؤول."; // ar: à relire
+        public override string ManagerPinKey => "رمز المسؤول"; // ar: à relire
+        public override string DrawerOpenSinceDay(string day, string clock) => $"مفتوح منذ {day} على {clock} · يجب إقفاله"; // ar: à relire
+
         // C1: the drawer (D-111)
         public override string DrawerOpenLabel => "فتح الصندوق"; // ar: à relire
         public override string DrawerOpenTitle => "فتح الصندوق"; // ar: à relire
@@ -2163,6 +2491,7 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.LimitAboveCeiling => $"سقف المتجر: {Named(args, 0)} على الأكثر.",
             Contracts.Pos.RefusalCodes.RepayAboveBalance => $"أكثر من المستحق: {Named(args, 0)}.",
             Contracts.Pos.RefusalCodes.RepayNotOnStep => $"نقدًا، بمضاعفات {Named(args, 0)}: أو كل المستحق.",
+            Contracts.Pos.RefusalCodes.AgeNotConfirmed => "أكِّد سنّ الزبون: 18 سنة أو أكثر، أو وليّ قرأ الإشعار ووافق.", // ar: à relire
             Contracts.Pos.RefusalCodes.PaidOutNeedsManager => "إخراج النقد يأذن به مسؤول.",
             Contracts.Pos.RefusalCodes.DrawerShort => "الدرج لا يحتوي على هذا المبلغ.", // ar: à relire
             Contracts.Pos.RefusalCodes.NoOpenSession => "لا يوجد صندوق مفتوح: عُدَّ الرصيد الافتتاحي وافتح الصندوق.", // ar: à relire

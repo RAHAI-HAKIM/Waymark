@@ -74,6 +74,12 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             .HasColumnName("variance");
         builder.Property(x => x.ZReportNumber)
             .HasColumnName("z_report_number");
+        builder.Property(x => x.VoidAlertCount)
+            .HasColumnName("void_alert_count");
+        builder.Property(x => x.VoidAlertValue)
+            .HasColumnName("void_alert_value");
+        builder.Property(x => x.VarianceAlertValue)
+            .HasColumnName("variance_alert_value");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.CashSessionStatusConverter)

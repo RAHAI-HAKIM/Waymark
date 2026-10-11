@@ -13,6 +13,18 @@ namespace Waymark.Integration.Tests;
 public sealed class CustomerEndpointsTests
 {
     [Theory]
+    [InlineData("adult", Waymark.Application.Customers.AgeAttestation.Adult)]
+    [InlineData("guardian_agreed", Waymark.Application.Customers.AgeAttestation.GuardianAgreed)]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("ADULT", null)] // anything the server does not know is no attestation, never "adult"
+    [InlineData("yes", null)]
+    public void An_age_attestation_is_one_of_the_two_or_none(string? wire, Waymark.Application.Customers.AgeAttestation? read)
+    {
+        Assert.Equal(read, CustomerEndpoints.Age(wire));
+    }
+
+    [Theory]
     [InlineData(Capability.CreateCustomer, 2L)]
     [InlineData(Capability.ManageCredit, 3L)]
     public void A_seller_whose_rank_reaches_the_capability_acts_as_themself(Capability capability, long rank)

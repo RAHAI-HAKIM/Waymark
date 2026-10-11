@@ -8,7 +8,7 @@
 namespace Waymark.Domain.Enums;
 
 /// <summary>
-/// Stored as TEXT with a CHECK constraint: 'customer', 'staff'.
+/// Stored as TEXT with a CHECK constraint: 'customer', 'staff', 'supplier'.
 /// </summary>
 public enum ErasureLedgerEntrySubjectType
 {
@@ -16,5 +16,8 @@ public enum ErasureLedgerEntrySubjectType
     Customer,
 
     /// <summary>Stored as <c>staff</c>.</summary>
-    Staff
+    Staff,
+
+    /// <summary>Stored as <c>supplier</c> (D-115).</summary>
+    Supplier
 }

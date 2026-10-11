@@ -88,8 +88,25 @@ public enum LimitChange
 /// <summary>Find customers by their number (B7), or by their full name (D-100) when <paramref name="Name"/> is given.</summary>
 public sealed record FindCustomers(string StaffId, string Phone, string? TerminalId = null, string? Name = null) : ICommand<IReadOnlyList<CustomerSummary>>;
 
+/// <summary>What the staff member confirmed of the person's age before creating them (D-113).</summary>
+public enum AgeAttestation
+{
+    /// <summary>18 or older.</summary>
+    Adult,
+
+    /// <summary>Under 18, and a parent has read the notice and agreed.</summary>
+    GuardianAgreed,
+}
+
 /// <summary>Create a customer at the till, the information notice handed over (B7). The host has checked <c>CreateCustomer</c>.</summary>
-public sealed record CreateCustomer(string StaffId, string Name, string Phone, string? TerminalId = null) : ICommand<CustomerSummary>;
+/// <param name="Age">
+/// What the staff member confirmed (D-113); null when nothing was. It gates the creation. An adult
+/// leaves no trace of it. A minor is enrolled with one <c>consent_events</c> row, processing,
+/// granted, <b>given by the legal representative</b>: that row implies the person is a minor, which
+/// is accepted, and nothing else records it: no flag on the customer, nothing in <c>processing_log</c>.
+/// </param>
+public sealed record CreateCustomer(string StaffId, string Name, string Phone, string? TerminalId = null, AgeAttestation? Age = null)
+    : ICommand<CustomerSummary>;
 
 /// <summary>Open a customer's tab: the balance, what is left, the statement (B7).</summary>
 public sealed record OpenTab(string StaffId, string CustomerId, string? TerminalId = null) : ICommand<TabView>;
@@ -246,6 +263,16 @@ public sealed class CreateCustomerHandler(
         ArgumentNullException.ThrowIfNull(context);
         await ModuleOnAsync(cancellationToken);
 
+        // Before anything is read or kept (D-113): an adult, or a minor whose parent has read the
+        // notice and agreed. That nobody said either refuses.
+        if (command.Age is null)
+        {
+            throw new CustomerRefusedException(
+                CustomerRefusal.Invalid,
+                "Nobody confirmed the person is 18 or older, or that a parent has read the notice and agreed.",
+                RefusalCodes.AgeNotConfirmed);
+        }
+
         var name = (command.Name ?? string.Empty).Trim();
         if (name.Length is 0 or > MaxName)
         {
@@ -272,6 +299,27 @@ public sealed class CreateCustomerHandler(
             UpdatedAt = now,
         };
         staging.Add(customer);
+
+        // A minor is enrolled on their legal representative's consent (D-113): one event, processing,
+        // granted, for the notice that was read, in the same unit of work as the customer. Marketing
+        // is never taken here.
+        if (command.Age == AgeAttestation.GuardianAgreed)
+        {
+            staging.Add(new ConsentEvent
+            {
+                ConsentEventId = context.NewId(),
+                CustomerId = customer.CustomerId,
+                OccurredAt = now,
+                Action = ConsentEventAction.Granted,
+                ConsentType = ConsentType.Processing,
+                NoticeVersion = notice,
+                CapturedBy = command.StaffId,
+                Method = Method.Verbal,
+                GivenBy = ConsentGivenBy.LegalRepresentative,
+                TerminalId = command.TerminalId,
+            });
+        }
+
         Log(context, Operation.Collection, customer.CustomerId, command.StaffId, command.TerminalId);
 
         return new CustomerSummary(customer.CustomerId, name, phone);

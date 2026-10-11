@@ -71,6 +71,12 @@ public sealed class ProcessingLogEntry : IStoreScoped
 
     public string? Recipient { get; init; }
 
+    /// <summary>
+    /// How many subjects a bulk operation ran over (D-115): an engine run, a purge, a backup. Only on
+    /// a row that names no one (<c>ck_processing_log_subject_count</c>); null on every other.
+    /// </summary>
+    public long? SubjectCount { get; init; }
+
     public required string SourceModule { get; init; }
 
     public string? StoreId { get; init; }

@@ -37,6 +37,11 @@ internal sealed class ConsentEventConfiguration : IEntityTypeConfiguration<Conse
             table.HasCheckConstraint(
                 "ck_consent_events_method",
                 @"method IN ('verbal','written','digital')");
+
+            // D-113: who gave the consent; a legal representative for a minor.
+            table.HasCheckConstraint(
+                "ck_consent_events_given_by",
+                @"given_by IN ('subject','legal_representative')");
         });
 
         builder.HasKey(x => x.ConsentEventId);
@@ -61,6 +66,11 @@ internal sealed class ConsentEventConfiguration : IEntityTypeConfiguration<Conse
         builder.Property(x => x.Method)
             .HasColumnName("method")
             .HasConversion(EnumConverters.MethodConverter);
+        builder.Property(x => x.GivenBy)
+            .HasColumnName("given_by")
+            .HasConversion(EnumConverters.ConsentGivenByConverter)
+            .HasDefaultValue(ConsentGivenBy.Subject)
+            .HasSentinel(ConsentGivenBy.Subject);
         builder.Property(x => x.TerminalId)
             .HasColumnName("terminal_id");
 

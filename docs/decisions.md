@@ -661,6 +661,136 @@ Replaces D-070's session, which the first sale opened with nothing in it and not
 the Z's figures stored beyond expected, counted and variance, since the rest is recomputed
 from the session's rows; a PIN that could turn a variance down.
 
+### D-112 — C2: an X and a Z are one report, recomputed from the session's rows; a Z is judged by what was in force at its close
+`ShiftReport` (Domain, pure) turns a session's tickets, lines and payments into its figures;
+`ShiftReports` reads them and asks it, for the open session (X) or a close by its number (Z).
+**Nothing is stored but what the close wrote.**
+
+- **It reconciles twice, and says so when it does not**: the takings by tender come to the
+  tickets' totals, and a Z's rows still come to the `expected_cash` stored at its close. A
+  report that fails either is shown with a critical notice, never as if it added up.
+- **Cash is what the tickets say** (Hakim, 08/10): the tender table holds the payment rows, to
+  the centime. The cash step's rounding is the drawer's own line, inside its sum, never a
+  variance (D-034). **Sales and refunds are separate lines**, and "Total encaissé" is net of
+  refunds. The board drew cash as tendered and a total without refunds; these two answers
+  replace that.
+- **The thresholds are frozen at the close** (Hakim, 08/10): `void_alert_count`,
+  `void_alert_value` and `variance_alert_value` on the session's row, written with the close.
+  A Z is judged by them for good; an X by today's. Recomputed with today's, raising a threshold
+  would have un-flagged every past Z, and lowering it flooded them.
+- **Who reads**: whoever reaches `ReadXReport` as the shop set it (D-110), or a manager's PIN.
+  Nobody else is shown a figure, so nothing is hidden piece by piece under a blind close: a
+  report's cash lines are enough to work the drawer out. The till forgets the PIN's
+  authorisation when the report closes (as D-109 for a ticket).
+- **The flags are the owner's**: `ReadShiftFlags`, rank 3 on the ladder, with no tenant key
+  (D-110), since they name people. They follow whoever reads: an owner's PIN at a cashier's
+  till shows them, a manager's does not; everyone else is told how many there are. Whether a
+  cancel is flagged is `Voids.Flags`'s to say, asked per cancel, never compared again.
+- **A cancelled ticket has no number** (D-097): a flag names it by who and when.
+- **The till lists its last 30 closes**; older ones and a store's day across tills are Admin's.
+- **Closed with it**: a cash refund the drawer cannot cover is refused, as a paid-out is
+  (F-38); a refund carries its sale's rounding policy, not the day's (F-35); a session open
+  past the store's day says so on the bar (F-39); a manager's PIN for a close stands for the
+  day like every other approval (F-36, left as it is).
+
+**Rejected:** the Z's figures stored at the close (a second copy to drift from the rows);
+flags behind a tenant key; an X shown to a cashier with its drawer section hidden.
+
+### D-113 — A customer is created only once their age is confirmed; a minor is enrolled on their legal representative's consent (10/10, for the DPIA)
+Whoever creates a customer confirms one of two things: the person is 18 or older, or they are
+a minor and a parent has read the notice and agreed. The till asks it on the creation panel,
+before the manager's step; the server refuses a creation that says neither
+(`age_not_confirmed`), and reads anything it does not know as nothing said, never as "adult".
+
+- **An adult leaves no trace of it**: nothing on `customers`, nothing in `processing_log`.
+- **A minor is enrolled with one `consent_events` row**: processing, granted, verbal, for the
+  information notice that was read, captured by the staff member, **`given_by` =
+  `legal_representative`** (a new column, `subject` by default, with its CHECK). It is written
+  in the same unit of work as the customer. Marketing consent is never taken here.
+- **That row implies the person is a minor, and that is accepted** (Hakim, 10/10): it is the
+  least that records on whose word a minor's data is kept. Nothing else says it: no flag, no
+  date of birth, no log entry naming the attestation.
+  `An_adult_leaves_no_trace_of_their_age_and_a_minor_only_their_representatives_consent` holds
+  both halves.
+
+**Rejected:** a date of birth (more data than the purpose needs); a flag on the customer;
+nothing recorded at all for a minor (the first version of this decision, replaced the same
+day: the DPIA needs the representative's consent to be evidenced); a `legal_representative`
+value of `method`, which would stop the row saying how the consent was given.
+
+
+### D-114 — Waymark keeps its own logbook in the cloud; a technician's actions also go in the store's (A-10)
+
+Loi 25-11 art. 41 bis 3 requires a logbook from the **processor** as well as the controller.
+`processor_log` in the cloud records every operation Waymark performs: cloud jobs, engine runs,
+backups received, held, restored and deleted, deletion at contract end, technician sessions.
+Same rules as D-045: pseudonym or no subject, never a direct identifier; append-only; read by no
+analytical or reporting path; detail 3 years then counters.
+
+A technician's actions on a till are written to the store's `processing_log` with
+`actor_type = 'processor'`, so the retailer sees them in its own logbook. A session summary
+(start, end, technician, operations by type and count, **no subjects**) goes to
+`processor_log`. **Rejected:** cloud only (the retailer cannot see what the technician did);
+store only (Waymark cannot produce its logbook without every store, and cloud operations have no
+home); mirroring each action with its subject (copies pseudonyms out of the store for no
+purpose).
+
+Tests owed: H23.
+
+### D-115 — The logbook's operation list is art. 41 bis 3's (A-11)
+
+One migration:
+
+- `processing_log.operation` adds `recording`, `organisation`, `storage`, `extraction`, `use`,
+  `dissemination`, `alignment`, `interconnection`, `locking`, `encryption`, `destruction`.
+  `modification` stands for "adaptation or alteration" and `disclosure` for making available;
+  `pseudonymisation` and `re_identification` stay. The trigger for each value is DPIA v2
+  §2.2.1.
+- `processing_log.actor_type` adds `processor` (D-114). A technician is held to D-061 as staff
+  are: only a system task may log an operation about one person with no subject.
+- `processing_log.subject_type` and `erasure_ledger.subject_type` add `supplier`
+  (D-051 already has three populations).
+- **Which of the new operations name the one person they are about** (D-061, Hakim 10/10):
+  `extraction`, `dissemination`, `locking` and `destruction` do, beside the six of D-061. The
+  other seven may run over many subjects, like `collection`. `ProcessingEventTests` lists every
+  operation on one side or the other, so a new one cannot be added unplaced.
+- Bulk operations (`use` per engine run, `destruction` per purge, `storage` per backup) are one
+  row that names no one, **with how many subjects it ran over in `subject_count`**: a new
+  nullable column, above zero, allowed only where `subject_id` is null
+  (`ck_processing_log_subject_count`). D-061 allowed a row with no subject, not a number, and
+  the table had nowhere to put one. A bulk `destruction` is a system task's, since a person's
+  must name its subject.
+- `retention_policies.entity_type` adds `receivable`, `supplier_contact`,
+  `data_subject_request`, `tier2_record`. A `receivable` policy can only `unlink` or `archive`:
+  `receivable_movements` is append-only and refuses a delete (D-055, D-058). Cloud-only data (customer period records,
+  `processor_log`, backups) gets its retention in the cloud's own policy.
+- The counters table for the logbook rollup (day, operation, purpose, count) **already exists
+  on the store's side**: `processing_counters`, since Phase 0. Nothing to migrate here; the
+  cloud's is its own schema's.
+
+**Rejected:** adding only the five operations that occur today (the mapping must then be
+defended); a mapping with no migration (encryption or destruction logged as something else).
+**Done 10/10**: migration `LogbookOperations`, which rebuilds `processing_log`, `erasure_ledger`
+and `retention_policies` once each; no store is live, so the rebuild of the logbook costs
+nothing now. H24: `ProcessingEventTests` (Domain) and, in `ProcessingLogWriterTests`,
+`Every_operation_and_every_actor_the_enums_offer_survives_a_write_and_reads_back_as_the_statutes_word`,
+`A_bulk_operation_is_one_row_that_names_no_one_and_says_how_many`,
+`The_database_refuses_such_a_count_whoever_writes_it`,
+`A_supplier_contact_is_a_subject_of_the_logbook_and_of_an_erasure`,
+`A_retention_policy_may_name_what_D_115_adds`.
+
+### D-116 — The operational channel carries no personal data
+
+Outbox channel `B_operational` carries no customer, staff or supplier-contact field. Check
+`D_decisions` too: `recommendation_decisions.decided_by` is a staff id. Tests owed: H21.
+
+### D-117 — Marketing messages, SMS included (Phase 2)
+
+Loi 18-07 art. 37: SMS is a "similar technology", so every marketing message needs prior
+marketing consent (`customers.consent_marketing`); each names the sender and carries a free
+opt-out, and an opt-out is a withdrawal event. The SMS gateway is a subprocessor located in
+Algeria. Tests owed: H22.
+
 ---
 
 ## Open — waiting on Hakim
@@ -680,6 +810,7 @@ from the session's rows; a PIN that could turn a variance down.
 ### Resolved
 | Open | Resolved by |
 | :--- | :--- |
+| O-36 | D-116: channel B carries no customer, staff or supplier-contact field; `D_decisions` to be checked for `decided_by`. Its test (H21) is owed with the channel's first writer |
 | O-1 | D-038 |
 | O-2 | D-015, D-042 |
 | O-3 | D-039, D-043 |

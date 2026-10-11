@@ -108,7 +108,8 @@ public sealed class CloseCashSessionHandler(
         var counted = Money.FromMinorUnits(command.Counted, expected.Currency);
         var variance = Drawer.Variance(expected, counted);
         var note = string.IsNullOrWhiteSpace(command.Note) ? null : command.Note.Trim();
-        var noteNeeded = Drawer.NeedsNote(variance, (await configuration.CurrentAsync(cancellationToken)).VarianceAlertValue);
+        var settings = await configuration.CurrentAsync(cancellationToken);
+        var noteNeeded = Drawer.NeedsNote(variance, settings.VarianceAlertValue);
         if (noteNeeded && note is null)
         {
             // It names nothing: how far the count is from the drawer is not said to who counted blind.
@@ -127,7 +128,12 @@ public sealed class CloseCashSessionHandler(
         var now = clock.GetUtcNow();
         var authorisedBy = command.CloserMay ? null : command.AuthorisedBy;
         await sessions.StageCloseAsync(
-            session.SessionId, new SessionClose(command.StaffId, authorisedBy, now, counted, expected, variance, number, note), cancellationToken);
+            session.SessionId,
+            // The thresholds in force now go on the row: its Z is judged by them for good (C2, D-112).
+            new SessionClose(
+                command.StaffId, authorisedBy, now, counted, expected, variance, number, note,
+                new ReportThresholds(settings.VoidAlertCount, settings.VoidAlertValue, settings.VarianceAlertValue)),
+            cancellationToken);
 
         return new ClosedCashSession(session.SessionId, number, now, expected, counted, variance, noteNeeded, command.StaffId, authorisedBy);
     }

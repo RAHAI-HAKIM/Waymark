@@ -98,6 +98,10 @@ namespace Waymark.Domain.Privacy;
 /// Who received the data, for a disclosure or a transmission. The article asks
 /// for recipients where available; for a consultation there is none.
 /// </param>
+/// <param name="SubjectCount">
+/// How many subjects a bulk operation ran over (D-115); null for an entry about one person or a
+/// task that does not count them.
+/// </param>
 /// <param name="TerminalId">
 /// Which till, where it happened at one. Caller-supplied, unlike the store:
 /// there is no ambient terminal to read it from, and naming the wrong till
@@ -113,16 +117,20 @@ public readonly record struct ProcessingEvent(
     ProcessingLegalBasis LegalBasis,
     string SourceModule,
     string? Recipient = null,
-    string? TerminalId = null)
+    string? TerminalId = null,
+    int? SubjectCount = null)
 {
     /// <summary>
     /// Whether the operation is about one person, so the entry must name them (D-061, F-20):
-    /// consultation, modification, disclosure, transmission, erasure and re-identification.
-    /// Collection and pseudonymisation can run over many subjects at once.
+    /// consultation, modification, disclosure, transmission, erasure and re-identification, and of
+    /// art. 41 bis 3's list (D-115, Hakim 10/10) extraction, dissemination, locking and destruction.
+    /// Collection, pseudonymisation, recording, organisation, storage, use, alignment,
+    /// interconnection and encryption can run over many subjects at once.
     /// </summary>
     public static bool NamesOnePerson(Operation operation) => operation is
         Operation.Consultation or Operation.Modification or Operation.Disclosure
-        or Operation.Transmission or Operation.Erasure or Operation.ReIdentification;
+        or Operation.Transmission or Operation.Erasure or Operation.ReIdentification
+        or Operation.Extraction or Operation.Dissemination or Operation.Locking or Operation.Destruction;
 
     /// <summary>
     /// Whether this entry may be written. An operation about one person with no subject is a
@@ -131,4 +139,11 @@ public readonly record struct ProcessingEvent(
     /// </summary>
     public bool IsComplete =>
         Subject.IsDefined || !NamesOnePerson(Operation) || ActorType == ActorType.System;
+
+    /// <summary>
+    /// Whether the count may be written (D-115): none, or one above zero on an entry that names no
+    /// one. A bulk operation (an engine run's <c>use</c>, a purge's <c>destruction</c>, a backup's
+    /// <c>storage</c>) is one row with how many subjects it ran over.
+    /// </summary>
+    public bool CountIsValid => SubjectCount is null || (SubjectCount > 0 && !Subject.IsDefined);
 }

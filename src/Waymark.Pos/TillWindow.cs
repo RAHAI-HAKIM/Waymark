@@ -128,6 +128,14 @@ public sealed class TillWindow : Window, IDisposable
     // A blind count once confirmed (D-111): closing again starts from it, never from a new count.
     private string? _frozenCount;
 
+    // The X or Z open in the ticket's place (C2, D-112), what was last drawn of it, and the report a
+    // PIN step was asked for.
+    private ReportState? _report;
+    private ReportState? _reportDrawn;
+    private long? _reportAsked;
+    private readonly Border _reportHost = new() { IsVisible = false };
+    private readonly ReportActions _reportActions;
+
     /// <summary>D-100: how long the cashier stops typing before a customer search is asked by itself.</summary>
     public static readonly TimeSpan CustomerSearchAfter = TimeSpan.FromSeconds(3);
 
@@ -174,7 +182,7 @@ public sealed class TillWindow : Window, IDisposable
             }
 
             if (_session.SignedIn is not null && _payment is null && _discount is not { Authorising: true } && _refund is null
-                && _customerPanel is null && _carnet is null)
+                && _customerPanel is null && _carnet is null && _report is null)
             {
                 Submit(scan.Code);
             }
@@ -411,6 +419,7 @@ public sealed class TillWindow : Window, IDisposable
             Clear: () => UpdateCustomer(CustomerScreen.Clear),
             Primary: () => _ = CustomerPrimaryAsync(),
             Close: CloseCustomerPanel);
+        _reportActions = new ReportActions(Open: number => _ = OpenReportAsync(number, null), Close: CloseReport);
         _carnetActions = new CarnetActions(
             Change: () => OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.ChangeTab)),
             Repay: () =>
@@ -541,7 +550,9 @@ public sealed class TillWindow : Window, IDisposable
             },
         };
 
-        return new Panel { Children = { screen, _floatingHost } };
+        // A report takes the whole window, bars included (C2, the board): it is too long to float or
+        // to fit where the ticket is. The PIN step that reads it still floats above.
+        return new Panel { Children = { screen, _reportHost, _floatingHost } };
     }
 
     private DockPanel RailWithDebug()
@@ -778,6 +789,21 @@ public sealed class TillWindow : Window, IDisposable
                 : null;
             _floatingHost.IsVisible = _floatingHost.Child is not null;
         }
+
+        // A report open (C2): drawn when it changes, and whatever floats waits under it, but for the
+        // PIN step that was asked to read it.
+        if (!ReferenceEquals(_reportDrawn, _report))
+        {
+            _reportDrawn = _report;
+            _reportHost.Child = _report is { } open
+                ? TillViews.Report(ReportScreen.Build(_text, TimeZoneInfo.Local, _context, open), _theme, _reportActions)
+                : null;
+            _reportHost.Background = _theme.Page;
+            _reportHost.Padding = new Thickness(16);
+            _reportHost.IsVisible = _reportHost.Child is not null;
+        }
+
+        _floatingHost.IsVisible = _floatingHost.Child is not null && (_report is null || _discount is { Authorising: true });
 
         if (changes.Client)
         {
@@ -1111,12 +1137,17 @@ public sealed class TillWindow : Window, IDisposable
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket or CounterKind.CloseSession })
+                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket or CounterKind.CloseSession or CounterKind.ReadReport })
                 {
                     // Back from a customer's PIN step to what asked for it (B7).
                     _pin = string.Empty;
                     _discount = null;
                     Render();
+                }
+                else if (_report is not null)
+                {
+                    // A report closes before what it was opened over (C2).
+                    CloseReport();
                 }
                 else if (_customerPanel is not null)
                 {
@@ -1787,6 +1818,11 @@ public sealed class TillWindow : Window, IDisposable
                 _discount = null;
                 _ = SendCloseAsync(authorisation);
                 return;
+            case CounterKind.ReadReport:
+                _pin = string.Empty;
+                _discount = null;
+                _ = OpenReportAsync(_reportAsked, authorisation);
+                return;
             case CounterKind.TabOverride:
                 _pin = string.Empty;
                 _discount = null;
@@ -1865,6 +1901,7 @@ public sealed class TillWindow : Window, IDisposable
         CounterKind.ChangeTab or CounterKind.TabOverride => Capabilities.ManageCredit,
         CounterKind.PaidOut => Capabilities.PaidOut,
         CounterKind.CloseSession => Capabilities.CloseSession,
+        CounterKind.ReadReport => Capabilities.ReadXReport,
         _ => Capabilities.ApplyDiscount,
     };
 
@@ -2103,9 +2140,18 @@ public sealed class TillWindow : Window, IDisposable
             case CustomerScreen.CloseTabKey:
                 AskChange(LimitActions.Set, null);
                 break;
+            case CustomerScreen.AdultKey or CustomerScreen.GuardianKey when panel.Kind == CustomerPanelKind.Create:
+                // What the staff member confirms of the person's age (D-113): sent with the creation; the till keeps nothing of it.
+                _customerPanel = panel with { Age = key, Refused = null };
+                Render();
+                break;
             case DrawerScreen.SwitchUserKey when panel.Kind == CustomerPanelKind.DrawerOpen:
                 // Somebody else opens the drawer: the till asks who (C1).
                 SwitchCashier();
+                break;
+            case DrawerScreen.ZReportKey when panel is { Kind: CustomerPanelKind.DrawerClosed, Closed: { } closed }:
+                // "Voir le rapport Z" (C2): the report opens over the result, which is there again when it closes.
+                _ = OpenReportAsync(closed.ZReportNumber, null);
                 break;
             case DrawerScreen.RecountKey when panel is { Kind: CustomerPanelKind.DrawerConfirm, Frozen: false }:
                 _customerPanel = panel with { Kind = CustomerPanelKind.DrawerCount, Name = string.Empty, OnName = false, Refused = null };
@@ -2156,7 +2202,8 @@ public sealed class TillWindow : Window, IDisposable
                 break;
 
             case CustomerPanelKind.Create:
-                if (panel.Name.Trim().Length is 0 or > 100 || !Domain.Customers.PhoneNumber.TryNormalise(panel.Phone, out _))
+                // The age is confirmed before anything is asked of a manager or sent (D-113).
+                if (panel.Name.Trim().Length is 0 or > 100 || !Domain.Customers.PhoneNumber.TryNormalise(panel.Phone, out _) || panel.Age is null)
                 {
                     _customerPanel = panel with { Checked = true };
                     Render();
@@ -2189,6 +2236,12 @@ public sealed class TillWindow : Window, IDisposable
 
             case CustomerPanelKind.DrawerOpen:
                 await OpenDrawerAsync(panel, person.Token);
+                break;
+
+            case CustomerPanelKind.ReportReserved:
+                // "PIN responsable" (C2): the explanation goes, the PIN step comes.
+                _customerPanel = null;
+                await AuthoriseReportAsync(_reportAsked);
                 break;
 
             case CustomerPanelKind.DrawerCount:
@@ -2351,7 +2404,7 @@ public sealed class TillWindow : Window, IDisposable
         _customerPanel = panel with { Sending = true, Refused = null };
         Render();
         var answer = await _server.CreateCustomerAsync(
-            new CreateCustomerRequest(_till.TerminalId ?? string.Empty, panel.Name.Trim(), panel.Phone, authorisation), person.Token);
+            new CreateCustomerRequest(_till.TerminalId ?? string.Empty, panel.Name.Trim(), panel.Phone, authorisation, panel.Age), person.Token);
         if (_customerPanel is null)
         {
             return;
@@ -2765,6 +2818,102 @@ public sealed class TillWindow : Window, IDisposable
         Render();
     }
 
+    // =================================================================== C2: the X and Z reports
+
+    /// <summary>
+    /// An X (no number) or a Z read from the server and shown in the ticket's place (C2, D-112). Below
+    /// the shop's rank for reports the server answers "pin_required": a manager's PIN, then this again
+    /// with the authorisation, which is kept only while the report stays open. Where the close is
+    /// blind, a cashier asking for an X is first told why the whole report is the manager's.
+    /// </summary>
+    private async Task OpenReportAsync(long? number, string? authorisation)
+    {
+        if (_session.SignedIn is not { } person || string.IsNullOrWhiteSpace(_till.TerminalId))
+        {
+            return;
+        }
+
+        var cited = authorisation ?? _report?.Authorisation;
+        _search = null;
+        _report = new ReportState(number, _report?.List, Loading: true, Authorisation: cited);
+        Render();
+
+        var answer = await _server.ShiftReportAsync(_till.TerminalId, number, cited, person.Token);
+        if (_report is not { } now || now.Selected != number)
+        {
+            return;
+        }
+
+        switch (answer?.Outcome)
+        {
+            case ShiftReportOutcomes.Ok when answer.Report is { } report:
+                var list = await _server.ShiftReportsAsync(_till.TerminalId, cited, person.Token);
+                if (ReferenceEquals(_report, now))
+                {
+                    _report = now with { Report = report, List = list ?? now.List, Loading = false };
+                }
+
+                break;
+
+            case ShiftReportOutcomes.PinRequired:
+                _report = null;
+                _reportAsked = number;
+                if (number is null && _drawer is { Blind: true })
+                {
+                    OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.ReportReserved));
+                }
+                else
+                {
+                    Render();
+                    await AuthoriseReportAsync(number);
+                }
+
+                return;
+
+            case ShiftReportOutcomes.NotFound when number is null:
+                // The drawer is shut: no X, and the till's closes are still there to read.
+                var closes = await _server.ShiftReportsAsync(_till.TerminalId, cited, person.Token);
+                if (!ReferenceEquals(_report, now))
+                {
+                    return;
+                }
+
+                if (closes?.Closes is { Count: > 0 } past)
+                {
+                    await OpenReportAsync(past[0].ZReportNumber, cited);
+                    return;
+                }
+
+                _report = now with { List = closes, Loading = false, Problem = closes is null ? _text.ReportOffline : _text.NoPastClose };
+                break;
+
+            case ShiftReportOutcomes.NotSignedIn:
+                _report = null;
+                _session.Tell(TillNoticeKind.NotSignedIn, "-", string.Empty);
+                break;
+
+            default:
+                _report = now with { Loading = false, Problem = answer is null ? _text.ReportOffline : _text.NoPastClose };
+                break;
+        }
+
+        Render();
+    }
+
+    /// <summary>The PIN step for a report: who may read it is the server's to say (<c>x_report_min_rank</c>).</summary>
+    private Task AuthoriseReportAsync(long? number) => AuthoriseCustomerAsync(
+        CounterKind.ReadReport,
+        _text.ApproveReportTitle(number is { } z ? _text.ReportZTitle(z) : _text.ReportXTitle, _context?.TerminalName ?? string.Empty),
+        _text.ApproveReportSummary);
+
+    /// <summary>"Fermer le rapport": the ticket is back, and the till forgets whose PIN opened the report.</summary>
+    private void CloseReport()
+    {
+        _report = null;
+        Render();
+        _input.Focus();
+    }
+
     /// <summary>"Pointer" (B10, D-102): the person and their PIN to the server, which checks it with sign-in's lockout, then clocks them in or out.</summary>
     private async Task ClockAsync(CustomerPanelState panel, string token)
     {
@@ -3065,6 +3214,12 @@ public sealed class TillWindow : Window, IDisposable
                 Render();
                 break;
 
+            case Operation.XReport:
+                // C2 (D-112): the open session's figures, or the till's past closes when it is shut.
+                _moreOpen = false;
+                _ = OpenReportAsync(null, null);
+                break;
+
             case Operation.CloseDrawer:
                 // C1 (D-111): the drawer counted, then the session closed.
                 _moreOpen = false;
@@ -3169,6 +3324,7 @@ public sealed class TillWindow : Window, IDisposable
             _customerPanel = null;
             _drawer = null;
             _frozenCount = null;
+            _report = null;
             await _server.SignOutAsync(token);
             await LoadContextAsync();
             await _signIn.LoadAsync();

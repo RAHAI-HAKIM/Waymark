@@ -329,8 +329,7 @@ public static class DrawerScreen
                 new Figure(text.CountedTile, ShownWithCurrency(closed.Counted, code, text)),
             ],
             [], null, notice, message, null, [], null,
-            // The Z report is C2's: its key is here, and says it is not available yet.
-            [new FormKey(ZReportKey, text.SeeZReport, false, false)],
+            [new FormKey(ZReportKey, text.SeeZReport, !panel.Sending, false)],
             text.ZNumberLabel,
             number,
             [],
@@ -346,6 +345,19 @@ public static class DrawerScreen
             NoClose = true,
             MessageFigure = figure,
         };
+    }
+
+    /// <summary>
+    /// A cashier asking for an X where the close is blind (C2, the board's 7A): the whole report is the
+    /// manager's, since its cash lines are enough to work the drawer's figure out. Its key is the PIN step.
+    /// </summary>
+    public static FormPanel ReservedPanel(ScreenState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var text = state.Text;
+        return new FormPanel(
+            text.ReportXTitle.ToUpperInvariant(), text.ReservedTitle, state.Context?.TerminalName, [], [], text.ReservedBody, text.ReservedNotice, null, null, [],
+            null, [], null, null, [], false, text.ManagerPinKey, true, true, text.EnterKey, text.EscapeKey, null);
     }
 
     // ================================================================== the variance, by its label

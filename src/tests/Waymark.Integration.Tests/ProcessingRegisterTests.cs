@@ -250,7 +250,9 @@ public sealed class ProcessingRegisterTests : IClassFixture<MigratedDatabaseFixt
         // is still there (D-022).
         using var connection = _database.Connect();
 
-        Assert.Equal(3, CountIn(connection, "processing_log", "CONSTRAINT \"ck_"));
+        // processing_log has since been rebuilt on purpose (D-115: its three CHECKs widened, a fourth
+        // added for subject_count); what still holds is that the rebuild dropped none of them.
+        Assert.Equal(4, CountIn(connection, "processing_log", "CONSTRAINT \"ck_"));
         Assert.Equal(6, CountIn(connection, "recommendations", "CONSTRAINT \"ck_"));
 
         var recommendationIndexes = _database.Query(

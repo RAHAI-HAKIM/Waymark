@@ -29,7 +29,7 @@ internal sealed class ErasureLedgerEntryConfiguration : IEntityTypeConfiguration
             // it does not know about (decisions.md D-022).
             table.HasCheckConstraint(
                 "ck_erasure_ledger_subject_type",
-                @"subject_type IN ('customer','staff')");
+                @"subject_type IN ('customer','staff','supplier')");
             table.HasCheckConstraint(
                 "ck_erasure_ledger_status",
                 @"status IN ('pending','executed','blocked')");

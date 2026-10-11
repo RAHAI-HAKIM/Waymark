@@ -137,6 +137,9 @@ public enum CounterKind
     /// <summary>An earlier day's or another till's ticket opened by a cashier (D-109): the PIN step only, rank 2.</summary>
     OpenTicket,
 
+    /// <summary>An X or a Z read by someone below the shop's rank for reports (C2, D-112): the PIN step only.</summary>
+    ReadReport,
+
     /// <summary>The drawer counted and closed by someone who may not close alone (C1, D-111): the PIN step only.</summary>
     CloseSession,
 }
@@ -428,7 +431,12 @@ public sealed record TillScreen(
         var place = context is null ? null : $"{context.StoreName} · {context.TerminalName}";
         if (place is not null && state.Drawer is { } drawer)
         {
-            place += " · " + (drawer.Open is { } open ? text.DrawerOpenSince(DisplayFigures.Clock(Local(state, open.OpenedAt))) : text.DrawerShut);
+            // A session left open past the store's day it opened on says so (F-39): its Z would take today's sales.
+            place += " · " + (drawer.Open is not { } open ? text.DrawerShut
+                : Local(state, open.OpenedAt).Date < Local(state, state.Now).Date
+                    ? text.DrawerOpenSinceDay(
+                        Local(state, open.OpenedAt).ToString("dd/MM", System.Globalization.CultureInfo.InvariantCulture), DisplayFigures.Clock(Local(state, open.OpenedAt)))
+                    : text.DrawerOpenSince(DisplayFigures.Clock(Local(state, open.OpenedAt))));
         }
 
         return new TopBar(
@@ -843,8 +851,8 @@ public sealed record TillScreen(
         {
             return
             [
-                // The drawer (C1): closed from here, once it is open. The X report is C2's: shown, not yet available.
-                new OperationKey(Operation.XReport, text.XReportKey, null, false),
+                // The drawer: its reports (C2), and its close once it is open (C1).
+                new OperationKey(Operation.XReport, text.XReportKey, null, state.Drawer is not null),
                 new OperationKey(Operation.CloseDrawer, text.CloseDrawerKey, null, state.Drawer?.Open is not null && state.Unconfirmed is null),
                 new OperationKey(Operation.Clock, text.ClockKey, null, true),
                 new OperationKey(Operation.More, text.BackFromMore, null, true),

@@ -8,7 +8,7 @@
 namespace Waymark.Domain.Enums;
 
 /// <summary>
-/// Stored as TEXT with a CHECK constraint: 'staff', 'system', 'engine'.
+/// Stored as TEXT with a CHECK constraint: 'staff', 'system', 'engine', 'processor'.
 /// </summary>
 public enum ActorType
 {
@@ -19,5 +19,8 @@ public enum ActorType
     System,
 
     /// <summary>Stored as <c>engine</c>.</summary>
-    Engine
+    Engine,
+
+    /// <summary>Stored as <c>processor</c> (D-115).</summary>
+    Processor
 }
