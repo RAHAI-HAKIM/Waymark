@@ -490,3 +490,39 @@ is to be checked too: `recommendation_decisions.decided_by` is a staff id. Tests
 Loi 18-07 art. 37: SMS is a "similar technology", so every marketing message needs prior
 marketing consent; each names the sender and carries a free opt-out, and an opt-out is a
 withdrawal event. The SMS gateway is a subprocessor located in Algeria. Tests owed: H22.
+
+---
+
+## 8. What the Block C review found (12/10)
+
+Read the Build Plan, the operations catalogue and D-110 to D-118 against the code; ran thirteen
+extreme cases through the real handlers on a real database; then drove a live encrypted StoreServer
+on a freshly generated store, about 180 requests as two cashiers and the owner: openings, sales,
+cancels, a refund, cash in and out, a probed blind close, twenty sales and closes at once, the
+largest float the wire takes, and 45 of the generator's 365 closes read back by today's rules.
+
+**What held.** Every report reconciled its three ways, the generator's year included, checked
+against a recomputation written apart. A refund in a later session left the earlier Z as it was. A
+ticket worth nothing, one struck empty and one whose cash rounds to nothing kept the report in
+balance. Eighteen sales and three closes sent together gave one close, one Z number and no error.
+Each till numbers its own closes. The threshold is exclusive at its edge on both sides.
+
+**Fixed without a decision.** A session's tickets were read as a list of ids, one SQL variable
+each: past 32 766 tickets the X, a paid-out and **the close itself** failed, and nothing closes a
+session by itself, so a drawer left open for weeks could never be closed again. The ledger now reads
+them as subqueries (and is about twice as fast on a session of 2 000 tickets). A close whose answer was lost and
+which the cashier sent again left its count panel over a drawer already shut: the till now reads the
+drawer again and shows the opening panel, which names the last Z.
+
+**Kept as tests** (`CompleteSaleTests.ShiftReview.cs`): the long session; the refund in a later
+session; the odd tickets; and people ordered by the hour through a day and a night, since every
+other integration test runs at one instant.
+
+**Decided the same day** (D-119 to D-121, in `../decisions.md`): the server keeps a blind count,
+which stands until cash moves; a close is whole;
+a blind close with the reports handed below it is refused; a clock set back is said for what it is;
+a note is 500 characters at most. Left as they are: a Z names who validated, not who counted, and a
+PIN typed to read a report stands for the day. Admin's, as H3: printing a Z and reading an old one.
+
+**Left open:** `../status.md` §3 (F-37 as reduced, F-52 to F-54) and O-38, the DPIA and the
+figures a Z shows about named staff, marked high priority.

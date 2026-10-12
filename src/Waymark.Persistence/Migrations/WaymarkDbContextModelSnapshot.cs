@@ -2224,6 +2224,14 @@ namespace Waymark.Persistence.Migrations
                         .HasDefaultValue(0L)
                         .HasColumnName("opening_float");
 
+                    b.Property<long?>("PendingCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("pending_count");
+
+                    b.Property<long?>("PendingCountMoves")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("pending_count_moves");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -2275,7 +2283,7 @@ namespace Waymark.Persistence.Migrations
                     b.HasIndex("TerminalId")
                         .IsUnique()
                         .HasDatabaseName("ux_cash_sessions_one_open")
-                        .HasFilter("status = 'open'");
+                        .HasFilter("status <> 'closed'");
 
                     b.HasIndex("TerminalId", "OpenedAt")
                         .HasDatabaseName("ix_cash_sessions_terminal");
@@ -2291,9 +2299,11 @@ namespace Waymark.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_cash_sessions_closed_authorised_by", "closed_authorised_by IS NULL OR status = 'closed'");
 
+                            t.HasCheckConstraint("ck_cash_sessions_pending_count", "(pending_count IS NULL AND pending_count_moves IS NULL) OR (pending_count >= 0 AND pending_count_moves >= 0)");
+
                             t.HasCheckConstraint("ck_cash_sessions_status", "status IN ('open','closed','suspended')");
 
-                            t.HasCheckConstraint("ck_cash_sessions_status_2", "status <> 'closed' OR counted_cash IS NOT NULL");
+                            t.HasCheckConstraint("ck_cash_sessions_status_2", "status <> 'closed' OR (counted_cash IS NOT NULL AND expected_cash IS NOT NULL AND variance IS NOT NULL AND z_report_number IS NOT NULL AND closed_at IS NOT NULL AND closed_by IS NOT NULL)");
                         });
                 });
 

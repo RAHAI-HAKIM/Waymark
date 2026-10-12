@@ -1096,6 +1096,7 @@ public sealed partial class TillWindowTests
         public Task<SaleAnswer> CompleteSaleAsync(SaleRequest request, string sessionToken, CancellationToken cancellationToken = default)
         {
             Sales++;
+            BlindCountKept = null; // cash has moved: the count no longer stands (D-119)
             Requests.Add(request);
             return Task.FromResult(SaleAnswer);
         }

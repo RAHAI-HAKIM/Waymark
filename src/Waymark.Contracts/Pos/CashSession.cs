@@ -15,13 +15,18 @@ namespace Waymark.Contracts.Pos;
 /// The variance past which a note is asked, exact decimal text; null when the shop asks for none, and
 /// always null to someone counting blind, who could work the expected figure back from it.
 /// </param>
+/// <param name="StandingCount">
+/// To someone counting blind: the count already sent and kept by the server, which stands until cash
+/// moves again (D-119), exact decimal text. The till shows it to be confirmed and takes no other.
+/// </param>
 public sealed record CashSessionState(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("open")] OpenCashSessionWire? Open = null,
     [property: JsonPropertyName("last_close")] LastCloseWire? LastClose = null,
     [property: JsonPropertyName("blind")] bool Blind = false,
     [property: JsonPropertyName("may_close")] bool MayClose = false,
-    [property: JsonPropertyName("note_threshold")] string? NoteThreshold = null);
+    [property: JsonPropertyName("note_threshold")] string? NoteThreshold = null,
+    [property: JsonPropertyName("standing_count"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? StandingCount = null);
 
 /// <param name="OpeningFloat">Exact decimal text.</param>
 /// <param name="Tickets">Tickets sold or refunded so far; a cancel is not one.</param>

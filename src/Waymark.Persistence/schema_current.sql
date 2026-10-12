@@ -132,16 +132,22 @@ CREATE TABLE "cash_sessions" (
     "opened_at" TEXT NOT NULL,
     "opened_by" TEXT NOT NULL,
     "opening_float" INTEGER NOT NULL DEFAULT 0,
+    "pending_count" INTEGER NULL,
+    "pending_count_moves" INTEGER NULL,
     "status" TEXT NOT NULL DEFAULT 'open',
     "store_id" TEXT NOT NULL,
     "terminal_id" TEXT NOT NULL,
     "updated_at" TEXT NOT NULL,
     "variance" INTEGER NULL,
-    "z_report_number" INTEGER NULL, "variance_alert_value" INTEGER NULL, "void_alert_count" INTEGER NULL, "void_alert_value" INTEGER NULL,
+    "variance_alert_value" INTEGER NULL,
+    "void_alert_count" INTEGER NULL,
+    "void_alert_value" INTEGER NULL,
+    "z_report_number" INTEGER NULL,
     CONSTRAINT "ck_cash_sessions_closed_at" CHECK (closed_at IS NULL OR closed_at >= opened_at),
     CONSTRAINT "ck_cash_sessions_closed_authorised_by" CHECK (closed_authorised_by IS NULL OR status = 'closed'),
+    CONSTRAINT "ck_cash_sessions_pending_count" CHECK ((pending_count IS NULL AND pending_count_moves IS NULL) OR (pending_count >= 0 AND pending_count_moves >= 0)),
     CONSTRAINT "ck_cash_sessions_status" CHECK (status IN ('open','closed','suspended')),
-    CONSTRAINT "ck_cash_sessions_status_2" CHECK (status <> 'closed' OR counted_cash IS NOT NULL),
+    CONSTRAINT "ck_cash_sessions_status_2" CHECK (status <> 'closed' OR (counted_cash IS NOT NULL AND expected_cash IS NOT NULL AND variance IS NOT NULL AND z_report_number IS NOT NULL AND closed_at IS NOT NULL AND closed_by IS NOT NULL)),
     CONSTRAINT "FK_cash_sessions_staff_closed_authorised_by" FOREIGN KEY ("closed_authorised_by") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_cash_sessions_staff_closed_by" FOREIGN KEY ("closed_by") REFERENCES "staff" ("staff_id"),
     CONSTRAINT "FK_cash_sessions_staff_opened_by" FOREIGN KEY ("opened_by") REFERENCES "staff" ("staff_id"),
@@ -1434,7 +1440,7 @@ CREATE INDEX "ix_variants_status" ON "variants" ("status");
 
 CREATE INDEX "ix_vav_attribute" ON "variant_attribute_values" ("attribute_code");
 
-CREATE UNIQUE INDEX "ux_cash_sessions_one_open" ON "cash_sessions" ("terminal_id") WHERE status = 'open';
+CREATE UNIQUE INDEX "ux_cash_sessions_one_open" ON "cash_sessions" ("terminal_id") WHERE status <> 'closed';
 
 CREATE UNIQUE INDEX "ux_cash_sessions_z_number" ON "cash_sessions" ("terminal_id", "z_report_number") WHERE z_report_number IS NOT NULL;
 

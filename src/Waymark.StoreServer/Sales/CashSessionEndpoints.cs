@@ -66,7 +66,8 @@ public static class CashSessionEndpoints
 
         app.MapPost("/api/cash/session/close", async (
             CloseCashSessionRequest request, HttpRequest http, TillSessions sessions, ITillDirectory directory, IRecommendationBoard staff,
-            ITenantConfiguration configuration, CommandExecutor executor, CloseCashSessionHandler handler, CancellationToken cancellationToken) =>
+            ITenantConfiguration configuration, CommandExecutor executor, CloseCashSessionHandler handler, KeepBlindCountHandler blind,
+            CancellationToken cancellationToken) =>
         {
             if (Session(sessions, http, request.TerminalId) is not { } session)
             {
@@ -85,6 +86,14 @@ public static class CashSessionEndpoints
             await oneAtATime.WaitAsync(cancellationToken);
             try
             {
+                // Counted without seeing the figures (D-119): the count is kept first, in a command of
+                // its own so it outlives a close that is then refused for its note or its PIN, and
+                // the close is asked with the count that stands, not with whatever is typed next.
+                if (!ShowsFigures(settings, closerMay))
+                {
+                    counted = await executor.ExecuteAsync(blind, new KeepBlindCount(session.TerminalId, counted), cancellationToken);
+                }
+
                 var closed = await executor.ExecuteAsync(
                     handler, new CloseCashSession(session.TerminalId, session.StaffId, counted, request.Note, closerMay, authorisedBy), cancellationToken);
                 var validatedBy = (await directory.DescribeAsync(session.TerminalId, closed.AuthorisedBy ?? closed.ClosedBy, cancellationToken))?.Staff?.StaffName;
@@ -156,8 +165,16 @@ public static class CashSessionEndpoints
             : null;
 
         OpenCashSessionWire? open = null;
+        string? standing = null;
         if (await ledger.OpenCashSessionAsync(session.TerminalId, cancellationToken) is { } current)
         {
+            // The blind count that stands, to who counts blind (D-119): it is theirs to confirm, not to change.
+            if (!shows && Drawer.StandingCount(
+                    current.PendingCount, current.PendingCountMoves, await drawer.CashMovesAsync(current.SessionId, cancellationToken)) is { } kept)
+            {
+                standing = WireText.Figure(kept);
+            }
+
             open = new OpenCashSessionWire(
                 current.OpenedAt, await NameAsync(current.OpenedBy), WireText.Figure(current.OpeningFloat),
                 await drawer.TicketCountAsync(current.SessionId, cancellationToken),
@@ -166,14 +183,15 @@ public static class CashSessionEndpoints
 
         return new CashSessionState(
             CashSessionOutcomes.Ok, open, lastClose, settings.BlindClose, mayClose,
-            shows && settings.VarianceAlertValue is { } threshold ? WireText.Figure(threshold) : null);
+            shows && settings.VarianceAlertValue is { } threshold ? WireText.Figure(threshold) : null,
+            standing);
     }
 
     private static CashSessionAnswer Refused(CashSessionRefusedException refusal) => refusal.Code switch
     {
         RefusalCodes.CloseNeedsManager => new CashSessionAnswer(CashSessionOutcomes.PinRequired, Reason: refusal.Message, Refusal: SaleWire.Coded(refusal.Code, [])),
         RefusalCodes.CloseNeedsNote => new CashSessionAnswer(CashSessionOutcomes.NoteRequired, Reason: refusal.Message, Refusal: SaleWire.Coded(refusal.Code, [])),
-        _ => new CashSessionAnswer(CashSessionOutcomes.Refused, Reason: refusal.Message, Refusal: SaleWire.Coded(refusal.Code, [])),
+        _ => new CashSessionAnswer(CashSessionOutcomes.Refused, Reason: refusal.Message, Refusal: SaleWire.Coded(refusal.Code, refusal.Args)),
     };
 
     /// <summary>The ladder, or the ladder as the shop set it (D-110); never compared here (§3.10).</summary>

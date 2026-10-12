@@ -36,7 +36,14 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
             .Where(ticket => ticket.CashSessionId == sessionId
                 && ticket.Status != TransactionStatus.Open && ticket.Status != TransactionStatus.Parked)
             .ToListAsync(cancellationToken);
-        var ids = tickets.Select(ticket => ticket.TransactionId).ToList();
+
+        // The session's tickets as a subquery, never as a list of ids: a list becomes one SQL
+        // variable an id, SQLite takes 32 766 of them, and nothing closes a session by itself
+        // (D-111), so one left open for weeks could no longer be read, paid out of or closed.
+        var ids = context.Transactions
+            .Where(ticket => ticket.CashSessionId == sessionId
+                && ticket.Status != TransactionStatus.Open && ticket.Status != TransactionStatus.Parked)
+            .Select(ticket => ticket.TransactionId);
         var items = await context.TransactionItems.AsNoTracking()
             .Where(item => ids.Contains(item.TransactionId))
             .ToListAsync(cancellationToken);
@@ -48,9 +55,8 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
             .Where(movement => movement.SessionId == sessionId)
             .Select(movement => new { movement.MovementId, movement.MovementType, movement.StaffId, movement.OccurredAt, movement.Amount })
             .ToListAsync(cancellationToken);
-        var movementIds = movements.Select(movement => movement.MovementId).ToList();
         var repaid = (await context.ReceivableMovements.AsNoTracking()
-                .Where(row => row.CashMovementId != null && movementIds.Contains(row.CashMovementId))
+                .Where(row => row.CashMovementId != null && SessionMovementIds(sessionId).Contains(row.CashMovementId))
                 .Select(row => row.CashMovementId)
                 .ToListAsync(cancellationToken))
             .ToHashSet(StringComparer.Ordinal);
@@ -101,10 +107,11 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
 
         // A day's rows of one till, added up here: a Money column is not summed in SQL, and a session
         // is a few hundred rows.
-        var tickets = await context.Transactions.AsNoTracking()
-            .Where(ticket => ticket.CashSessionId == session.SessionId && ticket.Status != TransactionStatus.Voided)
-            .Select(ticket => ticket.TransactionId)
-            .ToListAsync(cancellationToken);
+        // A subquery, not a list of ids: see ReportRowsAsync.
+        var sessionId = session.SessionId;
+        var tickets = context.Transactions
+            .Where(ticket => ticket.CashSessionId == sessionId && ticket.Status != TransactionStatus.Voided)
+            .Select(ticket => ticket.TransactionId);
         var cash = await context.TransactionPayments.AsNoTracking()
             .Where(payment => payment.PaymentMethod == PaymentMethod.Cash && tickets.Contains(payment.TransactionId))
             .Select(payment => payment.Amount)
@@ -113,20 +120,18 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
         var movements = await context.CashMovements.AsNoTracking()
             .Where(movement => movement.SessionId == session.SessionId)
             .ToListAsync(cancellationToken);
-        var movementIds = movements.Select(movement => movement.MovementId).ToList();
 
         // The tab's repayments of this session: the receivable row names the paid_in that took the cash (D-055).
-        var repayments = await context.ReceivableMovements.AsNoTracking()
-            .Where(row => row.CashMovementId != null && movementIds.Contains(row.CashMovementId))
-            .Select(row => new { row.MovementId, row.CashMovementId })
-            .ToListAsync(cancellationToken);
-        var repaid = repayments.Select(row => row.CashMovementId).ToHashSet(StringComparer.Ordinal);
+        var repayments = context.ReceivableMovements
+            .Where(row => row.CashMovementId != null && SessionMovementIds(sessionId).Contains(row.CashMovementId));
+        var repaid = (await repayments.AsNoTracking().Select(row => row.CashMovementId).ToListAsync(cancellationToken))
+            .ToHashSet(StringComparer.Ordinal);
 
         // Every rounding row of the session, a ticket's and a repayment's alike: which of them is
         // cash the drawer has not been told of is Drawer.Expected's to say, not this query's.
-        var references = tickets.Concat(repayments.Select(row => row.MovementId)).ToList();
         var rounding = await context.RoundingVariances.AsNoTracking()
-            .Where(row => row.Source == VarianceSource.CashTender && references.Contains(row.ReferenceId))
+            .Where(row => row.Source == VarianceSource.CashTender
+                && (tickets.Contains(row.ReferenceId) || repayments.Select(repayment => repayment.MovementId).Contains(row.ReferenceId)))
             .Select(row => new { row.ReferenceType, row.Amount })
             .ToListAsync(cancellationToken);
 
@@ -144,11 +149,34 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
             Rounding: [.. rounding.Select(row => new TenderRounding(row.ReferenceType, row.Amount))]);
     }
 
+    /// <summary>The session's cash movements, as a subquery.</summary>
+    private IQueryable<string> SessionMovementIds(string sessionId) =>
+        context.CashMovements.Where(movement => movement.SessionId == sessionId).Select(movement => movement.MovementId);
+
     public Task<int> TicketCountAsync(string sessionId, CancellationToken cancellationToken = default) =>
         context.Transactions.CountAsync(
             ticket => ticket.CashSessionId == sessionId && ticket.Status != TransactionStatus.Voided
                 && ticket.Status != TransactionStatus.Open && ticket.Status != TransactionStatus.Parked,
             cancellationToken);
+
+    public async Task<long> CashMovesAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var tickets = context.Transactions
+            .Where(ticket => ticket.CashSessionId == sessionId && ticket.Status != TransactionStatus.Voided)
+            .Select(ticket => ticket.TransactionId);
+        var parts = await context.TransactionPayments
+            .LongCountAsync(payment => payment.PaymentMethod == PaymentMethod.Cash && tickets.Contains(payment.TransactionId), cancellationToken);
+        return parts + await context.CashMovements.LongCountAsync(movement => movement.SessionId == sessionId, cancellationToken);
+    }
+
+    public async Task StagePendingCountAsync(string sessionId, Money counted, long moves, DateTimeOffset at, CancellationToken cancellationToken = default)
+    {
+        var session = await context.CashSessions.FirstAsync(row => row.SessionId == sessionId, cancellationToken);
+        var entry = context.Entry(session);
+        entry.Property(row => row.PendingCount).CurrentValue = counted;
+        entry.Property(row => row.PendingCountMoves).CurrentValue = moves;
+        entry.Property(row => row.UpdatedAt).CurrentValue = at;
+    }
 
     public async Task StageCloseAsync(string sessionId, SessionClose close, CancellationToken cancellationToken = default)
     {

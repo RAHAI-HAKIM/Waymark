@@ -155,6 +155,7 @@ builder.Services.AddScoped<RecordCashMovementHandler>();
 builder.Services.AddScoped<ICashSessionLedger, Waymark.Persistence.Organisation.CashSessionLedger>();
 builder.Services.AddScoped<OpenCashSessionHandler>();
 builder.Services.AddScoped<CloseCashSessionHandler>();
+builder.Services.AddScoped<KeepBlindCountHandler>();
 builder.Services.AddScoped<ShiftReports>();
 builder.Services.AddScoped<ToggleClockHandler>();
 builder.Services.AddScoped<IShiftLedger, Waymark.Persistence.Organisation.ShiftLedger>();

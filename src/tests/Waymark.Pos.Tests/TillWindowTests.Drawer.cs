@@ -331,6 +331,78 @@ public sealed partial class TillWindowTests
         Assert.Empty(again.Fields); // and no field to type another count in
     });
 
+    [Fact]
+    public Task A_cash_sale_after_a_blind_count_lifts_it_and_the_drawer_is_counted_again() => Headless.Run(() =>
+    {
+        // The count stayed frozen whatever came after it: one more sale, and the close recorded that
+        // sale's cash as a shortage, with no way to count again (block C review, D-119).
+        using var till = OpenTill(server => server.Blind = true);
+        StartClose(till);
+        Keys(till, "48000");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => FormOf(till)?.Title == TillText.French.ConfirmCountTitle);
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => FormOf(till)?.Title == TillText.French.ExplainCountTitle);
+        till.Key(Key.Escape, PhysicalKey.Escape);
+
+        till.Scan(Till.Code(1));
+        till.Pay();
+        till.Pump();
+        till.Key(Key.Escape, PhysicalKey.Escape);
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.Pump();
+
+        StartClose(till);
+
+        var count = FormOf(till)!;
+        Assert.Equal(TillText.French.CloseDrawerTitle, count.Title);
+        Assert.Equal(string.Empty, Assert.Single(count.Fields).Value); // an empty field: the drawer is counted anew
+    });
+
+    [Fact]
+    public Task A_blind_count_the_server_keeps_stands_for_whoever_counts_next_at_this_till() => Headless.Run(() =>
+    {
+        // Changing cashier used to clear the till's memory of the count, and with it the freeze.
+        using var till = OpenTill(server =>
+        {
+            server.Blind = true;
+            server.BlindCountKept = "48000.50";
+        });
+
+        till.Tap(Operation(till, Screen.Operation.More), new Point(20, 20));
+        till.Tap(Operation(till, Screen.Operation.CloseDrawer), new Point(20, 20));
+        till.WaitFor(() => FormOf(till)?.Title == TillText.French.ConfirmCountTitle);
+
+        var standing = FormOf(till)!;
+        Assert.Equal(Shown(4_800_050), standing.Big);
+        Assert.Empty(standing.Fields); // nothing to type another count in
+        Assert.Empty(standing.Keys);   // and no Recompter
+    });
+
+    [Fact]
+    public Task A_close_whose_answer_was_lost_is_not_counted_twice_the_till_reads_the_drawer_again() => Headless.Run(() =>
+    {
+        // The server closed the session and the answer never arrived. Sent again, the close is refused
+        // as "no session open": the till used to keep its count panel over a drawer already shut.
+        using var till = OpenTill(server =>
+        {
+            server.MayClose = true;
+            server.LoseNextCloseAnswer = true;
+        });
+        StartClose(till);
+        Keys(till, "48350");
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => FormOf(till)?.Title == TillText.French.ConfirmCloseTitle);
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => FormOf(till)?.Message?.Body == TillText.French.DrawerOffline);
+
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => FormOf(till)?.Title == TillText.French.DrawerOpenTitle);
+
+        Assert.Equal(2, till.Server.DrawerCloses.Count);
+        Assert.Empty(till.Server.DrawerOpenings); // nothing was opened by itself: the float is still to count
+    });
+
     // ================================================================== tickets settled first
 
     [Fact]
@@ -366,6 +438,12 @@ public sealed partial class TillWindowTests
 
         public List<CloseCashSessionRequest> DrawerCloses { get; } = [];
 
+        /// <summary>The blind count the server keeps (D-119): the first one sent, until cash moves again.</summary>
+        public string? BlindCountKept { get; set; }
+
+        /// <summary>The next close is done and its answer never reaches the till: the network, at the worst moment.</summary>
+        public bool LoseNextCloseAnswer { get; set; }
+
         private static readonly DateTimeOffset OpenedAt = new(2026, 10, 5, 7, 12, 0, TimeSpan.Zero);
 
         private bool Shows => !Blind || MayClose;
@@ -381,7 +459,8 @@ public sealed partial class TillWindowTests
             new LastCloseWire(11, OpenedAt.AddHours(-10), "Karim M."),
             Blind,
             MayClose,
-            Shows ? "200.00" : null);
+            Shows ? "200.00" : null,
+            Shows || !DrawerIsOpen ? null : BlindCountKept);
 
         public Task<CashSessionState?> CashSessionAsync(string terminalId, string sessionToken, CancellationToken cancellationToken = default) =>
             Task.FromResult(DrawerAnswers ? DrawerState() : null);
@@ -397,7 +476,19 @@ public sealed partial class TillWindowTests
         public Task<CashSessionAnswer?> CloseCashSessionAsync(CloseCashSessionRequest request, string sessionToken, CancellationToken cancellationToken = default)
         {
             DrawerCloses.Add(request);
-            var counted = decimal.Parse(request.Counted, System.Globalization.CultureInfo.InvariantCulture);
+            if (!DrawerIsOpen)
+            {
+                return Task.FromResult<CashSessionAnswer?>(new CashSessionAnswer(
+                    CashSessionOutcomes.Refused, Reason: "No cash session is open on this till.", Refusal: new Refusal(RefusalCodes.NoOpenSession)));
+            }
+
+            // Counted blind: the first count is kept and is the one the close is asked with.
+            if (!Shows)
+            {
+                BlindCountKept ??= request.Counted;
+            }
+
+            var counted = decimal.Parse(Shows ? request.Counted : BlindCountKept!, System.Globalization.CultureInfo.InvariantCulture);
             var variance = counted - 48_350m;
             if (Math.Abs(variance) > 200m && request.Note is null)
             {
@@ -410,6 +501,12 @@ public sealed partial class TillWindowTests
             }
 
             DrawerIsOpen = false;
+            if (LoseNextCloseAnswer)
+            {
+                LoseNextCloseAnswer = false;
+                return Task.FromResult<CashSessionAnswer?>(null);
+            }
+
             var at = OpenedAt.AddHours(14);
             return Task.FromResult<CashSessionAnswer?>(new CashSessionAnswer(CashSessionOutcomes.Closed, Closed: Shows
                 ? new ClosedCashSessionWire(

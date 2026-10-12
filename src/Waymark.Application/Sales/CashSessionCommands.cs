@@ -10,9 +10,12 @@ namespace Waymark.Application.Sales;
 
 /// <summary>A cash session not opened or not closed, for a reason the cashier is told. Nothing is written.</summary>
 /// <param name="code">One of <c>RefusalCodes</c> when a cashier meets this refusal in ordinary work (D-107); null otherwise.</param>
-public sealed class CashSessionRefusedException(string reason, string? code = null) : Exception(reason)
+/// <param name="args">What the code's sentence names, in its own order.</param>
+public sealed class CashSessionRefusedException(string reason, string? code = null, params string[] args) : Exception(reason)
 {
     public string? Code { get; } = code;
+
+    public IReadOnlyList<string> Args { get; } = args;
 }
 
 /// <summary>The drawer counted and the till opened for the day (C1, D-111).</summary>
@@ -66,6 +69,46 @@ public sealed class OpenCashSessionHandler(ISalesLedger ledger, IStaging staging
     }
 }
 
+/// <summary>
+/// A count sent by somebody who is not shown what the drawer should hold (D-119). The host runs it
+/// before the close whenever the figures are hidden, and closes with what it answers.
+/// </summary>
+/// <param name="Counted">Minor units, zero or more.</param>
+public sealed record KeepBlindCount(string TerminalId, long Counted) : ICommand<long>;
+
+/// <summary>
+/// Keeps a blind count on the open session, or answers the one already kept (D-119). The close used
+/// to answer "a note is asked" or "a manager is asked" for any count and write nothing, so the two
+/// edges of the threshold gave the drawer's figure to whoever tried a dozen counts. Now the first
+/// count is written, and it is the one the close is asked with until cash moves again
+/// (<see cref="Drawer.StandingCount"/>): another figure typed meanwhile is not taken.
+/// </summary>
+public sealed class KeepBlindCountHandler(ISalesLedger ledger, ICashSessionLedger sessions, TimeProvider clock)
+    : ICommandHandler<KeepBlindCount, long>
+{
+    public async Task<long> HandleAsync(KeepBlindCount command, CommandContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentException.ThrowIfNullOrWhiteSpace(command.TerminalId);
+        if (command.Counted < 0)
+        {
+            throw new CashSessionRefusedException("A count is zero or more.");
+        }
+
+        var session = await ledger.OpenCashSessionAsync(command.TerminalId, cancellationToken)
+            ?? throw new CashSessionRefusedException(CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
+        var moves = await sessions.CashMovesAsync(session.SessionId, cancellationToken);
+        if (Drawer.StandingCount(session.PendingCount, session.PendingCountMoves, moves) is { } standing)
+        {
+            return standing.MinorUnits;
+        }
+
+        await sessions.StagePendingCountAsync(
+            session.SessionId, Money.FromMinorUnits(command.Counted, session.OpeningFloat.Currency), moves, clock.GetUtcNow(), cancellationToken);
+        return command.Counted;
+    }
+}
+
 /// <summary>The drawer counted at the end and the session closed (C1, D-111).</summary>
 /// <param name="Counted">What is in the drawer, the float included, minor units, zero or more.</param>
 /// <param name="Note">Asked when the variance passes the tenant's threshold; kept whenever written.</param>
@@ -104,6 +147,22 @@ public sealed class CloseCashSessionHandler(
         var session = await ledger.OpenCashSessionAsync(command.TerminalId, cancellationToken)
             ?? throw new CashSessionRefusedException(CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
 
+        // A clock set back (D-121): a close stamped before its opening is refused by the table, and
+        // was told to the cashier as a server that could not be reached. Said for what it is.
+        var now = clock.GetUtcNow();
+        if (now < session.OpenedAt)
+        {
+            throw new CashSessionRefusedException(
+                "The till's clock reads earlier than the hour this cash session opened: set it right, then close.", RefusalCodes.ClockBehind);
+        }
+
+        if (!SaleLimits.NoteFits(command.Note))
+        {
+            throw new CashSessionRefusedException(
+                $"A note is {SaleLimits.MaxNoteLength} characters at most.", RefusalCodes.NoteTooLong,
+                SaleLimits.MaxNoteLength.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         var expected = Drawer.Expected(await sessions.MovementsAsync(session, cancellationToken));
         var counted = Money.FromMinorUnits(command.Counted, expected.Currency);
         var variance = Drawer.Variance(expected, counted);
@@ -125,7 +184,6 @@ public sealed class CloseCashSessionHandler(
 
         // One command at a time on a store (StoreServer's gate), and ux_cash_sessions_z_number behind it.
         var number = (await sessions.LastZReportNumberAsync(command.TerminalId, cancellationToken) ?? 0) + 1;
-        var now = clock.GetUtcNow();
         var authorisedBy = command.CloserMay ? null : command.AuthorisedBy;
         await sessions.StageCloseAsync(
             session.SessionId,

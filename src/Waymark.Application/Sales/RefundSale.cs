@@ -501,5 +501,12 @@ public sealed class RefundSaleHandler(
         {
             throw new SaleRefusedException($"'{command.ReasonCode}' asks for a note, and none was written.", RefusalCodes.NoteMissing);
         }
+
+        if (!SaleLimits.NoteFits(command.Note))
+        {
+            throw new SaleRefusedException(
+                $"A note is {SaleLimits.MaxNoteLength} characters at most.", RefusalCodes.NoteTooLong,
+                SaleLimits.MaxNoteLength.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 }

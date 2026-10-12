@@ -2750,6 +2750,11 @@ public sealed class TillWindow : Window, IDisposable
             }
 
             panel = panel with { Drawer = state };
+
+            // Which blind count stands is the server's to say (D-119), not this till's memory: the
+            // next cashier, or a till started again, meets the same count; a cash sale made since
+            // has lifted it, and the drawer is counted anew.
+            _frozenCount = state.StandingCount is { } standing ? DrawerScreen.TypedFrom(standing) : null;
         }
         else
         {
@@ -2810,6 +2815,17 @@ public sealed class TillWindow : Window, IDisposable
                 await AuthoriseCustomerAsync(
                     CounterKind.CloseSession, $"{_text.CloseDrawerTitle} · {_context?.TerminalName}",
                     _text.ApproveCloseSummary(ShownWire(counted, _context?.Currency), note.Length > 0));
+                return;
+
+            case CashSessionOutcomes.Refused when answer.Refusal?.Code == RefusalCodes.NoOpenSession:
+                // Closed already: this close's first answer was lost on its way and the cashier sent
+                // it again (block C review). The till reads the drawer anew rather than keep a count
+                // panel over a session that is no longer there; the opening panel names the last Z.
+                _frozenCount = null;
+                _customerPanel = null;
+                _drawer = null;
+                Render();
+                await LoadDrawerAsync();
                 return;
 
             default:

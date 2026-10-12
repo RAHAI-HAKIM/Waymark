@@ -15,4 +15,14 @@ public static class SaleLimits
     /// of a scale label can carry (D-090). A weight past it was typed with a digit too many.
     /// </summary>
     public const long MaxWeightThousandths = 99_999;
+
+    /// <summary>
+    /// The longest note a cashier may write, in characters: on a discount, a refund, cash in or out, a
+    /// close (D-121). No note had a length, and one of two million characters was stored and sent
+    /// back with every read (block C review). 500 until the consent screens say better (Hakim, 12/10).
+    /// </summary>
+    public const int MaxNoteLength = 500;
+
+    /// <summary>Whether a note may be written as it is: none, or one of <see cref="MaxNoteLength"/> characters at most, its edges trimmed.</summary>
+    public static bool NoteFits(string? note) => note is null || note.Trim().Length <= MaxNoteLength;
 }

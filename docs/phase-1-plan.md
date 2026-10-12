@@ -149,7 +149,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | # | Work | Expands (0.5) | Who | Size |
 | :-- | :---- | :---- | :--: | :--: |
 | D1 | Receipt content, French ASCII; recomputes from its own row | `Transaction.RoundingPolicy` (D-053) | C | M |
-| D2 | Real ESC/POS printing and the drawer | the fake printer (Phase 0, D-059) | C drafts, **H verifies** against the command reference | M |
+| D2 | Real ESC/POS printing and the drawer; the audited no-sale (B8 left it here) and its line on the Z, which C2 kept a place for | the fake printer (Phase 0, D-059) | C drafts, **H verifies** against the command reference | M |
 | D3 | Reprint, audited. A receipt's printed number, scanned, opens its ticket (B1 reads a scan as a product code only) | D1 | C | S |
 
 ### Block E — Catalogue, first Admin batch (4 sessions) — **G2 first**
@@ -188,12 +188,13 @@ block may grow by a session or more. Nothing is decided yet (Hakim, 07/10).
 | G6 | Rights tooling + `data_subject_requests`, **blocked-with-reason**, the 10-day clock | `erasure_ledger` (D-060) | **H** | L |
 | G7 | `processing_log` at every access site | `IProcessingLog` (D-045, D-061) — and **D-074's deliberate omission now becomes real**, because a customer card names a subject | **H** | M |
 
-### Block H — Staff and store (2 sessions)
+### Block H — Staff and store (3 sessions)
 
 | # | Work | Expands (0.5) | Who | Size |
 | :-- | :---- | :---- | :--: | :--: |
 | H1 | Staff CRUD, roles, PIN, clock, basic scheduling, deactivation | A2 | C | M |
 | H2 | Store profile, terminals, roles and permissions. Single store | `stores`, D-071's write guard | C | M |
+| H3 | The Z in Admin (added 12/10, D-121): read any close of any till, older than the till's last 30; a store's day across its tills; print a Z | `ShiftReports` (D-112), `ShiftReportEndpoints.ToWire` | C | S–M |
 
 ### Block I — Platform (5 sessions)
 

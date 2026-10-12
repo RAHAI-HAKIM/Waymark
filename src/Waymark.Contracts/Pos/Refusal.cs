@@ -157,4 +157,13 @@ public static class RefusalCodes
 
     /// <summary>The count is too far from what the drawer should hold to close without a note. Names nothing.</summary>
     public const string CloseNeedsNote = "close_needs_note";
+
+    /// <summary>
+    /// The till's clock reads earlier than the hour its cash session opened (D-121): it was set back,
+    /// and a close stamped before its opening cannot be written. The clock is put right first.
+    /// </summary>
+    public const string ClockBehind = "clock_behind";
+
+    /// <summary>A note longer than a note may be (D-121). <c>args[0]</c>: the most characters.</summary>
+    public const string NoteTooLong = "note_too_long";
 }

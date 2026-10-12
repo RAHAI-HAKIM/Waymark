@@ -640,9 +640,69 @@ is `read_shift_flags`.
 
 ---
 
-# **Phase 1, Block D on (in full until the block is reviewed)**
+# **Phase 1, Block C's review and Block D on (in full until the block is reviewed)**
 
-Nothing yet.
+### D-119 — A blind count is kept by the server, and stands until cash moves (block C review, 12/10; closes O-37)
+The close answered "a note is asked" or "a manager is asked" for any count and wrote nothing, so
+the threshold's two edges gave the drawer's figure to whoever tried a dozen counts; the till's
+freeze was lifted by changing cashier, and was not lifted by a sale made after it, which the close
+then recorded as a shortage (F-37).
+
+- **The first count sent by somebody who is not shown the figures is written on the session**:
+  `cash_sessions.pending_count`, with `pending_count_moves`, how many times cash had moved in the
+  session at that moment (the cash parts of its tickets and its cash movements, counted).
+- **It stands while that number has not changed** (`Drawer.StandingCount`). While it stands, the
+  close is asked with it, whatever figure is sent next: another cashier, a till started again or a
+  caller that is not the till gets the same answer the first count got.
+- **Once cash has moved, the drawer is counted again**: a cash sale, a cash refund, cash in or out.
+  A card sale and a cancel move none. So each new try costs a recorded movement of cash, where it
+  cost nothing.
+- **Kept in a command of its own** (`KeepBlindCount`), run by the host before the close: a close
+  refused for its note or its PIN stages nothing (D-050), and the count has to outlive it.
+- **The till shows the count that stands** (`standing_count` in the session's state, sent only to
+  who counts blind) to be confirmed, with no field to type another. It is the server's to say,
+  no longer the till's memory.
+- Somebody who is shown the figures (the close is not blind, or they close alone) keeps no count
+  and is held to none.
+
+**Left as it is:** a paid-out or a cash refund the drawer cannot cover is still refused as
+`drawer_short`, which bounds the figure from above (F-37, now Low). **Rejected:** no freeze at
+all; the freeze kept in the till alone; an hour instead of a number of movements, which a sale in
+the same second defeats.
+
+### D-120 — A close is whole, and a till has one drawer that is not closed (block C review, 12/10; F-50)
+"A closed session is final" (D-111) held for its row only.
+
+- **A closed row carries all of its close**: `ck_cash_sessions_status_2` asks for the count, the
+  expected cash, the variance, the Z number, the hour and who counted. It asked for the count only.
+- **A till's one drawer is "not closed"**, not "open": `ux_cash_sessions_one_open` now covers a
+  `suspended` session, a status nothing writes yet.
+
+Migration `BlindCountAndClosedSession` (with D-119's two columns): rebuilds `cash_sessions`.
+
+**Not done: the guards on what hangs from a closed session.** Two triggers refusing a cash
+movement or a ticket added after a close were written and taken out the same day: a trigger on one
+table that reads another makes SQLite refuse to rebuild the table it reads ("no such table" at the
+rename), so every later migration of `cash_sessions`, and three rollback tests, failed. Open as F-50.
+
+### D-121 — What else the block C review settled (12/10)
+- **A blind close with the reports handed below the close is refused** (F-46):
+  `SetTenantSettingsHandler` judges the three keys as they would stand, the ladder's rank where a
+  key is off, and refuses `blind_close` on with `x_report_min_rank` below `close_session_min_rank`,
+  whichever key completes the pair. So under a blind close whoever reads an X also closes alone,
+  and is shown the figures anyway. **Side effects:** the keys must be changed in an order that
+  never passes through the pair, or together in one command; and a store already holding the pair
+  keeps it until one of the three is next set (none exists).
+- **A clock set back** (F-47): a close stamped before its session's opening is refused as
+  `clock_behind`, in words, where the table's CHECK used to surface as a server out of reach. The
+  close only: a sale is not refused for the hour.
+- **A note is 500 characters at most** (F-48): `SaleLimits.MaxNoteLength`, refused as
+  `note_too_long` on a close, cash in or out, a discount and a refund. 500 until the consent
+  screens say better (Hakim, 12/10). The till's own fields stop at 200.
+- **Left as they are** (Hakim, 12/10): a Z names who validated its close, not who counted (F-49);
+  a PIN typed to read a report stands at the server for the day (F-54, open with O-33).
+- **Admin's** (Hakim, 12/10): printing a Z, reading one older than the till's last 30, and a
+  store's day across tills are H3 in the plan (F-51).
 
 ---
 
@@ -658,12 +718,14 @@ Nothing yet.
 | O-32 | **Does an archived product stop its variants selling?** The lookup reads only `variants.status` (D-066), so a product archived with an active variant sells | A sellability rule of D-066. Claude's recommendation: the lookup refuses on either, as `archived`, so E1 need not cascade the status | **E1** (archiving a product) |
 | O-33 | **Is the person who decides a card at the till the session's person?** The till sends `staff_id` to `/api/recommendations` and `/decide`, and the server believes it (D-083's stated gap), against CLAUDE.md §3.10 | The till already holds a token. Closing the till's half is about an hour: with the header, the session's person decides and a different `staff_id` is refused; without it (Admin) nothing changes until I1 | Nothing in Phase 1's flow; anyone on the LAN can decide as the owner meanwhile |
 | O-34 | **Does lowering a line's count after "Encaisser" need the cancel's PIN, and is it recorded?** D-106 covers a line struck; five units made one is the same theft, and a lowered count is written nowhere | An access rule (D-097, D-106) and a record: the difference as a struck row would be a new meaning for one | Nothing in the flow. **Before a pilot** (F-30) |
+| O-38 | **HIGH PRIORITY (Hakim, 12/10). Are the Z's flags and the figures by cashier in the DPIA, and is reading them logged?** D-112 and D-118 show cancels, discounts and takings per named person: figures about staff. The DPIA lists staff's "shift records"; `processing_log` takes a `staff` subject and nothing writes one today | What the DPIA promises is Hakim's (CLAUDE.md §7). If a read is to be logged, D-061 asks for the person's pseudonym, one row a person named, at `ShiftReportEndpoints` | **G7** (`processing_log` at every access site) |
 | O-35 | **What of suppliers does Phase 1 build, and what stays Phase 2's?** The tables exist (`suppliers`, `supplier_variant`, `purchase_orders`, `batches.supplier_id` and `order_id`) and only the generator writes them. The Build Plan puts the supplier and PO screens in Phase 2, yet Phase 1's F1 is "receive against a PO" | Four things nobody has decided, raised 07/10: **(1)** F1 has nothing to receive against on a real shop: no screen makes a supplier or a PO before Phase 2; **(2)** most deliveries have no PO at all, which the schema allows (`batches.order_id` is nullable) and the plan does not word; **(3)** what the shop owes a supplier is nowhere: `net_days` and `credit_limit` are columns with no ledger behind them, and a driver paid from the drawer is a "Petite caisse" paid-out that names no supplier (a schema decision, the tab of D-055 in reverse); **(4)** goods sent back to a supplier are F2's stock half only. Also to settle: whether a supplier's contact person is personal data for the DPIA (Hakim's to edit). Left open on purpose (Hakim, 07/10): the split needs planning, not a quick yes | **Block F**: specified before F1 opens. The engine's lead times and supplier reliability (Phase 2) need receiving to record the supplier, the document and the dates from the first delivery |
 
 ### Resolved
 | Open | Resolved by |
 | :--- | :--- |
 | O-36 | D-116: channel B carries no customer, staff or supplier-contact field; `D_decisions` to be checked for `decided_by`. Its test (H21) is owed with the channel's first writer |
+| O-37 | D-119: the server keeps the first blind count, which stands until cash moves |
 | O-1 | D-038 |
 | O-2 | D-015, D-042 |
 | O-3 | D-039, D-043 |

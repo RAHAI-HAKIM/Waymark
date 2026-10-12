@@ -102,6 +102,19 @@ public static class Drawer
     }
 
 
+    /// <summary>
+    /// <b>Block C review (D-119)</b> The blind count that stands, if one does: the count the server
+    /// kept, while cash has not moved in the session since it was kept. Null when none was kept, or
+    /// when a cash sale, a cash refund or a cash movement came after it: the drawer no longer holds
+    /// what was counted, so it is counted again. Each new try therefore costs a recorded movement of
+    /// cash, where it used to cost nothing.
+    /// </summary>
+    /// <param name="kept">The count kept on the session; null when there is none.</param>
+    /// <param name="movesWhenKept">How many times cash had moved when it was kept.</param>
+    /// <param name="movesNow">How many times cash has moved now.</param>
+    public static Money? StandingCount(Money? kept, long? movesWhenKept, long movesNow) =>
+        kept is not null && movesWhenKept == movesNow ? kept : null;
+
     /// <param name="expected">What the drawer should hold now.</param>
     /// <param name="goingOut">The cash asked of it, above zero.</param>
     public static bool Covers(Money expected, Money goingOut)

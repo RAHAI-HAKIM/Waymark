@@ -38,6 +38,7 @@ public sealed class MoneyMappingTests : IClassFixture<MigratedDatabaseFixture>
         "cash_sessions.opening_float", "cash_sessions.counted_cash",
         "cash_sessions.expected_cash", "cash_sessions.variance",
         "cash_sessions.void_alert_value", "cash_sessions.variance_alert_value",   // the thresholds frozen at a close (C2, D-112)
+        "cash_sessions.pending_count",                                             // a blind count the server keeps (D-119)
         "cash_movements.amount",
         "prices.price",
         "suppliers.credit_limit",

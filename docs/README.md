@@ -26,6 +26,7 @@ goes.
 | `recaps/` | One snapshot per finished phase: what was built, decided and found. **Not session reading**; open when a question reaches back into a finished phase. Phase 1's is written block by block (`phase-1.md`, till Block C), so its decisions leave `decisions.md` as each block is reviewed |
 | `../src/Waymark.Generator/README.md` | The synthetic store generator: how a run works, its inputs and parameters, its outputs, and its use in later phases |
 | `Project_Organization.md` | Hakim's stage roadmap and log |
+| `development-brief.md` | The implementation side for an outside reader (the incubator, 12/10): what exists, which documents to open, and how development relates to legal, design, the engine and business. A snapshot |
 | `diagrams/` | Eight Mermaid diagrams, indexed in `diagrams/README.md` |
 | `Waymark_Brand_Identity.pptx` | Visual identity. Its locked rules are in CLAUDE.md §6 |
 

@@ -75,6 +75,13 @@ public sealed class RecordCashMovementHandler(
             throw new CashMovementRefusedException($"'{command.ReasonCode}' asks for a note, and none was written.", RefusalCodes.NoteMissing);
         }
 
+        if (!SaleLimits.NoteFits(command.Note))
+        {
+            throw new CashMovementRefusedException(
+                $"A note is {SaleLimits.MaxNoteLength} characters at most.", RefusalCodes.NoteTooLong,
+                SaleLimits.MaxNoteLength.ToString(CultureInfo.InvariantCulture));
+        }
+
         var store = await ledger.CurrentStoreAsync(cancellationToken)
             ?? throw new CashMovementRefusedException("This store has no row in stores; it is not commissioned.");
         var now = clock.GetUtcNow();

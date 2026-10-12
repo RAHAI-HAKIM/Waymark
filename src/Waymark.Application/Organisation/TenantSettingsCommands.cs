@@ -122,6 +122,18 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
                 : current.VarianceAlertValue,
         };
 
+        // A blind close with the X handed below it is no blind close (D-121, block C review): whoever
+        // reads an X reads "Attendu", then counts "blind". Judged on the settings as they would stand,
+        // so the pair is refused whichever of the three keys completes it.
+        var reads = next.XReportMinRank ?? StaffPermissions.RequiredRank(Capability.ReadXReport);
+        var closes = next.CloseSessionMinRank ?? StaffPermissions.RequiredRank(Capability.CloseSession);
+        if (next.BlindClose && reads < closes)
+        {
+            throw new TenantSettingRefusedException(
+                $"A blind close with reports read from rank {reads} and the drawer closed alone from rank {closes}: "
+                + "whoever counts blind could read what the drawer should hold. Raise the reports' rank to the close's, or switch the blind close off.");
+        }
+
         await configuration.StageAsync(next, null, clock.GetUtcNow(), cancellationToken);
         return next;
     }

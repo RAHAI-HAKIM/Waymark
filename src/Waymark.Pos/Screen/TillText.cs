@@ -1889,6 +1889,8 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.SessionAlreadyOpen => "Une caisse est déjà ouverte sur ce poste.",
             Contracts.Pos.RefusalCodes.CloseNeedsManager => "Un responsable valide la clôture.",
             Contracts.Pos.RefusalCodes.CloseNeedsNote => "Une note est demandée pour ce compte.",
+            Contracts.Pos.RefusalCodes.ClockBehind => "L'horloge de la caisse retarde : elle indique une heure d'avant l'ouverture. Réglez l'heure, puis clôturez.",
+            Contracts.Pos.RefusalCodes.NoteTooLong => $"Une note fait au plus {Named(args, 0)} caractères.",
             _ => null,
         };
 
@@ -2574,6 +2576,8 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.SessionAlreadyOpen => "يوجد صندوق مفتوح على هذا الجهاز.", // ar: à relire
             Contracts.Pos.RefusalCodes.CloseNeedsManager => "الإقفال يصادق عليه مسؤول.", // ar: à relire
             Contracts.Pos.RefusalCodes.CloseNeedsNote => "مطلوب ملاحظة لهذا العدّ.", // ar: à relire
+            Contracts.Pos.RefusalCodes.ClockBehind => "ساعة الصندوق متأخرة: تشير إلى وقت قبل الفتح. اضبط الساعة ثم أقفل.", // ar: à relire
+            Contracts.Pos.RefusalCodes.NoteTooLong => $"الملاحظة {Named(args, 0)} حرفًا على الأكثر.", // ar: à relire
             _ => null,
         };
 

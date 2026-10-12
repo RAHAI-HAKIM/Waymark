@@ -33,9 +33,17 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             table.HasCheckConstraint(
                 "ck_cash_sessions_closed_at",
                 @"closed_at IS NULL OR closed_at >= opened_at");
+
+            // A close is whole or it is not a close (D-120): its count, what the drawer should have
+            // held, the variance, its Z number, its hour and who counted. It asked for the count only.
             table.HasCheckConstraint(
                 "ck_cash_sessions_status_2",
-                @"status <> 'closed' OR counted_cash IS NOT NULL");
+                @"status <> 'closed' OR (counted_cash IS NOT NULL AND expected_cash IS NOT NULL AND variance IS NOT NULL AND z_report_number IS NOT NULL AND closed_at IS NOT NULL AND closed_by IS NOT NULL)");
+
+            // D-119: a blind count is kept with how many times cash had moved, or not at all.
+            table.HasCheckConstraint(
+                "ck_cash_sessions_pending_count",
+                @"(pending_count IS NULL AND pending_count_moves IS NULL) OR (pending_count >= 0 AND pending_count_moves >= 0)");
 
             // C1 (D-111): nobody is named as having allowed a close that has not happened.
             table.HasCheckConstraint(
@@ -80,6 +88,10 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             .HasColumnName("void_alert_value");
         builder.Property(x => x.VarianceAlertValue)
             .HasColumnName("variance_alert_value");
+        builder.Property(x => x.PendingCount)
+            .HasColumnName("pending_count");
+        builder.Property(x => x.PendingCountMoves)
+            .HasColumnName("pending_count_moves");
         builder.Property(x => x.Status)
             .HasColumnName("status")
             .HasConversion(EnumConverters.CashSessionStatusConverter)
@@ -103,10 +115,12 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
 
         // C1 (D-111): a till has one drawer, so one session open at a time; and a Z number is
         // given once per till. Both were only the code's habit before.
+        // "Not closed", not "open" (D-120): a suspended session, a status nothing writes yet, is
+        // still the till's one drawer.
         builder.HasIndex(x => x.TerminalId)
             .HasDatabaseName("ux_cash_sessions_one_open")
             .IsUnique()
-            .HasFilter(@"status = 'open'");
+            .HasFilter(@"status <> 'closed'");
         builder.HasIndex(x => new { x.TerminalId, x.ZReportNumber })
             .HasDatabaseName("ux_cash_sessions_z_number")
             .IsUnique()

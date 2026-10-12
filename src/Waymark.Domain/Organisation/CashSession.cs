@@ -65,6 +65,19 @@ public sealed class CashSession : IStoreScoped
 
     public Money? VarianceAlertValue { get; init; }
 
+    /// <summary>
+    /// A blind count kept by the server while the session is still open (D-119): what somebody who is
+    /// not shown the drawer's figure first counted, so the close cannot be asked again and again with
+    /// another figure until its answer changes. Null until such a count is sent.
+    /// </summary>
+    public Money? PendingCount { get; init; }
+
+    /// <summary>
+    /// How many times cash had moved in the session when <see cref="PendingCount"/> was kept
+    /// (<see cref="Drawer.StandingCount"/>): the count stands while that number has not changed.
+    /// </summary>
+    public long? PendingCountMoves { get; init; }
+
     public CashSessionStatus Status { get; init; } = CashSessionStatus.Open;
 
     public string? Notes { get; init; }

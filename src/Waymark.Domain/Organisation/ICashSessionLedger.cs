@@ -52,6 +52,15 @@ public interface ICashSessionLedger
     /// </summary>
     Task<ShiftRows> ReportRowsAsync(string sessionId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// How many times cash has moved in the session (D-119): the cash parts of its tickets and its
+    /// cash movements, counted. A card sale and a cancel move none.
+    /// </summary>
+    Task<long> CashMovesAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Stages a blind count kept on the open session, with how many times cash had moved (D-119).</summary>
+    Task StagePendingCountAsync(string sessionId, Money counted, long moves, DateTimeOffset at, CancellationToken cancellationToken = default);
+
     /// <summary>Stages the session closed, written when the executor commits (D-050).</summary>
     Task StageCloseAsync(string sessionId, SessionClose close, CancellationToken cancellationToken = default);
 }

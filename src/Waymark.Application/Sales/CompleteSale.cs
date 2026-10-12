@@ -741,6 +741,14 @@ public sealed class CompleteSaleHandler(
             {
                 throw new SaleRefusedException($"'{bare.ReasonCode}' asks for a note, and none was written.", RefusalCodes.NoteMissing);
             }
+
+            // Nor with one of any length (D-121).
+            if (given.Any(discount => !SaleLimits.NoteFits(discount.Note)))
+            {
+                throw new SaleRefusedException(
+                    $"A note is {SaleLimits.MaxNoteLength} characters at most.", RefusalCodes.NoteTooLong,
+                    SaleLimits.MaxNoteLength.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
         }
 
         var overrides = command.Lines.Select(line => line.Override).OfType<GivenOverride>().ToList();

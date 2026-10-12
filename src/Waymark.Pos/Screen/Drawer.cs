@@ -48,6 +48,17 @@ public static class DrawerScreen
         return digits.Length is > 0 and <= 3 && digits.All(c => c == '0') && !panel.Typed.EndsWith(',') ? 0 : null;
     }
 
+    /// <summary>
+    /// A count as the server keeps it, "48000.00", in the words a cashier types it, "48000" or
+    /// "48000,50": the blind count that stands is shown in the count's own field (D-119).
+    /// </summary>
+    public static string TypedFrom(string wire)
+    {
+        ArgumentNullException.ThrowIfNull(wire);
+        var parts = wire.Split('.');
+        return parts.Length == 2 && parts[1].Trim('0').Length > 0 ? $"{parts[0]},{parts[1]}" : parts[0];
+    }
+
     /// <summary>Whether the server sent what the drawer should hold: it does not to someone counting blind.</summary>
     public static bool ShowsFigures(CustomerPanelState panel)
     {
