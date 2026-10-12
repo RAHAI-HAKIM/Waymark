@@ -13,6 +13,12 @@ namespace Waymark.StoreServer.Sales;
 /// <c>ReadXReport</c> as the shop set it, else whoever's PIN the request cites; nobody else is shown
 /// a figure, so a blind count learns nothing here. The flags go only to a reader whose rank reaches
 /// <c>ReadShiftFlags</c>; everyone else is told how many there are. Never compared here (§3.10).
+///
+/// <para>
+/// <b>By cashier (C3, D-118):</b> the figures name people, so they follow the flags' rule: whole to
+/// who reaches <c>ReadShiftFlags</c>, by their own rank or by an owner's PIN cited for it. Anyone else
+/// who reads the report is sent how many people there are and their own column.
+/// </para>
 /// </summary>
 public static class ShiftReportEndpoints
 {
@@ -64,8 +70,8 @@ public static class ShiftReportEndpoints
         });
     }
 
-    /// <summary>Who reads, and whether the flags are theirs to read.</summary>
-    private sealed record Reader(string Outcome, bool ReadsFlags = false);
+    /// <summary>Who reads, and whether the flags and the other people's figures are theirs to read.</summary>
+    private sealed record Reader(string Outcome, bool ReadsFlags = false, string? StaffId = null);
 
     private static async Task<Reader> ReaderAsync(
         TillSessions sessions, HttpRequest http, string? terminal, string? authorisation, IRecommendationBoard staff,
@@ -77,15 +83,40 @@ public static class ShiftReportEndpoints
             return new Reader(ShiftReportOutcomes.NotSignedIn);
         }
 
+        async Task<long?> RankOf(string? id) => id is null ? null : (await staff.StaffAsync(id, cancellationToken))?.Rank;
+
+        // A PIN cited for the report, or the owner's cited for what names people (C3).
+        var approver = sessions.AuthorisedBy(token, authorisation, Capability.ReadXReport);
+        var owner = sessions.AuthorisedBy(token, authorisation, Capability.ReadShiftFlags);
         var settings = await configuration.CurrentAsync(cancellationToken);
-        var sellerRank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
-        var readerRank = ReaderRank(
-            sellerRank, settings.XReportMinRank,
-            sessions.AuthorisedBy(token, authorisation, Capability.ReadXReport) is { } approver
-                ? (await staff.StaffAsync(approver, cancellationToken))?.Rank
-                : null,
-            out var reads);
-        return reads ? new Reader(ShiftReportOutcomes.Ok, StaffPermissions.May(readerRank, Capability.ReadShiftFlags)) : new Reader(ShiftReportOutcomes.PinRequired);
+        var (reads, readsFlags, reader) = WhoReads(
+            session.StaffId, await RankOf(session.StaffId), settings.XReportMinRank, approver, await RankOf(approver), owner, await RankOf(owner));
+        return reads ? new Reader(ShiftReportOutcomes.Ok, readsFlags, reader) : new Reader(ShiftReportOutcomes.PinRequired);
+    }
+
+    /// <summary>
+    /// Who reads a report, and whether what names people is theirs (C3, D-118). Pure, so it is tested
+    /// without a server. In this order: the person whose PIN was cited for <c>ReadShiftFlags</c>, when
+    /// their rank does reach it: they read everything, whoever is signed in. Else the seller, when
+    /// their own rank reads reports. Else whoever's PIN was cited for the report. The flags and the
+    /// other people's figures follow that one person's rank, and "their own column" is that person's.
+    /// </summary>
+    public static (bool Reads, bool ReadsFlags, string? StaffId) WhoReads(
+        string sellerId, long? sellerRank, long? xReportMinRank, string? approverId, long? approverRank, string? ownerId, long? ownerRank)
+    {
+        if (ownerId is not null && StaffPermissions.May(ownerRank, Capability.ReadShiftFlags))
+        {
+            return (true, true, ownerId);
+        }
+
+        ReaderRank(sellerRank, xReportMinRank, null, out var alone);
+        if (alone)
+        {
+            return (true, StaffPermissions.May(sellerRank, Capability.ReadShiftFlags), sellerId);
+        }
+
+        var rank = ReaderRank(sellerRank, xReportMinRank, approverId is null ? null : approverRank, out var reads);
+        return reads ? (true, StaffPermissions.May(rank, Capability.ReadShiftFlags), approverId) : (false, false, null);
     }
 
     /// <summary>
@@ -113,18 +144,29 @@ public static class ShiftReportEndpoints
     private static async Task<ShiftReportAnswer> AnswerAsync(
         ShiftReportData data, Reader reader, string terminal, ITillDirectory directory, TimeProvider clock, CancellationToken cancellationToken)
     {
-        var names = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var people = new Dictionary<string, StaffDescription?>(StringComparer.Ordinal);
         foreach (var id in new[] { data.Session.OpenedBy, data.Session.ClosedAuthorisedBy ?? data.Session.ClosedBy }
-                     .Concat(data.Flags.Select(flag => flag.StaffId)).OfType<string>().Distinct(StringComparer.Ordinal))
+                     .Concat(data.Flags.Select(flag => flag.StaffId)).Concat(data.Cashiers.Select(share => share.StaffId))
+                     .OfType<string>().Distinct(StringComparer.Ordinal))
         {
-            names[id] = (await directory.DescribeAsync(terminal, id, cancellationToken))?.Staff?.StaffName;
+            people[id] = (await directory.DescribeAsync(terminal, id, cancellationToken))?.Staff;
         }
 
-        return new ShiftReportAnswer(ShiftReportOutcomes.Ok, ToWire(data, id => id is not null && names.TryGetValue(id, out var name) ? name : null, reader.ReadsFlags, clock.GetUtcNow()));
+        StaffDescription? Described(string? id) => id is not null && people.TryGetValue(id, out var person) ? person : null;
+        return new ShiftReportAnswer(
+            ShiftReportOutcomes.Ok,
+            ToWire(data, id => Described(id)?.StaffName, reader.ReadsFlags, clock.GetUtcNow(), reader.StaffId, Described));
     }
 
-    /// <summary>A report as the wire carries it: the flags only to who may read them, their count to everyone.</summary>
-    public static ShiftReportWire ToWire(ShiftReportData data, Func<string?, string?> nameOf, bool readsFlags, DateTimeOffset readAt)
+    /// <summary>
+    /// A report as the wire carries it: the flags only to who may read them, their count to everyone;
+    /// and the same of the figures by cashier, of which <paramref name="reader"/> is still sent their own.
+    /// </summary>
+    /// <param name="reader">Who reads; null when nobody in particular does, and then no column is anybody's own.</param>
+    /// <param name="describe">A person's name and role; null to name them by <paramref name="nameOf"/> alone.</param>
+    public static ShiftReportWire ToWire(
+        ShiftReportData data, Func<string?, string?> nameOf, bool readsFlags, DateTimeOffset readAt, string? reader = null,
+        Func<string?, StaffDescription?>? describe = null)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(nameOf);
@@ -162,7 +204,50 @@ public static class ShiftReportEndpoints
                 closed ? session.Notes : null),
             data.Flags.Count,
             readsFlags ? [.. data.Flags.Select(flag => Flag(flag, data, nameOf))] : null,
-            data.TakingsReconcile && data.DrawerReconciles);
+            data.TakingsReconcile && data.DrawerReconciles && data.CashiersReconcile,
+            Cashiers(data, nameOf, readsFlags, reader, describe));
+    }
+
+    /// <summary>
+    /// The figures by cashier (C3, D-118). They name people: whole to who reads the flags; to anyone
+    /// else, how many people there are and the reader's own column. The session's column is the
+    /// report's own figures, never the columns added up here: that they agree is
+    /// <see cref="ShiftReportData.CashiersReconcile"/>.
+    /// </summary>
+    private static CashierSplitWire Cashiers(
+        ShiftReportData data, Func<string?, string?> nameOf, bool whole, string? reader, Func<string?, StaffDescription?>? describe)
+    {
+        // One line per tender the session used, in the report's order, in every column.
+        var methods = data.Takings.Sales.Concat(data.Takings.Refunds).Select(line => line.Method).Distinct().Order().ToList();
+
+        CashierColumnWire Column(CashierShare share, string? staffId)
+        {
+            var person = describe?.Invoke(staffId);
+            return new CashierColumnWire(
+                person?.StaffName ?? nameOf(staffId), person?.RoleLabelFr, person?.RoleLabelAr,
+                staffId is not null && string.Equals(staffId, reader, StringComparison.Ordinal),
+                share.First, share.Last,
+                [.. methods.Select(method => new TenderNetWire(Method(method), WireText.Figure(ShiftReport.NetOf(share.Takings, method))))],
+                WireText.Figure(share.Takings.Net),
+                share.Activity.Sold.Count, share.Activity.Cancelled.Count, share.Activity.StruckLines.Count,
+                Tally(share.Activity.Refunded),
+                new TallyWire(
+                    share.Reductions.LineDiscounts.Count + share.Reductions.TicketDiscounts.Count,
+                    WireText.Figure(share.Reductions.LineDiscounts.Value + share.Reductions.TicketDiscounts.Value)),
+                Tally(share.Reductions.Overrides),
+                WireText.Figure(share.Cash.PaidIn), WireText.Figure(share.Cash.PaidOut), WireText.Figure(share.Cash.TabRepayments));
+        }
+
+        var shown = data.Cashiers.Where(share => whole || string.Equals(share.StaffId, reader, StringComparison.Ordinal)).ToList();
+        if (!whole || data.Cashiers.Count == 0)
+        {
+            return new CashierSplitWire(data.Cashiers.Count, whole, [.. shown.Select(share => Column(share, share.StaffId))]);
+        }
+
+        var session = new CashierShare(
+            string.Empty, data.Cashiers.Min(share => share.First), data.Cashiers.Max(share => share.Last), data.Takings, data.Activity, data.Reductions,
+            new CashierCash(data.Movements.PaidIn, data.Movements.PaidOut, data.Movements.TabRepayments));
+        return new CashierSplitWire(data.Cashiers.Count, true, [.. shown.Select(share => Column(share, share.StaffId))], Column(session, null));
     }
 
     private static ShiftFlagWire Flag(ShiftFlag flag, ShiftReportData data, Func<string?, string?> nameOf) => flag.Kind switch

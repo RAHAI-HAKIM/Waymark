@@ -1299,6 +1299,44 @@ public abstract class TillText
 
     public abstract string ReservedNotice { get; }
 
+    // ---- C3: the report by cashier (D-118)
+
+    public abstract string TabSummary { get; }
+
+    public abstract string TabByCashier(int people);
+
+    public abstract string CashierHoursTitle { get; }
+
+    public abstract string FirstOperation { get; }
+
+    public abstract string LastOperation { get; }
+
+    public abstract string RefundsAmount { get; }
+
+    public abstract string DiscountsLine { get; }
+
+    public abstract string DiscountsAmount { get; }
+
+    public abstract string ForcedPricesAmount { get; }
+
+    public abstract string SessionColumn { get; }
+
+    public abstract string PeopleCount(int people);
+
+    public abstract string You { get; }
+
+    public abstract string CashiersNote { get; }
+
+    public abstract string CashiersLockedTitle { get; }
+
+    /// <param name="own">Whoever reads has a column of their own, shown beside the closed frame.</param>
+    /// <param name="others">How many people's columns stay closed.</param>
+    public abstract string CashiersLockedDetail(bool own, int others);
+
+    public abstract string OwnerPinKey { get; }
+
+    public abstract string ApproveCashiersTitle(string report, string till);
+
     public abstract string ManagerPinKey { get; }
 
     public abstract string DrawerOpenSinceDay(string day, string clock);
@@ -1396,6 +1434,25 @@ public abstract class TillText
         public override string ReservedTitle => "Rapport X réservé au responsable";
         public override string ReservedBody => "Cette caisse se clôture à l'aveugle. Un rapport X montrerait les espèces encaissées, les entrées et les sorties : de quoi recalculer l'attendu.";
         public override string ReservedNotice => "RIEN N'EST MASQUÉ À MOITIÉ · Cacher seulement le tiroir ne suffit pas : le reste du rapport permet de le retrouver. Le rapport entier est pour le responsable.";
+        public override string TabSummary => "Synthèse";
+        public override string TabByCashier(int people) => $"Par caissier · {people}";
+        public override string CashierHoursTitle => "SUR LA CAISSE · D'APRÈS LES OPÉRATIONS";
+        public override string FirstOperation => "Première opération";
+        public override string LastOperation => "Dernière opération";
+        public override string RefundsAmount => "Montant des retours";
+        public override string DiscountsLine => "Remises";
+        public override string DiscountsAmount => "Montant des remises";
+        public override string ForcedPricesAmount => "Montant des prix forcés";
+        public override string SessionColumn => "Session";
+        public override string PeopleCount(int people) => people == 1 ? "1 personne" : $"{people} personnes";
+        public override string You => "Vous";
+        public override string CashiersNote => "La colonne Session reprend la synthèse au centime près. Les heures viennent des opérations enregistrées : les connexions ne sont pas conservées, ce ne sont donc pas des heures de présence.";
+        public override string CashiersLockedTitle => "Les chiffres des autres sont réservés au propriétaire";
+        public override string CashiersLockedDetail(bool own, int others) => own
+            ? $"Vous voyez votre colonne. {(others == 1 ? "L'autre personne" : $"Les {others} autres personnes")} et la colonne Session s'ouvrent avec le PIN du propriétaire."
+            : $"{(others == 1 ? "La colonne de la personne" : $"Les colonnes des {others} personnes")} et la colonne Session s'ouvrent avec le PIN du propriétaire.";
+        public override string OwnerPinKey => "PIN propriétaire";
+        public override string ApproveCashiersTitle(string report, string till) => $"Lire le {report} par caissier · {till}";
         public override string ManagerPinKey => "PIN responsable";
         public override string DrawerOpenSinceDay(string day, string clock) => $"ouverte le {day} à {clock} · à clôturer";
 
@@ -2061,6 +2118,25 @@ public abstract class TillText
         public override string ReservedTitle => "تقرير X خاص بالمسؤول"; // ar: à relire
         public override string ReservedBody => "هذا الصندوق يُقفل دون رؤية المنتظر. تقرير X يُظهر النقد المحصَّل والإدخالات والإخراجات: ما يكفي لحساب المنتظر."; // ar: à relire
         public override string ReservedNotice => "لا شيء يُخفى نصفه · إخفاء الدرج وحده لا يكفي: بقية التقرير تسمح بإيجاده. التقرير كله للمسؤول."; // ar: à relire
+        public override string TabSummary => "الملخّص"; // ar: à relire
+        public override string TabByCashier(int people) => $"حسب أمين الصندوق · {people}"; // ar: à relire
+        public override string CashierHoursTitle => "على الصندوق · حسب العمليات"; // ar: à relire
+        public override string FirstOperation => "أول عملية"; // ar: à relire
+        public override string LastOperation => "آخر عملية"; // ar: à relire
+        public override string RefundsAmount => "المبلغ المسترجع"; // ar: à relire
+        public override string DiscountsLine => "تخفيضات"; // ar: à relire
+        public override string DiscountsAmount => "مبلغ التخفيضات"; // ar: à relire
+        public override string ForcedPricesAmount => "مبلغ الأسعار المفروضة"; // ar: à relire
+        public override string SessionColumn => "الجلسة"; // ar: à relire
+        public override string PeopleCount(int people) => $"{people} أشخاص"; // ar: à relire
+        public override string You => "أنت"; // ar: à relire
+        public override string CashiersNote => "عمود الجلسة يطابق الملخّص بالسنتيم. الساعات مأخوذة من العمليات المسجّلة: تسجيلات الدخول لا تُحفظ، فهي ليست ساعات حضور."; // ar: à relire
+        public override string CashiersLockedTitle => "أرقام الآخرين خاصة بالمالك"; // ar: à relire
+        public override string CashiersLockedDetail(bool own, int others) => own
+            ? $"ترى عمودك. أعمدة الآخرين ({others}) وعمود الجلسة تُفتح برمز المالك." // ar: à relire
+            : $"أعمدة الأشخاص ({others}) وعمود الجلسة تُفتح برمز المالك."; // ar: à relire
+        public override string OwnerPinKey => "رمز المالك"; // ar: à relire
+        public override string ApproveCashiersTitle(string report, string till) => $"قراءة {report} حسب أمين الصندوق · {till}"; // ar: à relire
         public override string ManagerPinKey => "رمز المسؤول"; // ar: à relire
         public override string DrawerOpenSinceDay(string day, string clock) => $"مفتوح منذ {day} على {clock} · يجب إقفاله"; // ar: à relire
 

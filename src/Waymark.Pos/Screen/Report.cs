@@ -12,9 +12,10 @@ namespace Waymark.Pos.Screen;
 /// </summary>
 /// <param name="Selected">The Z number shown; null for the X.</param>
 /// <param name="Problem">Why nothing is shown: the server could not say, or has no such report.</param>
+/// <param name="ByCashier">The "Par caissier" tab is the one open (C3); it stays open from one report of the list to the next.</param>
 public sealed record ReportState(
     long? Selected, ShiftReportList? List = null, ShiftReportWire? Report = null, bool Loading = false, string? Problem = null,
-    string? Authorisation = null);
+    string? Authorisation = null, bool ByCashier = false);
 
 /// <summary>A report as drawn: one layout for an X and a Z, told apart by its title, its chip and its facts.</summary>
 public sealed record ReportView(
@@ -33,7 +34,34 @@ public sealed record ReportView(
     string Print,
     string PrintNote,
     string Close,
-    string CloseKey);
+    string CloseKey)
+{
+    /// <summary>"Synthèse" and "Par caissier" (C3); none while there is no report to split.</summary>
+    public IReadOnlyList<ReportTab> Tabs { get; init; } = [];
+
+    /// <summary>The report by cashier, when its tab is the one open: then <see cref="Sections"/> is empty.</summary>
+    public CashierTable? Cashiers { get; init; }
+}
+
+/// <param name="Locked">Not all of it is the reader's: said with a padlock on the tab, which still opens (C3).</param>
+public sealed record ReportTab(bool ByCashier, string Label, bool Selected, bool Locked);
+
+/// <summary>
+/// The report by cashier as drawn (C3, D-118): one column per person and the session's last, the
+/// synthesis's lines in its order. Every cell is the server's figure; nothing is added up here.
+/// </summary>
+/// <param name="Heads">The columns, in the order of the cells of every row.</param>
+/// <param name="Lock">Why the other columns are not here, and the key that asks for the owner's PIN; null when they all are.</param>
+public sealed record CashierTable(IReadOnlyList<CashierHead> Heads, IReadOnlyList<CashierGroup> Groups, string Note, CashierLock? Lock);
+
+/// <param name="Session">The session's column: drawn apart, and it stays in place when the people's scroll.</param>
+public sealed record CashierHead(string Name, string Detail, bool Session);
+
+public sealed record CashierGroup(string Title, IReadOnlyList<CashierRow> Rows);
+
+public sealed record CashierRow(string Label, IReadOnlyList<string> Cells, bool Strong = false);
+
+public sealed record CashierLock(string Title, string Detail, string Key);
 
 /// <param name="Number">The Z's number; null for the X's row.</param>
 public sealed record ReportListRow(long? Number, string Label, string Detail, bool Selected);
@@ -80,6 +108,10 @@ public static class ReportScreen
             close.ZReportNumber, text.ZListRow(close.ZReportNumber),
             $"{Day(close.ClosedAt)[..5]} · {Clock(close.ClosedAt)}", state.Selected == close.ZReportNumber)).ToList();
 
+        // By cashier (C3): its tab once there is a report to split, and its table in the sections' place.
+        var split = report?.Cashiers;
+        var byCashier = state.ByCashier && split is not null;
+
         var message = state.Problem is { } problem ? new PanelMessage(text.ClientRefused, problem)
             : report is { Reconciles: false } ? new PanelMessage(text.NotReconciled, text.NotReconciledDetail)
             : null;
@@ -94,13 +126,80 @@ public static class ReportScreen
             closes,
             closes.Count == 0 && state.List is not null ? text.NoPastClose : text.ReportListNote,
             message,
-            report is null ? [] : Sections(text, report, Clock),
+            report is null || byCashier ? [] : Sections(text, report, Clock),
             text.ReportTotalLabel(title),
             report is null ? (state.Loading ? text.ReportLoading : "—") : Signed(report.Takings.Net, report.Currency, text),
             text.PrintKey,
             text.PrintNote,
             text.CloseReport,
-            text.EscapeKey);
+            text.EscapeKey)
+        {
+            Tabs = split is null
+                ? []
+                : [new ReportTab(false, text.TabSummary, !byCashier, false), new ReportTab(true, text.TabByCashier(split.People), byCashier, !split.Whole)],
+            Cashiers = byCashier ? Table(text, report!, split!, Clock) : null,
+        };
+    }
+
+    /// <summary>
+    /// The table by cashier: the synthesis's lines in its order, a cell per column. What is given
+    /// away and what goes out of the drawer read with their minus, as the board draws them; a tender
+    /// that gave back more than it took reads below zero.
+    /// </summary>
+    private static CashierTable Table(TillText text, ShiftReportWire report, CashierSplitWire split, Func<DateTimeOffset, string> clock)
+    {
+        var code = report.Currency;
+        var minus = DisplayFigures.Minus.ToString();
+        IReadOnlyList<CashierColumnWire> columns = split.Session is { } session ? [.. split.Columns, session] : split.Columns;
+
+        string Amount(string? wire) => Money(wire, code) is { } money ? DisplayFigures.Amount(money) : "?";
+        string Off(string? wire) => Money(wire, code) is { IsZero: false } ? minus + Amount(wire) : Amount(wire);
+        string Count(int count) => DisplayFigures.Count(count);
+        CashierRow Line(string label, Func<CashierColumnWire, string> cell, bool strong = false) => new(label, [.. columns.Select(cell)], strong);
+
+        var heads = split.Columns.Select(column =>
+                // Alone beside the closed frame, a column is "Vous", with the name under it (the board, 2B).
+                !split.Whole && column.Own ? new CashierHead(text.You, column.StaffName ?? "?", false)
+                : new CashierHead(column.StaffName ?? "?", (text.RightToLeft ? column.RoleAr : column.RoleFr) ?? string.Empty, false))
+            .ToList();
+        if (split.Session is not null)
+        {
+            heads.Add(new CashierHead(text.SessionColumn, text.PeopleCount(split.People), true));
+        }
+
+        var groups = new List<CashierGroup>();
+        if (columns.Count > 0)
+        {
+            // One line per tender the session used: the same lines in every column, by their place.
+            var tenders = columns[0].Tenders.Select((tender, place) => Line(
+                text.PaymentMethod(tender.Method), column => place < column.Tenders.Count ? Amount(column.Tenders[place].Amount) : "?")).ToList();
+            tenders.Add(Line(text.TotalTaken, column => Amount(column.Net), strong: true));
+
+            groups.Add(new CashierGroup(text.CashierHoursTitle, [Line(text.FirstOperation, column => clock(column.First)), Line(text.LastOperation, column => clock(column.Last))]));
+            groups.Add(new CashierGroup(text.TakingsTitle, tenders));
+            groups.Add(new CashierGroup(text.ActivityTitle,
+            [
+                Line(text.TicketsSold, column => Count(column.Sold)), Line(text.TicketsCancelled, column => Count(column.Cancelled)),
+                Line(text.LinesStruck, column => Count(column.StruckLines)), Line(text.RefundsLine, column => Count(column.Refunds.Count)),
+                Line(text.RefundsAmount, column => Amount(column.Refunds.Value)),
+            ]));
+            groups.Add(new CashierGroup(text.ReductionsTitle,
+            [
+                Line(text.DiscountsLine, column => Count(column.Discounts.Count)), Line(text.DiscountsAmount, column => Off(column.Discounts.Value)),
+                Line(text.ForcedPrices, column => Count(column.Overrides.Count)),
+                Line(text.ForcedPricesAmount, column => Given(string.Empty, column.Overrides, code).Value),
+            ]));
+            groups.Add(new CashierGroup(text.CashMovesTitle,
+            [
+                Line(text.CashInLine, column => Amount(column.PaidIn)), Line(text.CashOutLine, column => Off(column.PaidOut)),
+                Line(text.TabRepaymentsLine, column => Amount(column.TabRepayments)),
+            ]));
+        }
+
+        return new CashierTable(
+            heads, groups, text.CashiersNote,
+            split.Whole ? null : new CashierLock(
+                text.CashiersLockedTitle, text.CashiersLockedDetail(split.Columns.Count > 0, split.People - split.Columns.Count), text.OwnerPinKey));
     }
 
     private static List<Figure> Facts(

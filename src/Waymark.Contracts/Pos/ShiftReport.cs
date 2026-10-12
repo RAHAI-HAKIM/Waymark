@@ -10,7 +10,8 @@ namespace Waymark.Contracts.Pos;
 /// <param name="ZReportNumber">A Z's number; null on an X.</param>
 /// <param name="ReadAt">When the figures were worked out: an X's "instantané".</param>
 /// <param name="Flags">What the report flags, to who may read them; null otherwise, with <see cref="FlagCount"/> still said.</param>
-/// <param name="Reconciles">The takings come to the tickets, and a Z's rows still come to its stored expected cash.</param>
+/// <param name="Reconciles">The takings come to the tickets, a Z's rows still come to its stored expected cash, and the people come to the session.</param>
+/// <param name="Cashiers">The same figures by person (C3, D-118): everyone's to the owner, the reader's own column to anyone else.</param>
 public sealed record ShiftReportWire(
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("z_report_number")] long? ZReportNumber,
@@ -27,7 +28,54 @@ public sealed record ShiftReportWire(
     [property: JsonPropertyName("drawer")] ReportDrawerWire Drawer,
     [property: JsonPropertyName("flag_count")] int FlagCount,
     [property: JsonPropertyName("flags")] IReadOnlyList<ShiftFlagWire>? Flags,
-    [property: JsonPropertyName("reconciles")] bool Reconciles);
+    [property: JsonPropertyName("reconciles")] bool Reconciles,
+    [property: JsonPropertyName("cashiers")] CashierSplitWire? Cashiers = null);
+
+/// <summary>
+/// A session by cashier (C3, D-118). It names people, so only who reads the flags is sent it whole;
+/// anyone else is sent how many people there are and their own column, when they have one.
+/// </summary>
+/// <param name="People">How many people did something in the session: said to everyone.</param>
+/// <param name="Whole">Every column and the session's are here; false, the rest is the owner's.</param>
+/// <param name="Columns">In the order of each person's first operation.</param>
+/// <param name="Session">The session's own figures, the same as the report's; null unless <paramref name="Whole"/>.</param>
+public sealed record CashierSplitWire(
+    [property: JsonPropertyName("people")] int People,
+    [property: JsonPropertyName("whole")] bool Whole,
+    [property: JsonPropertyName("columns")] IReadOnlyList<CashierColumnWire> Columns,
+    [property: JsonPropertyName("session")] CashierColumnWire? Session = null);
+
+/// <summary>A tender's figure in a column: its sales less its refunds, signed.</summary>
+public sealed record TenderNetWire(
+    [property: JsonPropertyName("method")] string Method,
+    [property: JsonPropertyName("amount")] string Amount);
+
+/// <summary>One person's column, or the session's. Counts are counts; amounts are zero or more unless their name says signed.</summary>
+/// <param name="StaffName">Null on the session's column, and for somebody the store no longer lists.</param>
+/// <param name="Own">The column of whoever reads.</param>
+/// <param name="First">Their first recorded operation: not when they arrived (D-083).</param>
+/// <param name="Tenders">One line per tender the session used, in the report's order; signed.</param>
+/// <param name="Net">"Total encaissé": sales less refunds, signed.</param>
+/// <param name="Discounts">Line and ticket discounts together.</param>
+/// <param name="Overrides">Its value is signed: below zero when prices were raised.</param>
+public sealed record CashierColumnWire(
+    [property: JsonPropertyName("staff_name")] string? StaffName,
+    [property: JsonPropertyName("role_fr")] string? RoleFr,
+    [property: JsonPropertyName("role_ar")] string? RoleAr,
+    [property: JsonPropertyName("own")] bool Own,
+    [property: JsonPropertyName("first")] DateTimeOffset First,
+    [property: JsonPropertyName("last")] DateTimeOffset Last,
+    [property: JsonPropertyName("tenders")] IReadOnlyList<TenderNetWire> Tenders,
+    [property: JsonPropertyName("net")] string Net,
+    [property: JsonPropertyName("sold")] int Sold,
+    [property: JsonPropertyName("cancelled")] int Cancelled,
+    [property: JsonPropertyName("struck_lines")] int StruckLines,
+    [property: JsonPropertyName("refunds")] TallyWire Refunds,
+    [property: JsonPropertyName("discounts")] TallyWire Discounts,
+    [property: JsonPropertyName("overrides")] TallyWire Overrides,
+    [property: JsonPropertyName("paid_in")] string PaidIn,
+    [property: JsonPropertyName("paid_out")] string PaidOut,
+    [property: JsonPropertyName("tab_repayments")] string TabRepayments);
 
 public static class ShiftReportKinds
 {

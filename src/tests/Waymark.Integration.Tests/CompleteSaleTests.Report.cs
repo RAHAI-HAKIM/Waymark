@@ -99,6 +99,10 @@ public sealed partial class CompleteSaleTests
         Assert.Equal(new Tally(1, Dzd(100)), x.Reductions.LineDiscounts);
         Assert.Equal(new ShiftCashCounts(1, 1, 1), x.CashCounts);
 
+        // By cashier (C3): one person did it all, and a tab repaid is its own line, never an "entrée".
+        Assert.True(x.CashiersReconcile);
+        Assert.Equal(new CashierCash(Dzd(200_000), Dzd(50_000), Dzd(14_500)), Assert.Single(x.Cashiers).Cash); // 143,00 repaid is 145,00 of cash (D-108)
+
         // The drawer's lines come to what it should hold, the tender rounding its own line.
         Assert.Equal(x.Expected, DrawerSum(x));
         Assert.True(x.DrawerReconciles);
@@ -187,6 +191,146 @@ public sealed partial class CompleteSaleTests
         Assert.Equal((1, 1), (owner.FlagCount, manager.FlagCount));
         Assert.Equal(ShiftReportKinds.X, owner.Kind);
         Assert.Null(owner.Drawer.Counted); // nobody counted an open drawer
+    }
+
+    // ------------------------------------------------------------------ C3: by cashier (D-118)
+
+    /// <summary>A second person at the same till: the session is one, the cashiers are several (D-111).</summary>
+    private string SecondCashier(Shop shop, string name)
+    {
+        var id = $"{shop.StaffId}-2";
+        using var context = database.NewContext();
+        context.Staff.Add(new Staff
+        {
+            StaffId = id, StoreId = shop.StoreId, StaffName = name, Role = "cashier", PinHash = "-", JoinDate = new DateOnly(2026, 1, 1),
+            CreatedAt = Now, UpdatedAt = Now,
+        });
+        context.SaveChanges();
+        return id;
+    }
+
+    /// <summary>One till, two people: the first opens, sells and puts cash in; the second sells by card, refunds the first's sale and takes cash out.</summary>
+    private async Task<(Shop Shop, string Second, CompletedSale First, CompletedSale Hers)> TwoCashiers()
+    {
+        Reasons();
+        ReturnReasons();
+        CashReasons();
+        var shop = new Shop(database, drawerOpen: false);
+        shop.Receive(database, shop.Milk, 20, daysAgo: 5);
+        shop.Receive(database, shop.Bread, 20, daysAgo: 5);
+        var samia = SecondCashier(shop, "Samia K.");
+        await OpenDrawer(shop, 500_000);
+
+        var first = await Sell(shop, null, new SaleLineRequest(shop.Milk.Barcode, 3, Discount: Amount(100, shop.StaffId)));            // his, 1,00 off a line
+        await Cash(shop, CashDirection.In, 200_000, Float);                                                                             // his
+        var hers = await Execute(shop, new CompleteSale(
+            shop.TerminalId, samia, [new SaleLineRequest(shop.Milk.Barcode, 2), new SaleLineRequest(shop.Bread.Barcode, 1)],
+            Tenders: [new GivenTender(PaymentMethod.Card, 20_000, "4417")]));                                                           // hers, 406,50: 200,00 card
+        await Refund(shop, first.TransactionId, [Back(shop.Milk, 1, 14_300)], by: samia);                                               // his sale, her refund
+        await Cash(shop, CashDirection.Out, 50_000, BankDeposit, by: samia);                                                            // hers
+        return (shop, samia, first, hers);
+    }
+
+    [Fact]
+    public async Task A_session_of_two_cashiers_is_split_by_who_did_each_thing_and_the_two_come_to_the_session()
+    {
+        var (shop, samia, first, hers) = await TwoCashiers();
+        var x = (await ReadX(shop, new ReportSettings()))!;
+
+        Assert.True(x.CashiersReconcile);
+        Assert.Equal([shop.StaffId, samia], x.Cashiers.Select(share => share.StaffId));
+        var his = x.Cashiers[0];
+        var her = x.Cashiers[1];
+
+        // His: the sale he rang, its discount, the cash he put in. The refund of his sale is not his.
+        Assert.Equal((new Tally(1, first.Total), 0), (his.Activity.Sold, his.Activity.Refunded.Count));
+        Assert.Equal(first.Total, his.Takings.Net);
+        Assert.Equal(new Tally(1, Dzd(100)), his.Reductions.LineDiscounts);
+        Assert.Equal(new CashierCash(Dzd(200_000), Dzd(0), Dzd(0)), his.Cash);
+
+        // Hers: her sale by tender, the refund she gave in cash, the cash she took out.
+        Assert.Equal((new Tally(1, hers.Total), new Tally(1, Dzd(14_267))), (her.Activity.Sold, her.Activity.Refunded)); // one of three milks with 1,00 off the line: its share comes back
+        Assert.Equal(Dzd(20_000), ShiftReport.NetOf(her.Takings, PaymentMethod.Card));
+        Assert.Equal(hers.Total - Dzd(20_000) - Dzd(14_267), ShiftReport.NetOf(her.Takings, PaymentMethod.Cash));
+        Assert.Equal(new CashierCash(Dzd(0), Dzd(50_000), Dzd(0)), her.Cash);
+        Assert.Equal(0, her.Reductions.Total.Count);
+
+        // The two come to the session, and still do once it is closed; whoever counted is in it.
+        Assert.Equal(x.Takings.Net, his.Takings.Net + her.Takings.Net);
+        var closed = await Run(shop, (context, work) => new CloseCashSessionHandler(new SalesLedger(context), new CashSessionLedger(context), new ReportSettings(), new FixedClock()),
+            new CloseCashSession(shop.TerminalId, samia, x.Expected.MinorUnits, null, true, null));
+        var z = (await ReadZ(shop, closed.ZReportNumber, new ReportSettings()))!;
+
+        Assert.True(z.CashiersReconcile);
+        Assert.Equal(x.Cashiers.Select(share => (share.StaffId, share.Takings.Net)), z.Cashiers.Select(share => (share.StaffId, share.Takings.Net)));
+    }
+
+    [Fact]
+    public async Task Who_only_opened_the_drawer_has_a_column_with_the_hour_and_nothing_else()
+    {
+        var shop = new Shop(database, drawerOpen: false);
+        await OpenDrawer(shop, 100_000);
+
+        var x = (await ReadX(shop, new ReportSettings()))!;
+
+        var opener = Assert.Single(x.Cashiers);
+        Assert.Equal((shop.StaffId, 0, Dzd(0)), (opener.StaffId, opener.Activity.Sold.Count, opener.Takings.Net));
+        Assert.Equal(x.Session.OpenedAt, opener.First);
+        Assert.True(x.CashiersReconcile);
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")] // StoreServer is Windows-only (D-017), and so is its code.
+    [Fact]
+    public async Task The_figures_by_cashier_are_the_owners_and_anyone_else_is_sent_their_own_column_and_how_many_people()
+    {
+        var (shop, samia, first, _) = await TwoCashiers();
+        var report = (await ReadX(shop, new ReportSettings()))!;
+        string? Name(string? id) => id == samia ? "Samia K." : id == shop.StaffId ? "Nabil B." : null;
+
+        // The owner: every column, in order, and the session's, which is the report's own.
+        var owner = ShiftReportEndpoints.ToWire(report, Name, readsFlags: true, Now, reader: "the-owner").Cashiers!;
+        Assert.Equal((2, true), (owner.People, owner.Whole));
+        Assert.Equal(["Nabil B.", "Samia K."], owner.Columns.Select(column => column.StaffName));
+        Assert.DoesNotContain(owner.Columns, column => column.Own);
+        Assert.Equal(Waymark.StoreServer.WireText.Figure(report.Takings.Net), owner.Session!.Net);
+        Assert.Equal(["cash", "card"], owner.Session.Tenders.Select(line => line.Method));
+        Assert.Equal((1, Waymark.StoreServer.WireText.Figure(first.Total)), (owner.Columns[0].Sold, owner.Columns[0].Net));
+        Assert.Equal(new TallyWire(1, "142.67"), owner.Columns[1].Refunds);
+        Assert.Equal(("0.00", "500.00"), (owner.Columns[1].PaidIn, owner.Columns[1].PaidOut));
+
+        // A manager who sold: her own column, marked hers, and nothing of anybody else, the session's included.
+        var manager = ShiftReportEndpoints.ToWire(report, Name, readsFlags: false, Now, reader: samia).Cashiers!;
+        Assert.Equal((2, false), (manager.People, manager.Whole));
+        var own = Assert.Single(manager.Columns);
+        Assert.Equal(("Samia K.", true), (own.StaffName, own.Own));
+        Assert.Null(manager.Session);
+        Assert.DoesNotContain("Nabil", System.Text.Json.JsonSerializer.Serialize(manager), StringComparison.Ordinal);
+
+        // Somebody who did nothing in the session, reading on a manager's PIN: no column at all.
+        var passing = ShiftReportEndpoints.ToWire(report, Name, readsFlags: false, Now, reader: "somebody-else").Cashiers!;
+        Assert.Equal((2, false), (passing.People, passing.Whole));
+        Assert.Empty(passing.Columns);
+        Assert.Null(passing.Session);
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")] // StoreServer is Windows-only (D-017), and so is its code.
+    [Theory]
+    // seller rank, approver rank (a PIN for the report), owner rank (a PIN for what names people): reads, the flags too, who
+    [InlineData(1L, null, null, false, false, null)]      // a cashier alone reads nothing
+    [InlineData(2L, null, null, true, false, "seller")]   // a manager reads, their own column theirs, nobody else's
+    [InlineData(3L, null, null, true, true, "seller")]    // the owner reads everything
+    [InlineData(1L, 2L, null, true, false, "approver")]   // a cashier on a manager's PIN: the manager reads
+    [InlineData(2L, null, 3L, true, true, "owner")]       // a manager, then the owner's PIN: the owner reads
+    [InlineData(1L, null, 3L, true, true, "owner")]       // the owner's PIN alone is enough at a cashier's till
+    [InlineData(2L, null, 2L, true, false, "seller")]     // a manager's PIN cited as the owner's opens nothing more
+    [InlineData(1L, null, 2L, false, false, null)]        // and does not read the report for a cashier either
+    public void What_names_people_follows_whoever_reads_and_an_owners_pin_reads_everything(
+        long seller, long? approver, long? owner, bool reads, bool flags, string? who)
+    {
+        var read = ShiftReportEndpoints.WhoReads(
+            "seller", seller, null, approver is null ? null : "approver", approver, owner is null ? null : "owner", owner);
+
+        Assert.Equal((reads, flags, who), read);
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")] // StoreServer is Windows-only (D-017), and so is its code.

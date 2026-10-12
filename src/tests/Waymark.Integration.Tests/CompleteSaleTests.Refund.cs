@@ -54,11 +54,11 @@ public sealed partial class CompleteSaleTests
 
     private Task<RefundedSale> Refund(
         Shop shop, string original, IReadOnlyList<ReturnedLine> lines, RefundTo to = RefundTo.Cash, string reason = Faulty, string? note = null,
-        string? customerId = null, bool sellerMay = true, string? authorisedBy = null, bool quote = false) =>
+        string? customerId = null, bool sellerMay = true, string? authorisedBy = null, bool quote = false, string? by = null) =>
         Run(shop, (context, work) => new RefundSaleHandler(
                 new RefundLedger(context), new SalesLedger(context), new CustomerLedger(context), new CashSessionLedger(context), new TenantConfigurationStore(context, TabChargesFor.Dzd),
                 work, new FixedCalendar(), new FixedClock(), new Waymark.Persistence.Reference.ReasonCodes(context), TabChargesFor.Context(context)),
-            new RefundSale(shop.TerminalId, shop.StaffId, original, lines, reason, note, to, customerId, sellerMay, authorisedBy, quote));
+            new RefundSale(shop.TerminalId, by ?? shop.StaffId, original, lines, reason, note, to, customerId, sellerMay, authorisedBy, quote));
 
     // ------------------------------------------------------------------ Hakim: the refund written
 

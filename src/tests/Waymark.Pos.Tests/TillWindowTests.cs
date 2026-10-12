@@ -1061,14 +1061,20 @@ public sealed partial class TillWindowTests
                 [new Waymark.Contracts.Reference.ReasonCodeOption("etiquette_rayon", "ملصق الرف", "Étiquette rayon", false, false)]));
 
         /// <summary>Samia is the manager, PIN 1357 (B4).</summary>
-        public Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
-            Task.FromResult<AuthoriseAnswer?>(request switch
+        public Task<AuthoriseAnswer?> AuthoriseAsync(AuthoriseRequest request, string sessionToken, CancellationToken cancellationToken = default)
+        {
+            Authorisations.Add(request);
+            return Task.FromResult<AuthoriseAnswer?>(request switch
             {
                 { StaffId: null } when SellerMayDiscount => new AuthoriseAnswer(AuthoriseOutcomes.Authorised, "auth-seller", null, null, null),
                 { StaffId: null } => new AuthoriseAnswer(AuthoriseOutcomes.PinRequired, null, null, null, null),
                 { StaffId: "samia", Pin: "1357" } => new AuthoriseAnswer(AuthoriseOutcomes.Authorised, "auth-samia", null, null, null),
                 _ => new AuthoriseAnswer(AuthoriseOutcomes.WrongPin, null, null, null, 4),
             });
+        }
+
+        /// <summary>Every authorisation asked for, the first question (no person) and the PIN alike.</summary>
+        public List<AuthoriseRequest> Authorisations { get; } = [];
 
         /// <summary>PLU 4011: tomatoes at 180,00/kg, sold by weight (B3).</summary>
         public static readonly ProductForSale Tomatoes = new(

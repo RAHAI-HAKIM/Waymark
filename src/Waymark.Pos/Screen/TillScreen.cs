@@ -140,6 +140,9 @@ public enum CounterKind
     /// <summary>An X or a Z read by someone below the shop's rank for reports (C2, D-112): the PIN step only.</summary>
     ReadReport,
 
+    /// <summary>The other people's columns of a report by cashier (C3, D-118): the owner's step only, rank 3.</summary>
+    ReadCashiers,
+
     /// <summary>The drawer counted and closed by someone who may not close alone (C1, D-111): the PIN step only.</summary>
     CloseSession,
 }
@@ -1104,7 +1107,7 @@ public sealed record TillScreen(
         {
             // The owner's steps say so, and ask for the owner's PIN by name (block B review: every
             // step said "PIN RESPONSABLE").
-            var owners = discounting.Kind is CounterKind.ChangeTab or CounterKind.TabOverride;
+            var owners = discounting.Kind is CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.ReadCashiers;
             return new Approval(
                 owners ? text.OwnerApproval : text.ManagerApproval,
                 title,

@@ -419,7 +419,8 @@ public sealed class TillWindow : Window, IDisposable
             Clear: () => UpdateCustomer(CustomerScreen.Clear),
             Primary: () => _ = CustomerPrimaryAsync(),
             Close: CloseCustomerPanel);
-        _reportActions = new ReportActions(Open: number => _ = OpenReportAsync(number, null), Close: CloseReport);
+        _reportActions = new ReportActions(
+            Open: number => _ = OpenReportAsync(number, null), Close: CloseReport, Tab: ShowReportTab, Unlock: () => _ = UnlockCashiersAsync());
         _carnetActions = new CarnetActions(
             Change: () => OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.ChangeTab)),
             Repay: () =>
@@ -1137,7 +1138,7 @@ public sealed class TillWindow : Window, IDisposable
                 // The innermost thing open closes first: a past ticket, the results, the list, then
                 // the selection, the notice and the typed count.
                 _scanner.Flush();
-                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket or CounterKind.CloseSession or CounterKind.ReadReport })
+                if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket or CounterKind.CloseSession or CounterKind.ReadReport or CounterKind.ReadCashiers })
                 {
                     // Back from a customer's PIN step to what asked for it (B7).
                     _pin = string.Empty;
@@ -1818,7 +1819,7 @@ public sealed class TillWindow : Window, IDisposable
                 _discount = null;
                 _ = SendCloseAsync(authorisation);
                 return;
-            case CounterKind.ReadReport:
+            case CounterKind.ReadReport or CounterKind.ReadCashiers:
                 _pin = string.Empty;
                 _discount = null;
                 _ = OpenReportAsync(_reportAsked, authorisation);
@@ -1902,6 +1903,7 @@ public sealed class TillWindow : Window, IDisposable
         CounterKind.PaidOut => Capabilities.PaidOut,
         CounterKind.CloseSession => Capabilities.CloseSession,
         CounterKind.ReadReport => Capabilities.ReadXReport,
+        CounterKind.ReadCashiers => Capabilities.ReadShiftFlags,
         _ => Capabilities.ApplyDiscount,
     };
 
@@ -2835,7 +2837,7 @@ public sealed class TillWindow : Window, IDisposable
 
         var cited = authorisation ?? _report?.Authorisation;
         _search = null;
-        _report = new ReportState(number, _report?.List, Loading: true, Authorisation: cited);
+        _report = new ReportState(number, _report?.List, Loading: true, Authorisation: cited, ByCashier: _report?.ByCashier ?? false);
         Render();
 
         var answer = await _server.ShiftReportAsync(_till.TerminalId, number, cited, person.Token);
@@ -2905,6 +2907,34 @@ public sealed class TillWindow : Window, IDisposable
         CounterKind.ReadReport,
         _text.ApproveReportTitle(number is { } z ? _text.ReportZTitle(z) : _text.ReportXTitle, _context?.TerminalName ?? string.Empty),
         _text.ApproveReportSummary);
+
+    /// <summary>"Synthèse" or "Par caissier" (C3): the same report, read the other way; nothing is asked of the server.</summary>
+    private void ShowReportTab(bool byCashier)
+    {
+        if (_report is { } open && open.ByCashier != byCashier)
+        {
+            _report = open with { ByCashier = byCashier };
+            Render();
+        }
+    }
+
+    /// <summary>
+    /// "PIN propriétaire" under the closed columns (C3, D-118): the owner's step, then the same report
+    /// asked again with that authorisation, which reads everything and is forgotten with the report.
+    /// </summary>
+    private Task UnlockCashiersAsync()
+    {
+        if (_report is not { Report: not null } open)
+        {
+            return Task.CompletedTask;
+        }
+
+        _reportAsked = open.Selected;
+        return AuthoriseCustomerAsync(
+            CounterKind.ReadCashiers,
+            _text.ApproveCashiersTitle(open.Selected is { } z ? _text.ReportZTitle(z) : _text.ReportXTitle, _context?.TerminalName ?? string.Empty),
+            _text.ApproveReportSummary);
+    }
 
     /// <summary>"Fermer le rapport": the ticket is back, and the till forgets whose PIN opened the report.</summary>
     private void CloseReport()

@@ -16,6 +16,8 @@ namespace Waymark.Application.Sales;
 /// <param name="TenderRounding">What the cash step added to or took off the tickets' cash, signed: the drawer's line, apart (D-034).</param>
 /// <param name="Thresholds">What the flags were judged by: today's for an X, those frozen at the close for a Z.</param>
 /// <param name="CancelledAt">When each cancelled ticket was cancelled, by its id: a cancel has no number to be named by (D-097).</param>
+/// <param name="Cashiers">The same figures by who did each thing, in the order of their first operation (C3, D-118).</param>
+/// <param name="CashiersReconcile">The people come to the session, line by line.</param>
 public sealed record ShiftReportData(
     CashSession Session,
     Takings Takings,
@@ -30,7 +32,9 @@ public sealed record ShiftReportData(
     int RoundedTickets,
     IReadOnlyList<ShiftFlag> Flags,
     ReportThresholds Thresholds,
-    IReadOnlyDictionary<string, DateTimeOffset> CancelledAt);
+    IReadOnlyDictionary<string, DateTimeOffset> CancelledAt,
+    IReadOnlyList<CashierShare> Cashiers,
+    bool CashiersReconcile);
 
 /// <summary>
 /// Reads a cash session's X or Z (C2, D-112). Nothing is stored but what the close wrote: the report
@@ -60,7 +64,19 @@ public sealed class ShiftReports(ISalesLedger ledger, ICashSessionLedger session
         var closed = session.Status == CashSessionStatus.Closed;
 
         var takings = ShiftReport.TakingsOf(currency, rows.Tickets, rows.Parts);
+        var activity = ShiftReport.ActivityOf(currency, rows.Tickets, rows.Rows);
+        var reductions = ShiftReport.ReductionsOf(currency, rows.Tickets, rows.Rows);
         var worked = Drawer.Expected(movements);
+
+        // By cashier (C3): the opening and the close are operations too, with no figure. Who counted
+        // is the close's person; whose PIN allowed it did nothing at the drawer.
+        var moments = new List<ReportMoment> { new(session.OpenedBy, session.OpenedAt) };
+        if (closed && session is { ClosedBy: { } counter, ClosedAt: { } closedAt })
+        {
+            moments.Add(new ReportMoment(counter, closedAt));
+        }
+
+        var cashiers = ShiftReport.ByCashierOf(currency, rows.Tickets, rows.Rows, rows.Parts, rows.CashRows, moments);
 
         ReportThresholds thresholds;
         if (closed)
@@ -81,8 +97,8 @@ public sealed class ShiftReports(ISalesLedger ledger, ICashSessionLedger session
             session,
             takings,
             ShiftReport.Reconciles(takings, rows.Tickets),
-            ShiftReport.ActivityOf(currency, rows.Tickets, rows.Rows),
-            ShiftReport.ReductionsOf(currency, rows.Tickets, rows.Rows),
+            activity,
+            reductions,
             movements,
             rows.Cash,
             closed ? session.ExpectedCash ?? worked : worked,
@@ -91,6 +107,9 @@ public sealed class ShiftReports(ISalesLedger ledger, ICashSessionLedger session
             rounding.Count,
             ShiftReport.FlagsOf(rows.Tickets, thresholds, closed ? session.Variance : null),
             thresholds,
-            rows.Tickets.Where(ticket => ticket.Kind == TicketKind.Cancel).ToDictionary(ticket => ticket.TicketId, ticket => ticket.At, StringComparer.Ordinal));
+            rows.Tickets.Where(ticket => ticket.Kind == TicketKind.Cancel).ToDictionary(ticket => ticket.TicketId, ticket => ticket.At, StringComparer.Ordinal),
+            cashiers,
+            ShiftReport.SharesReconcile(
+                cashiers, takings, activity, reductions, new CashierCash(movements.PaidIn, movements.PaidOut, movements.TabRepayments)));
     }
 }

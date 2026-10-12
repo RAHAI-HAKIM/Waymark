@@ -2,12 +2,12 @@
 
 Where the work stands, what is wrong, and what comes next. Rewrite this file as work
 lands; it is the only document that is allowed to go stale in a week. Last pass:
-**09/10/2026**: **Blocks A and B are done and reviewed; C1 and C2 are done** (§9).
+**12/10/2026**: **Blocks A, B and C are done and reviewed** (§9).
 The till searches, holds and cancels tickets, sells by weight, discounts, overrides a price, splits
 a payment, keeps customers and a tab, refunds, spends store credit, moves cash and clocks people in.
 **It now sells only with its drawer open**: a float counted at opening, a count at close, a Z number.
-**Its X and Z reports are read at the till.** **Next is C3** (the Z's per-cashier section). Phase 1's decisions so far
-are in `recaps/phase-1.md` (till Block B); Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is
+**Its X and Z reports are read at the till, whole and by cashier.** **Next is block D** (receipts and hardware), D1 first. Phase 1's decisions so far
+are in `recaps/phase-1.md` (till Block C); Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is
 `phase-1-plan.md`.
 
 ---
@@ -18,11 +18,11 @@ are in `recaps/phase-1.md` (till Block B); Phase 0.5's recap is `recaps/phase-0.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. On a machine short of memory build and test one node at a time (`-m:1`): MSBuild's child nodes die with `MSB4166` otherwise. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **2582**, all green in Debug (Integration 835 · Pos 711 · Domain 683 · Generator 238 · Hardware 65 · Application 50). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Tests | **2609**, all green in Debug (Integration 846 · Pos 717 · Domain 693 · Generator 238 · Hardware 65 · Application 50). **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
 | Schema | 62 tables (all STRICT), 91 indexes, 35 triggers, **15 migrations**: `LogbookOperations` (D-115: art. 41 bis 3's operations, the `processor` actor, `supplier` subjects, four retention entities, `processing_log.subject_count`; rebuilds `processing_log`, `erasure_ledger` and `retention_policies`), `ConsentGivenBy` (D-113: `consent_events.given_by` and its CHECK; rebuilds `consent_events`), `CashSessionThresholds` (C2: the three thresholds frozen on `cash_sessions` at a close; three added columns, no rebuild), `CashSessionClose` (C1: `cash_sessions.closed_authorised_by` and its CHECK, one open session and one Z number per till as unique indexes; rebuilds `cash_sessions`; three triggers make a closed session final), `LinesStrikesAndTabRounding` (block B review: `transaction_items.line_number` and `removed_authorised_by` with their CHECKs; `rounding_variance` may name a tab's movement; rebuilds both tables), `SalesVoid` (B8: a cancel's `payment_opened_at` and `void_authorised_by` on `transactions`; a struck line's `removed_at`, `removed_by` on `transaction_items`; their CHECKs), `CustomersAndTab` (B7: `credit_limit_events`, append-only; the charge's override, the tab's freeze and the customer's collection notice; the `information` notice type), `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
-| Recaps | `recaps/phase-0.md`, `recaps/phase-0.5.md`, and `recaps/phase-1.md` (**till Block B**: every Phase 1 decision so far in full). Read one only when a question reaches back |
+| Recaps | `recaps/phase-0.md`, `recaps/phase-0.5.md`, and `recaps/phase-1.md` (**till Block C**: every Phase 1 decision so far in full). Read one only when a question reaches back |
 
 ## 2. Phase 0.5, closed
 
@@ -55,6 +55,8 @@ usually an `O-` entry). Close an item by deleting its row.
 | F-34 | Low | **A restock asked for an expired batch is refused silently** (D-098): the quote does not say which lines will not go back on the shelf, so the cashier is not told | `RefundSale.cs`, `RefundAnswer` | **Fix** with D3 (the refund's receipt needs the same fact) |
 | F-37 | Low | **"A note is asked" still answers anyone who holds a session token**: the till freezes a blind count (D-111), the server does not, so a caller that is not the till can try counts until the answer changes | `CloseCashSessionHandler` | **Decide** before a pilot: a pending count kept on the row (a column), or leave it to the till |
 | F-41 | Low | **A report cannot split a line's own discount from its share of a ticket discount**: a row stores one figure and one reason, so a line discounted on a discounted ticket is counted whole with the lines (D-112). The total given away is exact | `transaction_items`, `ShiftReport.ReductionsOf` | **Decide** whether the split matters: it needs a column on `transaction_items`, a rebuild of a large table |
+| F-44 | Low | **One's own column beside the session's total gives a second person's figures away by subtraction** when the session has two people: a manager reads the synthesis and their own column (the board, D-118), so the other's is the difference. With three or more, nothing is learnt about any one | `ShiftReportEndpoints.Cashiers` | **Decide**: keep the board's own column, or send nobody but the owner any column |
+| F-45 | Low | **Somebody the store no longer lists as active is named "?"** in a past Z, on a flag (C2) and on their column (C3): `TillDirectory.DescribeAsync` describes active staff only. Two such people in one Z cannot be told apart | `ShiftReportEndpoints.AnswerAsync` | **Fix** with H1 (staff): a name read whatever the person's status, for a report |
 | F-42 | Med | **No test holds "outstanding debt never reaches the outbox"** (D-043, D-055, CLAUDE.md §3.9). Today it is true by construction, since the basket is the only thing written there and it has no customer; nothing fails if a later writer adds a balance | `Application/Sync`, the outbox writers | **Fix**: a test over every outbox payload of a day with tabs, as `TenantKeyNeverLeavesTests` does for the key |
 | F-43 | Low | **No test holds "`processing_log` is not read by analytics"** (D-045, DPIA §5.5). No analytics code exists yet to read it | `ArchitectureTests` | **Fix** with the first tier-2 writer (Phase 2): an architecture rule on who may name `ProcessingLogEntry` |
 | F-40 | Low | **The till cannot take cash to the safe or top the float up**: `drop`, `float_add` and `float_remove` are in the schema and in `Drawer.Expected`, and no key writes them | `CashMovements.cs` | **Decide** whether a shop needs them before a pilot; "Petite caisse" covers both meanwhile with a reason |
@@ -131,7 +133,7 @@ starting point is always code already reviewed. `recaps/phase-0.5.md` §9 is the
 | :---- | :---- | :--: | :---- |
 | **A** | The floor: O-24 and promotional prices, sessions and PIN and permissions, reason codes, the till shell, sign-in | 5 | **Done 24/09, reviewed 25/09** (§9) |
 | **B** | Checkout depth: search, quantity, weighted, discounts, override, split tender, on-account, voids, refunds, paid-in/out | 10 | **Done 02/10, reviewed 03/10** (§9) |
-| **C** | Shift: counted float, X and Z reports, the Z per cashier | 3 | **C1 done 06/10, C2 done 09/10** (§9) |
+| **C** | Shift: counted float, X and Z reports, the report by cashier | 3 | **Done 11/10, reviewed 12/10** (§9) |
 | **D** | Receipts and hardware: content, real ESC/POS, the drawer, reprint | 3 | |
 | **E** | Catalogue, first Admin batch: CRUD, bulk price, CSV import | 4 | Needs design gate **G2** |
 | **F** | Stock: receive against a PO, adjustments, counts, views | 4 | **Suppliers to plan first (O-35)**; may grow |
@@ -248,7 +250,7 @@ table; this is the short form.
 
 ---
 
-## 9. Phase 1 so far: Blocks A and B
+## 9. Phase 1 so far: Blocks A, B and C
 
 What each session decided and why is in `recaps/phase-1.md`; this is only where to start
 reading. ✍ marks Hakim's pieces, each with its rules in its doc comment and its tests beside it.
@@ -296,12 +298,22 @@ the bar.
 
 | C2 | The X and Z reports, recomputed from the session's rows; thresholds frozen at the close | D-112 | `Domain/Organisation/ShiftReport.cs`, `Application/Sales/ShiftReports.cs`, `StoreServer/Sales/ShiftReportEndpoints.cs`, `Pos/Screen/Report.cs`, `Pos/Ui/TillViews.Report.cs` |
 
+| C3 | The same report by cashier, behind a tab; the owner's, and one's own column to anyone else | D-118 | `ShiftReport.ByCashierOf`, `ShiftReportEndpoints.WhoReads` and `Cashiers`, `Pos/Screen/Report.cs` (`Table`), `Pos/Ui/TillViews.Report.cs` (`Cashiers`) |
+
+**C3 (11/10), how to read it.** `CashSessionLedger.ReportRowsAsync` now also gives who struck each
+line and each cash movement with its person; `ShiftReports` adds the opening and the close as
+operations with no figure and asks `ShiftReport.ByCashierOf`, then `SharesReconcile`;
+`ShiftReportEndpoints.WhoReads` says who reads and `Cashiers` sends every column or the reader's
+own; `ReportScreen.Table` lays the lines out and `TillViews.Cashiers` draws three stacks (labels,
+people, session) so the people's scroll sideways past six. No migration. Written by Claude (the
+plan gives C3 to Claude); reviewed by Hakim 12/10.
+
 **C2 (09/10), how to read it.** A report, in the order data moves: `CashSessionLedger.ReportRowsAsync`
 reads the session's tickets, lines and payments; `ShiftReports` asks `ShiftReport` for the takings,
 the activity, the reductions and the flags, and `Drawer.Expected` for the drawer; `ShiftReportEndpoints`
 decides who reads and whether the flags are theirs; `Pos/Screen/Report.cs` lays the sections out and
 `TillViews.Report` draws them over the whole window. `ShiftReport` was written by Claude this time
-(Hakim reviews it): its rules are in its doc comment, its tests in `ShiftReportTests`.
+(reviewed by Hakim 12/10): its rules are in its doc comment, its tests in `ShiftReportTests`.
 
 **C1 (06/10), how to read it.** A close, in the order data moves: `Pos/Screen/Drawer.cs` builds the
 three panels on the floating form's kit; `TillWindow.SendCloseAsync` sends the count;
@@ -314,8 +326,11 @@ the command line until H2: `--close-session-min-rank`, `--x-report-min-rank`, `-
 
 **Waiting on Hakim:**
 
-- **`ShiftReport.cs` to review**, and the report on a real screen: built from the board, checked on
-  headless frames only. It covers the whole window; its total and its keys are in its own foot, not
+- **Where C3 left the board**: the columns are in the order of first operation, where the board
+  draws the manager last; on a narrow screen the list of reports is a strip above the report, not
+  the board's drop-down; the day still reads "05/10/2026". **F-44 is the one to decide.**
+
+- **The report on a real screen**: built from the board, checked on headless frames only. It covers the whole window; its total and its keys are in its own foot, not
   in the till's bar; the tenders are in the enum's order (Avoir before Carnet); "Par caissier" is C3.
 - **The C1 panels on a real screen**: built from the board and checked on headless frames only. The
   count's expected lines sit under its field, not beside the pad; "Plus…" is still the rail's keys

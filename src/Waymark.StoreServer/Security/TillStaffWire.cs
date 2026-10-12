@@ -22,6 +22,7 @@ public static class TillStaffWire
         Capabilities.ViewOtherTickets => Domain.Organisation.Capability.ViewOtherTickets,
         Capabilities.CloseSession => Domain.Organisation.Capability.CloseSession,
         Capabilities.ReadXReport => Domain.Organisation.Capability.ReadXReport,
+        Capabilities.ReadShiftFlags => Domain.Organisation.Capability.ReadShiftFlags,
         _ => null,
     };
 

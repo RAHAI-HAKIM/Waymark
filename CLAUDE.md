@@ -156,7 +156,7 @@ Both or neither. This is the outbox pattern and the whole sync design rests on i
 
 ### 3.10 Access — D-074, D-077, D-083
 
-- **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked. A tenant key sets a rank only where `IsConfigurable` (D-110); a report's flags are rank 3 with no key (D-112).
+- **Never compare ranks yourself**: `StaffPermissions.May` or `CardAudience.MayDecide`. A null rank is never permission, and `StaffPin.IsUsable` is asked before any PIN is checked. A tenant key sets a rank only where `IsConfigurable` (D-110); a report's flags and its figures by cashier are rank 3 with no key (D-112, D-118).
 - **Who acts is the session's, never a field the till sends.** A PIN is checked in StoreServer only, and the lockout is asked first. **An approval is the till's, for the store's day**, not the session's (D-105); a manager's PIN opens an earlier day's ticket for a cashier (D-109).
 
 ---

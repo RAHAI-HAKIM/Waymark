@@ -1,8 +1,8 @@
-# Phase 1 recap (till Block B): the till runs a counter
+# Phase 1 recap (till Block C): the till runs a counter and a shift
 
-**Blocks A and B, built 22/09–02/10/2026; Block B reviewed 03/10/2026.** Phase 1 is not
-closed: Blocks C to J are still to come, planned in `../phase-1-plan.md`. This file is
-extended when the phase closes.
+**Blocks A and B, built 22/09–02/10/2026, Block B reviewed 03/10/2026; Block C built
+05/10–11/10 and reviewed 12/10/2026.** Phase 1 is not closed: Blocks D to J are still to come,
+planned in `../phase-1-plan.md`. This file is extended as each block is reviewed.
 
 A snapshot, not a live document (see `README.md` in this folder). Decisions are cited by
 number; `../decisions.md` keeps each one's title, and this file holds the reasoning and the
@@ -15,6 +15,7 @@ rejected alternatives. Where this file and the code disagree, the code is right.
 | Block | Sessions | What the till can do after it |
 | :---- | :---- | :---- |
 | **A** | A1–A5, reviewed 25/09 | Resolve a TVA rate and a price in force; know who may do what; read reason codes; draw the G1 shell from a tested screen model; sign in with a PIN |
+| **C** | C1–C3, reviewed 12/10 | Sell only with its drawer open, on a counted float (C1); close on a count, with a variance and a Z number (C1); read an X and a Z, recomputed from the session's rows (C2), whole and by cashier (C3). With it, for the DPIA: an age confirmed before a customer is created, and the logbook's operations (§7) |
 | **B** | B1–B10, reviewed 03/10 | Search and open past tickets (B1); hold and cancel tickets (B2); sell by weight (B3); give a discount (B4); override a price (B5); split a payment (B6); keep customers and a tab (B7); record cancels and struck lines (B8); refund (B9a) and spend store credit (B9b); move cash with no sale and clock in (B10) |
 
 **Test count at the review's close:** see `../status.md` §1. Every rule below was proven by
@@ -333,3 +334,159 @@ again what to hand back; "Encaisser" is closed while the server is out of reach;
 taken back no longer carries its struck lines.
 
 **Left open:** the findings register in `../status.md` §3.
+
+---
+
+## 6. Decisions, Block C (the shift)
+
+### D-110 — A tenant key sets a rank, above the ladder or below it; only where a key exists (C1, 05/10)
+D-098's rule was "a setting raises and never lowers". Hakim, 05/10: the owner may hand closing
+to a cashier, so a floor is the wrong shape. **A setting now sets**: what is needed is the
+setting where there is one, the ladder's rank otherwise (`StaffPermissions.May`, three
+arguments). What stops a setting of 1 handing price overrides to every cashier is
+**`StaffPermissions.IsConfigurable`**: refunds, paid-outs, reading an X and closing have a
+tenant key, and a setting on any other capability throws. `ReadXReport` and `CloseSession` sit
+at 2 on the ladder, with `x_report_min_rank` and `close_session_min_rank`. **Rejected:** closing
+at 3 on the ladder, which leaves a drawer nobody can close on the owner's evening off; a
+`role_permissions` table before H2 needs one.
+
+### D-111 — C1: a till sells only in an open cash session, opened with a counted float and closed with a count
+Replaces D-070's session, which the first sale opened with nothing in it and nothing closed.
+
+- **Nothing touches the drawer without an open session.** A sale, a cancel, a refund, cash in or
+  out and a tab's repayment are refused as `no_open_session`. Anyone signed in opens, with a
+  typed float of zero or more: one figure, not a count by denomination (Hakim, 05/10).
+- **What the drawer should hold is `Drawer.Expected`** (Hakim's): float + cash sales − cash
+  refunds + paid-in + tab repayments − paid-out − drops + tender rounding. **Only a ticket's
+  rounding row is added**: a tab repayment's `paid_in` is the rounded cash already (D-108).
+  `cash_sessions.variance` is counted minus expected and nothing else (D-034).
+- **The count at close is required; whether it is blind is the tenant's** (`blind_close`).
+  Blind, whoever counts is sent neither the expected figure, the variance nor the threshold,
+  unless they close alone. The count freezes when confirmed, or the note's question would find
+  the drawer's figure in a dozen tries.
+- **A variance is recorded, never refused.** Past `variance_alert_value`, short or over, a note
+  is asked first, then the PIN. No recount once sent.
+- **Who closes is `close_session_min_rank`** (D-110); below it a manager's PIN, and the row
+  names both: `closed_by` counted, `closed_authorised_by` allowed it.
+- **A closed session is final**: three triggers refuse its update, delete and replace. A till
+  has one session open and gives each Z number once, from 1, per terminal (two unique indexes);
+  a store's figure for a day is the sum of its tills', a report and not a second number.
+- **A session belongs to the store's day it opened on**, and nothing closes it by itself.
+- **Tickets are settled first**: no count while a ticket has lines or one is on hold.
+- **One session, many cashiers.** Changing cashier opens and closes nothing; the variance is the
+  drawer's (Hakim, 05/10: cashiers swap tills too often for a count at each swap).
+- A paid-out larger than the drawer should hold is refused (`Drawer.Covers`), naming no figure.
+
+**Rejected:** a handover that closes and reopens; a stored count at each swap; the Z's figures
+stored beyond expected, counted and variance; a PIN that could turn a variance down.
+
+### D-112 — C2: an X and a Z are one report, recomputed from the session's rows; a Z is judged by what was in force at its close
+`ShiftReport` (Domain, pure) turns a session's tickets, lines and payments into its figures, for
+the open session (X) or a close by its number (Z). **Nothing is stored but what the close wrote.**
+
+- **It reconciles twice, and says so when it does not**: the takings by tender come to the
+  tickets' totals, and a Z's rows still come to the `expected_cash` stored at its close. A
+  report that fails either carries a critical notice.
+- **Cash is what the tickets say** (Hakim, 08/10), to the centime; the cash step's rounding is
+  the drawer's own line, never a variance (D-034). **Sales and refunds are separate lines**, and
+  "Total encaissé" is net of refunds. These two answers replace what the board drew.
+- **The thresholds are frozen at the close** (Hakim, 08/10): `void_alert_count`,
+  `void_alert_value` and `variance_alert_value` on the session's row. A Z is judged by them for
+  good, an X by today's: otherwise raising a threshold un-flags every past Z.
+- **Who reads**: whoever reaches `ReadXReport` as the shop set it, or a manager's PIN, which the
+  till forgets when the report closes. Nobody else is shown a figure: under a blind close a
+  report's cash lines are enough to work the drawer out.
+- **The flags are the owner's**: `ReadShiftFlags`, rank 3, no tenant key, since they name
+  people. They follow whoever reads; everyone else is told how many there are. Whether a cancel
+  is flagged is `Voids.Flags`'s to say. A cancelled ticket has no number: a flag names it by
+  who and when.
+- **The till lists its last 30 closes**; older ones and a store's day across tills are Admin's.
+- **Closed with it**: a cash refund the drawer cannot cover is refused; a refund carries its
+  sale's rounding policy, not the day's; a session open past the store's day says so on the bar.
+
+**Rejected:** the Z's figures stored at the close (a second copy to drift from the rows); flags
+behind a tenant key; an X shown to a cashier with its drawer section hidden.
+
+### D-118 — C3: a report by cashier is the same report split by who did each thing; it is the owner's, and anyone else reads their own column
+`ShiftReport.ByCashierOf` splits a session's rows by person and **applies the session's own
+rules to each person's part**, for an X and a Z alike. Nothing is stored and no column was added.
+
+- **Whose is each thing** (Hakim, 11/10): a sale is whoever rang it; a refund whoever refunded;
+  a cancel `voided_by`; a struck line `removed_by`; a discount and an override the cashier who
+  rang the ticket, never the person whose PIN allowed them; cash in, cash out and a tab repaid
+  the movement's `staff_id`. `CompleteSale` writes `removed_by` as the ticket's own cashier, so a
+  strike is on its ticket's column in practice.
+- **Everyone who did anything has a column**, the opening and the count at the close included,
+  in the order of their first operation, even when they are one.
+- **No cash a person "should hold", no variance per person**: nobody counted at the swap (D-111).
+- **A tender's line is its sales less its refunds**, so the lines come to "Total encaissé".
+- **The hours are a person's first and last recorded operation**, named so: sign-ins are not
+  kept (D-083).
+- **It reconciles a third time**: the people come to the session, line by line
+  (`SharesReconcile`). The session's column is the report's own figures, never the columns added up.
+- **Who reads** (Hakim, 11/10): the flags' rule, `ReadShiftFlags`. Everyone who reads the report
+  is told how many people there are and is sent their own column (the board); the rest is one
+  closed frame, opened by the owner's PIN, forgotten when the report closes
+  (`ShiftReportEndpoints.WhoReads`). The board's "PIN responsable" reads "PIN propriétaire".
+
+**Rejected:** the section open to whoever reads the report (a manager would read cancels per
+person, the flags' substance); sales to managers and cancels to the owner (two rules for one
+table); the session's column summed from the people's (it would prove nothing).
+
+---
+
+## 7. Decisions for the DPIA, taken during Block C (10/10)
+
+### D-113 — A customer is created only once their age is confirmed; a minor is enrolled on their legal representative's consent
+Whoever creates a customer confirms the person is 18 or older, or is a minor whose parent has
+read the notice and agreed. The till asks it on the creation panel; the server refuses a
+creation that says neither (`age_not_confirmed`) and reads anything unknown as nothing said.
+
+- **An adult leaves no trace of it**: nothing on `customers`, nothing in `processing_log`.
+- **A minor is enrolled with one `consent_events` row**: processing, granted, verbal, for the
+  information notice, **`given_by` = `legal_representative`** (a new column, `subject` by
+  default), in the customer's own unit of work. Marketing consent is never taken here.
+- **That row implies the person is a minor, and that is accepted** (Hakim, 10/10). Nothing else
+  says it: no flag, no date of birth, no log entry.
+
+**Rejected:** a date of birth; a flag on the customer; nothing recorded for a minor (the DPIA
+needs the representative's consent evidenced); `legal_representative` as a `method`.
+
+### D-114 — Waymark keeps its own logbook in the cloud; a technician's actions also go in the store's (A-10)
+Loi 25-11 art. 41 bis 3 requires a logbook from the processor too. `processor_log` in the cloud
+records every operation Waymark performs, under D-045's rules. A technician's actions on a till
+go to the store's `processing_log` with `actor_type = 'processor'`, so the retailer sees them;
+a session summary with no subjects goes to `processor_log`. **Rejected:** cloud only; store
+only; mirroring each action with its subject. Tests owed: H23.
+
+### D-115 — The logbook's operation list is art. 41 bis 3's (A-11)
+Migration `LogbookOperations`, which rebuilt `processing_log`, `erasure_ledger` and
+`retention_policies` once each while no store is live.
+
+- `processing_log.operation` adds `recording`, `organisation`, `storage`, `extraction`, `use`,
+  `dissemination`, `alignment`, `interconnection`, `locking`, `encryption`, `destruction`.
+  `modification` stands for adaptation or alteration, `disclosure` for making available. The
+  trigger for each value is DPIA v2 §2.2.1.
+- `actor_type` adds `processor`, held to D-061 as staff are. `subject_type` adds `supplier`,
+  there and on `erasure_ledger`.
+- **Of the new operations, `extraction`, `dissemination`, `locking` and `destruction` name the
+  one person they are about** (Hakim, 10/10); the other seven may run over many.
+  `ProcessingEventTests` lists every operation on one side or the other.
+- **A bulk operation is one row that names no one, with `subject_count`**: nullable, above zero,
+  only where `subject_id` is null. A bulk `destruction` is a system task's.
+- `retention_policies.entity_type` adds `receivable`, `supplier_contact`,
+  `data_subject_request`, `tier2_record`. A `receivable` policy can only unlink or archive: the
+  ledger refuses a delete. Cloud-only data gets its retention in the cloud's own policy.
+- The rollup's counters table already existed on the store's side (`processing_counters`).
+
+**Rejected:** adding only the operations that occur today; a mapping with no migration. H24 is
+`ProcessingEventTests` and five tests in `ProcessingLogWriterTests`.
+
+### D-116 — The operational channel carries no personal data
+Outbox channel `B_operational` carries no customer, staff or supplier-contact field. `D_decisions`
+is to be checked too: `recommendation_decisions.decided_by` is a staff id. Tests owed: H21.
+
+### D-117 — Marketing messages, SMS included (Phase 2)
+Loi 18-07 art. 37: SMS is a "similar technology", so every marketing message needs prior
+marketing consent; each names the sender and carries a free opt-out, and an opt-out is a
+withdrawal event. The SMS gateway is a subprocessor located in Algeria. Tests owed: H22.

@@ -89,6 +89,9 @@ public static class Capabilities
 
     /// <summary>Reading an open cash session's figures (C2): the ladder's rank, or the shop's <c>x_report_min_rank</c>.</summary>
     public const string ReadXReport = "read_x_report";
+
+    /// <summary>Reading what a report says of people: its flags and its figures by cashier (C2, C3). The owner's, with no tenant setting (D-112, D-118).</summary>
+    public const string ReadShiftFlags = "read_shift_flags";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

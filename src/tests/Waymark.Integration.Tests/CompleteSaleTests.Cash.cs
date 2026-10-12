@@ -41,9 +41,10 @@ public sealed partial class CompleteSaleTests
     }
 
     private Task<RecordedCashMovement> Cash(
-        Shop shop, CashDirection direction, long amount, string reason, string? note = null, bool sellerMay = true, string? authorisedBy = null) =>
+        Shop shop, CashDirection direction, long amount, string reason, string? note = null, bool sellerMay = true, string? authorisedBy = null,
+        string? by = null) =>
         Run(shop, (context, work) => new RecordCashMovementHandler(new SalesLedger(context), new CashSessionLedger(context), work, new ReasonCodes(context), new FixedClock()),
-            new RecordCashMovement(shop.TerminalId, shop.StaffId, direction, amount, reason, note, sellerMay, authorisedBy));
+            new RecordCashMovement(shop.TerminalId, by ?? shop.StaffId, direction, amount, reason, note, sellerMay, authorisedBy));
 
     private Task<Clocked> Clock(Shop shop) =>
         Run(shop, (context, work) => new ToggleClockHandler(new SalesLedger(context), new ShiftLedger(context), work, new FixedClock()),

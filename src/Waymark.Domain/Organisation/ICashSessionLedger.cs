@@ -14,8 +14,10 @@ public sealed record SessionClose(
 public sealed record ShiftCashCounts(int PaidIn, int PaidOut, int TabRepayments);
 
 /// <summary>A session's tickets, their lines and their payments, as <see cref="ShiftReport"/> reads them (C2).</summary>
+/// <param name="CashRows">Its cash movements one by one, each with who moved it, for the report by cashier (C3).</param>
 public sealed record ShiftRows(
-    IReadOnlyList<ReportTicket> Tickets, IReadOnlyList<ReportRow> Rows, IReadOnlyList<ReportPart> Parts, ShiftCashCounts Cash);
+    IReadOnlyList<ReportTicket> Tickets, IReadOnlyList<ReportRow> Rows, IReadOnlyList<ReportPart> Parts, ShiftCashCounts Cash,
+    IReadOnlyList<ReportCash> CashRows);
 
 /// <summary>
 /// What a cash session reads and the one row it changes (C1, D-111). Implemented in Persistence; scoped

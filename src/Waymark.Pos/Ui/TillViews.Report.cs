@@ -7,8 +7,11 @@ using Waymark.Pos.Screen;
 
 namespace Waymark.Pos.Ui;
 
-/// <summary>What the report's keys do: a row of the list touched (null for the X), and the way out.</summary>
-public sealed record ReportActions(Action<long?> Open, Action Close);
+/// <summary>
+/// What the report's keys do: a row of the list touched (null for the X), the way out, a tab touched
+/// (true for "Par caissier"), and the key that asks for the owner's PIN to open the other columns (C3).
+/// </summary>
+public sealed record ReportActions(Action<long?> Open, Action Close, Action<bool> Tab, Action Unlock);
 
 /// <summary>
 /// The X and Z reports (C2, D-112), in the ticket's place as the carnet is: it does not float, it is
@@ -21,8 +24,13 @@ public static partial class TillViews
 
     public const string ReportPrintTag = "report-print";
 
+    public const string CashierUnlockTag = "report-cashiers-unlock";
+
     /// <summary>The list's width beside the report.</summary>
     private const double ReportList = 200;
+
+    /// <summary>How many people's columns fit without scrolling sideways (the board, 2A): past it, they scroll between the labels and the session.</summary>
+    private const int CashiersAbreast = 6;
 
     public static Control Report(ReportView view, TillTheme theme, ReportActions actions)
     {
@@ -112,9 +120,68 @@ public static partial class TillViews
             list.Children.Add(ListRow(theme, row, actions));
         }
 
-        list.Children.Add(Wrapped(theme.BodySmall(view.ListNote, theme.TextSecondary)));
-        body.Children.Add(Docked(
-            new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list }, Dock.Left));
+        if (theme.Narrow)
+        {
+            // No room for a column of reports beside six people (the board, 2A): the list is a strip
+            // above the report, which scrolls sideways when the closes are many.
+            list.Orientation = Orientation.Horizontal;
+            list.Width = double.NaN;
+            list.Margin = new Thickness(0, 0, 0, 8);
+            foreach (var row in list.Children.OfType<TillKey>())
+            {
+                row.Width = 150;
+            }
+
+            foreach (var label in list.Children.OfType<TextBlock>())
+            {
+                label.VerticalAlignment = VerticalAlignment.Center;
+                label.Margin = new Thickness(0, 0, 4, 0);
+            }
+
+            body.Children.Add(Docked(
+                new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = list },
+                Dock.Top));
+        }
+        else
+        {
+            list.Children.Add(Wrapped(theme.BodySmall(view.ListNote, theme.TextSecondary)));
+            body.Children.Add(Docked(
+                new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list }, Dock.Left));
+        }
+
+        // The tabs (C3): the synthesis, and the same report by cashier, with a padlock when not all of it is the reader's.
+        if (view.Tabs.Count > 0)
+        {
+            var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+            foreach (var tab in view.Tabs)
+            {
+                var face = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 6,
+                    Margin = new Thickness(12, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children = { Words(tab.Label, 14, tab.Selected ? FontWeight.SemiBold : FontWeight.Normal, tab.Selected ? theme.Text : theme.TextSecondary, theme) },
+                };
+                if (tab.Locked)
+                {
+                    face.Children.Add(TillTheme.Icon(LucideIcons.Lock, theme.TextSecondary, 14));
+                }
+
+                var which = tab.ByCashier;
+                tabs.Children.Add(new Border
+                {
+                    // The open tab is underlined in the operator's colour, and says so by its weight first.
+                    BorderBrush = tab.Selected ? theme.Action : null,
+                    BorderThickness = new Thickness(0, 0, 0, 2),
+                    Child = new TillKey(theme, KeyLook.Ghost, face, () => actions.Tab(which), true, 40) { Tag = tab },
+                });
+            }
+
+            body.Children.Add(Docked(
+                new Border { BorderBrush = theme.BorderSubtle, BorderThickness = new Thickness(0, 0, 0, 1), Margin = new Thickness(0, 0, 0, 10), Child = tabs },
+                Dock.Top));
+        }
 
         // The report, read from the top.
         var sections = new StackPanel { Spacing = 10 };
@@ -132,7 +199,11 @@ public static partial class TillViews
             (section.Wide ? sections : section.Second && !theme.Narrow ? second : first).Children.Add(Section(theme, section));
         }
 
-        if (second.Children.Count > 0)
+        if (view.Cashiers is { } table)
+        {
+            sections.Children.Add(Cashiers(theme, table, actions));
+        }
+        else if (second.Children.Count > 0)
         {
             var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*") };
             columns.Children.Add(first);
@@ -150,6 +221,180 @@ public static partial class TillViews
         var card = Card(theme, null, body);
         card.Padding = new Thickness(16);
         return card;
+    }
+
+    /// <summary>
+    /// The report by cashier (C3, D-118): the labels, a column per person, the session's last. Three
+    /// stacks of cells of one height, so the lines stay level when the people's columns scroll
+    /// sideways between the other two. Without the right, the reader's own column and one closed frame.
+    /// </summary>
+    private static Border Cashiers(TillTheme theme, CashierTable table, ReportActions actions)
+    {
+        var labelWidth = theme.Narrow ? 172.0 : 200.0;
+        var cellWidth = theme.Narrow ? 96.0 : 112.0;
+        var sessionWidth = cellWidth + 12;
+        const double head = 46;
+        const double title = 34;
+        const double line = 31;
+
+        Border Cell(Control? child, double width, double height, bool ruled, bool session) => new()
+        {
+            Width = width,
+            Height = height,
+            Background = session ? theme.Tile : null,
+            BorderBrush = theme.BorderSubtle,
+            BorderThickness = new Thickness(0, 0, 0, ruled ? 1 : 0),
+            Padding = new Thickness(session ? 8 : 0, 0, 8, 0),
+            Child = child,
+        };
+
+        // One column of the table: its head, then a blank under each group's title and a figure on each line.
+        StackPanel Column(int place)
+        {
+            var column = new StackPanel();
+            var top = table.Heads[place];
+            var who = Words(top.Name, 13, FontWeight.SemiBold, theme.Text, theme);
+            var role = theme.BodySmall(top.Detail, theme.TextSecondary);
+            foreach (var words in new[] { who, role })
+            {
+                words.HorizontalAlignment = HorizontalAlignment.Right;
+                words.TextTrimming = TextTrimming.CharacterEllipsis;
+            }
+
+            column.Children.Add(Cell(
+                new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Children = { who, role } },
+                top.Session ? sessionWidth : cellWidth, head, true, top.Session));
+            foreach (var group in table.Groups)
+            {
+                column.Children.Add(Cell(null, top.Session ? sessionWidth : cellWidth, title, true, false));
+                foreach (var row in group.Rows)
+                {
+                    var figure = TillTheme.Figure(row.Cells[place], 13, theme.Text, row.Strong || top.Session ? FontWeight.SemiBold : FontWeight.Normal);
+                    figure.HorizontalAlignment = HorizontalAlignment.Right;
+                    figure.VerticalAlignment = VerticalAlignment.Center;
+                    column.Children.Add(Cell(figure, top.Session ? sessionWidth : cellWidth, line, true, top.Session));
+                }
+            }
+
+            return column;
+        }
+
+        var labels = new StackPanel();
+        labels.Children.Add(Cell(null, labelWidth, head, true, false));
+        foreach (var group in table.Groups)
+        {
+            // A group's title is longer than the labels' column and runs over the figures' blanks
+            // beside it: on a canvas, which neither clips it nor gives it the column's width.
+            var name = theme.Label(group.Title, theme.TextSecondary);
+            Canvas.SetLeft(name, 0);
+            Canvas.SetBottom(name, 6);
+            labels.Children.Add(Cell(new Canvas { ClipToBounds = false, Children = { name } }, labelWidth, title, true, false));
+            foreach (var row in group.Rows)
+            {
+                var words = Words(row.Label, 13, row.Strong ? FontWeight.SemiBold : FontWeight.Normal, theme.Text, theme);
+                words.VerticalAlignment = VerticalAlignment.Center;
+                words.TextTrimming = TextTrimming.CharacterEllipsis;
+                var cell = Cell(words, labelWidth, line, true, false);
+                cell.Tag = row;
+                labels.Children.Add(cell);
+            }
+        }
+
+        var people = new StackPanel { Orientation = Orientation.Horizontal };
+        StackPanel? session = null;
+        for (var place = 0; place < table.Heads.Count; place++)
+        {
+            if (table.Heads[place].Session)
+            {
+                session = Column(place);
+            }
+            else
+            {
+                people.Children.Add(Column(place));
+            }
+        }
+
+        var body = new DockPanel { LastChildFill = table.Lock is not null || people.Children.Count > CashiersAbreast, HorizontalAlignment = HorizontalAlignment.Stretch };
+        if (table.Groups.Count > 0)
+        {
+            body.Children.Add(Docked(labels, Dock.Left));
+        }
+
+        if (table.Lock is { } closed)
+        {
+            // The reader's own column, then one closed frame for everybody else's and the session's (the board, 2B).
+            if (people.Children.Count > 0)
+            {
+                body.Children.Add(Docked(people, Dock.Left));
+            }
+
+            var key = new TillKey(
+                theme, KeyLook.Primary,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children = { Words(closed.Key, 15, FontWeight.SemiBold, theme.ActionLabel, theme), TillTheme.Icon(LucideIcons.Lock, theme.ActionLabel, 16) },
+                },
+                actions.Unlock, true, 48)
+            { Tag = CashierUnlockTag, Padding = new Thickness(20, 0), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) };
+            var title1 = Wrapped(Words(closed.Title, 15, FontWeight.SemiBold, theme.Text, theme));
+            title1.TextAlignment = TextAlignment.Center;
+            var detail = Wrapped(theme.BodySmall(closed.Detail, theme.TextSecondary));
+            detail.TextAlignment = TextAlignment.Center;
+            body.Children.Add(new Border
+            {
+                BorderBrush = theme.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(TillSizes.KeyRadius),
+                Margin = new Thickness(people.Children.Count > 0 || table.Groups.Count > 0 ? 12 : 0, 0, 0, 0),
+                Padding = new Thickness(24, 48),
+                MinHeight = 240,
+                Tag = closed,
+                Child = new StackPanel
+                {
+                    // At the top of its frame: the frame is as tall as the column beside it, and its
+                    // key must be on the screen without scrolling.
+                    Spacing = 8,
+                    MaxWidth = 380,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Children = { Centred(TillTheme.Icon(LucideIcons.Lock, theme.TextSecondary, 26)), title1, detail, key },
+                },
+            });
+        }
+        else if (people.Children.Count > CashiersAbreast)
+        {
+            // Seven people and more: theirs scroll sideways; the labels and the session stay in place.
+            if (session is not null)
+            {
+                body.Children.Add(Docked(session, Dock.Right));
+            }
+
+            body.Children.Add(new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = people,
+            });
+        }
+        else
+        {
+            body.Children.Add(Docked(people, Dock.Left));
+            if (session is not null)
+            {
+                body.Children.Add(Docked(session, Dock.Left));
+            }
+        }
+
+        var stack = new StackPanel { Spacing = 10, Children = { body } };
+        if (table.Lock is null)
+        {
+            stack.Children.Add(Wrapped(theme.BodySmall(table.Note, theme.TextSecondary)));
+        }
+
+        return new Border { Tag = table, Child = stack };
     }
 
     private static TillKey ListRow(TillTheme theme, ReportListRow row, ReportActions actions)

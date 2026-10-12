@@ -33,8 +33,46 @@ public sealed record ReportTicket(
 /// <param name="Discount">What was taken off the row: the line's own and its share of the ticket's, together.</param>
 /// <param name="DiscountReason">The line's own reason when it had one, else the ticket's (as <c>CompleteSale</c> writes it).</param>
 /// <param name="ListPrice">The price in force a typed price replaced (D-092); null when none was typed.</param>
+/// <param name="StruckBy">Who struck it (<c>removed_by</c>); null when the row does not say, and then it is its ticket's cashier (C3).</param>
+/// <param name="StruckAt">When it was struck; null as above, and then it is its ticket's hour.</param>
 public sealed record ReportRow(
-    string TicketId, int LineNumber, bool Struck, long QuantityThousandths, Money Total, Money Discount, string? DiscountReason, Money? ListPrice);
+    string TicketId, int LineNumber, bool Struck, long QuantityThousandths, Money Total, Money Discount, string? DiscountReason, Money? ListPrice,
+    string? StruckBy = null, DateTimeOffset? StruckAt = null);
+
+/// <summary>What a cash movement of the session is, as the report's lines name it.</summary>
+public enum CashRowKind
+{
+    /// <summary>Cash put in with no sale: "Entrées de caisse".</summary>
+    PaidIn,
+
+    /// <summary>Cash taken out with no sale: "Sorties de caisse".</summary>
+    PaidOut,
+
+    /// <summary>A tab repaid in cash (D-055): its own line, never an "entrée".</summary>
+    TabRepayment,
+
+    /// <summary>Cash taken to the safe: on no line of the report by cashier, but somebody did it at an hour.</summary>
+    Drop,
+}
+
+/// <summary>A <c>cash_movements</c> row as the report by cashier reads it (C3): who moved it, when, and a figure above zero.</summary>
+public sealed record ReportCash(string StaffId, DateTimeOffset At, CashRowKind Kind, Money Amount);
+
+/// <summary>Something a person did at the drawer that carries no figure: they opened it, or counted it at the close (C3).</summary>
+public sealed record ReportMoment(string StaffId, DateTimeOffset At);
+
+/// <summary>What one person put in and took out with no sale, each a figure of zero or more.</summary>
+public sealed record CashierCash(Money PaidIn, Money PaidOut, Money TabRepayments);
+
+/// <summary>
+/// One person's part of a session (C3, D-118): the session's own figures, worked out by the same rules
+/// over what that person did. No expected cash and no variance: nobody counted when they changed
+/// places, so the variance is the drawer's (D-111).
+/// </summary>
+/// <param name="First">Their first recorded operation in the session. Not when they arrived: sign-ins are not kept (D-083).</param>
+/// <param name="Last">Their last recorded operation.</param>
+public sealed record CashierShare(
+    string StaffId, DateTimeOffset First, DateTimeOffset Last, Takings Takings, Activity Activity, Reductions Reductions, CashierCash Cash);
 
 /// <summary>A <c>transaction_payments</c> row: negative on a refund.</summary>
 public sealed record ReportPart(string TicketId, PaymentMethod Method, Money Amount);
@@ -130,6 +168,21 @@ public sealed record ReportThresholds(int? VoidCount, Money? VoidValue, Money? V
 ///   is flagged is <see cref="Voids.Flags"/>'s to say</b>, asked for each cancel with the person's
 ///   cancels so far, this one included: never a second copy of its comparisons.</description></item>
 ///   <item><description>Figures in different currencies throw, as <see cref="Money"/> always does.</description></item>
+///   <item><description><b><see cref="ByCashierOf"/> (C3, D-118)</b> splits all of it by who did each
+///   thing and <b>applies the rules above to each person's part, never a second copy of them</b>:
+///   <list type="bullet">
+///     <item><description>a sale, a refund and a cancel are their ticket's <see cref="ReportTicket.StaffId"/>:
+///     who rang it, who refunded (not who sold the ticket first), who cancelled;</description></item>
+///     <item><description>a struck line is whoever struck it (<see cref="ReportRow.StruckBy"/>), even on
+///     somebody else's ticket; a row that names nobody is its ticket's cashier's;</description></item>
+///     <item><description>a discount and an override are the cashier's who rang the ticket, never the
+///     person whose PIN allowed them;</description></item>
+///     <item><description>cash in, cash out and a tab repaid are whoever moved them.</description></item>
+///   </list>
+///   One share for everyone who did anything, the opening and the close included, <b>in the order of
+///   their first operation</b>. A payment or a struck line of a ticket that is not the session's throws.
+///   <see cref="NetOf"/> is a tender's sales less its refunds, below zero for who only gave back.
+///   <see cref="SharesReconcile"/>: the people come to the session, line by line.</description></item>
 /// </list>
 /// </summary>
 public static class ShiftReport
@@ -306,6 +359,102 @@ public static class ShiftReport
         flags.AddRange(pastCount.Select(staff => new ShiftFlag(ShiftFlagKind.TooManyCancels, staff, null, null, cancelsBy[staff])));
         flags.AddRange(aboveValue);
         return flags;
+    }
+
+    /// <param name="moments">The opening and the close: who did them and when. They give a column and an hour, no figure.</param>
+    public static IReadOnlyList<CashierShare> ByCashierOf(
+        Currency currency, IReadOnlyList<ReportTicket> tickets, IReadOnlyList<ReportRow> rows, IReadOnlyList<ReportPart> parts,
+        IReadOnlyList<ReportCash> cash, IReadOnlyList<ReportMoment> moments)
+    {
+        ArgumentNullException.ThrowIfNull(tickets);
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(parts);
+        ArgumentNullException.ThrowIfNull(cash);
+        ArgumentNullException.ThrowIfNull(moments);
+
+        var byId = tickets.ToDictionary(ticket => ticket.TicketId, StringComparer.Ordinal);
+        ReportTicket TicketOf(string id, string what, string parameter) => byId.TryGetValue(id, out var ticket)
+            ? ticket
+            : throw new ArgumentException($"A {what} names ticket '{id}', which is not the session's.", parameter);
+
+        // A part is its ticket's cashier's. A strike is whoever struck, at the hour they did.
+        var partsOf = parts.ToLookup(part => TicketOf(part.TicketId, "payment", nameof(parts)).StaffId, StringComparer.Ordinal);
+        var strikes = rows.Where(row => row.Struck)
+            .Select(row => (Row: row, Ticket: TicketOf(row.TicketId, "struck line", nameof(rows))))
+            .Select(struck => (struck.Row, By: struck.Row.StruckBy ?? struck.Ticket.StaffId, At: struck.Row.StruckAt ?? struck.Ticket.At))
+            .ToList();
+
+        // Everything anybody did, to say who is in the session and between which hours.
+        var done = tickets.Select(ticket => (ticket.StaffId, ticket.At))
+            .Concat(strikes.Select(strike => (StaffId: strike.By, strike.At)))
+            .Concat(cash.Select(moved => (moved.StaffId, moved.At)))
+            .Concat(moments.Select(moment => (moment.StaffId, moment.At)))
+            .GroupBy(operation => operation.StaffId, StringComparer.Ordinal)
+            .Select(person => (StaffId: person.Key, First: person.Min(operation => operation.At), Last: person.Max(operation => operation.At)))
+            .OrderBy(person => person.First)
+            .ThenBy(person => person.StaffId, StringComparer.Ordinal);
+
+        var shares = new List<CashierShare>();
+        foreach (var (staff, first, last) in done)
+        {
+            var theirs = tickets.Where(ticket => ticket.StaffId == staff).ToList();
+            Money Moved(CashRowKind kind) => Sum(currency, cash.Where(row => row.StaffId == staff && row.Kind == kind).Select(row => row.Amount));
+
+            shares.Add(new CashierShare(
+                staff, first, last,
+                TakingsOf(currency, theirs, [.. partsOf[staff]]),
+
+                // The session's own rule over their tickets, and over the lines they struck wherever those are.
+                ActivityOf(currency, theirs, [.. strikes.Where(strike => strike.By == staff).Select(strike => strike.Row)]),
+                ReductionsOf(currency, theirs, rows),
+                new CashierCash(Moved(CashRowKind.PaidIn), Moved(CashRowKind.PaidOut), Moved(CashRowKind.TabRepayment))));
+        }
+
+        return shares;
+    }
+
+    /// <summary>What a tender brought in: its sales less its refunds. Below zero when it gave back more than it took.</summary>
+    public static Money NetOf(Takings takings, PaymentMethod method)
+    {
+        ArgumentNullException.ThrowIfNull(takings);
+        var currency = takings.SalesTotal.Currency;
+        Money Of(IReadOnlyList<TenderLine> lines) => Sum(currency, lines.Where(line => line.Method == method).Select(line => line.Amount));
+
+        return Of(takings.Sales) - Of(takings.Refunds);
+    }
+
+    /// <summary>
+    /// Whether the people come to the session (C3): every tender, every count and every amount of the
+    /// shares, added up, is the session's own. False is a report by cashier that must not be shown as
+    /// if it added up: something of the session is in nobody's column, or in two.
+    /// </summary>
+    public static bool SharesReconcile(IReadOnlyList<CashierShare> shares, Takings takings, Activity activity, Reductions reductions, CashierCash cash)
+    {
+        ArgumentNullException.ThrowIfNull(shares);
+        ArgumentNullException.ThrowIfNull(takings);
+        ArgumentNullException.ThrowIfNull(activity);
+        ArgumentNullException.ThrowIfNull(reductions);
+        ArgumentNullException.ThrowIfNull(cash);
+        var currency = takings.SalesTotal.Currency;
+
+        Money Added(Func<CashierShare, Money> figure) => Sum(currency, shares.Select(figure));
+        bool Same(Func<CashierShare, Tally> tally, Tally whole) =>
+            shares.Sum(share => tally(share).Count) == whole.Count && Added(share => tally(share).Value) == whole.Value;
+
+        return Enum.GetValues<PaymentMethod>().All(method => Added(share => NetOf(share.Takings, method)) == NetOf(takings, method))
+            && Added(share => share.Takings.SalesTotal) == takings.SalesTotal
+            && Added(share => share.Takings.RefundsTotal) == takings.RefundsTotal
+            && Added(share => share.Takings.Net) == takings.Net
+            && Same(share => share.Activity.Sold, activity.Sold)
+            && Same(share => share.Activity.Refunded, activity.Refunded)
+            && Same(share => share.Activity.Cancelled, activity.Cancelled)
+            && Same(share => share.Activity.StruckLines, activity.StruckLines)
+            && Same(share => share.Reductions.LineDiscounts, reductions.LineDiscounts)
+            && Same(share => share.Reductions.TicketDiscounts, reductions.TicketDiscounts)
+            && Same(share => share.Reductions.Overrides, reductions.Overrides)
+            && Added(share => share.Cash.PaidIn) == cash.PaidIn
+            && Added(share => share.Cash.PaidOut) == cash.PaidOut
+            && Added(share => share.Cash.TabRepayments) == cash.TabRepayments;
     }
 
     /// <summary>One line per tender used, in the enum's order, with its parts and their sum.</summary>

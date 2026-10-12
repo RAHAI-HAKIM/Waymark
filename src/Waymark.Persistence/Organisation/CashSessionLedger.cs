@@ -46,7 +46,7 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
 
         var movements = await context.CashMovements.AsNoTracking()
             .Where(movement => movement.SessionId == sessionId)
-            .Select(movement => new { movement.MovementId, movement.MovementType })
+            .Select(movement => new { movement.MovementId, movement.MovementType, movement.StaffId, movement.OccurredAt, movement.Amount })
             .ToListAsync(cancellationToken);
         var movementIds = movements.Select(movement => movement.MovementId).ToList();
         var repaid = (await context.ReceivableMovements.AsNoTracking()
@@ -70,12 +70,23 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
                 ticket.RoundingPolicy))],
             [.. items.Select(item => new ReportRow(
                 item.TransactionId, item.LineNumber, item.RemovedAt is not null, item.Quantity, item.LineTotal, item.DiscountAmount,
-                item.DiscountReasonCode, item.ListPrice))],
+                item.DiscountReasonCode, item.ListPrice, item.RemovedBy, item.RemovedAt))],
             [.. payments.Select(payment => new ReportPart(payment.TransactionId, payment.PaymentMethod, payment.Amount))],
             new ShiftCashCounts(
                 movements.Count(movement => movement.MovementType is CashMovementType.PaidIn or CashMovementType.FloatAdd && !repaid.Contains(movement.MovementId)),
                 movements.Count(movement => movement.MovementType is CashMovementType.PaidOut or CashMovementType.FloatRemove),
-                movements.Count(movement => repaid.Contains(movement.MovementId))));
+                movements.Count(movement => repaid.Contains(movement.MovementId))),
+
+            // The same rows one by one, sorted as MovementsAsync sums them: a tab's repayment is a
+            // paid_in the receivable names (D-055), and it is its own line, never an "entrée".
+            [.. movements.Select(movement => new ReportCash(
+                movement.StaffId,
+                movement.OccurredAt,
+                repaid.Contains(movement.MovementId) ? CashRowKind.TabRepayment
+                    : movement.MovementType is CashMovementType.PaidIn or CashMovementType.FloatAdd ? CashRowKind.PaidIn
+                    : movement.MovementType is CashMovementType.PaidOut or CashMovementType.FloatRemove ? CashRowKind.PaidOut
+                    : CashRowKind.Drop,
+                movement.Amount))]);
     }
 
     public Task<long?> LastZReportNumberAsync(string terminalId, CancellationToken cancellationToken = default) =>
