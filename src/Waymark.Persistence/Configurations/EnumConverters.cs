@@ -233,6 +233,9 @@ internal static class EnumConverters
     public static readonly ValueConverter<Rounding, string> RoundingConverter =
         new(value => ToDatabase(value), text => ToRounding(text));
 
+    public static readonly ValueConverter<TaxRegime, string> TaxRegimeConverter =
+        new(value => ToDatabase(value), text => ToTaxRegime(text));
+
     public static readonly ValueConverter<VarianceReferenceType, string> VarianceReferenceTypeConverter =
         new(value => ToDatabase(value), text => ToVarianceReferenceType(text));
 
@@ -1768,6 +1771,22 @@ internal static class EnumConverters
         Rounding.HalfUp => "half_up",
         _ => throw new ArgumentOutOfRangeException(
             nameof(value), value, "Unmapped Rounding.")
+    };
+
+    private static string ToDatabase(TaxRegime value) => value switch
+    {
+        TaxRegime.NotSubject => "not_subject",
+        TaxRegime.Subject => "subject",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(value), value, "Unmapped TaxRegime.")
+    };
+
+    private static TaxRegime ToTaxRegime(string text) => text switch
+    {
+        "not_subject" => TaxRegime.NotSubject,
+        "subject" => TaxRegime.Subject,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(text), text, "Unknown TaxRegime value in the database.")
     };
 
     private static Rounding ToRounding(string text) => text switch

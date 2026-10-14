@@ -1891,6 +1891,7 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.CloseNeedsNote => "Une note est demandée pour ce compte.",
             Contracts.Pos.RefusalCodes.ClockBehind => "L'horloge de la caisse retarde : elle indique une heure d'avant l'ouverture. Réglez l'heure, puis clôturez.",
             Contracts.Pos.RefusalCodes.NoteTooLong => $"Une note fait au plus {Named(args, 0)} caractères.",
+            Contracts.Pos.RefusalCodes.RefundWindowPassed => $"Vendu il y a plus de {Named(args, 0)} jours : le propriétaire rembourse.",
             _ => null,
         };
 
@@ -2578,6 +2579,7 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.CloseNeedsNote => "مطلوب ملاحظة لهذا العدّ.", // ar: à relire
             Contracts.Pos.RefusalCodes.ClockBehind => "ساعة الصندوق متأخرة: تشير إلى وقت قبل الفتح. اضبط الساعة ثم أقفل.", // ar: à relire
             Contracts.Pos.RefusalCodes.NoteTooLong => $"الملاحظة {Named(args, 0)} حرفًا على الأكثر.", // ar: à relire
+            Contracts.Pos.RefusalCodes.RefundWindowPassed => $"بيع منذ أكثر من {Named(args, 0)} يومًا: المالك هو من يرجع المبلغ.", // ar: à relire
             _ => null,
         };
 

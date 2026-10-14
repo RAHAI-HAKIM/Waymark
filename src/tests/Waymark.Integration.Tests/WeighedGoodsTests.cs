@@ -46,6 +46,8 @@ public sealed class WeighedGoodsTests(MigratedDatabaseFixture database) : IClass
         public DateOnly Today => DateOnly.FromDateTime(Now.DateTime);
 
         public int HourOfDay => Now.Hour;
+
+        public DateOnly DayOf(DateTimeOffset moment) => DateOnly.FromDateTime(moment.ToOffset(Now.Offset).DateTime);
     }
 
     private sealed class FixedClock : TimeProvider

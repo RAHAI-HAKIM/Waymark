@@ -111,6 +111,12 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         builder.Property(x => x.PaymentOpenedAt)
             .HasColumnName("payment_opened_at")
             .HasConversion(WaymarkConverters.Timestamp);
+
+        // D-123: a plain added column, with no CHECK on purpose. A CHECK would rebuild
+        // `transactions`, the largest table, for a counter only the reprint command moves.
+        builder.Property(x => x.ReprintCount)
+            .HasColumnName("reprint_count")
+            .HasDefaultValue(0L);
         builder.Property(x => x.VoidAuthorisedBy)
             .HasColumnName("void_authorised_by");
         builder.Property(x => x.VoidedAt)

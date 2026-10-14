@@ -21,4 +21,7 @@ public interface IStoreCalendar
 
     /// <summary>The hour of the day in the store, 0 to 23: a basket's bucket (D-043).</summary>
     int HourOfDay { get; }
+
+    /// <summary>The store's day an instant falls on: a refund's window counts days of the store (D-125).</summary>
+    DateOnly DayOf(DateTimeOffset moment);
 }

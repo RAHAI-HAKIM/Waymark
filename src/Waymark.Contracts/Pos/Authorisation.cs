@@ -92,6 +92,9 @@ public static class Capabilities
 
     /// <summary>Reading what a report says of people: its flags and its figures by cashier (C2, C3). The owner's, with no tenant setting (D-112, D-118).</summary>
     public const string ReadShiftFlags = "read_shift_flags";
+
+    /// <summary>Refunding a sale older than the shop's refund window (D-125). The owner's, with no tenant setting.</summary>
+    public const string RefundPastWindow = "refund_past_window";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

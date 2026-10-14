@@ -1156,9 +1156,12 @@ public sealed partial class TillWindowTests
             Task.FromResult<TicketList?>(new TicketList(TicketOutcomes.Answered, $"{day:yyyy-MM-dd}", allTills,
                 [new TicketSummary(Ticket.TransactionId, Ticket.InvoiceNumber, Ticket.OccurredAt, "till-1", "completed", 1, "286.00", "DZD")]));
 
+        /// <summary>What S-2026-000142 opens as: <see cref="Ticket"/>, unless a test serves another version of it.</summary>
+        public PastTicketDetail Served { get; set; } = Ticket;
+
         public Task<TicketAnswer?> TicketAsync(string idOrNumber, string sessionToken, CancellationToken cancellationToken = default) =>
             Task.FromResult<TicketAnswer?>(idOrNumber == Ticket.TransactionId || idOrNumber == Ticket.InvoiceNumber
-                ? new TicketAnswer(TicketOutcomes.Found, Ticket)
+                ? new TicketAnswer(TicketOutcomes.Found, Served)
                 : idOrNumber == RefundTicket.InvoiceNumber
                     ? new TicketAnswer(TicketOutcomes.Found, RefundTicket)
                     : new TicketAnswer(TicketOutcomes.Unknown, null));

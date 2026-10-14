@@ -44,6 +44,8 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
         public DateOnly Today => DateOnly.FromDateTime(Now.DateTime);
 
         public int HourOfDay => Now.Hour;
+
+        public DateOnly DayOf(DateTimeOffset moment) => DateOnly.FromDateTime(moment.ToOffset(Now.Offset).DateTime);
     }
 
     private sealed class FixedClock : TimeProvider
@@ -82,6 +84,7 @@ public sealed partial class CompleteSaleTests(MigratedDatabaseFixture database) 
                 StoreName = StoreId,
                 StoreType = "grocery",
                 RoundingPolicy = Rounding.HalfUp,
+                TaxRegime = TaxRegime.Subject, // the tests before D-122 are about a shop that charges TVA
                 CreatedAt = Moment,
                 UpdatedAt = Moment,
             });

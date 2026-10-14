@@ -86,6 +86,12 @@ public sealed class Transaction : IStoreScoped
 
     public string? VoidReasonCode { get; init; }
 
+    /// <summary>
+    /// How many times the receipt was printed again after its first print (D-123). A count and no
+    /// more: a duplicate is the same paper, marked as one.
+    /// </summary>
+    public long ReprintCount { get; init; }
+
     public required DateTimeOffset CreatedAt { get; init; }
 
     public required DateTimeOffset UpdatedAt { get; init; }

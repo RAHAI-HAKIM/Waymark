@@ -403,6 +403,24 @@ CREATE TABLE "loyalty_movements" (
     CONSTRAINT "FK_loyalty_movements_transactions_transaction_id" FOREIGN KEY ("transaction_id") REFERENCES "transactions" ("transaction_id")
 ) STRICT;
 
+CREATE TABLE "no_sale_openings" (
+    "no_sale_id" TEXT NOT NULL CONSTRAINT "PK_no_sale_openings" PRIMARY KEY,
+    "store_id" TEXT NOT NULL,
+    "session_id" TEXT NOT NULL,
+    "terminal_id" TEXT NOT NULL,
+    "staff_id" TEXT NOT NULL,
+    "authorised_by" TEXT NULL,
+    "reason_code" TEXT NOT NULL,
+    "note" TEXT NULL,
+    "occurred_at" TEXT NOT NULL,
+    CONSTRAINT "FK_no_sale_openings_cash_sessions_session_id" FOREIGN KEY ("session_id") REFERENCES "cash_sessions" ("session_id"),
+    CONSTRAINT "FK_no_sale_openings_reason_codes_reason_code" FOREIGN KEY ("reason_code") REFERENCES "reason_codes" ("reason_code"),
+    CONSTRAINT "FK_no_sale_openings_staff_authorised_by" FOREIGN KEY ("authorised_by") REFERENCES "staff" ("staff_id"),
+    CONSTRAINT "FK_no_sale_openings_staff_staff_id" FOREIGN KEY ("staff_id") REFERENCES "staff" ("staff_id"),
+    CONSTRAINT "FK_no_sale_openings_stores_store_id" FOREIGN KEY ("store_id") REFERENCES "stores" ("store_id"),
+    CONSTRAINT "FK_no_sale_openings_terminals_terminal_id" FOREIGN KEY ("terminal_id") REFERENCES "terminals" ("terminal_id")
+) STRICT;
+
 CREATE TABLE "notice_versions" (
     "version_code" TEXT NOT NULL CONSTRAINT "PK_notice_versions" PRIMARY KEY,
     "body_text" TEXT NOT NULL,
@@ -1014,15 +1032,18 @@ CREATE TABLE "stores" (
     "longitude" TEXT NULL,
     "manager_id" TEXT NULL,
     "rounding_policy" TEXT NOT NULL DEFAULT 'half_up',
+    "scale_label_format" TEXT NULL,
     "status" TEXT NOT NULL DEFAULT 'active',
     "store_code" TEXT NOT NULL,
     "store_name" TEXT NOT NULL,
     "store_type" TEXT NOT NULL,
+    "tax_regime" TEXT NOT NULL DEFAULT 'not_subject',
     "tax_registration_number" TEXT NULL,
     "timezone" TEXT NOT NULL DEFAULT 'Africa/Algiers',
-    "updated_at" TEXT NOT NULL, "scale_label_format" TEXT NULL,
+    "updated_at" TEXT NOT NULL, "receipt_footer" TEXT NULL,
     CONSTRAINT "ck_stores_rounding_policy" CHECK (rounding_policy IN ('half_even','half_up')),
     CONSTRAINT "ck_stores_status" CHECK (status IN ('active','suspended','closed')),
+    CONSTRAINT "ck_stores_tax_regime" CHECK (tax_regime IN ('not_subject','subject')),
     CONSTRAINT "FK_stores_staff_manager_id" FOREIGN KEY ("manager_id") REFERENCES "staff" ("staff_id")
 ) STRICT;
 
@@ -1190,7 +1211,7 @@ CREATE TABLE "transactions" (
     "void_authorised_by" TEXT NULL,
     "void_reason_code" TEXT NULL,
     "voided_at" TEXT NULL,
-    "voided_by" TEXT NULL,
+    "voided_by" TEXT NULL, "reprint_count" INTEGER NOT NULL DEFAULT 0,
     CONSTRAINT "ck_transactions_discount_reason" CHECK (discount_reason_code IS NULL OR discount_authorised_by IS NOT NULL),
     CONSTRAINT "ck_transactions_ecommerce_flag" CHECK (ecommerce_flag IN (0,1)),
     CONSTRAINT "ck_transactions_rounding_policy" CHECK (rounding_policy IN ('half_even','half_up')),
@@ -1355,6 +1376,8 @@ CREATE INDEX "ix_movements_reference" ON "stock_movements" ("reference_type", "r
 CREATE INDEX "ix_movements_store_date" ON "stock_movements" ("store_id", "movement_date");
 
 CREATE INDEX "ix_movements_variant_date" ON "stock_movements" ("variant_id", "movement_date");
+
+CREATE INDEX "ix_no_sale_openings_session" ON "no_sale_openings" ("session_id");
 
 CREATE INDEX "ix_outbox_drain" ON "outbox" ("is_priority", "sequence_number");
 
@@ -1617,6 +1640,25 @@ CREATE TRIGGER trg_loyalty_movements_no_update
 BEFORE UPDATE ON loyalty_movements
 BEGIN
     SELECT RAISE(ABORT, 'loyalty_movements is append-only: post a reversing movement');
+END;
+
+CREATE TRIGGER trg_no_sale_openings_no_delete
+BEFORE DELETE ON no_sale_openings
+BEGIN
+    SELECT RAISE(ABORT, 'no_sale_openings is append-only');
+END;
+
+CREATE TRIGGER trg_no_sale_openings_no_replace
+BEFORE INSERT ON no_sale_openings
+    WHEN EXISTS (SELECT 1 FROM no_sale_openings WHERE no_sale_id = NEW.no_sale_id)
+BEGIN
+    SELECT RAISE(ABORT, 'no_sale_openings is append-only: a row is never replaced');
+END;
+
+CREATE TRIGGER trg_no_sale_openings_no_update
+BEFORE UPDATE ON no_sale_openings
+BEGIN
+    SELECT RAISE(ABORT, 'no_sale_openings is append-only: an opening is never edited');
 END;
 
 CREATE TRIGGER trg_processing_log_no_replace

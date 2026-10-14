@@ -2307,6 +2307,58 @@ namespace Waymark.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Waymark.Domain.Organisation.NoSaleOpening", b =>
+                {
+                    b.Property<string>("NoSaleId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("no_sale_id");
+
+                    b.Property<string>("AuthorisedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("authorised_by");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("note");
+
+                    b.Property<string>("OccurredAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("ReasonCode")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason_code");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("StaffId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("staff_id");
+
+                    b.Property<string>("StoreId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("store_id");
+
+                    b.Property<string>("TerminalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("terminal_id");
+
+                    b.HasKey("NoSaleId");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_no_sale_openings_session");
+
+                    b.ToTable("no_sale_openings", (string)null);
+                });
+
             modelBuilder.Entity("Waymark.Domain.Organisation.Shift", b =>
                 {
                     b.Property<string>("ShiftId")
@@ -2502,6 +2554,10 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("manager_id");
 
+                    b.Property<string>("ReceiptFooter")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_footer");
+
                     b.Property<string>("RoundingPolicy")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -2535,6 +2591,13 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("store_type");
 
+                    b.Property<string>("TaxRegime")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("not_subject")
+                        .HasColumnName("tax_regime");
+
                     b.Property<string>("TaxRegistrationNumber")
                         .HasColumnType("TEXT")
                         .HasColumnName("tax_registration_number");
@@ -2561,6 +2624,8 @@ namespace Waymark.Persistence.Migrations
                             t.HasCheckConstraint("ck_stores_rounding_policy", "rounding_policy IN ('half_even','half_up')");
 
                             t.HasCheckConstraint("ck_stores_status", "status IN ('active','suspended','closed')");
+
+                            t.HasCheckConstraint("ck_stores_tax_regime", "tax_regime IN ('not_subject','subject')");
                         });
                 });
 
@@ -3904,6 +3969,12 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("payment_opened_at");
 
+                    b.Property<long>("ReprintCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("reprint_count");
+
                     b.Property<string>("RoundingPolicy")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -5039,6 +5110,44 @@ namespace Waymark.Persistence.Migrations
                     b.HasOne("Waymark.Domain.Organisation.Staff", null)
                         .WithMany()
                         .HasForeignKey("OpenedBy")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Waymark.Domain.Organisation.Store", null)
+                        .WithMany()
+                        .HasForeignKey("StoreId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Waymark.Domain.Organisation.Terminal", null)
+                        .WithMany()
+                        .HasForeignKey("TerminalId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Waymark.Domain.Organisation.NoSaleOpening", b =>
+                {
+                    b.HasOne("Waymark.Domain.Organisation.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorisedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Waymark.Domain.Reference.ReasonCode", null)
+                        .WithMany()
+                        .HasForeignKey("ReasonCode")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Waymark.Domain.Organisation.CashSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Waymark.Domain.Organisation.Staff", null)
+                        .WithMany()
+                        .HasForeignKey("StaffId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 

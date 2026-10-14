@@ -148,8 +148,8 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 
 | # | Work | Expands (0.5) | Who | Size |
 | :-- | :---- | :---- | :--: | :--: |
-| D1 | Receipt content, French ASCII; recomputes from its own row | `Transaction.RoundingPolicy` (D-053) | C | M |
-| D2 | Real ESC/POS printing and the drawer; the audited no-sale (B8 left it here) and its line on the Z, which C2 kept a place for | the fake printer (Phase 0, D-059) | C drafts, **H verifies** against the command reference | M |
+| D1 | Receipt content from the board (D-125): a sale, a refund, a duplicate, a tab repayment's slip, at 32 and 42 columns, French ASCII, read from the ticket's own rows; Code 128; the store's text (`stores.receipt_footer`); the refund window (`refund_window_days`, the owner past it) | `Transaction.RoundingPolicy` (D-053) | C | M |
+| D2 | Printing and the drawer **wired on the fake** (the real device is K's, D-124): the receipt after a sale, the drawer's pulse when cash moves, the print toggle; the audited no-sale (B8 left it here) and its line on the Z, which C2 kept a place for | the fake printer (Phase 0, D-059) | C drafts, **H verifies** the bytes against the command reference | M |
 | D3 | Reprint, audited. A receipt's printed number, scanned, opens its ticket (B1 reads a scan as a product code only) | D1 | C | S |
 
 ### Block E — Catalogue, first Admin batch (4 sessions) — **G2 first**
@@ -193,8 +193,8 @@ block may grow by a session or more. Nothing is decided yet (Hakim, 07/10).
 | # | Work | Expands (0.5) | Who | Size |
 | :-- | :---- | :---- | :--: | :--: |
 | H1 | Staff CRUD, roles, PIN, clock, basic scheduling, deactivation | A2 | C | M |
-| H2 | Store profile, terminals, roles and permissions. Single store | `stores`, D-071's write guard | C | M |
-| H3 | The Z in Admin (added 12/10, D-121): read any close of any till, older than the till's last 30; a store's day across its tills; print a Z | `ShiftReports` (D-112), `ShiftReportEndpoints.ToWire` | C | S–M |
+| H2 | Store profile, terminals, roles and permissions. Single store. **The tax regime is asked when a store is commissioned** (D-122) | `stores`, D-071's write guard | C | M |
+| H3 | The Z in Admin (added 12/10, D-121): read any close of any till, older than the till's last 30; a store's day across its tills; print a Z. **The facture a consumer asks for** (Law 04-02 art. 10, D-124): from a ticket, with the mentions an accountant confirms; it will need what a ticket does not keep (D-125): each line's TVA rate, and the store's RC, NIS and Art. | `ShiftReports` (D-112), `ShiftReportEndpoints.ToWire` | C | S–M |
 
 ### Block I — Platform (5 sessions)
 
@@ -205,6 +205,19 @@ block may grow by a session or more. Nothing is decided yet (Hakim, 07/10).
 | I3 | Nightly backup to a second device, **keys included**; one-click restore | `DatabaseKeyStore`, `KeysDirectoryAccess` (D-057) | **H** key custody, C the job | L |
 | I4 | The recovery-code screen | D-042 | **H** | M |
 | I5 | The evaluator **nightly**; retire a card whose batch is gone; **carry out** an accepted markdown or write-off | D-073, and D-074's "applies nothing" | **H** the apply, C the schedule | M |
+
+### Block K — What needs the device on the desk (added 13/10, D-124)
+
+Not in the A to J order: taken in one go when the hardware is there. Everything around each item
+is built and tested on the fakes by the block that owns it, so K only plugs in and proves.
+
+| # | Work | Built around by | Who | Size |
+| :-- | :---- | :---- | :--: | :--: |
+| K1 | The real printer sink (USB, serial or network, by what the pilot shops have); both paper widths, the cutter, the code page for French accents; the drawer's pulse on both pins | D1, D2 | C drafts, **H verifies** on the device | M |
+| K2 | **Arabic receipts**: the receipt drawn by the till and sent as a picture, for a tenant whose `receipt_language` is `ar` | D1 (the receipt's content is the same) | C, **H reads the paper** | M |
+| K3 | A scanned receipt code read by a real scanner; Code 128 at both widths | D3 | both | S |
+| K4 | The scale: one protocol, after the hardware survey | B3 (typed weights and labels) | **H** | M–L |
+| K5 | The Build Plan's real-hardware run: a receipt prints and the drawer opens (J3's hardware half) | J3 | both | S |
 
 ### Block J — The done-when (4 sessions)
 

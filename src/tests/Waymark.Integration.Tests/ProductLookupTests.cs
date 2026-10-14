@@ -36,6 +36,8 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
         public DateOnly Today => DateOnly.FromDateTime(Now.DateTime);
 
         public int HourOfDay => Now.Hour;
+
+        public DateOnly DayOf(DateTimeOffset moment) => DateOnly.FromDateTime(moment.ToOffset(Now.Offset).DateTime);
     }
 
     // ----------------------------------------------------------- the shop
@@ -159,6 +161,7 @@ public sealed class ProductLookupTests(MigratedDatabaseFixture database) : IClas
             StoreId = storeId,
             StoreCode = storeId,
             StoreName = storeId,
+            TaxRegime = Waymark.Domain.Enums.TaxRegime.Subject, // these tests are about the categories' rates (D-122)
             StoreType = "grocery",
             RoundingPolicy = Rounding.HalfUp,
             CreatedAt = Moment,

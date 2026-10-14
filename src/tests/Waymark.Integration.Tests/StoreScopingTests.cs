@@ -158,6 +158,6 @@ public sealed class StoreScopingTests : IClassFixture<MigratedDatabaseFixture>
             .Count(entityType => typeof(IStoreScoped).IsAssignableFrom(entityType.ClrType)
                                  && entityType.GetDeclaredQueryFilters().Count > 0);
 
-        Assert.Equal(20, filtered);
+        Assert.Equal(21, filtered); // no_sale_openings (D-123)
     }
 }

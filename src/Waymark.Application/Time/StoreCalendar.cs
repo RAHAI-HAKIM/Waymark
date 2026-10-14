@@ -20,4 +20,7 @@ public sealed class StoreCalendar(TimeProvider clock, TimeZoneInfo zone) : IStor
 
     /// <inheritdoc />
     public int HourOfDay => Now.Hour;
+
+    /// <inheritdoc />
+    public DateOnly DayOf(DateTimeOffset moment) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(moment, zone).DateTime);
 }

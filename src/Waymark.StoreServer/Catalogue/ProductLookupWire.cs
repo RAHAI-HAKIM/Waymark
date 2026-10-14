@@ -73,6 +73,7 @@ public static class ProductLookupWire
     {
         DomainTvaSource.FromCategory => WireTvaSource.FromCategory,
         DomainTvaSource.StandardFallback => WireTvaSource.StandardFallback,
+        DomainTvaSource.NotSubject => WireTvaSource.NotSubject,
         _ => throw new UnreachableException($"A TVA rate source this mapping does not know: {source}."),
     };
 

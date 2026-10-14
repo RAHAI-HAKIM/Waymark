@@ -166,4 +166,10 @@ public static class RefusalCodes
 
     /// <summary>A note longer than a note may be (D-121). <c>args[0]</c>: the most characters.</summary>
     public const string NoteTooLong = "note_too_long";
+
+    /// <summary>
+    /// The sale is older than the shop's refund window (D-125), and the seller is not the owner: an
+    /// owner's PIN lets it through. <c>args[0]</c>: the window, in days.
+    /// </summary>
+    public const string RefundWindowPassed = "refund_window_passed";
 }

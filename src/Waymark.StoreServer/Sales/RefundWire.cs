@@ -1,5 +1,7 @@
 using Waymark.Application.Sales;
 using Waymark.Contracts.Pos;
+using Waymark.Domain.Organisation;
+using Waymark.Domain.Sales;
 
 namespace Waymark.StoreServer.Sales;
 
@@ -12,7 +14,9 @@ public static class RefundWire
     /// never written with a line missing. A destination it does not know is cash.
     /// </summary>
     /// <param name="authorisedBy">Who gave the cited authorisation, resolved in this session; null when none or not this session's.</param>
-    public static RefundSale ToCommand(RefundRequest request, string sellerId, bool sellerMayRefund, Func<string?, string?>? authorisedBy = null)
+    /// <param name="mayPassWindow">The seller is the owner, or an owner's PIN was cited for the window (D-125).</param>
+    public static RefundSale ToCommand(
+        RefundRequest request, string sellerId, bool sellerMayRefund, Func<string?, string?>? authorisedBy = null, bool mayPassWindow = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         return new RefundSale(
@@ -30,8 +34,24 @@ public static class RefundWire
             request.CustomerId,
             sellerMayRefund,
             authorisedBy?.Invoke(request.Authorisation),
-            request.Quote);
+            request.Quote,
+            mayPassWindow);
     }
+
+    /// <summary>
+    /// Whether the seller may refund past the shop's window (D-125): the owner's rank, or an owner's
+    /// PIN cited for <see cref="Capability.RefundPastWindow"/>, resolved in this session.
+    /// </summary>
+    public static bool MayPassWindow(long? rank, string? ownerAuthorisedBy) =>
+        StaffPermissions.May(rank, Capability.RefundPastWindow) || ownerAuthorisedBy is not null;
+
+    /// <summary>
+    /// Whether the refund is answered "pin_required" for the owner before anything is worked out
+    /// (D-125): a refund, not a quote, of a sale past the window, by somebody who may not pass it.
+    /// The handler refuses the same refund again if it is ever sent; this is what makes it a PIN step.
+    /// </summary>
+    public static bool AsksOwner(bool quote, bool mayPass, DateOnly soldOn, DateOnly today, int? windowDays) =>
+        !quote && !mayPass && !Refunds.WithinWindow(soldOn, today, windowDays);
 
     public static RefundAnswer Answered(RefundedSale refund)
     {

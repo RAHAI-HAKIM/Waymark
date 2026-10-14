@@ -224,7 +224,10 @@ public sealed class ProductLookup(WaymarkDbContext context, IStoreCalendar calen
             .Distinct()
             .ToListAsync(cancellationToken);
 
-        var tva = TvaRate.Resolve(
+        // The store's regime first (D-122): a store that charges no TVA sells at a rate of zero
+        // whatever its categories say. Deciding is still Domain's.
+        var tva = TvaRate.For(
+            (await CurrentStoreAsync(cancellationToken)).TaxRegime,
             [.. categoryRates.Select(rate => rate is null ? (BasisPoints?)null : new BasisPoints(checked((int)rate.Value)))]);
 
         // 4. The price in force today. `prices` IS store-scoped: the global

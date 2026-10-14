@@ -119,6 +119,59 @@ public sealed partial class TillWindowTests
     });
 
     [Fact]
+    public Task Past_the_shops_window_the_owners_pin_is_asked_and_the_panel_says_why() => Headless.Run(() =>
+    {
+        // D-125: one owner's PIN, asked for the window's capability, stands for the refund's too.
+        using var till = Till.SignedIn();
+        till.Server.RefundPastWindow = true;
+        OpenRefund(till);
+        Quote(till);
+
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is ApproverRow));
+        Assert.Equal(Capabilities.RefundPastWindow, till.Server.Approvers[^1]);
+        var step = till.Window.GetVisualDescendants().OfType<Border>().Select(border => border.Tag).OfType<Screen.Approval>().Single();
+        Assert.Equal((TillText.French.OwnerApproval, TillText.French.OwnerPin), (step.Label, step.PinTitle));
+        Assert.EndsWith("Vendu il y a plus de 7 jours : le propriétaire rembourse.", step.Summary, StringComparison.Ordinal);
+        Assert.Equal("t-142", till.Session.Viewing?.TransactionId); // nothing refunded yet
+
+        till.Tap(Keyed<ApproverRow>(till, row => row.StaffId == "samia"), new Point(20, 20));
+        till.Window.KeyTextInput("1357");
+        till.WaitFor(() => till.Window.GetVisualDescendants().OfType<Control>().Any(control => control.Tag is Screen.Approval { PinLength: 4 }));
+        till.Key(Key.Enter, PhysicalKey.Enter);
+        till.WaitFor(() => till.Session.Viewing?.TransactionId == "r-143");
+
+        Assert.Equal(Capabilities.RefundPastWindow, till.Server.Authorisations[^1].Capability);
+        Assert.Equal("auth-samia", till.Server.Refunds[^1].Authorisation);
+    });
+
+    [Fact]
+    public Task A_past_ticket_with_no_tva_shows_no_total_ht_and_no_tva_line_and_a_taxed_one_shows_both() => Headless.Run(() =>
+    {
+        // D-122: a ticket with no TVA in it says nothing of TVA, on the rail and on the bottom bar.
+        bool Says(Till till, string label) => till.Window.GetVisualDescendants().OfType<TextBlock>().Any(block => block.Text == label);
+
+        using (var plain = Till.SignedIn(server => server.Served = FakeStoreServer.Ticket with { Subtotal = "286.00", TaxTotal = "0.00" }))
+        {
+            plain.TypeSlowly("S-2026-000142");
+            plain.Key(Key.Enter, PhysicalKey.Enter);
+            plain.WaitFor(() => plain.Session.Viewing?.TransactionId == "t-142");
+
+            Assert.False(Says(plain, TillText.French.TotalBeforeTax));
+            Assert.False(Says(plain, TillText.French.TaxIncluded));
+            Assert.True(Says(plain, TillText.French.TicketTotal));
+        }
+
+        using var taxed = Till.SignedIn();
+        taxed.TypeSlowly("S-2026-000142");
+        taxed.Key(Key.Enter, PhysicalKey.Enter);
+        taxed.WaitFor(() => taxed.Session.Viewing?.TransactionId == "t-142");
+
+        Assert.True(Says(taxed, TillText.French.TotalBeforeTax));
+        Assert.True(Says(taxed, TillText.French.TaxIncluded));
+    });
+
+    [Fact]
     public Task With_no_answer_nothing_is_refunded_and_the_panel_says_so() => Headless.Run(() =>
     {
         using var till = Till.SignedIn();
@@ -201,6 +254,18 @@ public sealed partial class TillWindowTests
         /// <summary>The shop's refund_min_rank is above the cashier's: a refund needs an authorisation.</summary>
         public bool RefundNeedsManager { get; set; }
 
+        /// <summary>Every capability the PIN step listed approvers for, in order.</summary>
+        public List<string> Approvers { get; } = [];
+
+        public Task<TillStaff?> ApproversAsync(string capability, CancellationToken cancellationToken = default)
+        {
+            Approvers.Add(capability);
+            return StaffAsync(cancellationToken);
+        }
+
+        /// <summary>The sale is past the shop's refund window and the seller is not the owner (D-125).</summary>
+        public bool RefundPastWindow { get; set; }
+
         /// <summary>The ticket has its customer and the module is on.</summary>
         public bool MayCredit { get; set; }
 
@@ -216,6 +281,8 @@ public sealed partial class TillWindowTests
                 !RefundsAnswer ? null
                 : request.Quote ? new RefundAnswer(RefundOutcomes.Quoted, null, null, "143.00", "0.00", "143.00", request.RefundTo, "145.00", null, MayCredit, "DZD",
                     CustomerOnTicket: request.CustomerId is not null)
+                : RefundPastWindow && request.Authorisation is null ? new RefundAnswer(
+                    RefundOutcomes.PinRequired, Reason: "Sold more than 7 days ago.", Refusal: new Refusal(RefusalCodes.RefundWindowPassed, ["7"]))
                 : RefundNeedsManager && request.Authorisation is null ? new RefundAnswer(RefundOutcomes.PinRequired, Reason: "A manager authorises it.")
                 : new RefundAnswer(RefundOutcomes.Refunded, "r-143", "S-2026-000143", "143.00", "0.00", "143.00", request.RefundTo,
                     request.RefundTo == RefundDestinations.StoreCredit ? null : "145.00", request.RefundTo == RefundDestinations.StoreCredit ? "143.00" : null,

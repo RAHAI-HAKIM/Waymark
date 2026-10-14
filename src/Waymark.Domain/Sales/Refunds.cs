@@ -235,6 +235,17 @@ public static class Refunds
     public static bool Restocks(bool asked, DateOnly? expires, DateOnly today) =>
         asked && !(expires is { } last && last < today);
 
+    /// <summary>
+    /// Whether a sale may still be refunded by somebody held to the window (D-125): sold on
+    /// <paramref name="soldOn"/>, it may be through the <paramref name="days"/>th day after, so
+    /// "sous 7 jours" covers a sale of Monday until the Monday after. No window, no limit.
+    /// </summary>
+    /// <param name="soldOn">The sale's day, in the store.</param>
+    /// <param name="today">The store's day.</param>
+    /// <param name="days">The tenant's <c>refund_window_days</c>; null when it has none.</param>
+    public static bool WithinWindow(DateOnly soldOn, DateOnly today, int? days) =>
+        days is not { } window || today.DayNumber - soldOn.DayNumber <= window;
+
     /// <summary>The sum of <paramref name="count"/> parts after the first <paramref name="skip"/>, of <paramref name="amount"/> split over <paramref name="units"/>.</summary>
     private static Money Parts(Money amount, int units, int skip, int count) =>
         amount.Allocate(units).Skip(skip).Take(count).Aggregate(Money.Zero(amount.Currency), (sum, part) => sum + part);

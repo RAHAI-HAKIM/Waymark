@@ -76,6 +76,10 @@ internal static class ReferenceData
             Address = profile.Address,
             Currency = currency.Code,
             RoundingPolicy = profile.RoundingPolicy,
+
+            // Subject to TVA on purpose (D-122): the generator's sales extract it by category, and a
+            // year of them is what exercises that arithmetic. A real store starts not subject.
+            TaxRegime = Waymark.Domain.Enums.TaxRegime.Subject,
             CreatedAt = at,
             UpdatedAt = at,
         });

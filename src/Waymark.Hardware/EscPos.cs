@@ -37,6 +37,9 @@ internal static class EscPos
     /// </summary>
     internal static byte[] CharacterSize(byte n) => [Gs, 0x21, n];
 
+    /// <summary><c>GS B n</c> — white/black reverse printing on or off.</summary>
+    internal static byte[] Reverse(bool on) => [Gs, 0x42, on ? (byte)1 : (byte)0];
+
     /// <summary><c>ESC t n</c> — select the character code table.</summary>
     internal static byte[] CodePage(byte n) => [Esc, 0x74, n];
 
@@ -67,6 +70,12 @@ internal static class EscPos
 
     /// <summary>EAN13 in the length-prefixed <c>GS k</c> form.</summary>
     internal const byte Ean13 = 67;
+
+    /// <summary>
+    /// CODE128 in the length-prefixed <c>GS k</c> form. Its data opens with the code set:
+    /// <c>{B</c> for set B, every printable ASCII character.
+    /// </summary>
+    internal const byte Code128 = 73;
 
     /// <summary>
     /// <c>ESC p m t1 t2</c> — generate a pulse on the drawer-kick connector.

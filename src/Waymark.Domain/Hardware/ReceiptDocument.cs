@@ -42,15 +42,17 @@ public abstract record ReceiptLine
 }
 
 /// <summary>Free text.</summary>
-/// <param name="Text">What to print. Wrapped by the encoder to the printer's width.</param>
+/// <param name="Text">What to print. Wrapped by the encoder to the printer's width; a line break starts a new line.</param>
 /// <param name="Alignment">Where on the paper.</param>
 /// <param name="Emphasised">Bold. Used sparingly — a receipt where everything is bold says nothing.</param>
-/// <param name="DoubleHeight">For the store name and the total, and nothing else.</param>
+/// <param name="DoubleHeight">For the store name, a title and the total, and nothing else.</param>
+/// <param name="Reversed">White on black: a duplicate's mark (D-125), which must not be missed.</param>
 public sealed record TextLine(
     string Text,
     TextAlignment Alignment = TextAlignment.Left,
     bool Emphasised = false,
-    bool DoubleHeight = false) : ReceiptLine;
+    bool DoubleHeight = false,
+    bool Reversed = false) : ReceiptLine;
 
 /// <summary>
 /// A label on the left and an amount on the right, filled to the paper's width.
@@ -60,7 +62,15 @@ public sealed record TextLine(
 /// <param name="Label">What the amount is for.</param>
 /// <param name="Amount">The amount. Formatted by the encoder from the currency's own minor-unit exponent.</param>
 /// <param name="Emphasised">Bold. The total, normally.</param>
-public sealed record AmountLine(string Label, Money Amount, bool Emphasised = false) : ReceiptLine;
+/// <param name="DoubleHeight">Tall: the total, and nothing else.</param>
+/// <param name="WithCurrency">The currency after the figure, "1 836,56 DA": the total says what it is counted in.</param>
+public sealed record AmountLine(string Label, Money Amount, bool Emphasised = false, bool DoubleHeight = false, bool WithCurrency = false) : ReceiptLine;
+
+/// <summary>
+/// Text on the left and text on the right, filled to the paper's width: a ticket's number, its day
+/// and hour, its till and cashier. What is on the right is never cut; the left gives way.
+/// </summary>
+public sealed record PairLine(string Left, string Right, bool Emphasised = false) : ReceiptLine;
 
 /// <summary>A rule across the paper.</summary>
 /// <param name="Fill">The character to repeat.</param>
@@ -102,10 +112,10 @@ public enum TextAlignment
 /// Barcode symbologies the receipt uses.
 ///
 /// <para>
-/// Two, deliberately. <see cref="Code39"/> encodes anything alphanumeric and is
-/// what an invoice number needs; <see cref="Ean13"/> is what products carry.
-/// Adding a third is a decision about what receipts are scanned for, not a
-/// formatting preference.
+/// <see cref="Code128"/> is what a receipt's number is printed in (D-123): dense, every printable
+/// ASCII character, and read by any scanner. <see cref="Code39"/> stays for what Phase 0 printed;
+/// <see cref="Ean13"/> is what products carry. Another is a decision about what receipts are scanned
+/// for, not a formatting preference: a QR code was declined for the first release (D-124).
 /// </para>
 /// </summary>
 public enum BarcodeSymbology
@@ -115,4 +125,7 @@ public enum BarcodeSymbology
 
     /// <summary>Thirteen digits including the check digit. For products.</summary>
     Ean13,
+
+    /// <summary>Any printable ASCII, variable length, code set B. For a receipt's number (D-123).</summary>
+    Code128,
 }

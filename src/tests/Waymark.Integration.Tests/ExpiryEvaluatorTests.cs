@@ -35,6 +35,8 @@ public sealed class ExpiryEvaluatorTests(MigratedDatabaseFixture database) : ICl
         public DateOnly Today => DateOnly.FromDateTime(Now.DateTime);
 
         public int HourOfDay => Now.Hour;
+
+        public DateOnly DayOf(DateTimeOffset moment) => DateOnly.FromDateTime(moment.ToOffset(Now.Offset).DateTime);
     }
 
     private sealed class FixedClock : TimeProvider
@@ -408,6 +410,8 @@ public sealed class ExpiryEvaluatorOnAnUnpreparedStoreTests(MigratedDatabaseFixt
         public DateOnly Today => DateOnly.FromDateTime(Now.DateTime);
 
         public int HourOfDay => Now.Hour;
+
+        public DateOnly DayOf(DateTimeOffset moment) => DateOnly.FromDateTime(moment.ToOffset(Now.Offset).DateTime);
     }
 
     [Fact]

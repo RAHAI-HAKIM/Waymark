@@ -21,6 +21,31 @@ namespace Waymark.Domain.Tests;
 /// </summary>
 public sealed class TvaRateTests
 {
+    // ------------------------------------------------------------------ D-122: the store's regime first
+
+    [Fact]
+    public void A_store_that_is_not_subject_sells_at_zero_whatever_its_categories_say()
+    {
+        // The silent failure: a small shop under the flat tax recording, and printing, a TVA it never collects.
+        foreach (var rates in new BasisPoints?[][] { [], [new BasisPoints(1900)], [new BasisPoints(900), null], [new BasisPoints(900), new BasisPoints(1900)] })
+        {
+            var resolved = TvaRate.For(Waymark.Domain.Enums.TaxRegime.NotSubject, rates);
+
+            Assert.Equal((new BasisPoints(0), TvaRateSource.NotSubject), (resolved.Rate, resolved.Source));
+        }
+    }
+
+    [Fact]
+    public void A_store_that_is_subject_is_answered_by_its_categories_as_before()
+    {
+        BasisPoints?[] agreed = [new BasisPoints(900), new BasisPoints(900)];
+        BasisPoints?[] none = [];
+
+        Assert.Equal(TvaRate.Resolve(agreed), TvaRate.For(Waymark.Domain.Enums.TaxRegime.Subject, agreed));
+        Assert.Equal(TvaRate.Resolve(none), TvaRate.For(Waymark.Domain.Enums.TaxRegime.Subject, none));
+        Assert.Equal(TvaRateSource.StandardFallback, TvaRate.For(Waymark.Domain.Enums.TaxRegime.Subject, none).Source);
+    }
+
     private static readonly BasisPoints Standard = BasisPoints.StandardVat; // 19%
     private static readonly BasisPoints Reduced = BasisPoints.ReducedVat;   // 9%
 

@@ -62,6 +62,22 @@ public sealed class Store : IStoreScoped
     /// </summary>
     public string? ScaleLabelFormat { get; init; }
 
+    /// <summary>
+    /// Whether this store charges TVA (D-122): asked when the store is commissioned,
+    /// <see cref="TaxRegime.NotSubject"/> until somebody says otherwise. Read by
+    /// <see cref="Catalogue.TvaRate.For"/>, never beside it.
+    /// </summary>
+    public TaxRegime TaxRegime { get; init; } = TaxRegime.NotSubject;
+
+    /// <summary>
+    /// The store's own text at the foot of its receipts (D-125), above Waymark's signature: a thank
+    /// you, opening hours. Null prints nothing. At most <see cref="ReceiptFooterMaxLength"/> characters.
+    /// </summary>
+    public string? ReceiptFooter { get; init; }
+
+    /// <summary>The longest <see cref="ReceiptFooter"/>: five lines of 42 columns, a little less at 32.</summary>
+    public const int ReceiptFooterMaxLength = 200;
+
     public string FiscalYearStart { get; init; } = "01-01";
 
     public string? ManagerId { get; init; }

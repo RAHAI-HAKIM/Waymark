@@ -11,4 +11,10 @@ public interface IStoreSettings
     /// written when the executor commits (D-050). False when the store has no row.
     /// </summary>
     Task<bool> StageScaleLabelFormatAsync(string? format, DateTimeOffset at, CancellationToken cancellationToken = default);
+
+    /// <summary>Stages the store's tax regime (D-122); false when the store has no row.</summary>
+    Task<bool> StageTaxRegimeAsync(Enums.TaxRegime regime, DateTimeOffset at, CancellationToken cancellationToken = default);
+
+    /// <summary>Stages the store's own receipt text (D-125), null for none; false when the store has no row.</summary>
+    Task<bool> StageReceiptFooterAsync(string? footer, DateTimeOffset at, CancellationToken cancellationToken = default);
 }

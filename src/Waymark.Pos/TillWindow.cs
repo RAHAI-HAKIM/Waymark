@@ -1897,7 +1897,8 @@ public sealed class TillWindow : Window, IDisposable
         CounterKind.PriceOverride => Capabilities.OverridePrice,
         CounterKind.Cancel or CounterKind.StrikeLine => Capabilities.VoidTransaction,
         CounterKind.OpenTicket => Capabilities.ViewOtherTickets,
-        CounterKind.Refund => Capabilities.Refund,
+        // Past the shop's window, the owner's PIN (D-125), which stands for the refund's too.
+        CounterKind.Refund => open.PastWindow ? Capabilities.RefundPastWindow : Capabilities.Refund,
         CounterKind.CreateCustomer => Capabilities.CreateCustomer,
         CounterKind.ChangeTab or CounterKind.TabOverride => Capabilities.ManageCredit,
         CounterKind.PaidOut => Capabilities.PaidOut,
@@ -3168,10 +3169,17 @@ public sealed class TillWindow : Window, IDisposable
                 return;
 
             case RefundOutcomes.PinRequired:
-                var staff = await _server.ApproversAsync(Capabilities.Refund);
+                var pastWindow = answer.Refusal?.Code == RefusalCodes.RefundWindowPassed;
+                var staff = await _server.ApproversAsync(pastWindow ? Capabilities.RefundPastWindow : Capabilities.Refund);
                 _pin = string.Empty;
                 _refund = _refund with { Sending = false };
-                _discount = now with { Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null };
+                _discount = now with
+                {
+                    Authorising = true, Staff = staff, ManagerId = null, Problem = staff is null ? DiscountProblem.Offline : null, PastWindow = pastWindow,
+
+                    // Why the owner is asked (D-125), said on the PIN step.
+                    Summary = pastWindow ? RefusalText.Say(_text, answer.Refusal, answer.Reason, answer.Currency ?? "DZD") : now.Summary,
+                };
                 break;
 
             case RefundOutcomes.Refused or RefundOutcomes.NotAllowed:

@@ -21,7 +21,7 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
         TenantSettings.CustomerModuleKey, TenantSettings.MaxCreditLimitKey, TenantSettings.CreditOverdueDaysKey, TenantSettings.TabAsPartKey,
         TenantSettings.VoidAlertCountKey, TenantSettings.VoidAlertValueKey, TenantSettings.RefundMinRankKey, TenantSettings.CreditExpiryDaysKey,
         TenantSettings.PaidOutMinRankKey, TenantSettings.CloseSessionMinRankKey, TenantSettings.XReportMinRankKey, TenantSettings.BlindCloseKey,
-        TenantSettings.VarianceAlertValueKey,
+        TenantSettings.VarianceAlertValueKey, TenantSettings.ReceiptLanguageKey, TenantSettings.RefundWindowDaysKey,
     ];
 
     public async Task<TenantSettings> CurrentAsync(CancellationToken cancellationToken = default)
@@ -77,7 +77,15 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             values.TryGetValue(TenantSettings.VarianceAlertValueKey, out var gap)
                 && long.TryParse(gap, NumberStyles.None, CultureInfo.InvariantCulture, out var gapCents)
                 ? Money.FromMinorUnits(gapCents, ledgerCurrency.Currency)
-                : defaults.VarianceAlertValue);
+                : defaults.VarianceAlertValue,
+            // Anything that is not "ar" reads as French: a receipt is never left without a language.
+            values.TryGetValue(TenantSettings.ReceiptLanguageKey, out var paper) && paper == "ar" ? Language.Ar : defaults.ReceiptLanguage,
+            // A window that cannot be read is none: the receipt promises nothing and nobody is refused.
+            values.TryGetValue(TenantSettings.RefundWindowDaysKey, out var window)
+                && int.TryParse(window, NumberStyles.None, CultureInfo.InvariantCulture, out var windowDays)
+                && windowDays is > 0 and <= TenantSettings.MaxRefundWindowDays
+                ? windowDays
+                : defaults.RefundWindowDays);
     }
 
     public async Task StageAsync(TenantSettings settings, string? updatedBy, DateTimeOffset at, CancellationToken cancellationToken = default)
@@ -142,6 +150,10 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             "Whoever counts the drawer is not shown what it should hold (D-111).");
         Put(TenantSettings.VarianceAlertValueKey, settings.VarianceAlertValue?.MinorUnits.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Money,
             "A close whose variance is larger than this, in minor units, needs a note and is flagged; absent: never (D-111).");
+        Put(TenantSettings.ReceiptLanguageKey, settings.ReceiptLanguage == Language.Ar ? "ar" : "fr", SystemConfigEntryDataType.Text,
+            "The language receipts are printed in: fr or ar (D-124).");
+        Put(TenantSettings.RefundWindowDaysKey, settings.RefundWindowDays?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "Days after its sale a ticket is refunded, printed on the receipt; past it, the owner only; absent: no window (D-125).");
     }
 
     public async Task<IReadOnlyList<long>> ActiveRanksAsync(CancellationToken cancellationToken = default) =>

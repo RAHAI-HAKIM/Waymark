@@ -17,6 +17,12 @@ public enum TvaRateSource
     /// this — it is carried so Admin can list every product selling on the fallback (block E).
     /// </summary>
     StandardFallback,
+
+    /// <summary>
+    /// The store does not charge TVA (D-122): the rate is zero whatever the catalogue says, and that
+    /// is not a fault of the catalogue.
+    /// </summary>
+    NotSubject,
 }
 
 /// <summary>The rate a line is taxed at, and how it was arrived at.</summary>
@@ -53,6 +59,20 @@ public readonly record struct TvaRateResolution(BasisPoints Rate, TvaRateSource 
 /// </summary>
 public static class TvaRate
 {
+    /// <summary>
+    /// The rate a product sells at in a store of this regime (D-122). A store that is not subject
+    /// to TVA sells everything at zero, so the tax extracted is nothing and the price before tax is
+    /// the price: <c>SaleArithmetic</c> needs no second path. A store that is subject asks
+    /// <see cref="Resolve"/>, as before. The categories keep their rates either way, so a shop that
+    /// passes the flat tax's ceiling changes one setting and nothing in its catalogue.
+    /// </summary>
+    public static TvaRateResolution For(Enums.TaxRegime regime, IReadOnlyList<BasisPoints?> categoryRates) => regime switch
+    {
+        Enums.TaxRegime.NotSubject => new TvaRateResolution(new BasisPoints(0), TvaRateSource.NotSubject),
+        Enums.TaxRegime.Subject => Resolve(categoryRates),
+        _ => throw new ArgumentOutOfRangeException(nameof(regime), regime, "A store is subject to TVA or it is not."),
+    };
+
     /// <summary>
     /// The rate for a product with these category rates, and where it came from.
     ///

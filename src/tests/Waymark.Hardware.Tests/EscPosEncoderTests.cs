@@ -60,7 +60,7 @@ public sealed class EscPosEncoderTests
     {
         var bytes = Standard.Encode(Document(new AmountLine("Pa\u0007in\nX", Money.FromMinorUnits(2500, Currency.Dzd))));
 
-        var line = Assert.Single(Paper(bytes), l => l.Contains("25.00", StringComparison.Ordinal));
+        var line = Assert.Single(Paper(bytes), l => l.Contains("25,00", StringComparison.Ordinal));
         Assert.Equal(42, line.Length);
         Assert.StartsWith("Pa?in?X", line, StringComparison.Ordinal);
     }
@@ -77,7 +77,7 @@ public sealed class EscPosEncoderTests
 
         Assert.Equal(42, line.Length);
         Assert.StartsWith("Pain", line, StringComparison.Ordinal);
-        Assert.EndsWith("25.00", line, StringComparison.Ordinal);
+        Assert.EndsWith("25,00", line, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class EscPosEncoderTests
         var line = Paper(bytes).First(l => l.Contains('X', StringComparison.Ordinal));
 
         Assert.Equal(42, line.Length);
-        Assert.EndsWith("1234567.89", line, StringComparison.Ordinal);
+        Assert.EndsWith("1 234 567,89", line, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -118,13 +118,16 @@ public sealed class EscPosEncoderTests
     // ------------------------------------------------------------ the amount
 
     [Theory]
-    [InlineData(0, "0.00")]
-    [InlineData(5, "0.05")]
-    [InlineData(-5, "-0.05")]
-    [InlineData(2500, "25.00")]
-    [InlineData(-2500, "-25.00")]
-    [InlineData(123456789, "1234567.89")]
-    public void An_amount_is_formatted_from_its_minor_units(long minorUnits, string expected) =>
+    [InlineData(0, "0,00")]
+    [InlineData(5, "0,05")]
+    [InlineData(-5, "-0,05")]
+    [InlineData(2500, "25,00")]
+    [InlineData(-2500, "-25,00")]
+    [InlineData(100000, "1 000,00")]
+    [InlineData(183656, "1 836,56")]
+    [InlineData(-95000, "-950,00")]
+    [InlineData(123456789, "1 234 567,89")]
+    public void An_amount_is_formatted_from_its_minor_units_as_the_shop_writes_it(long minorUnits, string expected) =>
         Assert.Equal(expected, EscPosEncoder.Format(Money.FromMinorUnits(minorUnits, Currency.Dzd)));
 
     [Fact]
@@ -133,7 +136,77 @@ public sealed class EscPosEncoderTests
         // -0.05 formatted from units and remainder separately loses the sign,
         // because -5 / 100 is 0 in integer arithmetic. On a refund line that
         // prints a credit as a charge.
-        Assert.Equal("-0.05", EscPosEncoder.Format(Money.FromMinorUnits(-5, Currency.Dzd)));
+        Assert.Equal("-0,05", EscPosEncoder.Format(Money.FromMinorUnits(-5, Currency.Dzd)));
+    }
+
+    [Fact]
+    public void A_total_says_what_it_is_counted_in_and_stands_tall_at_the_full_width()
+    {
+        var narrow = new EscPosEncoder(PrinterProfile.Narrow58Mm);
+        var rendering = Rendering(narrow.Encode(Document(
+            new AmountLine("TOTAL", Money.FromMinorUnits(183656, Currency.Dzd), DoubleHeight: true, WithCurrency: true))));
+
+        var line = Paper(narrow.Encode(Document(
+            new AmountLine("TOTAL", Money.FromMinorUnits(183656, Currency.Dzd), DoubleHeight: true, WithCurrency: true))))
+            .First(l => l.Contains("TOTAL", StringComparison.Ordinal));
+        Assert.Equal(("TOTAL", "1 836,56 DA", 32), (line[..5], line[^11..], line.Length));
+        Assert.True(
+            rendering.IndexOf("<double height>", StringComparison.Ordinal) < rendering.IndexOf("TOTAL", StringComparison.Ordinal)
+            && rendering.IndexOf("<normal height>", StringComparison.Ordinal) > rendering.IndexOf("TOTAL", StringComparison.Ordinal),
+            "The total is not tall, or what follows it is.");
+    }
+
+    // -------------------------------------------------------------- the pair
+
+    [Fact]
+    public void A_pair_puts_text_left_and_right_and_the_right_is_never_cut()
+    {
+        var narrow = new EscPosEncoder(PrinterProfile.Narrow58Mm);
+
+        var line = Paper(narrow.Encode(Document(new PairLine("Caisse principale du fond", "Caissier : Karim"))))
+            .First(l => l.Contains("Karim", StringComparison.Ordinal));
+
+        Assert.Equal(32, line.Length);
+        Assert.EndsWith(" Caissier : Karim", line, StringComparison.Ordinal);
+        Assert.StartsWith("Caisse principa ", line, StringComparison.Ordinal);
+    }
+
+    // ------------------------------------------------------------ the french
+
+    [Theory]
+    [InlineData("Lait UHT demi-écrémé 1 L", "Lait UHT demi-ecreme 1 L")]
+    [InlineData("N° 03-011542", "No 03-011542")]
+    [InlineData("Œufs frais, bœuf", "OEufs frais, boeuf")]
+    [InlineData("Ticket d’origine", "Ticket d'origine")]
+    [InlineData("Échange sous 7 jours", "Echange sous 7 jours")]
+    public void French_is_folded_to_ascii_until_a_code_page_is_proven(string text, string paper) =>
+        Assert.Equal(paper, EscPosEncoder.Fold(text));
+
+    [Fact]
+    public void What_has_no_ascii_form_is_a_mark_and_the_layout_still_holds()
+    {
+        // Arabic is K2's, drawn as a picture; printed as text today it is a row of marks, not a
+        // printer command and not a broken line.
+        var bytes = Standard.Encode(Document(new AmountLine("حليب", Money.FromMinorUnits(9000, Currency.Dzd))));
+
+        var line = Paper(bytes).First(l => l.Contains("90,00", StringComparison.Ordinal));
+        Assert.Equal(42, line.Length);
+        Assert.StartsWith("????", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_line_break_in_text_starts_a_new_line_and_reversed_text_is_switched_back()
+    {
+        var rendering = Rendering(Standard.Encode(Document(
+            new TextLine("Merci de votre visite !\nOuvert 7j/7", TextAlignment.Centre),
+            new TextLine("DUPLICATA", TextAlignment.Centre, DoubleHeight: true, Reversed: true),
+            new TextLine("after"))));
+
+        Assert.Contains("Merci de votre visite !\nOuvert 7j/7", rendering, StringComparison.Ordinal);
+        Assert.True(
+            rendering.IndexOf("<reverse on>", StringComparison.Ordinal) < rendering.IndexOf(" DUPLICATA ", StringComparison.Ordinal)
+            && rendering.IndexOf("<reverse off>", StringComparison.Ordinal) < rendering.IndexOf("after", StringComparison.Ordinal),
+            "Reverse printing was still on when the next line printed.");
     }
 
     // ----------------------------------------------------------- the control
@@ -229,6 +302,36 @@ public sealed class EscPosEncoderTests
         Standard.Encode(Document(new BarcodeLine("INV-01", BarcodeSymbology.Code39)));
     }
 
+    [Fact]
+    public void A_receipts_number_is_a_code128_of_set_b_carrying_its_text()
+    {
+        var bytes = Standard.Encode(Document(new BarcodeLine("S-2026-000142", BarcodeSymbology.Code128)));
+
+        // GS k 73, the length counting the "{B" that names the set, then the set and the number.
+        var header = new byte[] { 0x1D, 0x6B, 73, 15 };
+        Assert.True(bytes.AsSpan().IndexOf(header) >= 0, "GS k header with symbology 73 and length 15 is missing.");
+        Assert.True(bytes.AsSpan().IndexOf(Encoding.ASCII.GetBytes("{BS-2026-000142")) >= 0);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("S-2026-{A0001")]
+    [InlineData("N°142")]
+    [InlineData("S\u001Bp")]
+    public void Code128_refuses_what_set_b_cannot_carry_or_would_switch_set(string data) =>
+        Assert.Throws<ArgumentException>(() => Standard.Encode(Document(new BarcodeLine(data, BarcodeSymbology.Code128))));
+
+    [Fact]
+    public void A_code_too_wide_at_two_dots_a_module_is_printed_at_one()
+    {
+        // 58 mm is 384 dots: a 13-character number is 178 modules, 356 dots at two; a 20-character
+        // one is 255 modules, too wide at two and printed at one rather than cut off.
+        var narrow = new EscPosEncoder(PrinterProfile.Narrow58Mm);
+
+        Assert.True(narrow.Encode(Document(new BarcodeLine("S-2026-000142", BarcodeSymbology.Code128))).AsSpan().IndexOf(new byte[] { 0x1D, 0x77, 2 }) >= 0);
+        Assert.True(narrow.Encode(Document(new BarcodeLine("EPICERIE-2026-000142", BarcodeSymbology.Code128))).AsSpan().IndexOf(new byte[] { 0x1D, 0x77, 1 }) >= 0);
+    }
+
     // ------------------------------------------------------------ the wrapping
 
     [Fact]
@@ -250,16 +353,18 @@ public sealed class EscPosEncoderTests
     }
 
     [Fact]
-    public void Double_height_text_wraps_to_half_the_columns()
+    public void Double_height_text_keeps_the_full_width_and_wraps_past_it()
     {
-        // The printer does not know the text is twice as wide. It prints past
-        // the edge of the paper and the rest is simply gone.
+        // GS ! 1 is double height at single width (D-125): the board's tall store name and total
+        // fill the line. What is longer than the paper still wraps, since the printer prints past
+        // the edge and the rest is simply gone.
         var bytes = Standard.Encode(Document(
-            new TextLine(new string('B', 40), DoubleHeight: true)));
+            new TextLine(new string('B', 40) + " " + new string('C', 10), DoubleHeight: true)));
 
-        var line = Paper(bytes).First(l => l.Contains('B', StringComparison.Ordinal));
+        var paper = Paper(bytes);
 
-        Assert.Equal(21, line.Length);
+        Assert.Equal(40, paper.First(l => l.Contains('B', StringComparison.Ordinal)).Length);
+        Assert.Equal(10, paper.First(l => l.Contains('C', StringComparison.Ordinal)).Length);
     }
 
     // -------------------------------------------------- the closed hierarchy
@@ -280,6 +385,7 @@ public sealed class EscPosEncoderTests
         [
             new TextLine("x"),
             new AmountLine("x", Money.Zero(Currency.Dzd)),
+            new PairLine("x", "y"),
             new SeparatorLine(),
             new BarcodeLine("INV1", BarcodeSymbology.Code39),
             new FeedLine(),

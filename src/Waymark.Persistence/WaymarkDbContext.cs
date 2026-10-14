@@ -106,6 +106,7 @@ public sealed class WaymarkDbContext(
     // Organisation
     public DbSet<CashMovement> CashMovements => Set<CashMovement>();
     public DbSet<CashSession> CashSessions => Set<CashSession>();
+    public DbSet<NoSaleOpening> NoSaleOpenings => Set<NoSaleOpening>();
     public DbSet<Shift> Shifts => Set<Shift>();
     public DbSet<Staff> Staff => Set<Staff>();
     public DbSet<Store> Stores => Set<Store>();

@@ -161,6 +161,7 @@ public sealed class ProductLookupWireTests
     {
         { DomainTvaSource.FromCategory, WireTvaSource.FromCategory },
         { DomainTvaSource.StandardFallback, WireTvaSource.StandardFallback },
+        { DomainTvaSource.NotSubject, WireTvaSource.NotSubject },
     };
 
     [Theory]

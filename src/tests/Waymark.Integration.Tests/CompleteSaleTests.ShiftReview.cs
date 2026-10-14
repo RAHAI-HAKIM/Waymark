@@ -379,4 +379,88 @@ public sealed partial class CompleteSaleTests
             VALUES ('second-{shop.StaffId}', '{shop.StoreId}', '{shop.TerminalId}', '{shop.StaffId}', '2026-01-01 08:00:00', 'open', '2026-01-01 08:00:00', '2026-01-01 08:00:00')
             """), StringComparison.Ordinal);
     }
+
+    // ------------------------------------------------------------------ D-122: a store that charges no TVA
+
+    private Task<TaxRegime> Regime(Shop shop, TaxRegime regime) =>
+        Run(shop, (context, _) => new SetTaxRegimeHandler(new Waymark.Persistence.Organisation.StoreSettings(context), new FixedClock()), new SetTaxRegime(regime));
+
+    [Fact]
+    public async Task A_store_that_is_not_subject_to_tva_records_none_and_its_price_is_its_price()
+    {
+        var shop = new Shop(database);
+        shop.Receive(database, shop.Milk, 20, daysAgo: 5);
+        shop.Receive(database, shop.Bread, 20, daysAgo: 5);
+
+        // Subject, as the fixture has it: milk at 9 %, bread at 19 %, the tax inside the price.
+        var taxed = await Sell(shop, (shop.Milk, 2), (shop.Bread, 1));
+        Assert.True(taxed.TaxTotal.IsPositive);
+
+        await Regime(shop, TaxRegime.NotSubject);
+        var plain = await Sell(shop, (shop.Milk, 2), (shop.Bread, 1));
+
+        // The customer pays the same; nothing of it is called tax, on the ticket or on any row.
+        Assert.Equal(taxed.Total, plain.Total);
+        Assert.Equal(Dzd(0), plain.TaxTotal);
+        using (var read = Read(shop))
+        {
+            var ticket = await read.Transactions.SingleAsync(row => row.TransactionId == plain.TransactionId);
+            Assert.Equal((plain.Total, Dzd(0)), (ticket.Subtotal, ticket.TaxTotal));
+            var rows = await read.TransactionItems.Where(row => row.TransactionId == plain.TransactionId).ToListAsync();
+            Assert.All(rows, row => Assert.Equal(Dzd(0), row.TaxAmount));
+
+            // The ticket sold while the store was subject keeps what its own rows say.
+            var before = await read.Transactions.SingleAsync(row => row.TransactionId == taxed.TransactionId);
+            Assert.Equal(taxed.TaxTotal, before.TaxTotal);
+        }
+
+        // And back: one setting, nothing in the catalogue.
+        await Regime(shop, TaxRegime.Subject);
+        Assert.Equal(taxed.TaxTotal, (await Sell(shop, (shop.Milk, 2), (shop.Bread, 1))).TaxTotal);
+    }
+
+    [Fact]
+    public async Task Receipts_are_in_french_until_the_tenant_says_arabic_and_in_no_third_language()
+    {
+        var shop = new Shop(database);
+        Task<TenantSettings> Set(SetTenantSettings command) =>
+            Run(shop, (context, _) => new SetTenantSettingsHandler(new TenantConfigurationStore(context, TabChargesFor.Dzd), TabChargesFor.Dzd, new FixedClock()), command);
+
+        try
+        {
+            Assert.Equal(Language.Fr, TenantSettings.Defaults.ReceiptLanguage);
+            Assert.Equal(Language.Ar, (await Set(new SetTenantSettings(ReceiptLanguage: Language.Ar))).ReceiptLanguage);
+            await using (var context = database.NewContext())
+            {
+                Assert.Equal(Language.Ar, (await new TenantConfigurationStore(context, TabChargesFor.Dzd).CurrentAsync()).ReceiptLanguage);
+            }
+
+            // Another key set leaves it as it is; English is the notices', not the paper's.
+            Assert.Equal(Language.Ar, (await Set(new SetTenantSettings(TabAsPart: true))).ReceiptLanguage);
+            await Assert.ThrowsAsync<TenantSettingRefusedException>(() => Set(new SetTenantSettings(ReceiptLanguage: Language.En)));
+        }
+        finally
+        {
+            await Set(new SetTenantSettings(ReceiptLanguage: Language.Fr));
+        }
+    }
+
+    [Fact]
+    public async Task A_store_is_not_subject_to_tva_until_somebody_says_it_is()
+    {
+        // The column's own default, as a store commissioned with nothing said gets it.
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        var id = "regime-" + Guid.NewGuid().ToString("N")[..8];
+        command.CommandText =
+            $"""
+            INSERT INTO stores (store_id, store_code, store_name, store_type, created_at, updated_at)
+            VALUES ('{id}', '{id}', 'Sans régime', 'grocery', '2026-01-01 08:00:00', '2026-01-01 08:00:00');
+            SELECT tax_regime FROM stores WHERE store_id = '{id}';
+            """;
+        Assert.Equal("not_subject", command.ExecuteScalar());
+
+        command.CommandText = $"UPDATE stores SET tax_regime = 'sometimes' WHERE store_id = '{id}'";
+        Assert.Contains("ck_stores_tax_regime", Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => command.ExecuteNonQuery()).Message, StringComparison.Ordinal);
+    }
 }

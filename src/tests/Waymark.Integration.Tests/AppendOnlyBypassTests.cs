@@ -79,6 +79,12 @@ public sealed class AppendOnlyBypassTests : IClassFixture<MigratedDatabaseFixtur
             + "VALUES ('{0}', 'c', 'set', NULL, 5000, '{3}', '2026-09-17 10:00:00')"
         },
         {
+            // D-123: the drawer opened with nothing sold. Its note is what somebody would rewrite.
+            "no_sale_openings", "no_sale_id", "note",
+            "INSERT {verb} INTO no_sale_openings (no_sale_id, store_id, session_id, terminal_id, staff_id, reason_code, note, occurred_at) "
+            + "VALUES ('{0}', 's', 'x', 't', 'u', 'r', '{3}', '2026-09-17 10:00:00')"
+        },
+        {
             "recommendation_decisions", "decision_id", "decision",
             "INSERT {verb} INTO recommendation_decisions (decision_id, recommendation_id, decision, origin, decided_at, applied_at) "
             + "VALUES ('{0}', 'r', '{3}', 'store', '2026-09-17 10:00:00', '2026-09-17 10:00:00')"

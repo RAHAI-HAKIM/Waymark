@@ -30,6 +30,11 @@ internal sealed class StoreConfiguration : IEntityTypeConfiguration<Store>
             table.HasCheckConstraint(
                 "ck_stores_status",
                 @"status IN ('active','suspended','closed')");
+
+            // D-122: whether the store charges TVA.
+            table.HasCheckConstraint(
+                "ck_stores_tax_regime",
+                @"tax_regime IN ('not_subject','subject')");
             table.HasCheckConstraint(
                 "ck_stores_rounding_policy",
                 @"rounding_policy IN ('half_even','half_up')");
@@ -83,6 +88,18 @@ internal sealed class StoreConfiguration : IEntityTypeConfiguration<Store>
             .HasSentinel(Rounding.HalfUp);
         builder.Property(x => x.ScaleLabelFormat)
             .HasColumnName("scale_label_format");
+
+        // D-122: not subject until somebody says the store charges TVA.
+        builder.Property(x => x.TaxRegime)
+            .HasColumnName("tax_regime")
+            .HasConversion(EnumConverters.TaxRegimeConverter)
+            .HasDefaultValue(TaxRegime.NotSubject)
+            .HasSentinel(TaxRegime.NotSubject);
+
+        // D-125: the store's own text at the foot of its receipts. Its length is the command's to
+        // refuse: a CHECK would rebuild stores for a column added.
+        builder.Property(x => x.ReceiptFooter)
+            .HasColumnName("receipt_footer");
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .HasConversion(WaymarkConverters.Timestamp);

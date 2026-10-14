@@ -22,6 +22,7 @@ public sealed class TenantSettingRefusedException(string reason) : Exception(rea
 /// <param name="CloseSessionMinRank">C1 (D-110): a rank an active role has; with <paramref name="CloseRankOff"/> the ladder's instead.</param>
 /// <param name="XReportMinRank">C2 (D-110): a rank an active role has; with <paramref name="XReportRankOff"/> the ladder's instead.</param>
 /// <param name="VarianceAlertValue">C1 (D-111): minor units; with <paramref name="VarianceAlertOff"/> no close asks for a note instead.</param>
+/// <param name="RefundWindowDays">D-125: 1 to 365; with <paramref name="RefundWindowOff"/> no window instead.</param>
 public sealed record SetTenantSettings(
     bool? CustomerModule = null,
     long? MaxCreditLimit = null,
@@ -45,7 +46,10 @@ public sealed record SetTenantSettings(
     bool XReportRankOff = false,
     bool? BlindClose = null,
     long? VarianceAlertValue = null,
-    bool VarianceAlertOff = false) : ICommand<TenantSettings>;
+    bool VarianceAlertOff = false,
+    Language? ReceiptLanguage = null,
+    int? RefundWindowDays = null,
+    bool RefundWindowOff = false) : ICommand<TenantSettings>;
 
 public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration, ILedgerCurrency ledgerCurrency, TimeProvider clock)
     : ICommandHandler<SetTenantSettings, TenantSettings>
@@ -98,6 +102,17 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
             throw new TenantSettingRefusedException("A variance threshold is zero or more; switch it off instead.");
         }
 
+        // A receipt is printed in French or in Arabic (D-124): the notices' third language is not one of them.
+        if (command.ReceiptLanguage is not (null or Language.Fr or Language.Ar))
+        {
+            throw new TenantSettingRefusedException("A receipt is printed in French or in Arabic.");
+        }
+
+        if (command.RefundWindowDays is < 1 or > TenantSettings.MaxRefundWindowDays)
+        {
+            throw new TenantSettingRefusedException($"A refund window is 1 to {TenantSettings.MaxRefundWindowDays} days; switch it off instead.");
+        }
+
         var current = await configuration.CurrentAsync(cancellationToken);
         var next = current with
         {
@@ -120,6 +135,8 @@ public sealed class SetTenantSettingsHandler(ITenantConfiguration configuration,
             VarianceAlertValue = command.VarianceAlertOff ? null
                 : command.VarianceAlertValue is { } gap ? Money.FromMinorUnits(gap, ledgerCurrency.Currency)
                 : current.VarianceAlertValue,
+            ReceiptLanguage = command.ReceiptLanguage ?? current.ReceiptLanguage,
+            RefundWindowDays = command.RefundWindowOff ? null : command.RefundWindowDays ?? current.RefundWindowDays,
         };
 
         // A blind close with the X handed below it is no blind close (D-121, block C review): whoever

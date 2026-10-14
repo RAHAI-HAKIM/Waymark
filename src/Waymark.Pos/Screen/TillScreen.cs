@@ -105,7 +105,8 @@ public sealed record DiscountState(
     string Note = "",
     bool Noting = false,
     string? Title = null,
-    string? Summary = null);
+    string? Summary = null,
+    bool PastWindow = false);
 
 /// <summary>What the counter panel gives: a discount (B4), or a new unit price (B5).</summary>
 public enum CounterKind
@@ -1126,21 +1127,23 @@ public sealed record TillScreen(
                 text.EscapeKey);
         }
 
+        // Past the shop's refund window, the owner's step, and why (D-125).
+        var pastWindow = refunding && discounting.PastWindow;
         return new Approval(
-            text.ManagerApproval,
+            pastWindow ? text.OwnerApproval : text.ManagerApproval,
             cancelling ? text.CancelLabel
                 : refunding ? text.RefundLabel
                 : $"{(overriding ? text.PriceOverrideLabel : line is null ? text.TicketDiscountLabel : text.DiscountLabel)} {given}",
             cancelling
                 ? $"{text.PaymentStarted} · {why}"
                 : refunding
-                    ? $"{text.TicketNumber(state.Viewing?.InvoiceNumber ?? "?")} · {why}"
+                    ? $"{text.TicketNumber(state.Viewing?.InvoiceNumber ?? "?")} · {(pastWindow ? discounting.Summary : why)}"
                     : $"{(line is null ? text.CurrentTicket : Article(line))} · {why}",
             text.WhoApproves,
             [.. (discounting.Staff?.Staff ?? []).Select(person => new ApproverRow(
                 person.StaffId, person.StaffName, text.RightToLeft ? person.RoleLabelAr : person.RoleLabelFr,
                 person.StaffId == discounting.ManagerId, person.HasPin))],
-            text.ManagerPin,
+            pastWindow ? text.OwnerPin : text.ManagerPin,
             discounting.PinLength,
             message,
             discounting.ManagerId is not null && discounting.PinLength >= 4,
@@ -1294,12 +1297,18 @@ public sealed record TillScreen(
             null);
 
         var total = Money(past.Total, past.Currency);
-        var figures = new List<Figure>
+
+        // A ticket with no TVA in it says nothing of TVA (D-122): the store charges none, or the
+        // goods bear none. "Total HT" beside the same total, and "Dont TVA 0,00", would be noise.
+        var taxed = Money(past.TaxTotal, past.Currency) is not { IsZero: true };
+        var figures = new List<Figure>();
+        if (taxed)
         {
-            new(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)),
-            new(text.TaxIncluded, Figure(past.TaxTotal, past.Currency)),
-            new(text.TicketTotal, Figure(past.Total, past.Currency)),
-        };
+            figures.Add(new(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)));
+            figures.Add(new(text.TaxIncluded, Figure(past.TaxTotal, past.Currency)));
+        }
+
+        figures.Add(new(text.TicketTotal, Figure(past.Total, past.Currency)));
         figures.AddRange(past.Payments.Select(payment => new Figure(text.PaymentMethod(payment.Method), Figure(payment.Amount, past.Currency))));
 
         Rail rail = refund is not null && state.Discounting is { Kind: CounterKind.Refund } discounting
@@ -1313,7 +1322,7 @@ public sealed record TillScreen(
                 RefundScreen.Refundable(past) ? new OperationKey(Operation.Refund, text.RefundKey, null, true) : null);
 
         var bottom = new BottomBar(
-            [new Figure(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))],
+            taxed ? [new Figure(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))] : [],
             text.TicketTotal.ToUpperInvariant(),
             total is { } t ? DisplayFigures.AmountWithCurrency(t, text) : "?",
             new PrimaryKey(text.Close, null, CloseKey, Enabled: true));

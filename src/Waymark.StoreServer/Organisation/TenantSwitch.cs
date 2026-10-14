@@ -20,6 +20,7 @@ namespace Waymark.StoreServer.Organisation;
 ///   <item><description><c>--paid-out-min-rank=2|off</c></description></item>
 ///   <item><description><c>--close-session-min-rank=1|off</c>, <c>--x-report-min-rank=1|off</c> (off: the ladder's rank)</description></item>
 ///   <item><description><c>--blind-close=on|off</c>, <c>--variance-alert-value=200.00|off</c></description></item>
+///   <item><description><c>--receipt-language=fr|ar</c>, <c>--refund-window-days=7|off</c></description></item>
 ///   <item><description><c>--publish-information-notice=&lt;path to the text&gt;</c>, with
 ///   <c>--notice-language=ar|fr|en</c> (Arabic when left out)</description></item>
 /// </list>
@@ -62,6 +63,12 @@ public static class TenantSwitch
     /// <summary>C1 (D-111): a close whose variance is larger than this needs a note; <c>off</c> for never.</summary>
     public const string VarianceAlertValue = "variance-alert-value";
 
+    /// <summary>D-124: the language receipts are printed in, <c>fr</c> or <c>ar</c>.</summary>
+    public const string ReceiptLanguage = "receipt-language";
+
+    /// <summary>D-125: days after its sale a ticket is refunded, printed on the receipt; <c>off</c> for no window.</summary>
+    public const string RefundWindowDays = "refund-window-days";
+
     public const string PublishNotice = "publish-information-notice";
 
     public const string NoticeLanguage = "notice-language";
@@ -71,7 +78,7 @@ public static class TenantSwitch
     {
         ArgumentNullException.ThrowIfNull(configuration);
         return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice, VoidAlertCount, VoidAlertValue, RefundMinRank, CreditExpiryDays, PaidOutMinRank,
-                CloseSessionMinRank, XReportMinRank, BlindClose, VarianceAlertValue }
+                CloseSessionMinRank, XReportMinRank, BlindClose, VarianceAlertValue, ReceiptLanguage, RefundWindowDays }
             .Any(key => configuration[key] is not null);
     }
 
@@ -125,7 +132,9 @@ public static class TenantSwitch
                 + $"the drawer closed alone from {(now.CloseSessionMinRank is { } closeRank ? $"rank {closeRank}" : "the ladder's rank (off)")}, "
                 + $"read from {(now.XReportMinRank is { } xRank ? $"rank {xRank}" : "the ladder's rank (off)")}; "
                 + $"blind close {(now.BlindClose ? "on" : "off")}; "
-                + $"a note asked past a variance of {now.VarianceAlertValue?.ToString() ?? "nothing (off)"}.");
+                + $"a note asked past a variance of {now.VarianceAlertValue?.ToString() ?? "nothing (off)"}; "
+                + $"receipts in {(now.ReceiptLanguage == Domain.Enums.Language.Ar ? "Arabic" : "French")}; "
+                + $"refunds {(now.RefundWindowDays is { } window ? $"within {window} days, the owner after" : "at any age (off)")}.");
             return 0;
         }
         catch (Exception refusal) when (refusal is TenantSettingRefusedException or IOException or UnauthorizedAccessException)
@@ -157,6 +166,8 @@ public static class TenantSwitch
         var xReportOff = string.Equals(xReport, "off", StringComparison.OrdinalIgnoreCase);
         var gap = configuration[VarianceAlertValue];
         var gapOff = string.Equals(gap, "off", StringComparison.OrdinalIgnoreCase);
+        var window = configuration[RefundWindowDays];
+        var windowOff = string.Equals(window, "off", StringComparison.OrdinalIgnoreCase);
 
         return new SetTenantSettings(
             OnOff(configuration[CustomerModule], CustomerModule),
@@ -199,7 +210,19 @@ public static class TenantSwitch
             OnOff(configuration[BlindClose], BlindClose),
             gap is null || gapOff ? null
                 : WireText.TryHundredths(gap, out var gapCents) ? gapCents : throw new FormatException($"--{VarianceAlertValue}: an amount, 200.00, or off."),
-            gapOff);
+            gapOff,
+            configuration[ReceiptLanguage]?.Trim().ToLowerInvariant() switch
+            {
+                null => null,
+                "fr" => Domain.Enums.Language.Fr,
+                "ar" => Domain.Enums.Language.Ar,
+                _ => throw new FormatException($"--{ReceiptLanguage}: fr or ar."),
+            },
+            window is null || windowOff ? null
+                : int.TryParse(window, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var windowDays) && windowDays > 0
+                    ? windowDays
+                    : throw new FormatException($"--{RefundWindowDays}: a number of days, 7, or off."),
+            windowOff);
     }
 
     private static long Rank(string value, string key) =>

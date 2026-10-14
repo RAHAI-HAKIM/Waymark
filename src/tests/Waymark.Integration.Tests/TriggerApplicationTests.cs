@@ -90,7 +90,8 @@ public sealed class TriggerApplicationTests : IDisposable
         var declared = TriggerScript.DeclaredNames();
 
         // and cash_sessions' three: a closed session is final (C1, D-111).
-        Assert.Equal(35, declared.Count);
+        // and no_sale_openings' three: an opening is never edited (D-123).
+        Assert.Equal(38, declared.Count);
         Assert.Contains("trg_consent_events_no_update", declared);
         Assert.Contains("trg_erasure_ledger_no_delete", declared);
         Assert.Equal(declared.Count, declared.Distinct(StringComparer.Ordinal).Count());

@@ -19,6 +19,35 @@ public sealed class RefundWireTests
     private static RefundRequest Request(string quantity = "2", string price = "143.00", string to = RefundDestinations.Cash, string? authorisation = null) =>
         new("till-1", "t1", [new RefundLineRequest("v1", price, quantity, Restock: true)], "retour-defectueux", to, Authorisation: authorisation);
 
+    // ------------------------------------------------------------------ D-125: the window
+
+    [Theory]
+    [InlineData(3L, null, true)]       // the owner
+    [InlineData(2L, null, false)]      // a manager is held to it
+    [InlineData(1L, "samia", true)]    // a cashier, an owner's PIN cited
+    [InlineData(null, null, false)]    // no rank is never permission
+    public void Past_the_window_the_owner_passes_alone_or_by_pin(long? rank, string? owner, bool passes) =>
+        Assert.Equal(passes, RefundWire.MayPassWindow(rank, owner));
+
+    [Fact]
+    public void The_owner_is_asked_for_a_refund_past_the_window_and_for_nothing_else()
+    {
+        var today = new DateOnly(2026, 10, 14);
+
+        Assert.True(RefundWire.AsksOwner(quote: false, mayPass: false, today.AddDays(-8), today, 7));
+        Assert.False(RefundWire.AsksOwner(quote: false, mayPass: false, today.AddDays(-7), today, 7)); // its last day
+        Assert.False(RefundWire.AsksOwner(quote: true, mayPass: false, today.AddDays(-8), today, 7));  // a quote writes nothing
+        Assert.False(RefundWire.AsksOwner(quote: false, mayPass: true, today.AddDays(-8), today, 7));  // the owner
+        Assert.False(RefundWire.AsksOwner(quote: false, mayPass: false, today.AddDays(-400), today, null)); // no window
+    }
+
+    [Fact]
+    public void Past_the_window_the_command_carries_whether_the_seller_may_pass_it()
+    {
+        Assert.True(RefundWire.ToCommand(Request(), "nabil", true, mayPassWindow: true).MayPassWindow);
+        Assert.False(RefundWire.ToCommand(Request(), "nabil", true).MayPassWindow);
+    }
+
     [Fact]
     public void A_line_reaches_the_command_in_thousandths_and_centimes_with_the_session_as_seller()
     {

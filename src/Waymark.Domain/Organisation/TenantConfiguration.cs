@@ -39,8 +39,26 @@ public sealed record TenantSettings(
     long? CloseSessionMinRank = null,
     long? XReportMinRank = null,
     bool BlindClose = false,
-    Money? VarianceAlertValue = null)
+    Money? VarianceAlertValue = null,
+    Enums.Language ReceiptLanguage = Enums.Language.Fr,
+    int? RefundWindowDays = null)
 {
+    /// <summary>
+    /// How many days after its sale a ticket is refunded (D-125), printed on the receipt; past it,
+    /// only the owner refunds. Absent: no window, and nothing printed of one.
+    /// </summary>
+    public const string RefundWindowDaysKey = "refund_window_days";
+
+    /// <summary>The longest window a tenant may set: a year.</summary>
+    public const int MaxRefundWindowDays = 30;
+
+    /// <summary>
+    /// The language receipts are printed in (D-124): <c>fr</c> or <c>ar</c>, French until set.
+    /// French prints as text; Arabic is drawn by the till and sent as a picture, which waits for a
+    /// real printer to be proven on (block K).
+    /// </summary>
+    public const string ReceiptLanguageKey = "receipt_language";
+
     /// <summary><c>system_config.config_key</c> of each setting.</summary>
     public const string CustomerModuleKey = "customer_module";
 

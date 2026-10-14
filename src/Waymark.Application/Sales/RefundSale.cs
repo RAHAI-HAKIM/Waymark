@@ -39,6 +39,10 @@ public enum RefundTo
 /// <param name="SellerMayRefund">The seller's rank reaches <c>Refund</c> as the tenant raised it, as the host asked <c>StaffPermissions</c>.</param>
 /// <param name="AuthorisedBy">The person whose PIN the till cited, resolved by the host; null when none.</param>
 /// <param name="Quote">True to work the refund out and write nothing: what the till shows before the cashier confirms.</param>
+/// <param name="MayPassWindow">
+/// The seller's rank reaches <c>RefundPastWindow</c>, or an owner's PIN for it was cited (D-125), as the
+/// host asked: a sale older than the shop's refund window is refunded all the same.
+/// </param>
 public sealed record RefundSale(
     string TerminalId,
     string StaffId,
@@ -50,7 +54,8 @@ public sealed record RefundSale(
     string? CustomerId,
     bool SellerMayRefund,
     string? AuthorisedBy,
-    bool Quote = false) : ICommand<RefundedSale>;
+    bool Quote = false,
+    bool MayPassWindow = false) : ICommand<RefundedSale>;
 
 /// <summary>
 /// A line of the sale brought back, as the till showed it: one line per product and price (D-088), so
@@ -157,8 +162,19 @@ public sealed class RefundSaleHandler(
             throw new SaleRefusedException("This ticket was sold to another customer: the refund is theirs.", RefusalCodes.RefundOtherCustomer);
         }
 
+        // The window the receipt printed (D-125), counted in the store's days. A quote writes nothing.
+        var settings = await configuration.CurrentAsync(cancellationToken);
+        if (!command.Quote && !command.MayPassWindow
+            && !Refunds.WithinWindow(calendar.DayOf(sale.OccurredAt), today, settings.RefundWindowDays))
+        {
+            throw new SaleRefusedException(
+                $"Sold more than {settings.RefundWindowDays} days ago: the owner refunds it.",
+                RefusalCodes.RefundWindowPassed,
+                settings.RefundWindowDays!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         var customerId = sale.CustomerId ?? command.CustomerId;
-        var module = (await configuration.CurrentAsync(cancellationToken)).CustomerModule;
+        var module = settings.CustomerModule;
         Customer? creditor = null;
         if (command.To == RefundTo.StoreCredit)
         {

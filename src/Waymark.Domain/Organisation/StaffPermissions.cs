@@ -76,6 +76,13 @@ public enum Capability
     /// hands them to the people they are about.
     /// </summary>
     ReadShiftFlags,
+
+    /// <summary>
+    /// Refund a sale older than the tenant's <c>refund_window_days</c> (D-125). The owner's, with no
+    /// tenant key: a manager already handles every earlier day (D-109), so a manager's rank would
+    /// hold nobody to the window the receipt prints.
+    /// </summary>
+    RefundPastWindow,
 }
 
 /// <summary>
@@ -140,6 +147,7 @@ public static class StaffPermissions
 
         // The owner's, and nobody's to move (D-112, Hakim 08/10).
         { Capability.ReadShiftFlags, 3 },
+        { Capability.RefundPastWindow, 3 },
     };
 
     /// <summary>

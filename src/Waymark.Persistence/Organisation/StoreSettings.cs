@@ -21,4 +21,32 @@ public sealed class StoreSettings(WaymarkDbContext context) : IStoreSettings
         entry.Property(row => row.UpdatedAt).CurrentValue = at;
         return true;
     }
+
+    public async Task<bool> StageTaxRegimeAsync(Domain.Enums.TaxRegime regime, DateTimeOffset at, CancellationToken cancellationToken = default)
+    {
+        var store = await context.Stores.FirstOrDefaultAsync(cancellationToken);
+        if (store is null)
+        {
+            return false;
+        }
+
+        var entry = context.Entry(store);
+        entry.Property(row => row.TaxRegime).CurrentValue = regime;
+        entry.Property(row => row.UpdatedAt).CurrentValue = at;
+        return true;
+    }
+
+    public async Task<bool> StageReceiptFooterAsync(string? footer, DateTimeOffset at, CancellationToken cancellationToken = default)
+    {
+        var store = await context.Stores.FirstOrDefaultAsync(cancellationToken);
+        if (store is null)
+        {
+            return false;
+        }
+
+        var entry = context.Entry(store);
+        entry.Property(row => row.ReceiptFooter).CurrentValue = footer;
+        entry.Property(row => row.UpdatedAt).CurrentValue = at;
+        return true;
+    }
 }

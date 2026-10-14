@@ -53,6 +53,10 @@ public sealed class EscPosEncoder(PrinterProfile profile)
                 EncodeAmount(amount, bytes);
                 break;
 
+            case PairLine pair:
+                EncodePair(Fold(pair.Left), Fold(pair.Right), pair.Emphasised, tall: false, bytes);
+                break;
+
             case SeparatorLine separator:
                 Write(bytes, new string(separator.Fill, _profile.Columns));
                 break;
@@ -105,13 +109,26 @@ public sealed class EscPosEncoder(PrinterProfile profile)
             bytes.AddRange(EscPos.CharacterSize(0x01));
         }
 
-        // Double height halves how much fits, and the printer does not wrap for
-        // you — it prints off the edge of the paper.
-        var width = line.DoubleHeight ? _profile.Columns / 2 : _profile.Columns;
-
-        foreach (var wrapped in Wrap(line.Text, width))
+        if (line.Reversed)
         {
-            Write(bytes, wrapped);
+            bytes.AddRange(EscPos.Reverse(true));
+        }
+
+        // GS ! 1 is double height at single width: as many characters fit as on any line (D-125).
+        // Double width would halve them; nothing here asks for it. The printer does not wrap for you —
+        // it prints off the edge of the paper — so each paragraph is wrapped here.
+        foreach (var paragraph in Fold(line.Text).Split('\n'))
+        {
+            foreach (var wrapped in Wrap(paragraph, _profile.Columns))
+            {
+                // Reversed text is a block, its own width and no wider, with a space either side.
+                Write(bytes, line.Reversed ? $" {wrapped} " : wrapped);
+            }
+        }
+
+        if (line.Reversed)
+        {
+            bytes.AddRange(EscPos.Reverse(false));
         }
 
         if (line.DoubleHeight)
@@ -127,48 +144,62 @@ public sealed class EscPosEncoder(PrinterProfile profile)
         bytes.AddRange(EscPos.Align(0));
     }
 
-    private void EncodeAmount(AmountLine line, List<byte> bytes)
-    {
-        var amount = Format(line.Amount);
+    private void EncodeAmount(AmountLine line, List<byte> bytes) =>
+        EncodePair(Fold(line.Label), line.WithCurrency ? FormatWithCurrency(line.Amount) : Format(line.Amount), line.Emphasised, line.DoubleHeight, bytes);
 
-        // The figure is never what gets cut. A truncated label is a receipt
-        // somebody can still read; a truncated total is a receipt that disagrees
-        // with the till, and the customer is holding it.
-        var room = _profile.Columns - amount.Length - 1;
+    private void EncodePair(string left, string right, bool emphasised, bool tall, List<byte> bytes)
+    {
+        // What is on the right is never what gets cut. A truncated label is a
+        // receipt somebody can still read; a truncated total is a receipt that
+        // disagrees with the till, and the customer is holding it.
+        right = right.Length <= _profile.Columns ? right : right[..(_profile.Columns)];
+        var room = _profile.Columns - right.Length - 1;
         var label = room <= 0
             ? string.Empty
-            : line.Label.Length <= room ? line.Label : line.Label[..room];
+            : left.Length <= room ? left : left[..room];
 
-        var gap = _profile.Columns - label.Length - amount.Length;
-        var text = label + new string(' ', Math.Max(gap, 1)) + amount;
+        var gap = _profile.Columns - label.Length - right.Length;
+        var text = label + new string(' ', Math.Max(gap, label.Length == 0 ? 0 : 1)) + right;
 
         bytes.AddRange(EscPos.Align(0));
 
-        if (line.Emphasised)
+        if (emphasised)
         {
             bytes.AddRange(EscPos.Emphasis(true));
         }
 
+        if (tall)
+        {
+            bytes.AddRange(EscPos.CharacterSize(0x01));
+        }
+
         Write(bytes, text);
 
-        if (line.Emphasised)
+        if (tall)
+        {
+            bytes.AddRange(EscPos.CharacterSize(0x00));
+        }
+
+        if (emphasised)
         {
             bytes.AddRange(EscPos.Emphasis(false));
         }
     }
 
-    private static void EncodeBarcode(BarcodeLine line, List<byte> bytes)
+    private void EncodeBarcode(BarcodeLine line, List<byte> bytes)
     {
         var (symbology, data) = line.Symbology switch
         {
             BarcodeSymbology.Code39 => (EscPos.Code39, ValidateCode39(line.Data)),
             BarcodeSymbology.Ean13 => (EscPos.Ean13, ValidateEan13(line.Data)),
+            // Code set B, named in the data itself: the printer reads "{B" as the set, not as text.
+            BarcodeSymbology.Code128 => (EscPos.Code128, "{B" + ValidateCode128(line.Data)),
             _ => throw new NotSupportedException($"Unknown symbology {line.Symbology}."),
         };
 
         bytes.AddRange(EscPos.Align(1));
         bytes.AddRange(EscPos.BarcodeHeight(64));
-        bytes.AddRange(EscPos.BarcodeWidth(2));
+        bytes.AddRange(EscPos.BarcodeWidth(ModuleWidth(line)));
         bytes.AddRange(EscPos.BarcodeTextPosition(2));
         bytes.AddRange(EscPos.BarcodeHeader(symbology, (byte)data.Length));
         bytes.AddRange(Encoding.ASCII.GetBytes(data));
@@ -208,6 +239,36 @@ public sealed class EscPosEncoder(PrinterProfile profile)
         return data;
     }
 
+    /// <summary>
+    /// Two dots a module where the code fits the paper at two, else one. A Code 128 of set B is
+    /// eleven modules a character, plus its start, check and stop (35); a printer is twelve dots a
+    /// column at its standard font. A code wider than the paper is cut off and scans as nothing.
+    /// Proven on paper in K1.
+    /// </summary>
+    private byte ModuleWidth(BarcodeLine line)
+    {
+        if (line.Symbology != BarcodeSymbology.Code128)
+        {
+            return 2;
+        }
+
+        var modules = (11 * (line.Data.Length + 3)) + 2;
+        return modules * 2 <= _profile.Columns * 12 ? (byte)2 : (byte)1;
+    }
+
+    private static string ValidateCode128(string data)
+    {
+        // Set B is printable ASCII. The "{" that opens a set change is refused in the data, so a
+        // number can never switch the printer to another set halfway through.
+        if (data.Length == 0 || data.Length > 200 || data.Any(c => c is < ' ' or > '~' or '{'))
+        {
+            throw new ArgumentException(
+                $"CODE128 set B encodes printable ASCII, 1 to 200 characters, and no '{{'; got '{data}'.", nameof(data));
+        }
+
+        return data;
+    }
+
     private static string ValidateCode39(string data)
     {
         const string alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
@@ -236,7 +297,7 @@ public sealed class EscPosEncoder(PrinterProfile profile)
     /// receipt is a legal document rather than a log line.
     /// </para>
     /// </summary>
-    internal static string Format(Money amount)
+    public static string Format(Money amount)
     {
         var exponent = amount.Currency.MinorUnitExponent;
 
@@ -252,13 +313,76 @@ public sealed class EscPosEncoder(PrinterProfile profile)
                 + "1/100 (D-031), so printing it needs a decision about display rounding first.");
         }
 
-        var units = amount.MinorUnits / Currency.StorageScale;
+        // French, as the shop reads it (D-125): "1 836,56". A space between thousands, a comma
+        // before the centimes. Built from the integer, never through a culture the till's
+        // Windows could change.
+        var units = Math.Abs(amount.MinorUnits / Currency.StorageScale);
         var fraction = Math.Abs(amount.MinorUnits % Currency.StorageScale);
-        var sign = amount.MinorUnits < 0 && units == 0 ? "-" : string.Empty;
+        var sign = amount.MinorUnits < 0 ? "-" : string.Empty;
+        var digits = units.ToString(CultureInfo.InvariantCulture);
+        var grouped = new StringBuilder(digits.Length + (digits.Length / 3));
+        for (var index = 0; index < digits.Length; index++)
+        {
+            if (index > 0 && (digits.Length - index) % 3 == 0)
+            {
+                grouped.Append(' ');
+            }
+
+            grouped.Append(digits[index]);
+        }
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{sign}{units}.{fraction.ToString("D2", CultureInfo.InvariantCulture)}");
+            $"{sign}{grouped},{fraction.ToString("D2", CultureInfo.InvariantCulture)}");
+    }
+
+    /// <summary>The amount and what it is counted in: "1 836,56 DA". The dinar as the shop writes it; any other currency by its code.</summary>
+    public static string FormatWithCurrency(Money amount) =>
+        $"{Format(amount)} {(amount.Currency.Code == "DZD" ? "DA" : amount.Currency.Code)}";
+
+    /// <summary>
+    /// French as ASCII, until a code page is proven on paper (K1): an accent dropped, "é" to "e",
+    /// "°" to "o", a ligature spelt out. What has no ASCII form, Arabic among it, is left for
+    /// <see cref="Write"/> to print as '?', one for one.
+    /// </summary>
+    internal static string Fold(string text)
+    {
+        // A table, not Unicode decomposition: the hosts run with invariant globalization, where
+        // string.Normalize leaves an accented letter as it is.
+        var folded = new StringBuilder(text.Length);
+        foreach (var character in text)
+        {
+            folded.Append(character switch
+            {
+                'à' or 'á' or 'â' or 'ã' or 'ä' or 'å' => "a",
+                'À' or 'Á' or 'Â' or 'Ã' or 'Ä' or 'Å' => "A",
+                'ç' => "c",
+                'Ç' => "C",
+                'è' or 'é' or 'ê' or 'ë' => "e",
+                'È' or 'É' or 'Ê' or 'Ë' => "E",
+                'ì' or 'í' or 'î' or 'ï' => "i",
+                'Ì' or 'Í' or 'Î' or 'Ï' => "I",
+                'ñ' => "n",
+                'Ñ' => "N",
+                'ò' or 'ó' or 'ô' or 'õ' or 'ö' => "o",
+                'Ò' or 'Ó' or 'Ô' or 'Õ' or 'Ö' => "O",
+                'ù' or 'ú' or 'û' or 'ü' => "u",
+                'Ù' or 'Ú' or 'Û' or 'Ü' => "U",
+                'ý' or 'ÿ' => "y",
+                'Ý' or 'Ÿ' => "Y",
+                'œ' => "oe",
+                'Œ' => "OE",
+                'æ' => "ae",
+                'Æ' => "AE",
+                '°' or 'º' => "o",
+                '\u2019' or '\u2018' => "'",
+                '«' or '»' or '\u201C' or '\u201D' => "\"",
+                '\u00A0' or '\u202F' => " ",
+                _ => character.ToString(),
+            });
+        }
+
+        return folded.ToString();
     }
 
     private static byte AlignmentByte(TextAlignment alignment) => alignment switch

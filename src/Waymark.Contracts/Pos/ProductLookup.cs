@@ -119,6 +119,9 @@ public static class TvaRateSource
     /// <summary>The product's categories agreed on a rate, and every one of them stated it.</summary>
     public const string FromCategory = "from_category";
 
+    /// <summary>The store does not charge TVA (D-122): the rate is zero, and nothing in the catalogue is wrong.</summary>
+    public const string NotSubject = "not_subject";
+
     /// <summary>
     /// The catch-all: the product is in no category, or a category states no rate, or its
     /// categories disagree. The rate is the standard 19% and the catalogue needs fixing.

@@ -102,6 +102,7 @@ builder.Services.AddScoped<IProductLookup, Waymark.Persistence.Catalogue.Product
 // made, read back for the "Tickets" list.
 builder.Services.AddScoped<IProductSearch, Waymark.Persistence.Catalogue.ProductLookup>();
 builder.Services.AddScoped<IPastTickets, Waymark.Persistence.Sales.PastTickets>();
+builder.Services.AddScoped<IReceipts, Waymark.Persistence.Sales.Receipts>();
 builder.Services.AddScoped<IRefundLedger, Waymark.Persistence.Sales.RefundLedger>();
 
 // The reasons the shop accepts for a discount, a void, a cash movement (A3). A read, like
@@ -122,6 +123,8 @@ builder.Services.AddScoped<SetStaffPinHandler>();
 // How the store's scale labels are read (B3, D-090), set by --scale-format= until H2.
 builder.Services.AddScoped<IStoreSettings, Waymark.Persistence.Organisation.StoreSettings>();
 builder.Services.AddScoped<SetScaleLabelFormatHandler>();
+builder.Services.AddScoped<SetTaxRegimeHandler>();
+builder.Services.AddScoped<SetReceiptFooterHandler>();
 
 // B7 (D-096): the tenant's settings in system_config, the customers and their tabs. The
 // pseudonymiser names a customer in processing_log (D-045, D-061): the tenant key is opened, or made
@@ -312,6 +315,28 @@ if (app.Configuration[ScaleFormatSwitch.Setting] is { } scaleFormat)
         scope.ServiceProvider.GetRequiredService<SetScaleLabelFormatHandler>());
 }
 
+// --tax-regime=subject|not-subject (D-122): whether this store charges TVA, then exit.
+if (app.Configuration[TaxRegimeSwitch.Setting] is { } taxRegime)
+{
+    using var scope = app.Services.CreateScope();
+    return await TaxRegimeSwitch.RunAsync(
+        taxRegime,
+        Console.Out,
+        scope.ServiceProvider.GetRequiredService<CommandExecutor>(),
+        scope.ServiceProvider.GetRequiredService<SetTaxRegimeHandler>());
+}
+
+// --receipt-footer="..." (D-125): the store's own text at the foot of its receipts, then exit.
+if (app.Configuration[ReceiptFooterSwitch.Setting] is { } footer)
+{
+    using var scope = app.Services.CreateScope();
+    return await ReceiptFooterSwitch.RunAsync(
+        footer,
+        Console.Out,
+        scope.ServiceProvider.GetRequiredService<CommandExecutor>(),
+        scope.ServiceProvider.GetRequiredService<SetReceiptFooterHandler>());
+}
+
 // --customer-module, --max-credit-limit, --credit-overdue-days, --tab-as-part and
 // --publish-information-notice (B7, D-096): the tenant's settings, then exit. After the startup
 // checks, like --scale-format.
@@ -406,6 +431,42 @@ app.MapGet("/api/tickets", async (
 //
 // D-109: an earlier day's or another till's ticket, asked by someone below rank 2, is answered
 // "pin_required"; asked again citing a manager's authorisation for ViewOtherTickets, it opens.
+// D1 (D-125): what a ticket's receipt prints, from its own rows. Who may read it is who may open
+// the ticket (D-088): their own till today, else rank 2 or a manager's PIN for this day (D-109).
+app.MapGet("/api/receipts/one", async (
+    string? ticket, string? authorisation, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
+    IReceipts receipts, IStoreCalendar calendar, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (sessions.Resolve(token) is not { } session)
+    {
+        return Results.Ok(ReceiptsWire.Refused(TicketOutcomes.NotSignedIn));
+    }
+
+    if (string.IsNullOrWhiteSpace(ticket) || await receipts.FindAsync(ticket.Trim(), cancellationToken) is not { } found)
+    {
+        return Results.Ok(ReceiptsWire.Refused(TicketOutcomes.Unknown));
+    }
+
+    var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
+    if (!TicketsWire.MaySee(session, rank, calendar.Today, calendar.DayOf(found.OccurredAt), found.TerminalId)
+        && sessions.AuthorisedBy(token, authorisation, Capability.ViewOtherTickets) is null)
+    {
+        return Results.Ok(ReceiptsWire.Refused(TicketOutcomes.PinRequired));
+    }
+
+    var settings = await configuration.CurrentAsync(cancellationToken);
+    return Results.Ok(ReceiptsWire.Found(found, storeZone!, settings.RefundWindowDays, settings.ReceiptLanguage));
+});
+
+// D1 (D-125): the store's lines alone, for a tab repayment's slip, which has no ticket.
+app.MapGet("/api/receipts/store", async (HttpRequest http, TillSessions sessions, IReceipts receipts, CancellationToken cancellationToken) =>
+    sessions.Resolve(http.Headers[TillSessionHeader.Name].ToString()) is null
+        ? Results.Ok(new ReceiptStoreAnswer(TicketOutcomes.NotSignedIn, null))
+        : await receipts.StoreAsync(cancellationToken) is { } store
+            ? Results.Ok(new ReceiptStoreAnswer(TicketOutcomes.Found, ReceiptsWire.Store(store)))
+            : Results.Ok(new ReceiptStoreAnswer(TicketOutcomes.Unknown, null)));
+
 app.MapGet("/api/tickets/one", async (
     string? ticket, string? authorisation, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
     IPastTickets tickets, IStoreCalendar calendar, ITenantConfiguration configuration, CancellationToken cancellationToken) =>
@@ -632,7 +693,8 @@ app.MapPost("/api/sales/refund", async (
     }
 
     var rank = (await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank;
-    if (await tickets.FindAsync(request.Original, cancellationToken) is { } found
+    var found = await tickets.FindAsync(request.Original, cancellationToken);
+    if (found is not null
         && !TicketsWire.MaySee(session, rank, calendar.Today, TicketsWire.DayOf(found.OccurredAt, storeZone!), found.TerminalId)
         // D-109: or one a manager's PIN opened for this cashier.
         && sessions.AuthorisedBy(token, request.TicketAuthorisation, Capability.ViewOtherTickets) is null)
@@ -640,9 +702,23 @@ app.MapPost("/api/sales/refund", async (
         return Results.Ok(RefundWire.Refused(RefundOutcomes.NotAllowed, "Another day's or another till's ticket: a manager refunds it."));
     }
 
-    var raisedTo = (await configuration.CurrentAsync(cancellationToken)).RefundMinRank;
+    var settings = await configuration.CurrentAsync(cancellationToken);
+
+    // D-125: past the shop's refund window, the owner's. Asked before the refund's own PIN, since one
+    // owner's PIN answers both: it is cited once, for the window, and stands for the refund too.
+    var owner = sessions.AuthorisedBy(token, request.Authorisation, Capability.RefundPastWindow);
+    var mayPass = RefundWire.MayPassWindow(rank, owner);
+    if (found is not null && RefundWire.AsksOwner(request.Quote, mayPass, calendar.DayOf(found.OccurredAt), calendar.Today, settings.RefundWindowDays))
+    {
+        var days = settings.RefundWindowDays!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return Results.Ok(RefundWire.Refused(
+            RefundOutcomes.PinRequired, $"Sold more than {days} days ago: the owner refunds it.", new Refusal(RefusalCodes.RefundWindowPassed, [days])));
+    }
+
+    var raisedTo = settings.RefundMinRank;
     var sellerMay = raisedTo is null ? StaffPermissions.May(rank, Capability.Refund) : StaffPermissions.May(rank, Capability.Refund, raisedTo);
-    var command = RefundWire.ToCommand(request, session.StaffId, sellerMay, cited => sessions.AuthorisedBy(token, cited, Capability.Refund));
+    var command = RefundWire.ToCommand(
+        request, session.StaffId, sellerMay, cited => sessions.AuthorisedBy(token, cited, Capability.Refund) ?? owner, mayPass);
     if (!command.Quote && !sellerMay && command.AuthorisedBy is null)
     {
         return Results.Ok(RefundWire.Refused(

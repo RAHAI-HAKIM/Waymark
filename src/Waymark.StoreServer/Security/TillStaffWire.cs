@@ -23,6 +23,7 @@ public static class TillStaffWire
         Capabilities.CloseSession => Domain.Organisation.Capability.CloseSession,
         Capabilities.ReadXReport => Domain.Organisation.Capability.ReadXReport,
         Capabilities.ReadShiftFlags => Domain.Organisation.Capability.ReadShiftFlags,
+        Capabilities.RefundPastWindow => Domain.Organisation.Capability.RefundPastWindow,
         _ => null,
     };
 

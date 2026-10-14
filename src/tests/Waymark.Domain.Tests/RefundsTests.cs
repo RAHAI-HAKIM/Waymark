@@ -320,4 +320,27 @@ public sealed class RefundsTests
 
         Assert.Equal(restocked, Refunds.Restocks(asked, expires is null ? null : DateOnly.Parse(expires, System.Globalization.CultureInfo.InvariantCulture), today));
     }
+
+    // ------------------------------------------------------------------ D-125: the window
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(6, true)]
+    [InlineData(7, true)]
+    [InlineData(8, false)]
+    [InlineData(400, false)]
+    public void A_window_of_seven_days_covers_the_seventh_day_after_the_sale_and_not_the_eighth(int daysAgo, bool within)
+    {
+        // "Sous 7 jours": sold on a Monday, refunded until the Monday after. A window off by one is a
+        // customer turned away on the day the paper promised, or a refund the paper said was over.
+        var today = new DateOnly(2026, 10, 14);
+
+        Assert.Equal(within, Refunds.WithinWindow(today.AddDays(-daysAgo), today, 7));
+    }
+
+    [Fact]
+    public void No_window_is_no_limit()
+    {
+        Assert.True(Refunds.WithinWindow(new DateOnly(2020, 1, 1), new DateOnly(2026, 10, 14), null));
+    }
 }

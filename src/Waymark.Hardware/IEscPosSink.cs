@@ -95,7 +95,7 @@ public sealed class FileEscPosSink : IEscPosSink
     /// The byte stream as something a person can read: printable characters as
     /// themselves, control sequences named in angle brackets.
     /// </summary>
-    internal static string Render(ReadOnlySpan<byte> bytes)
+    public static string Render(ReadOnlySpan<byte> bytes)
     {
         var output = new StringBuilder(bytes.Length);
 
@@ -134,6 +134,8 @@ public sealed class FileEscPosSink : IEscPosSink
         [0x1B, 0x45, 1, ..] => ("bold on", 3),
         [0x1B, 0x45, 0, ..] => ("bold off", 3),
         [0x1B, 0x74, ..] => ("codepage", 3),
+        [0x1D, 0x42, 1, ..] => ("reverse on", 3),
+        [0x1D, 0x42, 0, ..] => ("reverse off", 3),
         [0x1D, 0x21, 0, ..] => ("normal height", 3),
         [0x1D, 0x21, ..] => ("double height", 3),
         [0x1D, 0x56, ..] => ("cut", 4),

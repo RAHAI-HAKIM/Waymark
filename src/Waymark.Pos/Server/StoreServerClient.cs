@@ -204,6 +204,27 @@ public sealed class StoreServerClient(HttpClient http, HttpClient? patient = nul
         return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Ticket is null) ? null : answer;
     }
 
+    /// <summary>
+    /// What a sale's or a refund's receipt prints (D1, D-125), citing a manager's authorisation for an
+    /// earlier day's or another till's ticket (D-109). Null when the server could not say.
+    /// </summary>
+    public async Task<ReceiptAnswer?> ReceiptAsync(
+        string idOrNumber, string sessionToken, string? authorisation, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(idOrNumber);
+        var path = $"api/receipts/one?ticket={Uri.EscapeDataString(idOrNumber)}"
+            + (string.IsNullOrEmpty(authorisation) ? string.Empty : $"&authorisation={Uri.EscapeDataString(authorisation)}");
+        var answer = await GetWithSessionAsync<ReceiptAnswer>(path, sessionToken, cancellationToken);
+        return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Receipt is null) ? null : answer;
+    }
+
+    /// <summary>The store's lines alone, for a tab repayment's slip (D-125). Null when the server could not say.</summary>
+    public async Task<ReceiptStoreAnswer?> ReceiptStoreAsync(string sessionToken, CancellationToken cancellationToken = default)
+    {
+        var answer = await GetWithSessionAsync<ReceiptStoreAnswer>("api/receipts/store", sessionToken, cancellationToken);
+        return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Store is null) ? null : answer;
+    }
+
     /// <summary>The shop's active discount reasons (B4). Null when the server could not say.</summary>
     public async Task<ReasonCodeList?> DiscountReasonsAsync(CancellationToken cancellationToken = default)
     {
@@ -577,6 +598,14 @@ public interface ITillServer
         TicketAsync(idOrNumber, sessionToken, cancellationToken);
 
     Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>What a receipt prints (D1, D-125). A server that knows none answers nothing, and nothing prints.</summary>
+    Task<ReceiptAnswer?> ReceiptAsync(string idOrNumber, string sessionToken, string? authorisation, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ReceiptAnswer?>(null);
+
+    /// <summary>The store's lines for a slip with no ticket (D-125). A server that knows none answers nothing.</summary>
+    Task<ReceiptStoreAnswer?> ReceiptStoreAsync(string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ReceiptStoreAnswer?>(null);
 
     /// <summary>Who may approve a capability with their PIN: the manager step's list. A server that cannot say lists everyone who may open the till.</summary>
     Task<TillStaff?> ApproversAsync(string capability, CancellationToken cancellationToken = default) => StaffAsync(cancellationToken);

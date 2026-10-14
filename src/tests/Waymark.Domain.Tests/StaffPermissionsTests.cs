@@ -228,6 +228,16 @@ public sealed class StaffPermissionsTests
     }
 
     [Fact]
+    public void A_refund_past_the_window_is_the_owners_and_no_setting_moves_it()
+    {
+        // D-125 (Hakim, 14/10): a manager already handles every earlier day (D-109); the window binds the manager too.
+        Assert.Equal(3, StaffPermissions.RequiredRank(Capability.RefundPastWindow));
+        Assert.False(StaffPermissions.May(2, Capability.RefundPastWindow));
+        Assert.True(StaffPermissions.May(3, Capability.RefundPastWindow));
+        Assert.False(StaffPermissions.IsConfigurable(Capability.RefundPastWindow));
+    }
+
+    [Fact]
     public void Only_the_capabilities_with_a_tenant_key_may_be_moved()
     {
         Assert.Equal(Configurable.Order(), All.Where(StaffPermissions.IsConfigurable).Order());

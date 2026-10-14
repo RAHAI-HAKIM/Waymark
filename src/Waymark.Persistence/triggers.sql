@@ -268,6 +268,30 @@ BEGIN
     SELECT RAISE(ABORT, 'credit_limit_events is append-only');
 END;
 
+-- no_sale_openings: the drawer opened with nothing sold (D-123). The record is
+-- the audit; an opening that could be edited or removed afterwards is none.
+DROP TRIGGER IF EXISTS trg_no_sale_openings_no_update;
+CREATE TRIGGER trg_no_sale_openings_no_update
+BEFORE UPDATE ON no_sale_openings
+BEGIN
+    SELECT RAISE(ABORT, 'no_sale_openings is append-only: an opening is never edited');
+END;
+
+DROP TRIGGER IF EXISTS trg_no_sale_openings_no_delete;
+CREATE TRIGGER trg_no_sale_openings_no_delete
+BEFORE DELETE ON no_sale_openings
+BEGIN
+    SELECT RAISE(ABORT, 'no_sale_openings is append-only');
+END;
+
+DROP TRIGGER IF EXISTS trg_no_sale_openings_no_replace;
+CREATE TRIGGER trg_no_sale_openings_no_replace
+BEFORE INSERT ON no_sale_openings
+    WHEN EXISTS (SELECT 1 FROM no_sale_openings WHERE no_sale_id = NEW.no_sale_id)
+BEGIN
+    SELECT RAISE(ABORT, 'no_sale_openings is append-only: a row is never replaced');
+END;
+
 DROP TRIGGER IF EXISTS trg_credit_limit_events_no_replace;
 CREATE TRIGGER trg_credit_limit_events_no_replace
 BEFORE INSERT ON credit_limit_events

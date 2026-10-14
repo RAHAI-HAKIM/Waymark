@@ -297,6 +297,12 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(PastTicketDetail),      // lines merged per product and price, figures as recorded
             nameof(PastTicketLineWire),    // an element of that ticket
             nameof(PastPaymentWire),       // an element of that ticket
+            nameof(ReceiptAnswer),         // StoreServer -> till; what a receipt prints, read off a ticket's rows, or why not (D1)
+            nameof(ReceiptWire),           // the receipt: figures as recorded, the store's day and hour, a first name, no customer
+            nameof(ReceiptLineWire),       // an element of that receipt
+            nameof(ReceiptOriginalWire),   // the sale a refund refunds, as its receipt names it
+            nameof(ReceiptStoreWire),      // the store's lines as its receipts print them, read from stores
+            nameof(ReceiptStoreAnswer),    // StoreServer -> till; the store's lines alone, for a slip with no ticket
             nameof(TillStaff),             // StoreServer → till; who may sign in, read from staff and roles, never a hash
             nameof(TillStaffMember),       // an element of that list
             nameof(SignInRequest),         // till → StoreServer; a PIN, checked and never stored

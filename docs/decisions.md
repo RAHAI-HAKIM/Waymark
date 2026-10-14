@@ -704,6 +704,114 @@ rename), so every later migration of `cash_sessions`, and three rollback tests, 
 - **Admin's** (Hakim, 12/10): printing a Z, reading one older than the till's last 30, and a
   store's day across tills are H3 in the plan (F-51).
 
+### D-122 — A store says whether it charges TVA; one that does not records none (block D, 13/10)
+Hakim's inspection of shops: a small retailer's ticket shows no TVA. Law 04-02 (read in full,
+JO n° 41 of 27/06/2004) asks a sale to a consumer for "un ticket de caisse ou un bon justifiant la
+transaction" (art. 10) and lists no mention it must carry; the mentions of art. 12 and 34 are the
+facture's, owed to a consumer only on request. Whether a shop collects TVA is tax law, not this
+one: most small retailers are under the flat tax (IFU) and collect none. **To confirm with an
+accountant before a pilot: the IFU's ceiling, and the facture's mentions (decree 05-468, unread).**
+
+- **`stores.tax_regime`**, `not_subject` or `subject`, **`not_subject` by default** and asked when
+  a store is commissioned (H2; `--tax-regime=` until then).
+- **A store that is not subject sells everything at a rate of zero** (`TvaRate.For`, source
+  `not_subject`): the tax extracted is nothing and the price before tax is the price, by D-033's
+  own arithmetic, with no second path. The categories keep their rates, so a shop that passes
+  the ceiling changes one setting.
+- **It changes what is sold from then on.** A ticket already written keeps what its rows say.
+- **A ticket with no TVA in it says nothing of TVA**: the till hides "Total HT" and "Dont TVA"
+  when the tax is zero, and the receipt will follow the same rule.
+- The synthetic store is `subject` on purpose: its year of sales is what exercises D-033.
+
+**Rejected:** dropping TVA from Phase 1 (supérettes above the ceiling charge it); a mention
+"TVA non applicable" on the ticket, which the law read does not ask for, until an accountant says.
+**Open:** the facture a consumer may ask for (art. 10) is produced by nothing in Phase 1.
+
+### D-123 — Block D's decisions before its design (Hakim, 13/10)
+- **A no-sale is a row of its own**: `no_sale_openings`, append-only with its three guards: the
+  session, the till, who opened, whose PIN allowed it, the reason, a note, the hour. Never a
+  cash movement of nothing.
+- **A reprint is a count**, `transactions.reprint_count`: the same paper again, marked a
+  duplicate. No table, and no CHECK, which would rebuild `transactions` for a counter.
+- **A receipt is printed for every sale.** A till may be told to stop asking the printer (the
+  key's shape waits for the board).
+- **The drawer opens only when cash moves.** A card sale opens nothing; opening it otherwise is
+  a no-sale.
+- **No debt on a receipt**: neither a tab's balance nor the customer's name. Telling a customer
+  what they owe is for a message, later.
+- **The scannable code is Code 128.** A QR code needs a printer that has one, ESC/POS has no
+  dependable way to ask a printer what it can do, and the retailer is not asked to find out.
+- **Who reprints**: anyone for today's tickets at their till; a manager's PIN for older ones, as
+  for reading them (D-109). **Who opens a no-sale**: rank 2, as the ladder has it.
+
+Migration `TaxRegimeNoSaleAndReprints` (with D-122): two added columns, one new table, and
+`stores` rebuilt for its CHECK.
+
+### D-124 — What needs a real device is a block of its own, K; the flow builds everything around it (Hakim, 13/10)
+Blocks A to J are built and tested against the fakes, each to the point where plugging the
+device in is all that is left. **Block K holds every feature that cannot be called done without
+hardware on the desk**, so no session in the flow waits for a printer, and the hardware work is
+done in one go when the devices are there: the real printer sink (USB, serial or network), the
+drawer's pulse, both paper widths, the cutter, **Arabic receipts**, the scale, and the
+real-hardware run the Build Plan asks for.
+
+- **The receipt's language is a tenant key now**, `receipt_language`, `fr` or `ar`, French until
+  set (`--receipt-language=`). French prints as text. **Arabic is K's**: a printer's Arabic code
+  pages neither join letters nor run right to left, so the till will draw the receipt with its
+  own font and send it as a picture, which has to be proven on a real printer. Until then a
+  tenant set to Arabic is printed in French.
+- **Printing can be switched off at a till**, under "Plus…": it shows on the bar while off, the
+  paid screen then offers the one print a customer asks for, and it is on again at each sign-in.
+- **What prints**: a sale, a refund, a tab's repayment (the customer's proof). **What does
+  not**: a cancelled ticket, cash in or out.
+- **No QR code in the first release** (D-123's Code 128 stands).
+- **The facture a consumer may ask for** (Law 04-02 art. 10) is Admin's: H3 in the plan.
+
+### D-125 — The receipt is the board's, less what our rules or the rows do not hold (Hakim, 14/10)
+The board (a sale not subject, a sale subject, a refund, a duplicate, each at 32 and 42 columns)
+is the layout: the store, a refund's original ticket and reason, the lines, the count of articles,
+the total, the discounts, the tax, the tenders, the ticket's number, day, hour, till and cashier,
+its Code 128, the store's legal line, the store's text, our signature. **Changed from the board:**
+
+- **No "Espèces reçues", no "Rendu"**: nothing records what is handed over, and nothing will.
+- **No card digits**: a payment reference is never a card number (D-095), so there are none to print.
+- **No discount percent**: a row keeps the amount taken off, not how it was typed; "Remise -42,00".
+- **No TVA letters, no table by rate** (Hakim, 14/10): a ticket owes no such mention (D-122), and a
+  sale row keeps its tax, not its rate. A ticket that carries TVA prints "TOTAL TTC", "Total HT"
+  and "dont TVA" from its own row. **No "Non assujetti à la TVA"**: D-122 rejected the mention; a
+  ticket with no TVA says "TOTAL" and nothing of tax.
+- **No RC, NIS or Art.** (Hakim, 14/10): the law asks no mention of a ticket; they are the facture's
+  (H3). The NIF prints when the store has one (`tax_registration_number`).
+- **Our number**, `{store}-{year}-{000001}`, shared with refunds, not the board's per-till one.
+- **The day and hour are the store's** (`stores.timezone`), from the row's instant. **The cashier is
+  a first name** (Hakim): the first word of `staff_name`.
+- **ASCII until K1**: accents folded, "N°" printed "No", until a code page is proven on paper.
+
+**Added:**
+
+- **The store's own text**, `stores.receipt_footer`, nullable, 200 characters at most, printed bold
+  and centred above our signature; `--receipt-footer=` until H2's store screen.
+- **Our signature**: "Échange ou remboursement sous N jours avec ce ticket." when the tenant has
+  a window, then "Facture sur demande." (the consumer's right, art. 10; H3 produces it).
+- **The refund window** (Hakim, 14/10): `refund_window_days`, a tenant key, 1 to 365; absent, there
+  is no window and no line. **Past it** (the sale's day against today, in the store), a refund is
+  refused as `refund_window_passed` **unless the seller is the owner or an owner's PIN is cited**:
+  `Capability.RefundPastWindow`, rank 3, no tenant key. A manager is held to it: under D-109 a
+  manager already handles every earlier day, so a manager's PIN would have bound nobody. A quote
+  writes nothing and is not refused.
+- **A tab repayment's slip** (D-124; not on the board): the store, "VERSEMENT", what was paid, the
+  cash rounding, the day, hour, till and cashier, the store's text. No name, no balance (D-123), no
+  code: nothing scans it.
+
+**Kept from the board:** the count of articles (the units of counted lines, one per weighed line);
+an article on one line when it is one unit and fits; a refund's "Signature client"; the duplicate's
+DUPLICATA reversed and tall, twice, and its "Réimprimé le … par …", which is the reprint's own
+moment and person (D3), stored no further than the count (D-123). **Tall text keeps the full
+width**: `GS ! 1` is double height only, and the Phase 0 encoder wrapped it at half; proven on paper
+in K1.
+
+Migration `ReceiptFooter`: one added column.
+
 ---
 
 ## Open — waiting on Hakim
