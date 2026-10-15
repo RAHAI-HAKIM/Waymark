@@ -61,6 +61,13 @@ public sealed record ReportCash(string StaffId, DateTimeOffset At, CashRowKind K
 /// <summary>Something a person did at the drawer that carries no figure: they opened it, or counted it at the close (C3).</summary>
 public sealed record ReportMoment(string StaffId, DateTimeOffset At);
 
+/// <summary>
+/// A <c>no_sale_openings</c> row (D2, D-126): the drawer opened with nothing sold. No figure: a no-sale
+/// moves no money by definition.
+/// </summary>
+/// <param name="AuthorisedBy">Whose PIN allowed it; null when who opened it may alone.</param>
+public sealed record ReportNoSale(string StaffId, DateTimeOffset At, string ReasonFr, string ReasonAr, string? Note, string? AuthorisedBy);
+
 /// <summary>What one person put in and took out with no sale, each a figure of zero or more.</summary>
 public sealed record CashierCash(Money PaidIn, Money PaidOut, Money TabRepayments);
 
@@ -71,8 +78,9 @@ public sealed record CashierCash(Money PaidIn, Money PaidOut, Money TabRepayment
 /// </summary>
 /// <param name="First">Their first recorded operation in the session. Not when they arrived: sign-ins are not kept (D-083).</param>
 /// <param name="Last">Their last recorded operation.</param>
+/// <param name="NoSales">How many times they opened the drawer with nothing sold (D-126).</param>
 public sealed record CashierShare(
-    string StaffId, DateTimeOffset First, DateTimeOffset Last, Takings Takings, Activity Activity, Reductions Reductions, CashierCash Cash);
+    string StaffId, DateTimeOffset First, DateTimeOffset Last, Takings Takings, Activity Activity, Reductions Reductions, CashierCash Cash, int NoSales = 0);
 
 /// <summary>A <c>transaction_payments</c> row: negative on a refund.</summary>
 public sealed record ReportPart(string TicketId, PaymentMethod Method, Money Amount);
@@ -109,16 +117,20 @@ public enum ShiftFlagKind
 
     /// <summary>A cancelled ticket worth more than the threshold. Warning.</summary>
     CancelAboveValue,
+
+    /// <summary>One person opened the drawer with nothing sold more times in the session than the threshold (D-126). Warning.</summary>
+    TooManyNoSales,
 }
 
 /// <param name="StaffId">Who it is about; null for the variance, which is the drawer's.</param>
 /// <param name="TicketId">The cancelled ticket; null for a count and for the variance.</param>
 /// <param name="Value">The ticket's worth, or the variance; null for a count.</param>
-/// <param name="Count">The person's cancels in the session; null otherwise.</param>
+/// <param name="Count">The person's cancels, or no-sales, in the session; null otherwise.</param>
 public sealed record ShiftFlag(ShiftFlagKind Kind, string? StaffId, string? TicketId, Money? Value, int? Count);
 
 /// <summary>The thresholds a session is judged by: today's for an X, those frozen at its close for a Z (D-112).</summary>
-public sealed record ReportThresholds(int? VoidCount, Money? VoidValue, Money? Variance);
+/// <param name="NoSaleCount">More no-sales than this by one person are flagged (D-126); null: never.</param>
+public sealed record ReportThresholds(int? VoidCount, Money? VoidValue, Money? Variance, int? NoSaleCount = null);
 
 /// <summary>
 /// <b>Session C2</b> A cash session's figures (D-112): the X while it is open, the Z once
@@ -167,6 +179,10 @@ public sealed record ReportThresholds(int? VoidCount, Money? VoidValue, Money? V
 ///   the order of their first cancel; every cancel above the value, in time order. <b>Whether a cancel
 ///   is flagged is <see cref="Voids.Flags"/>'s to say</b>, asked for each cancel with the person's
 ///   cancels so far, this one included: never a second copy of its comparisons.</description></item>
+///   <item><description><b><see cref="NoSaleFlagsOf"/> (D-126):</b> one
+///   <see cref="ShiftFlagKind.TooManyNoSales"/> per person whose no-sales in the session are more than
+///   <see cref="ReportThresholds.NoSaleCount"/>, with their count, people in the order of their first
+///   no-sale. No threshold: none.</description></item>
 ///   <item><description>Figures in different currencies throw, as <see cref="Money"/> always does.</description></item>
 ///   <item><description><b><see cref="ByCashierOf"/> (C3, D-118)</b> splits all of it by who did each
 ///   thing and <b>applies the rules above to each person's part, never a second copy of them</b>:
@@ -361,11 +377,28 @@ public static class ShiftReport
         return flags;
     }
 
+    /// <summary>The no-sales past the threshold, one flag a person with the count they ended on (D-126).</summary>
+    public static IReadOnlyList<ShiftFlag> NoSaleFlagsOf(IReadOnlyList<ReportNoSale> noSales, int? threshold)
+    {
+        ArgumentNullException.ThrowIfNull(noSales);
+        if (threshold is not { } most)
+        {
+            return [];
+        }
+
+        return [.. noSales.OrderBy(opening => opening.At)
+            .GroupBy(opening => opening.StaffId, StringComparer.Ordinal)
+            .Where(person => person.Count() > most)
+            .Select(person => new ShiftFlag(ShiftFlagKind.TooManyNoSales, person.Key, null, null, person.Count()))];
+    }
+
     /// <param name="moments">The opening and the close: who did them and when. They give a column and an hour, no figure.</param>
+    /// <param name="noSales">The drawer opened with nothing sold (D-126): an operation of whoever opened it, counted, with no figure.</param>
     public static IReadOnlyList<CashierShare> ByCashierOf(
         Currency currency, IReadOnlyList<ReportTicket> tickets, IReadOnlyList<ReportRow> rows, IReadOnlyList<ReportPart> parts,
-        IReadOnlyList<ReportCash> cash, IReadOnlyList<ReportMoment> moments)
+        IReadOnlyList<ReportCash> cash, IReadOnlyList<ReportMoment> moments, IReadOnlyList<ReportNoSale>? noSales = null)
     {
+        noSales ??= [];
         ArgumentNullException.ThrowIfNull(tickets);
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(parts);
@@ -389,6 +422,7 @@ public static class ShiftReport
             .Concat(strikes.Select(strike => (StaffId: strike.By, strike.At)))
             .Concat(cash.Select(moved => (moved.StaffId, moved.At)))
             .Concat(moments.Select(moment => (moment.StaffId, moment.At)))
+            .Concat(noSales.Select(opening => (opening.StaffId, opening.At)))
             .GroupBy(operation => operation.StaffId, StringComparer.Ordinal)
             .Select(person => (StaffId: person.Key, First: person.Min(operation => operation.At), Last: person.Max(operation => operation.At)))
             .OrderBy(person => person.First)
@@ -407,7 +441,8 @@ public static class ShiftReport
                 // The session's own rule over their tickets, and over the lines they struck wherever those are.
                 ActivityOf(currency, theirs, [.. strikes.Where(strike => strike.By == staff).Select(strike => strike.Row)]),
                 ReductionsOf(currency, theirs, rows),
-                new CashierCash(Moved(CashRowKind.PaidIn), Moved(CashRowKind.PaidOut), Moved(CashRowKind.TabRepayment))));
+                new CashierCash(Moved(CashRowKind.PaidIn), Moved(CashRowKind.PaidOut), Moved(CashRowKind.TabRepayment)),
+                noSales.Count(opening => opening.StaffId == staff)));
         }
 
         return shares;
@@ -428,7 +463,9 @@ public static class ShiftReport
     /// shares, added up, is the session's own. False is a report by cashier that must not be shown as
     /// if it added up: something of the session is in nobody's column, or in two.
     /// </summary>
-    public static bool SharesReconcile(IReadOnlyList<CashierShare> shares, Takings takings, Activity activity, Reductions reductions, CashierCash cash)
+    /// <param name="noSales">The session's no-sales, counted; null to leave them unchecked.</param>
+    public static bool SharesReconcile(
+        IReadOnlyList<CashierShare> shares, Takings takings, Activity activity, Reductions reductions, CashierCash cash, int? noSales = null)
     {
         ArgumentNullException.ThrowIfNull(shares);
         ArgumentNullException.ThrowIfNull(takings);
@@ -454,7 +491,8 @@ public static class ShiftReport
             && Same(share => share.Reductions.Overrides, reductions.Overrides)
             && Added(share => share.Cash.PaidIn) == cash.PaidIn
             && Added(share => share.Cash.PaidOut) == cash.PaidOut
-            && Added(share => share.Cash.TabRepayments) == cash.TabRepayments;
+            && Added(share => share.Cash.TabRepayments) == cash.TabRepayments
+            && (noSales is not { } count || shares.Sum(share => share.NoSales) == count);
     }
 
     /// <summary>One line per tender used, in the enum's order, with its parts and their sum.</summary>

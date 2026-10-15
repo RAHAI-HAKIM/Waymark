@@ -215,7 +215,8 @@ public static class CustomerEndpoints
             [.. tab.Movements.Select(movement => new TabMovementWire(Kind(movement), WireText.Figure(movement.Amount), movement.OccurredAt))],
             null,
             WireText.Figure(tab.CreditAvailable),
-            tab.CashCollected is { } collected ? WireText.Figure(collected) : null);
+            tab.CashCollected is { } collected ? WireText.Figure(collected) : null,
+            tab.Cleared is { } cleared ? WireText.Figure(cleared) : null);
     }
 
     private static string Kind(ReceivableMovement movement) => movement.MovementType switch

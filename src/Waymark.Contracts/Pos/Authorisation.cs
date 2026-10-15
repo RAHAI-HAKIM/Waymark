@@ -95,6 +95,9 @@ public static class Capabilities
 
     /// <summary>Refunding a sale older than the shop's refund window (D-125). The owner's, with no tenant setting.</summary>
     public const string RefundPastWindow = "refund_past_window";
+
+    /// <summary>Opening the drawer with nothing sold (D-123, D-126): rank 2.</summary>
+    public const string NoSale = "no_sale";
 }
 
 /// <summary>A discount given at the counter, as the till sends it (B4, D-091). The server works out the money.</summary>

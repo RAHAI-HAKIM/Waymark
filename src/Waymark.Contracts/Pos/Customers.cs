@@ -106,6 +106,7 @@ public sealed record TabAnswer(
     [property: JsonPropertyName("reason")] string? Reason = null,
     [property: JsonPropertyName("credit_available")] string? CreditAvailable = null,
     [property: JsonPropertyName("cash_collected"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CashCollected = null,
+    [property: JsonPropertyName("cleared"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Cleared = null,
     [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
 
 /// <summary>A repayment in cash at this till (B7): what was handed over for the tab, and why the drawer takes it.</summary>

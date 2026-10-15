@@ -147,6 +147,7 @@ public static class ShiftReportEndpoints
         var people = new Dictionary<string, StaffDescription?>(StringComparer.Ordinal);
         foreach (var id in new[] { data.Session.OpenedBy, data.Session.ClosedAuthorisedBy ?? data.Session.ClosedBy }
                      .Concat(data.Flags.Select(flag => flag.StaffId)).Concat(data.Cashiers.Select(share => share.StaffId))
+                     .Concat((data.NoSales ?? []).SelectMany(opening => new[] { opening.StaffId, opening.AuthorisedBy }))
                      .OfType<string>().Distinct(StringComparer.Ordinal))
         {
             people[id] = (await directory.DescribeAsync(terminal, id, cancellationToken))?.Staff;
@@ -205,7 +206,14 @@ public static class ShiftReportEndpoints
             data.Flags.Count,
             readsFlags ? [.. data.Flags.Select(flag => Flag(flag, data, nameOf))] : null,
             data.TakingsReconcile && data.DrawerReconciles && data.CashiersReconcile,
-            Cashiers(data, nameOf, readsFlags, reader, describe));
+            Cashiers(data, nameOf, readsFlags, reader, describe),
+            // D-126: the count to everyone who reads; each opening names people, so the owner's.
+            new NoSalesWire(
+                data.NoSales?.Count ?? 0,
+                readsFlags
+                    ? [.. (data.NoSales ?? []).Select(opening => new NoSaleRowWire(
+                        opening.At, nameOf(opening.StaffId), opening.ReasonFr, opening.ReasonAr, opening.Note, nameOf(opening.AuthorisedBy)))]
+                    : null));
     }
 
     /// <summary>
@@ -235,7 +243,8 @@ public static class ShiftReportEndpoints
                     share.Reductions.LineDiscounts.Count + share.Reductions.TicketDiscounts.Count,
                     WireText.Figure(share.Reductions.LineDiscounts.Value + share.Reductions.TicketDiscounts.Value)),
                 Tally(share.Reductions.Overrides),
-                WireText.Figure(share.Cash.PaidIn), WireText.Figure(share.Cash.PaidOut), WireText.Figure(share.Cash.TabRepayments));
+                WireText.Figure(share.Cash.PaidIn), WireText.Figure(share.Cash.PaidOut), WireText.Figure(share.Cash.TabRepayments),
+                share.NoSales);
         }
 
         var shown = data.Cashiers.Where(share => whole || string.Equals(share.StaffId, reader, StringComparison.Ordinal)).ToList();
@@ -246,7 +255,8 @@ public static class ShiftReportEndpoints
 
         var session = new CashierShare(
             string.Empty, data.Cashiers.Min(share => share.First), data.Cashiers.Max(share => share.Last), data.Takings, data.Activity, data.Reductions,
-            new CashierCash(data.Movements.PaidIn, data.Movements.PaidOut, data.Movements.TabRepayments));
+            new CashierCash(data.Movements.PaidIn, data.Movements.PaidOut, data.Movements.TabRepayments),
+            data.NoSales?.Count ?? 0);
         return new CashierSplitWire(data.Cashiers.Count, true, [.. shown.Select(share => Column(share, share.StaffId))], Column(session, null));
     }
 
@@ -260,6 +270,9 @@ public static class ShiftReportEndpoints
         ShiftFlagKind.TooManyCancels => new ShiftFlagWire(
             ShiftFlagKinds.TooManyCancels, nameOf(flag.StaffId), Count: flag.Count,
             Threshold: data.Thresholds.VoidCount?.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+        ShiftFlagKind.TooManyNoSales => new ShiftFlagWire(
+            ShiftFlagKinds.TooManyNoSales, nameOf(flag.StaffId), Count: flag.Count,
+            Threshold: data.Thresholds.NoSaleCount?.ToString(System.Globalization.CultureInfo.InvariantCulture)),
         _ => new ShiftFlagWire(
             ShiftFlagKinds.VariancePastThreshold, Value: Value(flag),
             Threshold: data.Thresholds.Variance is { } limit ? WireText.Figure(limit) : null),

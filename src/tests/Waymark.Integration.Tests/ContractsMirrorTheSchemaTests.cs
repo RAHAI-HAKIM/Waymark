@@ -303,6 +303,10 @@ public sealed class ContractsMirrorTheSchemaTests : IClassFixture<MigratedDataba
             nameof(ReceiptOriginalWire),   // the sale a refund refunds, as its receipt names it
             nameof(ReceiptStoreWire),      // the store's lines as its receipts print them, read from stores
             nameof(ReceiptStoreAnswer),    // StoreServer -> till; the store's lines alone, for a slip with no ticket
+            nameof(NoSaleRequest),         // till -> StoreServer; a reason and a note, the row written by the server (D2)
+            nameof(NoSaleAnswer),          // StoreServer -> till; recorded, its hour, or why not
+            nameof(NoSalesWire),           // an element of a report: the count, and each opening to the owner (D-126)
+            nameof(NoSaleRowWire),         // no_sale_openings as a report shows it: names, never ids
             nameof(TillStaff),             // StoreServer → till; who may sign in, read from staff and roles, never a hash
             nameof(TillStaffMember),       // an element of that list
             nameof(SignInRequest),         // till → StoreServer; a PIN, checked and never stored

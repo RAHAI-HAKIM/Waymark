@@ -52,6 +52,9 @@ public interface ICashSessionLedger
     /// </summary>
     Task<ShiftRows> ReportRowsAsync(string sessionId, CancellationToken cancellationToken = default);
 
+    /// <summary>The session's no-sales (D2, D-126), in the order they happened, each with its reason's labels.</summary>
+    Task<IReadOnlyList<ReportNoSale>> NoSalesAsync(string sessionId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// How many times cash has moved in the session (D-119): the cash parts of its tickets and its
     /// cash movements, counted. A card sale and a cancel move none.

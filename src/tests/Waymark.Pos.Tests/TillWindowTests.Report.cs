@@ -479,7 +479,7 @@ public sealed partial class TillWindowTests
         }
 
         /// <summary>The board's day (5A, 5B): 148 tickets, 350,00 short of a 200,00 threshold, four flags.</summary>
-        private ShiftReportWire SampleReport(long? number)
+        public ShiftReportWire SampleReport(long? number)
         {
             var z = number is not null;
             IReadOnlyList<ShiftFlagWire> flags =

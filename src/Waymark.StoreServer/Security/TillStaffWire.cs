@@ -24,6 +24,7 @@ public static class TillStaffWire
         Capabilities.ReadXReport => Domain.Organisation.Capability.ReadXReport,
         Capabilities.ReadShiftFlags => Domain.Organisation.Capability.ReadShiftFlags,
         Capabilities.RefundPastWindow => Domain.Organisation.Capability.RefundPastWindow,
+        Capabilities.NoSale => Domain.Organisation.Capability.NoSale,
         _ => null,
     };
 

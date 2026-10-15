@@ -10,7 +10,9 @@ using Avalonia.VisualTree;
 using Waymark.Contracts.Pos;
 using Waymark.Contracts.Recommendations;
 using Waymark.Hardware;
+using Waymark.Domain.Hardware;
 using Waymark.Pos.Checkout;
+using Waymark.Pos.Receipts;
 using Waymark.Pos.Screen;
 using Waymark.Pos.Server;
 using Waymark.Pos.Ui;
@@ -49,6 +51,24 @@ public sealed class TillWindow : Window, IDisposable
     private static readonly TimeSpan ClockEvery = TimeSpan.FromSeconds(15);
 
     private readonly TillSession _session;
+
+    /// <summary>The printer and its drawer (D-126); null when the till was started without one.</summary>
+    private readonly TillPrinter? _printer;
+
+    /// <summary>Whether sale tickets print (D-126): switched off under "Plus…", on again at each sign-in.</summary>
+    private bool _printingOn = true;
+
+    /// <summary>The paid ticket's paper, by its number.</summary>
+    private (string Invoice, Paper Paper)? _salePaper;
+
+    /// <summary>The refund just written's paper, by its ticket.</summary>
+    private (string TransactionId, string Invoice, Paper Paper)? _refundPaper;
+
+    /// <summary>The repayment just recorded's slip.</summary>
+    private Paper? _repaidPaper;
+
+    /// <summary>The store's lines for a slip, read once a sign-in.</summary>
+    private ReceiptStoreWire? _receiptStore;
     private readonly ITillServer _server;
     private readonly TillIdentity _till;
     private readonly TillText _text;
@@ -158,8 +178,12 @@ public sealed class TillWindow : Window, IDisposable
     private Control? _debug;
 #endif
 
-    public TillWindow(TillSession session, ITillServer server, TillIdentity till, TillLanguage language, TillThemeKind themeKind, TimeProvider clock)
+    /// <param name="printer">The till's printer and the drawer on it (D2, D-126); null when started without one, which prints nothing.</param>
+    public TillWindow(
+        TillSession session, ITillServer server, TillIdentity till, TillLanguage language, TillThemeKind themeKind, TimeProvider clock,
+        TillPrinter? printer = null)
     {
+        _printer = printer;
         _session = session;
         _server = server;
         _till = till;
@@ -333,7 +357,7 @@ public sealed class TillWindow : Window, IDisposable
                         _discount = refunding with { Authorising = false, Problem = null };
                         Render();
                     }
-                    else if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.StrikeLine or CounterKind.OpenTicket })
+                    else if (_discount is { Kind: CounterKind.CreateCustomer or CounterKind.ChangeTab or CounterKind.TabOverride or CounterKind.PaidOut or CounterKind.NoSale or CounterKind.StrikeLine or CounterKind.OpenTicket })
                     {
                         _pin = string.Empty;
                         _discount = null;
@@ -410,9 +434,13 @@ public sealed class TillWindow : Window, IDisposable
 
         _formActions = new FormActions(
             Field: id => UpdateCustomer(panel => panel with { OnName = id == CustomerScreen.NameField }),
-            Row: id => UpdateCustomer(panel => panel.Kind is CustomerPanelKind.Repay or CustomerPanelKind.PettyCash
-                ? panel with { ReasonCode = id, Refused = null, OnName = false }
-                : panel with { Chosen = id, Refused = null }),
+            Row: id => UpdateCustomer(panel => panel.Kind switch
+            {
+                CustomerPanelKind.Repay or CustomerPanelKind.PettyCash => panel with { ReasonCode = id, Refused = null, OnName = false },
+                // The no-sale's only field is the note: typing goes there (board 5B).
+                CustomerPanelKind.NoSale => panel with { ReasonCode = id, Refused = null, OnName = true },
+                _ => panel with { Chosen = id, Refused = null },
+            }),
             Key: CustomerKey,
             Digit: key => UpdateCustomer(panel => CustomerScreen.Press(panel, key)),
             Backspace: () => UpdateCustomer(CustomerScreen.Backspace),
@@ -736,7 +764,8 @@ public sealed class TillWindow : Window, IDisposable
             _refund,
             new CustomerScreenState(_context?.CustomerModule ?? false, _context?.TabAsPart ?? true, _customerTab, _carnet, _customerPanel),
             _moreOpen,
-            _drawer));
+            _drawer,
+            PrintingOf()));
         var changes = TillScreen.Compare(_screen, screen);
         _screen = screen;
 
@@ -1131,6 +1160,17 @@ public sealed class TillWindow : Window, IDisposable
 
             case Key.F6:
                 Operate(Operation.TicketDiscount);
+                e.Handled = true;
+                break;
+
+            case Key.F9:
+                Operate(Operation.NoSale);
+                e.Handled = true;
+                break;
+
+            case Key.F7:
+                // "Imprimer le ticket" (D-126), where an operation ended without its paper.
+                Operate(Operation.PrintTicket);
                 e.Handled = true;
                 break;
 
@@ -1814,6 +1854,13 @@ public sealed class TillWindow : Window, IDisposable
                 _discount = null;
                 _ = SendCashAsync(authorisation);
                 return;
+            case CounterKind.NoSale:
+                // Who allowed it, named on the slot once the drawer opens (board 5D).
+                var approver = _discount.Staff?.Staff.FirstOrDefault(member => member.StaffId == _discount.ManagerId)?.StaffName;
+                _pin = string.Empty;
+                _discount = null;
+                _ = SendNoSaleAsync(authorisation, approver);
+                return;
             case CounterKind.CloseSession:
                 _pin = string.Empty;
                 _discount = null;
@@ -1896,6 +1943,7 @@ public sealed class TillWindow : Window, IDisposable
     {
         CounterKind.PriceOverride => Capabilities.OverridePrice,
         CounterKind.Cancel or CounterKind.StrikeLine => Capabilities.VoidTransaction,
+        CounterKind.NoSale => Capabilities.NoSale,
         CounterKind.OpenTicket => Capabilities.ViewOtherTickets,
         // Past the shop's window, the owner's PIN (D-125), which stands for the refund's too.
         CounterKind.Refund => open.PastWindow ? Capabilities.RefundPastWindow : Capabilities.Refund,
@@ -2148,6 +2196,9 @@ public sealed class TillWindow : Window, IDisposable
                 _customerPanel = panel with { Age = key, Refused = null };
                 Render();
                 break;
+            case CustomerScreen.PrintSlipKey when panel.Kind == CustomerPanelKind.Repaid:
+                _ = PrintAgainAsync();
+                break;
             case DrawerScreen.SwitchUserKey when panel.Kind == CustomerPanelKind.DrawerOpen:
                 // Somebody else opens the drawer: the till asks who (C1).
                 SwitchCashier();
@@ -2231,6 +2282,10 @@ public sealed class TillWindow : Window, IDisposable
 
             case CustomerPanelKind.PettyCash:
                 await SendCashAsync(null);
+                break;
+
+            case CustomerPanelKind.NoSale:
+                await SendNoSaleAsync(null);
                 break;
 
             case CustomerPanelKind.Clock:
@@ -2565,6 +2620,8 @@ public sealed class TillWindow : Window, IDisposable
             _carnet = _carnet is { } open ? open with { Tab = answer } : null;
             _customerTab = answer;
             _customerPanel = new CustomerPanelState(CustomerPanelKind.Repaid, Before: before, After: answer, At: _clock.GetUtcNow());
+            _repaidPaper = null;
+            _ = AfterRepaymentAsync(answer, _customerPanel.At!.Value);
         }
         else
         {
@@ -2625,6 +2682,7 @@ public sealed class TillWindow : Window, IDisposable
         {
             case CashMovementOutcomes.Recorded:
                 _customerPanel = now with { Kind = CustomerPanelKind.PettyCashDone, Sending = false };
+                _ = KickAsync(direction == CustomerScreen.CashOutKey ? DrawerOpenReason.PaidOut : DrawerOpenReason.PaidIn);
                 break;
 
             case CashMovementOutcomes.PinRequired:
@@ -2635,6 +2693,218 @@ public sealed class TillWindow : Window, IDisposable
                 await AuthoriseCustomerAsync(
                     CounterKind.PaidOut, _text.CashOutKey,
                     $"{_text.AmountTitle} {ShownWire(Contracts.Figures.Amount(hundredths), _context?.Currency)} · {label}");
+                return;
+
+            default:
+                _customerPanel = now with { Sending = false, Refused = answer is null ? _text.CarnetOffline : RefusalText.Say(_text, answer.Refusal, answer.Reason) };
+                break;
+        }
+
+        Render();
+    }
+
+    // =================================================================== D2: the paper and the drawer (D-126)
+
+    /// <summary>The printing for this frame; null with no printer, which says nothing of paper.</summary>
+    private PrintingState? PrintingOf() => _printer is null
+        ? null
+        : new PrintingState(
+            true,
+            _printingOn,
+            _printer.Fault,
+            _salePaper is { } sale && _session.Paid?.Outcome.InvoiceNumber == sale.Invoice ? sale.Paper : null,
+            _refundPaper is { } refund && _session.Viewing?.TransactionId == refund.TransactionId ? refund.Paper : null,
+            _customerPanel is { Kind: CustomerPanelKind.Repaid } ? _repaidPaper : null);
+
+    /// <summary>A pulse for its reason, when the till has a printer; a failure is the bar's to say.</summary>
+    private async Task<bool> KickAsync(DrawerOpenReason reason)
+    {
+        if (_printer is null)
+        {
+            return false;
+        }
+
+        var opened = await _printer.OpenDrawerAsync(reason);
+        Render();
+        return opened;
+    }
+
+    /// <summary>
+    /// A sale written (D-126): the drawer when it took cash, then the ticket, unless printing is
+    /// switched off at this till. Neither can undo the sale; a paper missing is printed from the paid rail.
+    /// </summary>
+    private async Task AfterSaleAsync(SaleOutcome outcome)
+    {
+        if (_printer is null || outcome.InvoiceNumber is not { } number)
+        {
+            return;
+        }
+
+        var opened = DrawerKicks.AfterSale(outcome) && await _printer.OpenDrawerAsync(DrawerOpenReason.Sale);
+        if (!_printingOn)
+        {
+            _salePaper = (number, new Paper(PaperOutcome.SwitchedOff, opened));
+            Render();
+            return;
+        }
+
+        _salePaper = (number, new Paper(await PrintTicketAsync(number) ? PaperOutcome.Printed : PaperOutcome.Failed, opened));
+        Render();
+    }
+
+    /// <summary>A refund written: the drawer when it paid out cash, then its ticket, which prints whatever the switch says (D-126).</summary>
+    private async Task AfterRefundAsync(RefundAnswer answer)
+    {
+        if (_printer is null || answer.InvoiceNumber is not { } number || answer.TransactionId is not { } id)
+        {
+            return;
+        }
+
+        var opened = DrawerKicks.AfterRefund(answer) && await _printer.OpenDrawerAsync(DrawerOpenReason.Refund);
+        _refundPaper = (id, number, new Paper(await PrintTicketAsync(number) ? PaperOutcome.Printed : PaperOutcome.Failed, opened));
+        Render();
+    }
+
+    /// <summary>A tab repaid: the drawer when it took cash, then the slip, the customer's proof, which always prints (D-126).</summary>
+    private async Task AfterRepaymentAsync(TabAnswer answer, DateTimeOffset at)
+    {
+        if (_printer is null)
+        {
+            return;
+        }
+
+        var opened = DrawerKicks.AfterRepayment(answer) && await _printer.OpenDrawerAsync(DrawerOpenReason.PaidIn);
+        _repaidPaper = new Paper(await PrintSlipAsync(answer, at) ? PaperOutcome.Printed : PaperOutcome.Failed, opened);
+        Render();
+    }
+
+    /// <summary>"Imprimer le ticket" (F7): the original of whichever operation just ended without its paper.</summary>
+    private async Task PrintAgainAsync()
+    {
+        if (_printer is null)
+        {
+            return;
+        }
+
+        if (_session.Paid?.Outcome.InvoiceNumber is { } number && _salePaper is { } sale && sale.Invoice == number && sale.Paper.Outcome != PaperOutcome.Printed)
+        {
+            _salePaper = (number, sale.Paper with { Outcome = await PrintTicketAsync(number) ? PaperOutcome.Printed : PaperOutcome.Failed });
+        }
+        else if (_refundPaper is { } refund && _session.Viewing?.TransactionId == refund.TransactionId && refund.Paper.Outcome != PaperOutcome.Printed)
+        {
+            _refundPaper = refund with { Paper = refund.Paper with { Outcome = await PrintTicketAsync(refund.Invoice) ? PaperOutcome.Printed : PaperOutcome.Failed } };
+        }
+        else if (_customerPanel is { Kind: CustomerPanelKind.Repaid, After: { } after, At: { } at } && _repaidPaper is { Outcome: not PaperOutcome.Printed } slip)
+        {
+            _repaidPaper = slip with { Outcome = await PrintSlipAsync(after, at) ? PaperOutcome.Printed : PaperOutcome.Failed };
+        }
+
+        Render();
+    }
+
+    /// <summary>A sale's or a refund's receipt, as the server reads it off the ticket's rows (D1), to the printer.</summary>
+    private async Task<bool> PrintTicketAsync(string number)
+    {
+        if (_printer is null || _session.SignedIn is not { } person)
+        {
+            return false;
+        }
+
+        var answer = await _server.ReceiptAsync(number, person.Token, null);
+        return answer is { Outcome: TicketOutcomes.Found, Receipt: { } receipt }
+            && await _printer.PrintAsync(ReceiptLayout.For(receipt, _printer.Columns));
+    }
+
+    /// <summary>A repayment's slip (D-125): what came off the tab and the cash step, from the server's answer.</summary>
+    private async Task<bool> PrintSlipAsync(TabAnswer answer, DateTimeOffset at)
+    {
+        if (_printer is null || _session.SignedIn is not { } person || answer.Currency is not { } currency
+            || (answer.Cleared ?? answer.CashCollected) is not { } clearedText)
+        {
+            return false;
+        }
+
+        _receiptStore ??= (await _server.ReceiptStoreAsync(person.Token))?.Store;
+        if (_receiptStore is null)
+        {
+            return false;
+        }
+
+        var cleared = WireFigures.Money(clearedText, currency);
+        var cash = answer.CashCollected is { } collected ? WireFigures.Money(collected, currency) : cleared;
+        var local = TimeZoneInfo.ConvertTime(at, TimeZoneInfo.Local);
+        var slip = new RepaymentSlip(
+            local.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            local.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+            _context?.TerminalName ?? _till.TerminalId ?? string.Empty,
+            _context?.StaffName?.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var first, ..] ? first : null,
+            cleared,
+            cash == cleared ? null : cash - cleared);
+        return await _printer.PrintAsync(ReceiptLayout.Repayment(_receiptStore, slip));
+    }
+
+    // =================================================================== D2: the no-sale (D-123, D-126)
+
+    private async Task LoadNoSaleReasonsAsync()
+    {
+        var reasons = await _server.NoSaleReasonsAsync();
+        if (_customerPanel is { Kind: CustomerPanelKind.NoSale } panel)
+        {
+            _customerPanel = panel with { Reasons = reasons, Refused = reasons is null ? _text.CarnetOffline : null };
+            Render();
+        }
+    }
+
+    /// <summary>
+    /// "Continuer": the no-sale to the server, which writes its row <b>before</b> the drawer opens
+    /// (D-126). Below rank 2: the manager step, then this again with the authorisation. Written: the
+    /// pulse, the panel gone, and the slot says who opened it and who allowed it until the next scan.
+    /// </summary>
+    /// <param name="approver">The name of whose PIN allowed it; null when the seller may alone.</param>
+    private async Task SendNoSaleAsync(string? authorisation, string? approver = null)
+    {
+        if (_customerPanel is not { Kind: CustomerPanelKind.NoSale, Sending: false, ReasonCode: { } reason } panel
+            || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        // Entrée is the panel's "Continuer": a reason that asks for a note is not sent without one (F-28).
+        if (panel.Reasons?.ReasonCodes.FirstOrDefault(r => r.Code == reason) is { RequiresNote: true } && panel.Name.Trim().Length == 0)
+        {
+            return;
+        }
+
+        _customerPanel = panel with { Sending = true, Refused = null };
+        Render();
+        var note = panel.Name.Trim();
+        var answer = await _server.NoSaleAsync(
+            new NoSaleRequest(_till.TerminalId ?? string.Empty, reason, note.Length == 0 ? null : note, authorisation), person.Token);
+        if (_customerPanel is not { Kind: CustomerPanelKind.NoSale } now)
+        {
+            return;
+        }
+
+        var label = panel.Reasons?.ReasonCodes.FirstOrDefault(r => r.Code == reason) is { } chosen
+            ? (_text.RightToLeft ? chosen.LabelAr : chosen.LabelFr)
+            : reason;
+        switch (answer?.Outcome)
+        {
+            case CashMovementOutcomes.Recorded:
+                _customerPanel = null;
+                var at = TimeZoneInfo.ConvertTime(answer.At ?? _clock.GetUtcNow(), TimeZoneInfo.Local);
+                _session.Tell(TillNoticeKind.NoSaleOpened, "-", _text.NoSaleOpenedDetail(DisplayFigures.Clock(at), _context?.StaffName ?? "-", approver));
+                Render();
+                _input.Focus();
+                await KickAsync(DrawerOpenReason.NoSale);
+                return;
+
+            case CashMovementOutcomes.PinRequired:
+                _customerPanel = now with { Sending = false };
+                var clock = DisplayFigures.Clock(TimeZoneInfo.ConvertTime(_clock.GetUtcNow(), TimeZoneInfo.Local));
+                await AuthoriseCustomerAsync(
+                    CounterKind.NoSale, _text.NoSalePanelTitle,
+                    _text.NoSaleApprovalSummary(label, _session.Cart.ActiveLines.Count, _context?.StaffName ?? "-", clock));
                 return;
 
             default:
@@ -2668,6 +2938,12 @@ public sealed class TillWindow : Window, IDisposable
         _drawer = state;
         if (state.Open is null && _customerPanel is null or { Kind: CustomerPanelKind.DrawerOpen })
         {
+            // The float is counted in the drawer (D-126): it opens once, when the panel first asks for it.
+            if (_customerPanel is null)
+            {
+                _ = KickAsync(DrawerOpenReason.ShiftStart);
+            }
+
             _search = null;
             _moreOpen = false;
             _customerPanel = (_customerPanel ?? new CustomerPanelState(CustomerPanelKind.DrawerOpen)) with { Drawer = state };
@@ -2769,6 +3045,13 @@ public sealed class TillWindow : Window, IDisposable
 
         _customerPanel = panel;
         Render();
+
+        // The close is counted in the drawer (D-126): it opens when the count is to be typed, not for a
+        // count already kept, nor while a ticket waits to be settled.
+        if (panel is { Kind: CustomerPanelKind.DrawerCount, Checked: false, Drawer.Open: not null })
+        {
+            await KickAsync(DrawerOpenReason.ShiftEnd);
+        }
     }
 
     /// <summary>
@@ -3151,6 +3434,7 @@ public sealed class TillWindow : Window, IDisposable
                 EndRefund();
                 _input.Text = string.Empty;
                 await OpenTicketAsync(answer.InvoiceNumber ?? answer.TransactionId ?? ticket.TransactionId);
+                _ = AfterRefundAsync(answer);
 
                 // Cash to hand back, said again over the refund's ticket: the panel that showed it is gone.
                 if (answer.RefundTo != RefundDestinations.StoreCredit && answer.CashOut is { } handBack)
@@ -3268,6 +3552,29 @@ public sealed class TillWindow : Window, IDisposable
                 Render();
                 break;
 
+            case Operation.PrintTicket:
+                // "Imprimer le ticket", F7 (D-126): the paper that did not come out, the original.
+                _ = PrintAgainAsync();
+                break;
+
+            case Operation.NoSale:
+                // "Ouvrir le tiroir" (D-126): from "Plus…" or F9, the same panel. Not with the drawer shut.
+                if (_drawer?.Open is null || _session.Unconfirmed is not null || _customerPanel is not null || _payment is not null)
+                {
+                    break;
+                }
+
+                _moreOpen = false;
+                OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.NoSale));
+                _ = LoadNoSaleReasonsAsync();
+                break;
+
+            case Operation.Printing:
+                // Sale tickets switched off or on again (D-126); "Plus…" stays open to show the new state.
+                _printingOn = !_printingOn;
+                Render();
+                break;
+
             case Operation.XReport:
                 // C2 (D-112): the open session's figures, or the till's past closes when it is shut.
                 _moreOpen = false;
@@ -3344,6 +3651,8 @@ public sealed class TillWindow : Window, IDisposable
             if (await _signIn.SubmitAsync() is { } person)
             {
                 _session.SignIn(person);
+                _printingOn = true;
+                _receiptStore = null;
                 await LoadContextAsync();
                 await RefreshBoardAsync();
 
@@ -3539,9 +3848,12 @@ public sealed class TillWindow : Window, IDisposable
         {
             // Recorded against the attached customer, with the owner's word past the tab's limit (B7).
             await _session.PayAsync(tenders, _session.Cart.Customer?.CustomerId, _payment?.TabOverride);
-            if (_session.Paid is not null)
+            if (_session.Paid is { } paid)
             {
                 _customerTab = null;
+
+                // Written: the drawer when cash moved, then the paper (D-126). Neither touches the sale.
+                _ = AfterSaleAsync(paid.Outcome);
             }
             _payment = _session.Paid is null && _session.Unconfirmed is null && _session.SignedIn is not null && _payment is { } kept
                 ? kept with { Sending = false, Refused = _session.Notice is { Kind: TillNoticeKind.SaleRefused } refused ? refused.Detail : null }
@@ -3614,6 +3926,8 @@ public sealed class TillWindow : Window, IDisposable
             if (open && await _signIn.SubmitAsync() is { } person)
             {
                 _session.SignIn(person);
+                _printingOn = true;
+                _receiptStore = null;
                 await LoadContextAsync();
                 await RefreshBoardAsync();
                 await LoadDrawerAsync();

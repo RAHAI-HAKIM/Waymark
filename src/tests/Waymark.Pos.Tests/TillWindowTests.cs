@@ -839,8 +839,10 @@ public sealed partial class TillWindowTests
     /// <summary>A shown till window with its session and fake server, closed at the end of the test.</summary>
     private sealed class Till : IDisposable
     {
-        public Till(FakeStoreServer server, bool signedIn)
+        /// <param name="printer">A printer that keeps what it was sent (D2); null starts the till with none, as most tests do.</param>
+        public Till(FakeStoreServer server, bool signedIn, RecordingPrinter? printer = null)
         {
+            Printer = printer;
             Server = server;
             var identity = new TillIdentity("till-1");
             Session = new TillSession(server, server, identity, TimeProvider.System);
@@ -849,7 +851,9 @@ public sealed partial class TillWindowTests
                 Session.SignIn(new SignedInStaff("nabil", "token"));
             }
 
-            Window = new TillWindow(Session, server, identity, TillLanguage.French, TillThemeKind.Light, TimeProvider.System);
+            Window = new TillWindow(
+                Session, server, identity, TillLanguage.French, TillThemeKind.Light, TimeProvider.System,
+                printer is null ? null : new Receipts.TillPrinter(printer, printer, 42));
             Window.Show();
             Pump();
         }
@@ -867,6 +871,9 @@ public sealed partial class TillWindowTests
         public static string Code(int i) => $"61300000{i:D5}";
 
         public FakeStoreServer Server { get; }
+
+        /// <summary>What the till printed and why the drawer opened, in order; null for a till started with no printer.</summary>
+        public RecordingPrinter? Printer { get; }
 
         public TillSession Session { get; }
 

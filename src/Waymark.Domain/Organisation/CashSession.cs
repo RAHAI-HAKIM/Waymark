@@ -65,6 +65,9 @@ public sealed class CashSession : IStoreScoped
 
     public Money? VarianceAlertValue { get; init; }
 
+    /// <summary>The tenant's <c>no_sale_alert_count</c> in force at the close (D-126), frozen with the other three.</summary>
+    public long? NoSaleAlertCount { get; init; }
+
     /// <summary>
     /// A blind count kept by the server while the session is still open (D-119): what somebody who is
     /// not shown the drawer's figure first counted, so the close cannot be asked again and again with

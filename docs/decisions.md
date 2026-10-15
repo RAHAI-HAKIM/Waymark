@@ -793,7 +793,7 @@ its Code 128, the store's legal line, the store's text, our signature. **Changed
   and centred above our signature; `--receipt-footer=` until H2's store screen.
 - **Our signature**: "Échange ou remboursement sous N jours avec ce ticket." when the tenant has
   a window, then "Facture sur demande." (the consumer's right, art. 10; H3 produces it).
-- **The refund window** (Hakim, 14/10): `refund_window_days`, a tenant key, 1 to 365; absent, there
+- **The refund window** (Hakim, 14/10): `refund_window_days`, a tenant key, 1 to 30, a month; absent, there
   is no window and no line. **Past it** (the sale's day against today, in the store), a refund is
   refused as `refund_window_passed` **unless the seller is the owner or an owner's PIN is cited**:
   `Capability.RefundPastWindow`, rank 3, no tenant key. A manager is held to it: under D-109 a
@@ -811,6 +811,41 @@ width**: `GS ! 1` is double height only, and the Phase 0 encoder wrapped it at h
 in K1.
 
 Migration `ReceiptFooter`: one added column.
+
+### D-126 — Printing and the drawer at the till, from the D2 boards (Hakim, 14/10)
+- **The drawer opens when cash moves, and to count it**: a sale with a cash part, a cash refund,
+  cash in or out, a tab repaid in cash; and the count at the session's opening and at its close.
+  The server writes the row first; the pulse follows, then the paper, so the change goes out
+  before the receipt. A card or tab sale, a refund to the tab or to store credit, open nothing.
+- **Printing can be switched off under "Plus…"** (section IMPRIMANTE, one switch, "Activée" or
+  "Coupée"), for sale tickets only: a refund's ticket, a repayment's slip and a duplicate always
+  print, being the shop's proof. **No record of the switch** (Hakim): it moves no money, and the
+  paid screen says "Ticket non imprimé — impression coupée". **On again at each sign-in**, as
+  D-124 has it, not at the session's opening as the board drew it.
+- **The bar says so**: a neutral chip "IMPRESSION COUPÉE"; a printer that fails, a warning chip
+  that stays until a print goes through. **Its cause** (no paper, cover open) is read from the
+  printer, which needs the device: K1. Until then the fake sink can only say it did not answer.
+- **A paper that did not come out is printed from where the operation ended**: "Imprimer le
+  ticket" (F7) on the paid rail, the refund's ticket and the repayment's panel, which prints the
+  original, not a duplicate, while no paper of it has come out; once printed, the key becomes
+  "Réimprimer" (D3). One copy of everything, a refund included (Hakim).
+- **Removed from the boards**: "Espèces reçues … rendues …" and "rendez 180,00": nothing records
+  what was handed over or given back. The drawer's line says "Tiroir ouvert — refermez-le".
+- **A no-sale**: "Ouvrir le tiroir" under "Plus…" and F9 on the rail, the same panel: a
+  `no_sale` reason, a note when the reason asks for one, an approval for a cashier (rank 2, as
+  D-123); the ticket in progress is left as it is, and scans are ignored while the panel is open.
+  The row is written before the pulse. No paper.
+- **On the X and Z** (Hakim, after first saying no): the count to whoever reads the report; the
+  detail (hour, who, reason, who authorised) and a TROP D'OUVERTURES SANS VENTE flag to the owner
+  alone, as D-112 and D-118 have them; the count on the by-cashier tab. The flag's threshold is a
+  tenant key, `no_sale_alert_count`, until Admin sets it, **frozen at the close** like the other
+  three (D-112): `cash_sessions.no_sale_alert_count` (Hakim, 14/10). **No amount column**: a no-sale
+  moves none by definition; an amount would make it a cash movement.
+- **Not drawn, decided with the build**: "Plus…" keeps petty cash and "Changer d'utilisateur"
+  where they are (the board listed them in the menu); F9 is the keyboard's, not a new tile; no
+  padlock on the menu's rows, since the till does not know which steps will ask for a PIN.
+
+Migration `NoSaleAlertCount`: one added column.
 
 ---
 

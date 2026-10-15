@@ -155,6 +155,7 @@ builder.Services.AddScoped<CompleteSaleHandler>();
 builder.Services.AddScoped<VoidTicketHandler>();
 builder.Services.AddScoped<RefundSaleHandler>();
 builder.Services.AddScoped<RecordCashMovementHandler>();
+builder.Services.AddScoped<RecordNoSaleHandler>();
 builder.Services.AddScoped<ICashSessionLedger, Waymark.Persistence.Organisation.CashSessionLedger>();
 builder.Services.AddScoped<OpenCashSessionHandler>();
 builder.Services.AddScoped<CloseCashSessionHandler>();
@@ -786,6 +787,43 @@ app.MapPost("/api/cash/movements", async (
     {
         return Results.Ok(new CashMovementAnswer(
             CashMovementOutcomes.Refused, Reason: refusal.Message, Refusal: SaleWire.Coded(refusal.Code, refusal.Args)));
+    }
+    finally
+    {
+        oneSaleAtATime.Release();
+    }
+});
+
+// D2 (D-123, D-126): the drawer opened with nothing sold. Who opens it is the session's; below rank 2
+// it cites an authorisation of this session for NoSale. The row is written here, before the till pulses.
+app.MapPost("/api/cash/no-sale", async (
+    NoSaleRequest request, HttpRequest http, TillSessions sessions, IRecommendationBoard staff,
+    CommandExecutor executor, RecordNoSaleHandler handler, CancellationToken cancellationToken) =>
+{
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (sessions.Resolve(token) is not { } session || !string.Equals(session.TerminalId, request.TerminalId, StringComparison.Ordinal))
+    {
+        return Results.Ok(new NoSaleAnswer(CashMovementOutcomes.NotSignedIn));
+    }
+
+    var sellerMay = StaffPermissions.May((await staff.StaffAsync(session.StaffId, cancellationToken))?.Rank, Capability.NoSale);
+    var authorisedBy = sessions.AuthorisedBy(token, request.Authorisation, Capability.NoSale);
+    if (!sellerMay && authorisedBy is null)
+    {
+        return Results.Ok(new NoSaleAnswer(
+            CashMovementOutcomes.PinRequired, Reason: "A manager opens the drawer with nothing sold.", Refusal: new Refusal(RefusalCodes.NoSaleNeedsManager)));
+    }
+
+    await oneSaleAtATime.WaitAsync(cancellationToken);
+    try
+    {
+        var recorded = await executor.ExecuteAsync(
+            handler, new RecordNoSale(session.TerminalId, session.StaffId, request.ReasonCode, request.Note, sellerMay, authorisedBy), cancellationToken);
+        return Results.Ok(new NoSaleAnswer(CashMovementOutcomes.Recorded, recorded.At));
+    }
+    catch (CashMovementRefusedException refusal)
+    {
+        return Results.Ok(new NoSaleAnswer(CashMovementOutcomes.Refused, Reason: refusal.Message, Refusal: SaleWire.Coded(refusal.Code, refusal.Args)));
     }
     finally
     {

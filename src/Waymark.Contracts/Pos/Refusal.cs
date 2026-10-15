@@ -138,6 +138,9 @@ public static class RefusalCodes
     /// <summary>The shop asks for a manager to take cash out of the drawer.</summary>
     public const string PaidOutNeedsManager = "paid_out_needs_manager";
 
+    /// <summary>The drawer opened with nothing sold is a manager's, or needs a manager's PIN (D-123).</summary>
+    public const string NoSaleNeedsManager = "no_sale_needs_manager";
+
     /// <summary>
     /// More cash asked of the drawer than it should hold (C1, F-35). Names nothing: what the drawer
     /// holds is not a cashier's to be told when the close is blind.

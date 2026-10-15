@@ -102,6 +102,11 @@ public static partial class TillViews
         };
 
         var end = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        if (top.Printer is { } printer)
+        {
+            end.Children.Add(PrinterChipView(printer, theme));
+        }
+
         end.Children.Add(ConnectionChip(top.Connection, theme));
         if (top.Staff is { } staff)
         {
@@ -214,6 +219,29 @@ public static partial class TillViews
         grid.Children.Add(Cell(end, 3));
 
         return new Border { Background = theme.Bar, Height = TillSizes.TopBar, Child = grid };
+    }
+
+    /// <summary>
+    /// The printer's chip (board 2): outlined and neutral when printing is switched off, since nothing
+    /// is wrong; the warning's outline and ink when the printer fails, its cause named.
+    /// </summary>
+    private static Border PrinterChipView(PrinterChip chip, TillTheme theme)
+    {
+        var (mark, text) = theme.ToneOnBar(chip.Tone);
+        return new Border
+        {
+            BorderBrush = mark ?? theme.BarKeyBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.FieldRadius),
+            Padding = new Thickness(8, 4),
+            Tag = chip,
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children = { TillTheme.Icon(LucideIcons.Printer, text, 14), theme.Label(chip.Label, text) },
+            },
+        };
     }
 
     private static Control ConnectionChip(Connection connection, TillTheme theme)
@@ -632,7 +660,7 @@ public static partial class TillViews
 
     public static Control Rail(Rail rail, TillTheme theme, TillActions actions) => rail switch
     {
-        Screen.Rail.Paid paid => PaidPanel(paid, theme),
+        Screen.Rail.Paid paid => PaidPanel(paid, theme, null, actions),
         Screen.Rail.Unconfirmed unconfirmed => UnconfirmedCard(unconfirmed, theme, actions),
         Screen.Rail.Rest rest => RestRail(rest, theme, actions),
         Screen.Rail.Drafts drafts => DraftsPanel(drafts, theme, actions),
@@ -651,13 +679,21 @@ public static partial class TillViews
     {
         var dock = new DockPanel { LastChildFill = true };
 
-        var keys = new UniformGrid { Columns = 3, Margin = new Thickness(-2, -2, -2, 12) };
-        foreach (var operation in rest.Operations)
+        if (rest.Sections is { } sections)
         {
-            keys.Children.Add(OperationTile(operation, theme, actions));
+            // "Plus…" (D-126): a list in sections, the way back below it.
+            dock.Children.Add(Docked(MoreList(sections, rest.Operations, theme, actions), Dock.Top));
         }
+        else
+        {
+            var keys = new UniformGrid { Columns = 3, Margin = new Thickness(-2, -2, -2, 12) };
+            foreach (var operation in rest.Operations)
+            {
+                keys.Children.Add(OperationTile(operation, theme, actions));
+            }
 
-        dock.Children.Add(Docked(keys, Dock.Top));
+            dock.Children.Add(Docked(keys, Dock.Top));
+        }
         if (rest.Almanac is { } slot)
         {
             dock.Children.Add(Docked(Almanac(slot, theme, actions), Dock.Bottom));
@@ -666,6 +702,102 @@ public static partial class TillViews
         dock.Children.Add(new Border());
         return dock;
     }
+
+    /// <summary>
+    /// "Plus…" as the board draws it (D-126): a card of sections, each a title and its rows; a row is
+    /// its icon, its word, its F key, and for the printer's switch its state in words before the switch
+    /// itself. Touching the switch leaves the list open, to see the new state; "Retour" closes it.
+    /// </summary>
+    private static StackPanel MoreList(IReadOnlyList<MoreSection> sections, IReadOnlyList<OperationKey> operations, TillTheme theme, TillActions actions)
+    {
+        var list = new StackPanel { Spacing = 4 };
+        var card = new StackPanel { Spacing = 2 };
+        foreach (var section in sections)
+        {
+            card.Children.Add(new Border { Margin = new Thickness(12, 10, 12, 2), Child = theme.Label(section.Title) });
+            foreach (var row in section.Rows)
+            {
+                card.Children.Add(MoreRowKey(row, theme, actions));
+            }
+        }
+
+        list.Children.Add(new Border
+        {
+            Background = theme.Card,
+            BorderBrush = theme.BorderSubtle,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(TillSizes.CardRadius),
+            Padding = new Thickness(4, 4, 4, 8),
+            Child = card,
+        });
+
+        if (operations.FirstOrDefault(key => key.Operation == Operation.More) is { } back)
+        {
+            list.Children.Add(new Border { Margin = new Thickness(-2, 8, -2, 12), Child = OperationTile(back, theme, actions) });
+        }
+
+        return list;
+    }
+
+    private static TillKey MoreRowKey(MoreRow row, TillTheme theme, TillActions actions)
+    {
+        var key = row.Key;
+        var ink = key.Enabled ? theme.Text : theme.DisabledLabel;
+        var icon = key.Operation switch
+        {
+            Operation.XReport => LucideIcons.History,
+            Operation.CloseDrawer => LucideIcons.Lock,
+            Operation.Printing => LucideIcons.Printer,
+            Operation.NoSale => LucideIcons.Banknote,
+            Operation.Clock => LucideIcons.User,
+            _ => LucideIcons.Ellipsis,
+        };
+
+        var face = new DockPanel { Margin = new Thickness(8, 0) };
+        var end = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        if (row.State is { } state)
+        {
+            end.Children.Add(theme.Label(state, theme.TextSecondary));
+            end.Children.Add(Switch(row.On == true, theme));
+        }
+        else if (key.Key is { } fKey)
+        {
+            end.Children.Add(theme.Label(fKey, theme.TextMuted));
+        }
+
+        face.Children.Add(Docked(end, Dock.Right));
+        face.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { TillTheme.Icon(icon, ink, 16), Words(key.Label, 14, FontWeight.SemiBold, ink, theme) },
+        });
+
+        var operation = key.Operation;
+        return new TillKey(theme, row.On == false ? KeyLook.Chosen : KeyLook.Secondary, face, () => actions.Operate(operation), key.Enabled, height: 44)
+        {
+            Tag = key,
+        };
+    }
+
+    /// <summary>A switch: violet and to the end when on, the disabled fill and to the start when off (kit §6: violet is the operator's).</summary>
+    private static Border Switch(bool on, TillTheme theme) => new()
+    {
+        Width = 36,
+        Height = 20,
+        CornerRadius = new CornerRadius(10),
+        Background = on ? theme.Action : theme.DisabledFill,
+        Padding = new Thickness(2),
+        Child = new Border
+        {
+            Width = 16,
+            Height = 16,
+            CornerRadius = new CornerRadius(8),
+            Background = on ? theme.ActionLabel : theme.Card,
+            HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+        },
+    };
 
     /// <summary>An operation key: its icon, its word, its F key in the corner (G1 board). Unavailable is its own look.</summary>
     private static TillKey OperationTile(OperationKey operation, TillTheme theme, TillActions actions)
@@ -1106,11 +1238,12 @@ public static partial class TillViews
     /// </summary>
     private static Border PastPanel(Rail.Past past, TillTheme theme, TillActions actions) =>
         PaidPanel(
-            new Rail.Paid(past.Label, past.Title, past.Subtitle, past.Figures, past.Footer),
+            new Rail.Paid(past.Label, past.Title, past.Subtitle, past.Figures, past.Footer, past.Paper),
             theme,
-            past.Refund is { } refund ? new Border { Margin = new Thickness(-2, 0, -2, 12), Child = OperationTile(refund, theme, actions) } : null);
+            past.Refund is { } refund ? new Border { Margin = new Thickness(-2, 0, -2, 12), Child = OperationTile(refund, theme, actions) } : null,
+            actions);
 
-    private static Border PaidPanel(Rail.Paid paid, TillTheme theme, Control? action = null)
+    private static Border PaidPanel(Rail.Paid paid, TillTheme theme, Control? action = null, TillActions? actions = null)
     {
         var figures = new StackPanel();
         foreach (var figure in paid.Figures)
@@ -1134,14 +1267,62 @@ public static partial class TillViews
                         Words(paid.Title, 24, FontWeight.SemiBold, theme.Text, theme),
                         theme.Prose(paid.Subtitle, 14, theme.TextSecondary),
                         new Border { Margin = new Thickness(0, 12, 0, 0), Child = figures },
+                        paid.Paper is { } paper ? PaperView(paper, theme) : new Border(),
                     },
                 }, Dock.Top),
                 Docked(theme.BodySmall(paid.Footer), Dock.Bottom),
                 action is null ? new Border() : Docked(action, Dock.Bottom),
+                paid.Paper?.Print is { } print && actions is not null
+                    ? Docked(new Border { Margin = new Thickness(-2, 0, -2, 12), Child = OperationTile(print, theme, actions) }, Dock.Bottom)
+                    : new Border(),
                 new Border(),
             },
         });
     }
+
+    /// <summary>
+    /// The paper's lines where the operation ended (boards 3 and 4): a warning when the printer failed,
+    /// which takes the place of the "imprimé" line; else that line; then the drawer's.
+    /// </summary>
+    private static StackPanel PaperView(PaperBlock paper, TillTheme theme)
+    {
+        var block = new StackPanel { Spacing = 8, Margin = new Thickness(0, 12, 0, 0), Tag = paper };
+        if (paper.Warning is { } warning)
+        {
+            block.Children.Add(Refusal(theme, warning));
+        }
+
+        var lines = new StackPanel { Spacing = 6 };
+        if (paper.Status is { } status)
+        {
+            lines.Children.Add(PaperLine(LucideIcons.Printer, status, theme));
+        }
+
+        if (paper.Drawer is { } drawer)
+        {
+            lines.Children.Add(PaperLine(LucideIcons.Banknote, drawer, theme));
+        }
+
+        if (lines.Children.Count > 0)
+        {
+            block.Children.Add(new Border
+            {
+                Background = theme.Tile,
+                CornerRadius = new CornerRadius(TillSizes.FieldRadius),
+                Padding = new Thickness(10, 8),
+                Child = lines,
+            });
+        }
+
+        return block;
+    }
+
+    private static StackPanel PaperLine(string icon, string words, TillTheme theme) => new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 8,
+        Children = { TillTheme.Icon(icon, theme.TextSecondary, 14), Wrapped(theme.BodySmall(words, theme.Text)) },
+    };
 
     /// <summary>
     /// A sale with no answer: critical, with room to say what to do. No "Réessayer" — nothing yet

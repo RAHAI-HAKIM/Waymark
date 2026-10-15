@@ -193,6 +193,9 @@ public static class ReportScreen
             [
                 Line(text.CashInLine, column => Amount(column.PaidIn)), Line(text.CashOutLine, column => Off(column.PaidOut)),
                 Line(text.TabRepaymentsLine, column => Amount(column.TabRepayments)),
+
+                // D-126: counted, with no figure.
+                Line(text.NoSalesRow, column => Count(column.NoSales)),
             ]));
         }
 
@@ -269,8 +272,29 @@ public static class ReportScreen
 
         sections.Insert(sections.Count - 1, DrawerSection(text, report, clock) with { Second = true });
         sections[^1] = sections[^1] with { Second = true };
-        sections.Add(new ReportSection(text.NoSaleTitle, null, [], [], Note: text.NoSaleNote) { Second = true });
+        sections.Add(NoSaleSection(text, report, clock) with { Second = true });
         return sections;
+    }
+
+    /// <summary>
+    /// The drawer opened with nothing sold (board 6, D-126): the count to every reader; each opening,
+    /// which names people, to the owner, by its hour, who, why and who allowed it; anyone else is told
+    /// the detail is the owner's. No amount column: a no-sale moves none.
+    /// </summary>
+    private static ReportSection NoSaleSection(TillText text, ShiftReportWire report, Func<DateTimeOffset, string> clock)
+    {
+        var count = report.NoSales?.Count ?? 0;
+        var lines = new List<ReportLine> { new(text.NoSalesCount, null, DisplayFigures.Count(count), Strong: true) };
+        if (report.NoSales?.Openings is { } openings)
+        {
+            lines.AddRange(openings.Select(opening => new ReportLine(
+                $"{clock(opening.At)} · {opening.StaffName ?? "?"}",
+                opening.AuthorisedBy ?? "—",
+                (text.RightToLeft ? opening.ReasonAr : opening.ReasonFr) + (opening.Note is { } note ? $" · « {note} »" : string.Empty))));
+            return new ReportSection(text.NoSaleTitle, text.OwnerOnly, [text.NoSaleAuthorisedBy, text.NoSaleReason], lines);
+        }
+
+        return new ReportSection(text.NoSaleTitle, null, [], lines, Note: count > 0 ? text.NoSaleDetailReserved : null);
     }
 
     /// <summary>The drawer's lines, which add up to its expected cash, then its count and its variance by its label.</summary>
@@ -329,6 +353,8 @@ public static class ReportScreen
             ShiftFlagKinds.VariancePastThreshold => new ReportLine(text.FlagVariance, null, text.FlagVarianceDetail(Value(), Limit()), Tone: Tone.Critical),
             ShiftFlagKinds.TooManyCancels => new ReportLine(
                 text.FlagTooMany, null, text.FlagTooManyDetail(who, flag.Count ?? 0, flag.Threshold ?? "?"), Tone: Tone.Warning),
+            ShiftFlagKinds.TooManyNoSales => new ReportLine(
+                text.TooManyNoSales, null, text.TooManyNoSalesDetail(who, flag.Count ?? 0, flag.Threshold), Tone: Tone.Warning),
             _ => new ReportLine(text.FlagAboveValue, null, text.FlagAboveDetail(Value(), who, at, Limit()), Tone: Tone.Warning),
         };
     }

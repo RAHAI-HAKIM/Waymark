@@ -114,6 +114,73 @@ public sealed class RecordCashMovementHandler(
     }
 }
 
+/// <summary>
+/// The drawer opened with nothing sold (D2, D-123, D-126): on the till's open cash session, with an
+/// active <c>no_sale</c> reason and, for somebody below <c>NoSale</c>, who authorised it.
+/// </summary>
+/// <param name="SellerMay">The seller's rank reaches <c>NoSale</c>, as the host asked <c>StaffPermissions</c>.</param>
+/// <param name="AuthorisedBy">Whose PIN the till cited, resolved by the host; null when none.</param>
+public sealed record RecordNoSale(string TerminalId, string StaffId, string ReasonCode, string? Note, bool SellerMay, string? AuthorisedBy)
+    : ICommand<RecordedNoSale>;
+
+public sealed record RecordedNoSale(string NoSaleId, DateTimeOffset At);
+
+/// <summary>
+/// Records a no-sale (D-126): one <c>no_sale_openings</c> row, append-only, written <b>before</b> the
+/// till pulses the drawer, so a lost pulse leaves a record with no opening and never an opening with no
+/// record. No money: a no-sale moves none by definition, and the report counts it (C2's section).
+/// </summary>
+public sealed class RecordNoSaleHandler(ISalesLedger ledger, IStaging staging, IReasonCodes reasons, TimeProvider clock)
+    : ICommandHandler<RecordNoSale, RecordedNoSale>
+{
+    public async Task<RecordedNoSale> HandleAsync(RecordNoSale command, CommandContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(command.TerminalId);
+
+        if (!command.SellerMay && string.IsNullOrWhiteSpace(command.AuthorisedBy))
+        {
+            throw new CashMovementRefusedException("A manager opens the drawer with nothing sold.", RefusalCodes.NoSaleNeedsManager);
+        }
+
+        var reason = (await reasons.ForAsync(ReasonCodeAppliesTo.NoSale, cancellationToken)).FirstOrDefault(r => r.Code == command.ReasonCode)
+            ?? throw new CashMovementRefusedException(
+                $"'{command.ReasonCode}' is not a reason this shop gives for opening the drawer.", RefusalCodes.ReasonUnknown, command.ReasonCode);
+        if (reason.RequiresNote && string.IsNullOrWhiteSpace(command.Note))
+        {
+            throw new CashMovementRefusedException($"'{command.ReasonCode}' asks for a note, and none was written.", RefusalCodes.NoteMissing);
+        }
+
+        if (!SaleLimits.NoteFits(command.Note))
+        {
+            throw new CashMovementRefusedException(
+                $"A note is {SaleLimits.MaxNoteLength} characters at most.", RefusalCodes.NoteTooLong,
+                SaleLimits.MaxNoteLength.ToString(CultureInfo.InvariantCulture));
+        }
+
+        var store = await ledger.CurrentStoreAsync(cancellationToken)
+            ?? throw new CashMovementRefusedException("This store has no row in stores; it is not commissioned.");
+        var open = await ledger.OpenCashSessionAsync(command.TerminalId, cancellationToken)
+            ?? throw new CashMovementRefusedException(CashSessions.NoneOpen, RefusalCodes.NoOpenSession);
+        var now = clock.GetUtcNow();
+        var opening = new NoSaleOpening
+        {
+            NoSaleId = context.NewId(),
+            StoreId = store.StoreId,
+            SessionId = open.SessionId,
+            TerminalId = command.TerminalId,
+            StaffId = command.StaffId,
+            AuthorisedBy = command.SellerMay ? null : command.AuthorisedBy,
+            ReasonCode = command.ReasonCode,
+            Note = string.IsNullOrWhiteSpace(command.Note) ? null : command.Note.Trim(),
+            OccurredAt = now,
+        };
+        staging.Add(opening);
+        return new RecordedNoSale(opening.NoSaleId, now);
+    }
+}
+
 /// <summary>A person clocking in or out at a till (B10, D-102); the host has checked their PIN.</summary>
 public sealed record ToggleClock(string StaffId, string TerminalId) : ICommand<Clocked>;
 

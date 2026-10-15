@@ -29,7 +29,26 @@ public sealed record ShiftReportWire(
     [property: JsonPropertyName("flag_count")] int FlagCount,
     [property: JsonPropertyName("flags")] IReadOnlyList<ShiftFlagWire>? Flags,
     [property: JsonPropertyName("reconciles")] bool Reconciles,
-    [property: JsonPropertyName("cashiers")] CashierSplitWire? Cashiers = null);
+    [property: JsonPropertyName("cashiers")] CashierSplitWire? Cashiers = null,
+    [property: JsonPropertyName("no_sales")] NoSalesWire? NoSales = null);
+
+/// <summary>
+/// The drawer opened with nothing sold (D-126): how many, to whoever reads the report; each one, which
+/// names people, only to who reads the flags. No amount: a no-sale moves none.
+/// </summary>
+/// <param name="Openings">Null unless the reader reads the flags.</param>
+public sealed record NoSalesWire(
+    [property: JsonPropertyName("count")] int Count,
+    [property: JsonPropertyName("openings")] IReadOnlyList<NoSaleRowWire>? Openings);
+
+/// <summary>One no-sale: when, who, why, and whose PIN allowed it.</summary>
+public sealed record NoSaleRowWire(
+    [property: JsonPropertyName("at")] DateTimeOffset At,
+    [property: JsonPropertyName("staff_name")] string? StaffName,
+    [property: JsonPropertyName("reason_fr")] string ReasonFr,
+    [property: JsonPropertyName("reason_ar")] string ReasonAr,
+    [property: JsonPropertyName("note")] string? Note,
+    [property: JsonPropertyName("authorised_by")] string? AuthorisedBy);
 
 /// <summary>
 /// A session by cashier (C3, D-118). It names people, so only who reads the flags is sent it whole;
@@ -75,7 +94,8 @@ public sealed record CashierColumnWire(
     [property: JsonPropertyName("overrides")] TallyWire Overrides,
     [property: JsonPropertyName("paid_in")] string PaidIn,
     [property: JsonPropertyName("paid_out")] string PaidOut,
-    [property: JsonPropertyName("tab_repayments")] string TabRepayments);
+    [property: JsonPropertyName("tab_repayments")] string TabRepayments,
+    [property: JsonPropertyName("no_sales")] int NoSales = 0);
 
 public static class ShiftReportKinds
 {
@@ -171,6 +191,8 @@ public static class ShiftFlagKinds
     public const string TooManyCancels = "too_many_cancels";
 
     public const string CancelAboveValue = "cancel_above_value";
+
+    public const string TooManyNoSales = "too_many_no_sales";
 }
 
 /// <summary>A report, or why not.</summary>

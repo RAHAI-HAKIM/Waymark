@@ -38,6 +38,24 @@ public static class CashMovementOutcomes
     public const string PinRequired = "pin_required";
 }
 
+/// <summary>
+/// The drawer opened with nothing sold (D2, D-126): a <c>no_sale</c> reason, a note when it asks for
+/// one, and for somebody below rank 2 what <c>/api/till/authorise</c> answered for <see cref="Capabilities.NoSale"/>.
+/// </summary>
+public sealed record NoSaleRequest(
+    [property: JsonPropertyName("terminal_id")] string TerminalId,
+    [property: JsonPropertyName("reason_code")] string ReasonCode,
+    [property: JsonPropertyName("note")] string? Note = null,
+    [property: JsonPropertyName("authorisation")] string? Authorisation = null);
+
+/// <summary>The no-sale recorded, the drawer the till's to open; or why not. Outcomes are <see cref="CashMovementOutcomes"/>'.</summary>
+/// <param name="At">When it was recorded, for the notice that says so.</param>
+public sealed record NoSaleAnswer(
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("at")] DateTimeOffset? At = null,
+    [property: JsonPropertyName("reason")] string? Reason = null,
+    [property: JsonPropertyName("refusal"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Refusal? Refusal = null);
+
 /// <summary>A person clocking in or out at this till (B10, D-102): who, and their PIN, checked by the server only.</summary>
 public sealed record ClockRequest(
     [property: JsonPropertyName("terminal_id")] string TerminalId,

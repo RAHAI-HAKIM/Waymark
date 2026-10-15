@@ -142,7 +142,7 @@ CREATE TABLE "cash_sessions" (
     "variance_alert_value" INTEGER NULL,
     "void_alert_count" INTEGER NULL,
     "void_alert_value" INTEGER NULL,
-    "z_report_number" INTEGER NULL,
+    "z_report_number" INTEGER NULL, "no_sale_alert_count" INTEGER NULL,
     CONSTRAINT "ck_cash_sessions_closed_at" CHECK (closed_at IS NULL OR closed_at >= opened_at),
     CONSTRAINT "ck_cash_sessions_closed_authorised_by" CHECK (closed_authorised_by IS NULL OR status = 'closed'),
     CONSTRAINT "ck_cash_sessions_pending_count" CHECK ((pending_count IS NULL AND pending_count_moves IS NULL) OR (pending_count >= 0 AND pending_count_moves >= 0)),

@@ -43,6 +43,7 @@ public enum Tone
 /// <param name="Customer">The tenant's customer switches, the attached customer's tab, and the customer screens open (B7).</param>
 /// <param name="MoreOpen">The rail shows "Plus…"'s keys (B10).</param>
 /// <param name="Drawer">The till's cash session as the server last gave it (C1, D-111); null until asked.</param>
+/// <param name="Printing">The printer, whether printing is on, and the paper of what just ended (D2, D-126).</param>
 public sealed record ScreenState(
     TillText Text,
     TimeZoneInfo Zone,
@@ -71,7 +72,8 @@ public sealed record ScreenState(
     RefundState? Refunding = null,
     CustomerScreenState? Customer = null,
     bool MoreOpen = false,
-    CashSessionState? Drawer = null);
+    CashSessionState? Drawer = null,
+    PrintingState? Printing = null);
 
 /// <summary>
 /// A discount being given at the counter (B4, D-091): on which line, or the ticket when
@@ -116,6 +118,9 @@ public enum CounterKind
 
     /// <summary>The whole ticket cancelled (B8, D-097): a reason, and a manager after "Encaisser" for a cashier.</summary>
     Cancel,
+
+    /// <summary>The drawer opened with nothing sold (D-126): the manager step only, rank 2.</summary>
+    NoSale,
 
     /// <summary>Lines of a past ticket brought back (B9, D-098): a return reason, and a manager when the shop asks for one.</summary>
     Refund,
@@ -394,12 +399,18 @@ public sealed record TillScreen(
     private static bool Same(Rail drawn, Rail next) => (drawn, next) switch
     {
         (Rail.Paid a, Rail.Paid b) => a.Figures.SequenceEqual(b.Figures) && a with { Figures = b.Figures } == b,
-        (Rail.Rest a, Rail.Rest b) => a.Operations.SequenceEqual(b.Operations) && a with { Operations = b.Operations } == b,
+        (Rail.Rest a, Rail.Rest b) => a.Operations.SequenceEqual(b.Operations) && SameSections(a.Sections, b.Sections)
+            && a with { Operations = b.Operations, Sections = b.Sections } == b,
         (Rail.Drafts a, Rail.Drafts b) => a.Rows.SequenceEqual(b.Rows) && a with { Rows = b.Rows } == b,
         (Rail.Tickets a, Rail.Tickets b) => a.Rows.SequenceEqual(b.Rows) && a with { Rows = b.Rows } == b,
         (Rail.Past a, Rail.Past b) => a.Figures.SequenceEqual(b.Figures) && a with { Figures = b.Figures } == b,
         _ => drawn == next,
     };
+
+    private static bool SameSections(IReadOnlyList<MoreSection>? drawn, IReadOnlyList<MoreSection>? next) =>
+        drawn is null ? next is null
+            : next is not null && drawn.Count == next.Count
+                && drawn.Zip(next).All(pair => pair.First.Title == pair.Second.Title && pair.First.Rows.SequenceEqual(pair.Second.Rows));
 
     private static bool Same(BottomBar drawn, BottomBar next) =>
         drawn.Summary.SequenceEqual(next.Summary) && drawn with { Summary = next.Summary } == next;
@@ -452,6 +463,7 @@ public sealed record TillScreen(
             parked)
         {
             Held = parked.Count > 0 ? text.HeldCount(parked.Count) : null,
+            Printer = PrintScreen.Chip(text, state.Printing),
         };
     }
 
@@ -480,6 +492,12 @@ public sealed record TillScreen(
         if (state.Discounting is { Authorising: true })
         {
             return new NoticeLine(Tone.Neutral, text.ApprovingNotice, text.ApprovingNoticeDetail);
+        }
+
+        // The no-sale's panel freezes the ticket (board 5D): a scan is ignored, and the slot says so.
+        if (state.Customer?.Panel is { Kind: CustomerPanelKind.NoSale })
+        {
+            return new NoticeLine(Tone.Neutral, text.ScanIgnored, text.ScanIgnoredNoSale);
         }
 
         switch (state.Notice)
@@ -526,6 +544,10 @@ public sealed record TillScreen(
 
             case { Kind: TillNoticeKind.WeighedTakesNoCount }:
                 return new NoticeLine(Tone.Warning, text.CountIgnored, text.CountIgnoredDetail);
+
+            case { Kind: TillNoticeKind.NoSaleOpened } opened:
+                // Neutral: nothing is wrong; it stays until the next scan (board 5D).
+                return new NoticeLine(Tone.Neutral, text.NoSaleOpened, opened.Detail);
 
             // An unconfirmed sale takes the rail (RailOf), where its instructions fit; the slot
             // goes on saying what it would otherwise say.
@@ -809,7 +831,8 @@ public sealed record TillScreen(
                 text.TicketNumber(outcome.InvoiceNumber ?? "?"),
                 staff is null ? when : $"{when} · {staff}",
                 figures,
-                text.NextScanOpensTicket);
+                text.NextScanOpensTicket,
+                PrintScreen.Block(text, state.Printing, state.Printing?.Sale, PaperKind.Sale));
         }
 
         if (state.Discounting is { } discounting && IsCounter(discounting))
@@ -833,7 +856,8 @@ public sealed record TillScreen(
             return TicketsOf(state, tickets);
         }
 
-        return new Rail.Rest(OperationsOf(state), AlmanacOf(state));
+        var operations = OperationsOf(state);
+        return new Rail.Rest(operations, AlmanacOf(state), MoreSectionsOf(state, operations));
     }
 
     /// <summary>
@@ -841,6 +865,37 @@ public sealed record TillScreen(
     /// ticket with lines, and "Brouillons", available once something was cancelled today. The
     /// board's other keys arrive with their sessions.
     /// </summary>
+    /// <summary>F9: "Ouvrir le tiroir", from the rail and from "Plus…" alike (board 1).</summary>
+    public const string NoSaleKeyName = "F9";
+
+    /// <summary>
+    /// "Plus…" as the board draws it (D-126): CAISSE (the reports, the close), IMPRIMANTE (the switch,
+    /// its state in words before its colour), OPÉRATIONS (the no-sale, the clock). Null when "Plus…" is
+    /// shut. The keys are <see cref="OperationsOf"/>'s; this only groups them.
+    /// </summary>
+    private static List<MoreSection>? MoreSectionsOf(ScreenState state, IReadOnlyList<OperationKey> keys)
+    {
+        if (!state.MoreOpen)
+        {
+            return null;
+        }
+
+        var text = state.Text;
+        MoreRow Row(OperationKey key) => key.Operation == Operation.Printing
+            ? new MoreRow(key, state.Printing is { On: true } ? text.PrintingOn : text.PrintingOff, state.Printing is { On: true })
+            : new MoreRow(key);
+        IReadOnlyList<MoreRow> Of(params Operation[] operations) => [.. keys.Where(key => operations.Contains(key.Operation)).Select(Row)];
+
+        List<MoreSection> sections = [new(text.CashSection, Of(Operation.XReport, Operation.CloseDrawer))];
+        if (Of(Operation.Printing) is { Count: > 0 } printer)
+        {
+            sections.Add(new MoreSection(text.PrinterSection, printer));
+        }
+
+        sections.Add(new MoreSection(text.OperationsSection, Of(Operation.NoSale, Operation.Clock)));
+        return sections;
+    }
+
     private static List<OperationKey> OperationsOf(ScreenState state)
     {
         var text = state.Text;
@@ -850,17 +905,26 @@ public sealed record TillScreen(
         var mayCancel = mayPutAside || (state.Cart.HasOnlyStruckLines && state.Paid is null && state.Unconfirmed is null);
         var drafts = state.Drafts?.Count ?? 0;
 
-        // "Plus…" (B10): the keys that are not the sale's, and the way back.
+        // "Plus…" (B10): the keys that are not the sale's, and the way back. Grouped for the view by
+        // MoreSectionsOf (D-126): the drawer, the printer, the operations.
         if (state.MoreOpen)
         {
-            return
+            List<OperationKey> more =
             [
                 // The drawer: its reports (C2), and its close once it is open (C1).
                 new OperationKey(Operation.XReport, text.XReportKey, null, state.Drawer is not null),
                 new OperationKey(Operation.CloseDrawer, text.CloseDrawerKey, null, state.Drawer?.Open is not null && state.Unconfirmed is null),
-                new OperationKey(Operation.Clock, text.ClockKey, null, true),
-                new OperationKey(Operation.More, text.BackFromMore, null, true),
             ];
+            if (state.Printing is { Available: true })
+            {
+                more.Add(new OperationKey(Operation.Printing, text.PrintingKey, null, true));
+            }
+
+            // The no-sale opens a drawer that is open: a session, and no sale left unanswered (D-126).
+            more.Add(new OperationKey(Operation.NoSale, text.NoSaleKey, NoSaleKeyName, state.Drawer?.Open is not null && state.Unconfirmed is null));
+            more.Add(new OperationKey(Operation.Clock, text.ClockKey, null, true));
+            more.Add(new OperationKey(Operation.More, text.BackFromMore, null, true));
+            return more;
         }
 
         return
@@ -1319,7 +1383,8 @@ public sealed record TillScreen(
                 past.StaffName is null ? $"{date} {clock}" : $"{date} {clock} · {past.StaffName}",
                 figures,
                 text.PastTicketFooter,
-                RefundScreen.Refundable(past) ? new OperationKey(Operation.Refund, text.RefundKey, null, true) : null);
+                RefundScreen.Refundable(past) ? new OperationKey(Operation.Refund, text.RefundKey, null, true) : null,
+                PrintScreen.Block(text, state.Printing, state.Printing?.Refund, PaperKind.Refund));
 
         var bottom = new BottomBar(
             taxed ? [new Figure(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))] : [],
@@ -1579,6 +1644,9 @@ public sealed record TopBar(string? Place, TicketTab? Tab, Connection Connection
     /// scroll when they do not fit, and one out of sight was a ticket nobody knew was there (F-29).
     /// </summary>
     public string? Held { get; init; }
+
+    /// <summary>The printer's chip, left of the connection (D-126): printing switched off, or the printer failing; null otherwise.</summary>
+    public PrinterChip? Printer { get; init; }
 }
 
 /// <summary>A ticket on hold: "Attente 14:05 · 3 lignes".</summary>
@@ -1666,7 +1734,8 @@ public abstract record Rail
     }
 
     /// <summary>At rest: the operation keys, room for the B-block parts, and the Almanac slot at its foot.</summary>
-    public sealed record Rest(IReadOnlyList<OperationKey> Operations, AlmanacSlot? Almanac) : Rail;
+    /// <param name="Sections">"Plus…" open: its keys grouped as the board draws them (D-126); null otherwise.</param>
+    public sealed record Rest(IReadOnlyList<OperationKey> Operations, AlmanacSlot? Almanac, IReadOnlyList<MoreSection>? Sections = null) : Rail;
 
     /// <summary>The "Tickets" list (B1, D-088): a day, a scope, and the sales, or a sentence.</summary>
     /// <param name="Scope">"Cette caisse" or "Toutes les caisses".</param>
@@ -1677,14 +1746,15 @@ public abstract record Rail
 
     /// <summary>A past ticket's figures and payments, beside it in the ticket view (B1).</summary>
     /// <param name="Refund">"Rembourser" (B9), when the ticket may be refunded; null otherwise.</param>
-    public sealed record Past(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, OperationKey? Refund = null) : Rail;
+    public sealed record Past(
+        string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, OperationKey? Refund = null, PaperBlock? Paper = null) : Rail;
 
     /// <summary>The tickets cancelled today (D-087).</summary>
     /// <param name="Empty">What to say when there are none; null when there are.</param>
     public sealed record Drafts(string Label, string Hint, IReadOnlyList<DraftRow> Rows, string? Empty, string Close) : Rail;
 
     /// <summary>A sale just recorded: what it came to and what the drawer takes.</summary>
-    public sealed record Paid(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer) : Rail;
+    public sealed record Paid(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, PaperBlock? Paper = null) : Rail;
 
     /// <summary>The discount panel (B4): what it is on, percent or amount, what it takes off, the reasons.</summary>
     /// <param name="Detail">What it is taken off: the line's, or the ticket's, total before it.</param>
@@ -1739,7 +1809,22 @@ public enum Operation
 
     /// <summary>"Rapport X" (C2), under "Plus…".</summary>
     XReport,
+
+    /// <summary>"Imprimer le ticket", F7 (D-126): the paper that did not come out, the original.</summary>
+    PrintTicket,
+
+    /// <summary>"Ouvrir le tiroir", F9 and under "Plus…" (D-126): the no-sale.</summary>
+    NoSale,
+
+    /// <summary>"Impression" under "Plus…" (D-126): switches printing off or on again, for sale tickets.</summary>
+    Printing,
 }
+
+/// <summary>A section of "Plus…" (D-126): its title, its rows.</summary>
+public sealed record MoreSection(string Title, IReadOnlyList<MoreRow> Rows);
+
+/// <summary>A row of "Plus…": its key; for a switch, its state in words and whether it is on.</summary>
+public sealed record MoreRow(OperationKey Key, string? State = null, bool? On = null);
 
 /// <summary>An operation key in the rail: its label, its F key when it has one, and whether it is available now.</summary>
 public sealed record OperationKey(Operation Operation, string Label, string? Key, bool Enabled);

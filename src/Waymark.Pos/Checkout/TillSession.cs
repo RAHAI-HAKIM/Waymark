@@ -913,6 +913,9 @@ public enum TillNoticeKind
 
     /// <summary>A "× n" typed before a product sold by weight: spent, and not applied (B3).</summary>
     WeighedTakesNoCount,
+
+    /// <summary>The drawer opened with nothing sold (D-126): the detail is when, who, and who authorised it.</summary>
+    NoSaleOpened,
 }
 
 /// <summary>A product sold by weight waiting for its weight (B3, D-090).</summary>

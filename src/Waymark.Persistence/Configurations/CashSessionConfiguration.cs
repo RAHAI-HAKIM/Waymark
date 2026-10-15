@@ -88,6 +88,10 @@ internal sealed class CashSessionConfiguration : IEntityTypeConfiguration<CashSe
             .HasColumnName("void_alert_value");
         builder.Property(x => x.VarianceAlertValue)
             .HasColumnName("variance_alert_value");
+
+        // D-126: frozen at the close like the three above; no CHECK, which would rebuild the table.
+        builder.Property(x => x.NoSaleAlertCount)
+            .HasColumnName("no_sale_alert_count");
         builder.Property(x => x.PendingCount)
             .HasColumnName("pending_count");
         builder.Property(x => x.PendingCountMoves)

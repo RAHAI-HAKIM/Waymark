@@ -2204,6 +2204,10 @@ namespace Waymark.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("expected_cash");
 
+                    b.Property<long?>("NoSaleAlertCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("no_sale_alert_count");
+
                     b.Property<string>("Notes")
                         .HasColumnType("TEXT")
                         .HasColumnName("notes");

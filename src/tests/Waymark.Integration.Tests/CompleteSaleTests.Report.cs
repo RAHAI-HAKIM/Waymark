@@ -21,13 +21,14 @@ namespace Waymark.Integration.Tests;
 public sealed partial class CompleteSaleTests
 {
     /// <summary>The tenant's thresholds as one test wants them, without writing the tenant's own row.</summary>
-    private sealed class ReportSettings(int? voidCount = null, long? voidValue = null, long? variance = null) : ITenantConfiguration
+    private sealed class ReportSettings(int? voidCount = null, long? voidValue = null, long? variance = null, int? noSaleCount = null) : ITenantConfiguration
     {
         public Task<TenantSettings> CurrentAsync(CancellationToken cancellationToken = default) => Task.FromResult(TenantSettings.Defaults with
         {
             VoidAlertCount = voidCount,
             VoidAlertValue = voidValue is { } worth ? Dzd(worth) : null,
             VarianceAlertValue = variance is { } gap ? Dzd(gap) : null,
+            NoSaleAlertCount = noSaleCount,
         });
 
         public Task StageAsync(TenantSettings settings, string? updatedBy, DateTimeOffset at, CancellationToken cancellationToken = default) =>

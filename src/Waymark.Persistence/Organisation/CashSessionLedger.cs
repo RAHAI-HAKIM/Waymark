@@ -30,6 +30,15 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
             .Take(take)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<ReportNoSale>> NoSalesAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        await context.NoSaleOpenings
+            .Where(opening => opening.SessionId == sessionId)
+            .Join(context.ReasonCodes, opening => opening.ReasonCode, reason => reason.ReasonCodeValue, (opening, reason) => new { opening, reason })
+            .OrderBy(row => row.opening.OccurredAt)
+            .Select(row => new ReportNoSale(
+                row.opening.StaffId, row.opening.OccurredAt, row.reason.LabelFr, row.reason.LabelAr, row.opening.Note, row.opening.AuthorisedBy))
+            .ToListAsync(cancellationToken);
+
     public async Task<ShiftRows> ReportRowsAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         var tickets = await context.Transactions.AsNoTracking()
@@ -196,6 +205,7 @@ public sealed class CashSessionLedger(WaymarkDbContext context) : ICashSessionLe
         entry.Property(row => row.VoidAlertCount).CurrentValue = close.Thresholds.VoidCount;
         entry.Property(row => row.VoidAlertValue).CurrentValue = close.Thresholds.VoidValue;
         entry.Property(row => row.VarianceAlertValue).CurrentValue = close.Thresholds.Variance;
+        entry.Property(row => row.NoSaleAlertCount).CurrentValue = close.Thresholds.NoSaleCount;
         entry.Property(row => row.Status).CurrentValue = CashSessionStatus.Closed;
         entry.Property(row => row.UpdatedAt).CurrentValue = close.At;
     }

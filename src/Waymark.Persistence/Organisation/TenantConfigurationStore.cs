@@ -21,7 +21,7 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
         TenantSettings.CustomerModuleKey, TenantSettings.MaxCreditLimitKey, TenantSettings.CreditOverdueDaysKey, TenantSettings.TabAsPartKey,
         TenantSettings.VoidAlertCountKey, TenantSettings.VoidAlertValueKey, TenantSettings.RefundMinRankKey, TenantSettings.CreditExpiryDaysKey,
         TenantSettings.PaidOutMinRankKey, TenantSettings.CloseSessionMinRankKey, TenantSettings.XReportMinRankKey, TenantSettings.BlindCloseKey,
-        TenantSettings.VarianceAlertValueKey, TenantSettings.ReceiptLanguageKey, TenantSettings.RefundWindowDaysKey,
+        TenantSettings.VarianceAlertValueKey, TenantSettings.ReceiptLanguageKey, TenantSettings.RefundWindowDaysKey, TenantSettings.NoSaleAlertCountKey,
     ];
 
     public async Task<TenantSettings> CurrentAsync(CancellationToken cancellationToken = default)
@@ -85,7 +85,11 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
                 && int.TryParse(window, NumberStyles.None, CultureInfo.InvariantCulture, out var windowDays)
                 && windowDays is > 0 and <= TenantSettings.MaxRefundWindowDays
                 ? windowDays
-                : defaults.RefundWindowDays);
+                : defaults.RefundWindowDays,
+            values.TryGetValue(TenantSettings.NoSaleAlertCountKey, out var openings)
+                && int.TryParse(openings, NumberStyles.None, CultureInfo.InvariantCulture, out var mostOpenings) && mostOpenings > 0
+                ? mostOpenings
+                : defaults.NoSaleAlertCount);
     }
 
     public async Task StageAsync(TenantSettings settings, string? updatedBy, DateTimeOffset at, CancellationToken cancellationToken = default)
@@ -154,6 +158,8 @@ public sealed class TenantConfigurationStore(WaymarkDbContext context, ILedgerCu
             "The language receipts are printed in: fr or ar (D-124).");
         Put(TenantSettings.RefundWindowDaysKey, settings.RefundWindowDays?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
             "Days after its sale a ticket is refunded, printed on the receipt; past it, the owner only; absent: no window (D-125).");
+        Put(TenantSettings.NoSaleAlertCountKey, settings.NoSaleAlertCount?.ToString(CultureInfo.InvariantCulture), SystemConfigEntryDataType.Integer,
+            "More no-sales than this by one person in one cash session are flagged; absent: not flagged (D-126).");
     }
 
     public async Task<IReadOnlyList<long>> ActiveRanksAsync(CancellationToken cancellationToken = default) =>

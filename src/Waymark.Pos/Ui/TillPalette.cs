@@ -58,6 +58,7 @@ public sealed record TillPalette(
     Signal Critical,
     Signal BarCritical,
     Signal Almanac,
+    Signal BarWarning,
     string Scrim)
 {
     public static TillPalette Light { get; } = new(
@@ -91,6 +92,8 @@ public sealed record TillPalette(
         // The light critical text there is 1.86:1.
         BarCritical: new Signal("#E2666B", "#F79F9A", null),
         Almanac: new Signal("#0E8C86", "#0A5F5B", null),
+        // A printer failing, on the dark bar (D-126): the dark theme's warning roles, as BarCritical takes the critical's.
+        BarWarning: new Signal("#BA8823", "#F2C57E", null),
         // Under a step floating over the screen (the manager's PIN): ink, laid at TillTheme.ScrimOpacity.
         Scrim: "#14101F");
 
@@ -126,6 +129,7 @@ public sealed record TillPalette(
         Critical: new Signal("#E2666B", "#F79F9A", null),
         BarCritical: new Signal("#E2666B", "#F79F9A", null),
         Almanac: new Signal("#0E8C86", "#73D0CA", null),
+        BarWarning: new Signal("#BA8823", "#F2C57E", null),
         Scrim: "#000000");
 
     public static TillPalette For(TillThemeKind kind) => kind == TillThemeKind.Dark ? Dark : Light;

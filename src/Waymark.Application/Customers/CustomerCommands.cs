@@ -72,6 +72,9 @@ public sealed record TabView(
 {
     /// <summary>After a repayment: what the drawer took (D-108). Null for every other view.</summary>
     public Money? CashCollected { get; init; }
+
+    /// <summary>After a repayment: what came off the tab, exactly; the slip prints it (D-126). Null for every other view.</summary>
+    public Money? Cleared { get; init; }
 }
 
 /// <summary>What a limit command does (B7, D-096).</summary>
@@ -541,6 +544,7 @@ public sealed class RepayTabHandler(
         return ViewOf(customer, [.. movements, repayment], settings, customer.CreditLimit, customer.TabFrozenAt is not null, credit.Available) with
         {
             CashCollected = plan.Cash,
+            Cleared = plan.Cleared,
         };
     }
 }

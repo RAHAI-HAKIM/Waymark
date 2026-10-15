@@ -190,7 +190,7 @@ public sealed class CloseCashSessionHandler(
             // The thresholds in force now go on the row: its Z is judged by them for good (C2, D-112).
             new SessionClose(
                 command.StaffId, authorisedBy, now, counted, expected, variance, number, note,
-                new ReportThresholds(settings.VoidAlertCount, settings.VoidAlertValue, settings.VarianceAlertValue)),
+                new ReportThresholds(settings.VoidAlertCount, settings.VoidAlertValue, settings.VarianceAlertValue, settings.NoSaleAlertCount)),
             cancellationToken);
 
         return new ClosedCashSession(session.SessionId, number, now, expected, counted, variance, noteNeeded, command.StaffId, authorisedBy);

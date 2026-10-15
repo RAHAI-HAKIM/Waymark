@@ -34,6 +34,9 @@ public enum CustomerPanelKind
     /// <summary>The paid-in or paid-out recorded, once.</summary>
     PettyCashDone,
 
+    /// <summary>"Ouvrir le tiroir sans vente" (D-126): a reason, a note when it asks for one, then a manager's PIN for a cashier.</summary>
+    NoSale,
+
     /// <summary>"Pointage" (B10): a person, their PIN, then in or out.</summary>
     Clock,
 
@@ -341,6 +344,9 @@ public static class CustomerScreen
 
     // ======================================================== the floating panels
 
+    /// <summary>"Imprimer le reçu" on the repayment's panel (D-126).</summary>
+    public const string PrintSlipKey = "print_slip";
+
     public static FormPanel? Panel(ScreenState state)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -358,6 +364,7 @@ public static class CustomerScreen
             CustomerPanelKind.Repaid => RepaidPanel(state, panel),
             CustomerPanelKind.PettyCash => PettyCashPanel(state, panel),
             CustomerPanelKind.PettyCashDone => PettyCashDonePanel(state, panel),
+            CustomerPanelKind.NoSale => NoSalePanel(state, panel),
             CustomerPanelKind.Clock => ClockPanel(state, panel),
             CustomerPanelKind.ClockDone => ClockDonePanel(state, panel),
             CustomerPanelKind.ReportReserved => DrawerScreen.ReservedPanel(state),
@@ -587,19 +594,21 @@ public static class CustomerScreen
 
         paid.Add(new Figure(text.RepaidInCash, cash is { } collected ? DisplayFigures.Amount(collected) : "?"));
 
+        // The slip (D-126): printed, or the warning and the key that prints it; the drawer's line.
+        var paper = PrintScreen.Block(text, state.Printing, state.Printing?.Repayment, PaperKind.Repayment);
         return new FormPanel(
             text.CarnetLabel,
             text.RepaidTitle,
             $"{Short(panel.After)} · {when}{(state.Context?.StaffName is { } staff ? $" · {staff}" : string.Empty)}",
             [],
             [],
-            null,
-            null,
-            null,
-            null,
-            [],
+            paper?.Status,
+            paper?.Drawer,
+            paper?.Warning,
             null,
             [],
+            null,
+            paper?.Print is { } print ? [new FormKey(PrintSlipKey, print.Label, true, false)] : [],
             text.NewBalanceDue,
             after is { } shown ? DisplayFigures.AmountWithCurrency(shown, text) : "?",
             // What came into the drawer, as the amount it is: "Réglé en espèces 286,00", never "−286,00".
@@ -708,6 +717,46 @@ public static class CustomerScreen
         {
             KeysFirst = true,
         };
+    }
+
+    /// <summary>
+    /// The no-sale's panel (board 5): the shop's <c>no_sale</c> reasons; the note field once a reason
+    /// that asks for one is chosen; "Continuer" with a reason and, where asked, a note. No amount: a
+    /// no-sale moves none. The ticket in progress is left as it is.
+    /// </summary>
+    private static FormPanel NoSalePanel(ScreenState state, CustomerPanelState panel)
+    {
+        var text = state.Text;
+        var reasons = panel.Reasons?.ReasonCodes ?? [];
+        var chosen = reasons.FirstOrDefault(reason => reason.Code == panel.ReasonCode);
+        var noteNeeded = chosen is { RequiresNote: true };
+        List<FormField> fields = noteNeeded ? [new FormField(NameField, text.NoteTitle, panel.Name, null, panel.OnName, false, Wraps: true)] : [];
+
+        return new FormPanel(
+            null,
+            text.NoSalePanelTitle,
+            text.NoSalePanelSubtitle,
+            [],
+            fields,
+            null,
+            null,
+            panel.Refused is { } refused ? new PanelMessage(text.ClientRefused, refused)
+                : panel.Reasons is not null && reasons.Count == 0 ? new PanelMessage(text.ClientRefused, text.NoNoSaleReasons)
+                : null,
+            text.NoSaleReasonTitle,
+            [.. reasons.Select(reason => new FormRow(reason.Code, text.RightToLeft ? reason.LabelAr : reason.LabelFr, reason.RequiresNote ? text.NoteTitle : null, reason.Code == panel.ReasonCode))],
+            null,
+            [],
+            null,
+            null,
+            [],
+            false,
+            text.NoSaleContinue,
+            chosen is not null && (!noteNeeded || panel.Name.Trim().Length > 0) && !panel.Sending,
+            false,
+            text.EnterKey,
+            text.EscapeKey,
+            null);
     }
 
     private static FormPanel PettyCashDonePanel(ScreenState state, CustomerPanelState panel)
@@ -878,7 +927,7 @@ public static class CustomerScreen
             return panel.OnName && panel.Name.Length < 200 && !char.IsControl(key) ? panel with { Name = panel.Name + key, Refused = null } : panel;
         }
 
-        if (panel.Kind == CustomerPanelKind.PettyCash && panel.OnName)
+        if (panel.Kind is CustomerPanelKind.PettyCash or CustomerPanelKind.NoSale && panel.OnName)
         {
             return panel.Name.Length >= 200 || char.IsControl(key) ? panel : panel with { Name = panel.Name + key, Refused = null };
         }
@@ -927,7 +976,7 @@ public static class CustomerScreen
         return panel.Kind switch
         {
             CustomerPanelKind.Clock => panel with { Pin = panel.Pin.Length > 0 ? panel.Pin[..^1] : string.Empty, Refused = null },
-            CustomerPanelKind.PettyCash when panel.OnName => panel with { Name = panel.Name.Length > 0 ? panel.Name[..^1] : string.Empty, Refused = null },
+            CustomerPanelKind.PettyCash or CustomerPanelKind.NoSale when panel.OnName => panel with { Name = panel.Name.Length > 0 ? panel.Name[..^1] : string.Empty, Refused = null },
             CustomerPanelKind.Create when panel.OnName => panel with { Name = panel.Name.Length > 0 ? panel.Name[..^1] : string.Empty, Refused = null },
             CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote or CustomerPanelKind.DrawerClosed => panel.OnName
                 ? panel with { Name = panel.Name.Length > 0 ? panel.Name[..^1] : string.Empty, Refused = null }
@@ -950,7 +999,7 @@ public static class CustomerScreen
         return panel.Kind switch
         {
             CustomerPanelKind.Clock => panel with { Pin = string.Empty, Refused = null },
-            CustomerPanelKind.PettyCash when panel.OnName => panel with { Name = string.Empty, Refused = null },
+            CustomerPanelKind.PettyCash or CustomerPanelKind.NoSale when panel.OnName => panel with { Name = string.Empty, Refused = null },
             CustomerPanelKind.Create when panel.OnName => panel with { Name = string.Empty, Refused = null },
             CustomerPanelKind.DrawerConfirm or CustomerPanelKind.DrawerNote or CustomerPanelKind.DrawerClosed => panel.OnName
                 ? panel with { Name = string.Empty, Refused = null }

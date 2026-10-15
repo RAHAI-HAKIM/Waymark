@@ -150,9 +150,12 @@ public sealed partial class TillTheme
     };
 
     /// <summary>A tone on the bars, which are dark in both themes.</summary>
-    public (IBrush? Mark, IBrush Text) ToneOnBar(Tone tone) => tone == Tone.Critical
-        ? (Brush(Palette.BarCritical.Mark), Brush(Palette.BarCritical.Text))
-        : (null, BarLabel);
+    public (IBrush? Mark, IBrush Text) ToneOnBar(Tone tone) => tone switch
+    {
+        Tone.Critical => (Brush(Palette.BarCritical.Mark), Brush(Palette.BarCritical.Text)),
+        Tone.Warning => (Brush(Palette.BarWarning.Mark), Brush(Palette.BarWarning.Text)),
+        _ => (null, BarLabel),
+    };
 
     // ================================================================ faces
 

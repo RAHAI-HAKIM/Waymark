@@ -20,7 +20,7 @@ namespace Waymark.StoreServer.Organisation;
 ///   <item><description><c>--paid-out-min-rank=2|off</c></description></item>
 ///   <item><description><c>--close-session-min-rank=1|off</c>, <c>--x-report-min-rank=1|off</c> (off: the ladder's rank)</description></item>
 ///   <item><description><c>--blind-close=on|off</c>, <c>--variance-alert-value=200.00|off</c></description></item>
-///   <item><description><c>--receipt-language=fr|ar</c>, <c>--refund-window-days=7|off</c></description></item>
+///   <item><description><c>--receipt-language=fr|ar</c>, <c>--refund-window-days=7|off</c>, <c>--no-sale-alert-count=2|off</c></description></item>
 ///   <item><description><c>--publish-information-notice=&lt;path to the text&gt;</c>, with
 ///   <c>--notice-language=ar|fr|en</c> (Arabic when left out)</description></item>
 /// </list>
@@ -69,6 +69,9 @@ public static class TenantSwitch
     /// <summary>D-125: days after its sale a ticket is refunded, printed on the receipt; <c>off</c> for no window.</summary>
     public const string RefundWindowDays = "refund-window-days";
 
+    /// <summary>D-126: more no-sales than this by one person in a session are flagged; <c>off</c> for never.</summary>
+    public const string NoSaleAlertCount = "no-sale-alert-count";
+
     public const string PublishNotice = "publish-information-notice";
 
     public const string NoticeLanguage = "notice-language";
@@ -78,7 +81,7 @@ public static class TenantSwitch
     {
         ArgumentNullException.ThrowIfNull(configuration);
         return new[] { CustomerModule, MaxCreditLimit, CreditOverdueDays, TabAsPart, PublishNotice, VoidAlertCount, VoidAlertValue, RefundMinRank, CreditExpiryDays, PaidOutMinRank,
-                CloseSessionMinRank, XReportMinRank, BlindClose, VarianceAlertValue, ReceiptLanguage, RefundWindowDays }
+                CloseSessionMinRank, XReportMinRank, BlindClose, VarianceAlertValue, ReceiptLanguage, RefundWindowDays, NoSaleAlertCount }
             .Any(key => configuration[key] is not null);
     }
 
@@ -134,7 +137,8 @@ public static class TenantSwitch
                 + $"blind close {(now.BlindClose ? "on" : "off")}; "
                 + $"a note asked past a variance of {now.VarianceAlertValue?.ToString() ?? "nothing (off)"}; "
                 + $"receipts in {(now.ReceiptLanguage == Domain.Enums.Language.Ar ? "Arabic" : "French")}; "
-                + $"refunds {(now.RefundWindowDays is { } window ? $"within {window} days, the owner after" : "at any age (off)")}.");
+                + $"refunds {(now.RefundWindowDays is { } window ? $"within {window} days, the owner after" : "at any age (off)")}; "
+                + $"no-sales flagged above {(now.NoSaleAlertCount is { } openings ? $"{openings} a person" : "no count (off)")}.");
             return 0;
         }
         catch (Exception refusal) when (refusal is TenantSettingRefusedException or IOException or UnauthorizedAccessException)
@@ -168,6 +172,8 @@ public static class TenantSwitch
         var gapOff = string.Equals(gap, "off", StringComparison.OrdinalIgnoreCase);
         var window = configuration[RefundWindowDays];
         var windowOff = string.Equals(window, "off", StringComparison.OrdinalIgnoreCase);
+        var openings = configuration[NoSaleAlertCount];
+        var openingsOff = string.Equals(openings, "off", StringComparison.OrdinalIgnoreCase);
 
         return new SetTenantSettings(
             OnOff(configuration[CustomerModule], CustomerModule),
@@ -222,7 +228,12 @@ public static class TenantSwitch
                 : int.TryParse(window, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var windowDays) && windowDays > 0
                     ? windowDays
                     : throw new FormatException($"--{RefundWindowDays}: a number of days, 7, or off."),
-            windowOff);
+            windowOff,
+            openings is null || openingsOff ? null
+                : int.TryParse(openings, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var mostOpenings) && mostOpenings > 0
+                    ? mostOpenings
+                    : throw new FormatException($"--{NoSaleAlertCount}: a number of no-sales, 2, or off."),
+            openingsOff);
     }
 
     private static long Rank(string value, string key) =>

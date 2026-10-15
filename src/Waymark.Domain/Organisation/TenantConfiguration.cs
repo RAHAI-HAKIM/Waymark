@@ -41,15 +41,22 @@ public sealed record TenantSettings(
     bool BlindClose = false,
     Money? VarianceAlertValue = null,
     Enums.Language ReceiptLanguage = Enums.Language.Fr,
-    int? RefundWindowDays = null)
+    int? RefundWindowDays = null,
+    int? NoSaleAlertCount = null)
 {
+    /// <summary>
+    /// More no-sales than this by one person in one cash session are flagged for the owner (D-126);
+    /// absent: never. Admin sets it at H; <c>--no-sale-alert-count=</c> until then.
+    /// </summary>
+    public const string NoSaleAlertCountKey = "no_sale_alert_count";
+
     /// <summary>
     /// How many days after its sale a ticket is refunded (D-125), printed on the receipt; past it,
     /// only the owner refunds. Absent: no window, and nothing printed of one.
     /// </summary>
     public const string RefundWindowDaysKey = "refund_window_days";
 
-    /// <summary>The longest window a tenant may set: a year.</summary>
+    /// <summary>The longest window a tenant may set: a month (Hakim, 14/10).</summary>
     public const int MaxRefundWindowDays = 30;
 
     /// <summary>

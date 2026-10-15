@@ -218,6 +218,21 @@ public sealed class StoreServerClient(HttpClient http, HttpClient? patient = nul
         return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Receipt is null) ? null : answer;
     }
 
+    /// <summary>The shop's active reasons for opening the drawer with nothing sold (D-126). Null when the server could not say.</summary>
+    public async Task<ReasonCodeList?> NoSaleReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await GetAsync<ReasonCodeList>("api/reason-codes?applies_to=no_sale", cancellationToken);
+        return list?.ReasonCodes is null ? null : list;
+    }
+
+    /// <summary>A no-sale, recorded by the server before the till opens the drawer (D-126). Null when the server could not say.</summary>
+    public async Task<NoSaleAnswer?> NoSaleAsync(NoSaleRequest request, string sessionToken, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var answer = await SendAsync<NoSaleAnswer>(HttpMethod.Post, "api/cash/no-sale", request, sessionToken, cancellationToken);
+        return answer?.Outcome is null ? null : answer;
+    }
+
     /// <summary>The store's lines alone, for a tab repayment's slip (D-125). Null when the server could not say.</summary>
     public async Task<ReceiptStoreAnswer?> ReceiptStoreAsync(string sessionToken, CancellationToken cancellationToken = default)
     {
@@ -598,6 +613,13 @@ public interface ITillServer
         TicketAsync(idOrNumber, sessionToken, cancellationToken);
 
     Task<TillStaff?> StaffAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The no-sale reasons (D-126). A server that knows none answers nothing.</summary>
+    Task<ReasonCodeList?> NoSaleReasonsAsync(CancellationToken cancellationToken = default) => Task.FromResult<ReasonCodeList?>(null);
+
+    /// <summary>A no-sale recorded (D-126). A server that knows none answers nothing, and the drawer stays shut.</summary>
+    Task<NoSaleAnswer?> NoSaleAsync(NoSaleRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
+        Task.FromResult<NoSaleAnswer?>(null);
 
     /// <summary>What a receipt prints (D1, D-125). A server that knows none answers nothing, and nothing prints.</summary>
     Task<ReceiptAnswer?> ReceiptAsync(string idOrNumber, string sessionToken, string? authorisation, CancellationToken cancellationToken = default) =>

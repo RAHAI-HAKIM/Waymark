@@ -59,7 +59,8 @@ public sealed class App : Application
             // Fluent draws the parts this shell does not (scroll bars, the caret): keep it in step.
             RequestedThemeVariant = theme == TillThemeKind.Dark ? ThemeVariant.Dark : ThemeVariant.Light;
 
-            var window = new TillWindow(session, server, till, language, theme, TimeProvider.System);
+            // The fake printer until K1 plugs in a real one (D-124, D-126).
+            var window = new TillWindow(session, server, till, language, theme, TimeProvider.System, Receipts.TillPrinter.Fake(args, TimeProvider.System));
             desktop.MainWindow = window;
             desktop.Exit += (_, _) =>
             {

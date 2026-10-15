@@ -367,7 +367,6 @@ public abstract class TillText
     /// <summary>"Échap", in the ✕ key's corner (Entrée is <see cref="EnterKey"/>).</summary>
     public abstract string EscapeKey { get; }
 
-
     // ------------------------------------------------------------ B7: customers and the tab at the till
 
     // B10: petite caisse, pointage
@@ -1271,8 +1270,6 @@ public abstract class TillText
 
     public abstract string NoSaleTitle { get; }
 
-    public abstract string NoSaleNote { get; }
-
     public abstract string NotReconciled { get; }
 
     public abstract string NotReconciledDetail { get; }
@@ -1350,10 +1347,139 @@ public abstract class TillText
 
     public abstract string AgeToConfirmDetail { get; }
 
+    // ------------------------------------------------------------ D2 (D-126): printing, the drawer, the no-sale
+
+    public abstract string CashSection { get; }
+
+    public abstract string PrinterSection { get; }
+
+    public abstract string OperationsSection { get; }
+
+    public abstract string PrintingKey { get; }
+
+    public abstract string PrintingOn { get; }
+
+    public abstract string PrintingOff { get; }
+
+    public abstract string NoSaleKey { get; }
+
+    public abstract string PrintingOffChip { get; }
+
+    public abstract string PrinterFaultChip(PrinterFault fault);
+
+    public abstract string Printed(PaperKind kind);
+
+    public abstract string TicketNotPrintedOff { get; }
+
+    public abstract string NotPrintedTitle(PaperKind kind);
+
+    public abstract string NotPrintedBody(PaperKind kind, PrinterFault fault);
+
+    public abstract string PrintTicketKey { get; }
+
+    public abstract string PrintReceiptKey { get; }
+
+    public abstract string DrawerOpenedLine { get; }
+
+    public abstract string DrawerOpenedStash { get; }
+
+    public abstract string NoSalePanelTitle { get; }
+
+    public abstract string NoSalePanelSubtitle { get; }
+
+    public abstract string NoSaleReasonTitle { get; }
+
+    public abstract string NoNoSaleReasons { get; }
+
+    public abstract string NoSaleContinue { get; }
+
+    public abstract string ScanIgnored { get; }
+
+    public abstract string ScanIgnoredNoSale { get; }
+
+    public abstract string NoSaleOpened { get; }
+
+    public abstract string NoSaleOpenedDetail(string clock, string by, string? authorisedBy);
+
+    public abstract string NoSaleApprovalSummary(string reason, int lines, string by, string clock);
+
+    public abstract string NoSalesCount { get; }
+
+    public abstract string NoSaleDetailReserved { get; }
+
+    public abstract string NoSaleHour { get; }
+
+    public abstract string NoSaleBy { get; }
+
+    public abstract string NoSaleReason { get; }
+
+    public abstract string NoSaleAuthorisedBy { get; }
+
+    public abstract string TooManyNoSales { get; }
+
+    public abstract string TooManyNoSalesDetail(string name, int count, string? threshold);
+
+    public abstract string NoSalesRow { get; }
+
     // ================================================================== French
 
     private sealed class FrenchText : TillText
     {
+        public override string CashSection => "CAISSE";
+        public override string PrinterSection => "IMPRIMANTE";
+        public override string OperationsSection => "OPÉRATIONS";
+        public override string PrintingKey => "Impression";
+        public override string PrintingOn => "ACTIVÉE";
+        public override string PrintingOff => "COUPÉE";
+        public override string NoSaleKey => "Ouvrir le tiroir";
+        public override string PrintingOffChip => "IMPRESSION COUPÉE";
+        public override string PrinterFaultChip(PrinterFault fault) => "IMPRIMANTE · NE RÉPOND PAS";
+        public override string Printed(PaperKind kind) => kind switch
+        {
+            PaperKind.Refund => "Ticket de retour imprimé",
+            PaperKind.Repayment => "Reçu imprimé",
+            _ => "Ticket imprimé",
+        };
+        public override string TicketNotPrintedOff => "Ticket non imprimé — impression coupée";
+        public override string NotPrintedTitle(PaperKind kind) => kind switch
+        {
+            PaperKind.Refund => "TICKET DE RETOUR NON IMPRIMÉ",
+            PaperKind.Repayment => "REÇU NON IMPRIMÉ",
+            _ => "TICKET NON IMPRIMÉ",
+        };
+        public override string NotPrintedBody(PaperKind kind, PrinterFault fault) => (kind switch
+        {
+            PaperKind.Refund => "Le retour est enregistré.",
+            PaperKind.Repayment => "Le remboursement est enregistré.",
+            _ => "La vente est enregistrée.",
+        }) + " L'imprimante ne répond pas : vérifiez qu'elle est allumée, puis imprimez.";
+        public override string PrintTicketKey => "Imprimer le ticket";
+        public override string PrintReceiptKey => "Imprimer le reçu";
+        public override string DrawerOpenedLine => "Tiroir ouvert — refermez-le.";
+        public override string DrawerOpenedStash => "Tiroir ouvert — rangez les billets, puis refermez-le.";
+        public override string NoSalePanelTitle => "Ouvrir le tiroir sans vente";
+        public override string NoSalePanelSubtitle => "Aucun montant n'entre ni ne sort — l'ouverture est journalisée.";
+        public override string NoSaleReasonTitle => "MOTIF";
+        public override string NoNoSaleReasons => "Cette boutique n'a aucun motif d'ouverture du tiroir.";
+        public override string NoSaleContinue => "Continuer";
+        public override string ScanIgnored => "SCAN IGNORÉ";
+        public override string ScanIgnoredNoSale => "Le dialogue du tiroir est ouvert — fermez-le pour scanner.";
+        public override string NoSaleOpened => "TIROIR OUVERT · SANS VENTE";
+        public override string NoSaleOpenedDetail(string clock, string by, string? authorisedBy) =>
+            $"{clock} · {by}{(authorisedBy is null ? string.Empty : $" · autorisé par {authorisedBy}")} — refermez-le avant de scanner.";
+        public override string NoSaleApprovalSummary(string reason, int lines, string by, string clock) =>
+            $"Motif : {reason} · Ticket en cours : {(lines == 1 ? "1 ligne" : $"{lines} lignes")}, inchangé · Demandé par {by} à {clock}";
+        public override string NoSalesCount => "Ouvertures sans vente";
+        public override string NoSaleDetailReserved => "Détail réservé au propriétaire : il nomme des personnes.";
+        public override string NoSaleHour => "HEURE";
+        public override string NoSaleBy => "PAR";
+        public override string NoSaleReason => "MOTIF";
+        public override string NoSaleAuthorisedBy => "AUTORISÉ PAR";
+        public override string TooManyNoSales => "TROP D'OUVERTURES SANS VENTE";
+        public override string TooManyNoSalesDetail(string name, int count, string? threshold) =>
+            $"{name} · {count} ouvertures{(threshold is null ? string.Empty : $", seuil {threshold} par session")}";
+        public override string NoSalesRow => "Ouvertures sans vente";
+
         // D-113: a customer's age
         public override string AgeAdultKey => "18 ans ou plus";
         public override string AgeGuardianKey => "Mineur · un parent a lu et accepté";
@@ -1420,7 +1546,6 @@ public abstract class TillText
         public override string SessionOngoingNote => "Session en cours : le tiroir n'est compté qu'à la clôture. Un X n'a ni compté ni écart.";
         public override string NoteQuoted(string note) => $"Note : « {note} »";
         public override string NoSaleTitle => "OUVERTURES DU TIROIR SANS VENTE";
-        public override string NoSaleNote => "Aucune donnée avant le bloc D : la ligne garde sa place.";
         public override string NotReconciled => "CE RAPPORT NE SE RECOUPE PAS";
         public override string NotReconciledDetail => "Les encaissements ne correspondent pas aux tickets, ou le tiroir à ce qui a été enregistré à la clôture. Ne vous fiez pas aux totaux : prévenez le propriétaire.";
         public override string ReportTotalLabel(string title) => $"{title.ToUpperInvariant()} · TOTAL ENCAISSÉ";
@@ -1892,6 +2017,7 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.ClockBehind => "L'horloge de la caisse retarde : elle indique une heure d'avant l'ouverture. Réglez l'heure, puis clôturez.",
             Contracts.Pos.RefusalCodes.NoteTooLong => $"Une note fait au plus {Named(args, 0)} caractères.",
             Contracts.Pos.RefusalCodes.RefundWindowPassed => $"Vendu il y a plus de {Named(args, 0)} jours : le propriétaire rembourse.",
+            Contracts.Pos.RefusalCodes.NoSaleNeedsManager => "Un responsable ouvre le tiroir sans vente.",
             _ => null,
         };
 
@@ -2041,6 +2167,61 @@ public abstract class TillText
 
     private sealed class ArabicText : TillText
     {
+        public override string CashSection => "الصندوق"; // ar: à relire
+        public override string PrinterSection => "الطابعة"; // ar: à relire
+        public override string OperationsSection => "العمليات"; // ar: à relire
+        public override string PrintingKey => "الطباعة"; // ar: à relire
+        public override string PrintingOn => "مفعّلة"; // ar: à relire
+        public override string PrintingOff => "متوقفة"; // ar: à relire
+        public override string NoSaleKey => "فتح الدرج"; // ar: à relire
+        public override string PrintingOffChip => "الطباعة متوقفة"; // ar: à relire
+        public override string PrinterFaultChip(PrinterFault fault) => "الطابعة · لا تستجيب"; // ar: à relire
+        public override string Printed(PaperKind kind) => kind switch // ar: à relire
+        {
+            PaperKind.Refund => "طُبعت تذكرة الإرجاع",
+            PaperKind.Repayment => "طُبع الوصل",
+            _ => "طُبعت التذكرة",
+        };
+        public override string TicketNotPrintedOff => "لم تُطبع التذكرة — الطباعة متوقفة"; // ar: à relire
+        public override string NotPrintedTitle(PaperKind kind) => kind switch // ar: à relire
+        {
+            PaperKind.Refund => "لم تُطبع تذكرة الإرجاع",
+            PaperKind.Repayment => "لم يُطبع الوصل",
+            _ => "لم تُطبع التذكرة",
+        };
+        public override string NotPrintedBody(PaperKind kind, PrinterFault fault) => (kind switch // ar: à relire
+        {
+            PaperKind.Refund => "سُجّل الإرجاع.",
+            PaperKind.Repayment => "سُجّل التسديد.",
+            _ => "سُجّل البيع.",
+        }) + " الطابعة لا تستجيب: تأكد أنها مشغّلة، ثم اطبع.";
+        public override string PrintTicketKey => "طباعة التذكرة"; // ar: à relire
+        public override string PrintReceiptKey => "طباعة الوصل"; // ar: à relire
+        public override string DrawerOpenedLine => "الدرج مفتوح — أغلقه."; // ar: à relire
+        public override string DrawerOpenedStash => "الدرج مفتوح — رتّب الأوراق ثم أغلقه."; // ar: à relire
+        public override string NoSalePanelTitle => "فتح الدرج دون بيع"; // ar: à relire
+        public override string NoSalePanelSubtitle => "لا يدخل أي مبلغ ولا يخرج — الفتح مسجّل."; // ar: à relire
+        public override string NoSaleReasonTitle => "السبب"; // ar: à relire
+        public override string NoNoSaleReasons => "لا يوجد في هذا المتجر سبب لفتح الدرج."; // ar: à relire
+        public override string NoSaleContinue => "متابعة"; // ar: à relire
+        public override string ScanIgnored => "المسح لم يُطبَّق"; // ar: à relire
+        public override string ScanIgnoredNoSale => "نافذة الدرج مفتوحة — أغلقها للمسح."; // ar: à relire
+        public override string NoSaleOpened => "الدرج مفتوح · دون بيع"; // ar: à relire
+        public override string NoSaleOpenedDetail(string clock, string by, string? authorisedBy) => // ar: à relire
+            $"{clock} · {by}{(authorisedBy is null ? string.Empty : $" · بإذن {authorisedBy}")} — أغلقه قبل المسح.";
+        public override string NoSaleApprovalSummary(string reason, int lines, string by, string clock) => // ar: à relire
+            $"السبب: {reason} · التذكرة الجارية: {DisplayFigures.Count(lines)} سطر، دون تغيير · طلبه {by} على {clock}";
+        public override string NoSalesCount => "فتحات دون بيع"; // ar: à relire
+        public override string NoSaleDetailReserved => "التفاصيل للمالك وحده: فيها أسماء أشخاص."; // ar: à relire
+        public override string NoSaleHour => "الساعة"; // ar: à relire
+        public override string NoSaleBy => "من"; // ar: à relire
+        public override string NoSaleReason => "السبب"; // ar: à relire
+        public override string NoSaleAuthorisedBy => "بإذن"; // ar: à relire
+        public override string TooManyNoSales => "فتحات كثيرة دون بيع"; // ar: à relire
+        public override string TooManyNoSalesDetail(string name, int count, string? threshold) => // ar: à relire
+            $"{name} · {DisplayFigures.Count(count)} فتحات{(threshold is null ? string.Empty : $"، الحد {threshold} في الحصة")}";
+        public override string NoSalesRow => "فتحات دون بيع"; // ar: à relire
+
         // D-113: a customer's age
         public override string AgeAdultKey => "18 سنة أو أكثر"; // ar: à relire
         public override string AgeGuardianKey => "قاصر · وليّ قرأ ووافق"; // ar: à relire
@@ -2107,7 +2288,6 @@ public abstract class TillText
         public override string SessionOngoingNote => "الجلسة جارية: الدرج لا يُعدّ إلا عند الإقفال. تقرير X بلا عدّ ولا فارق."; // ar: à relire
         public override string NoteQuoted(string note) => $"ملاحظة: «{note}»"; // ar: à relire
         public override string NoSaleTitle => "فتح الدرج دون بيع"; // ar: à relire
-        public override string NoSaleNote => "لا بيانات قبل المرحلة D: السطر يحتفظ بمكانه."; // ar: à relire
         public override string NotReconciled => "هذا التقرير لا يتطابق"; // ar: à relire
         public override string NotReconciledDetail => "التحصيلات لا تطابق التذاكر، أو الدرج لا يطابق ما سُجّل عند الإقفال. لا تعتمد على المجاميع: أبلغ المالك."; // ar: à relire
         public override string ReportTotalLabel(string title) => $"{title} · مجموع المحصَّل"; // ar: à relire
@@ -2580,6 +2760,7 @@ public abstract class TillText
             Contracts.Pos.RefusalCodes.ClockBehind => "ساعة الصندوق متأخرة: تشير إلى وقت قبل الفتح. اضبط الساعة ثم أقفل.", // ar: à relire
             Contracts.Pos.RefusalCodes.NoteTooLong => $"الملاحظة {Named(args, 0)} حرفًا على الأكثر.", // ar: à relire
             Contracts.Pos.RefusalCodes.RefundWindowPassed => $"بيع منذ أكثر من {Named(args, 0)} يومًا: المالك هو من يرجع المبلغ.", // ar: à relire
+            Contracts.Pos.RefusalCodes.NoSaleNeedsManager => "المسؤول هو من يفتح الدرج دون بيع.", // ar: à relire
             _ => null,
         };
 

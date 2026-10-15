@@ -18,6 +18,7 @@ namespace Waymark.Application.Sales;
 /// <param name="CancelledAt">When each cancelled ticket was cancelled, by its id: a cancel has no number to be named by (D-097).</param>
 /// <param name="Cashiers">The same figures by who did each thing, in the order of their first operation (C3, D-118).</param>
 /// <param name="CashiersReconcile">The people come to the session, line by line.</param>
+/// <param name="NoSales">The drawer opened with nothing sold (D-126), in time order.</param>
 public sealed record ShiftReportData(
     CashSession Session,
     Takings Takings,
@@ -34,7 +35,8 @@ public sealed record ShiftReportData(
     ReportThresholds Thresholds,
     IReadOnlyDictionary<string, DateTimeOffset> CancelledAt,
     IReadOnlyList<CashierShare> Cashiers,
-    bool CashiersReconcile);
+    bool CashiersReconcile,
+    IReadOnlyList<ReportNoSale>? NoSales = null);
 
 /// <summary>
 /// Reads a cash session's X or Z (C2, D-112). Nothing is stored but what the close wrote: the report
@@ -61,6 +63,7 @@ public sealed class ShiftReports(ISalesLedger ledger, ICashSessionLedger session
         var currency = session.OpeningFloat.Currency;
         var rows = await sessions.ReportRowsAsync(session.SessionId, cancellationToken);
         var movements = await sessions.MovementsAsync(session, cancellationToken);
+        var noSales = await sessions.NoSalesAsync(session.SessionId, cancellationToken);
         var closed = session.Status == CashSessionStatus.Closed;
 
         var takings = ShiftReport.TakingsOf(currency, rows.Tickets, rows.Parts);
@@ -76,18 +79,19 @@ public sealed class ShiftReports(ISalesLedger ledger, ICashSessionLedger session
             moments.Add(new ReportMoment(counter, closedAt));
         }
 
-        var cashiers = ShiftReport.ByCashierOf(currency, rows.Tickets, rows.Rows, rows.Parts, rows.CashRows, moments);
+        var cashiers = ShiftReport.ByCashierOf(currency, rows.Tickets, rows.Rows, rows.Parts, rows.CashRows, moments, noSales);
 
         ReportThresholds thresholds;
         if (closed)
         {
             thresholds = new ReportThresholds(
-                session.VoidAlertCount is { } count ? checked((int)count) : null, session.VoidAlertValue, session.VarianceAlertValue);
+                session.VoidAlertCount is { } count ? checked((int)count) : null, session.VoidAlertValue, session.VarianceAlertValue,
+                session.NoSaleAlertCount is { } most ? checked((int)most) : null);
         }
         else
         {
             var settings = await configuration.CurrentAsync(cancellationToken);
-            thresholds = new ReportThresholds(settings.VoidAlertCount, settings.VoidAlertValue, settings.VarianceAlertValue);
+            thresholds = new ReportThresholds(settings.VoidAlertCount, settings.VoidAlertValue, settings.VarianceAlertValue, settings.NoSaleAlertCount);
         }
 
         // Only a ticket's rounding is the drawer's (Drawer.Expected says which): shown apart, never as a variance.
@@ -105,11 +109,12 @@ public sealed class ShiftReports(ISalesLedger ledger, ICashSessionLedger session
             !closed || session.ExpectedCash == worked,
             rounding.Aggregate(Money.Zero(currency), (sum, row) => sum + row.Amount),
             rounding.Count,
-            ShiftReport.FlagsOf(rows.Tickets, thresholds, closed ? session.Variance : null),
+            [.. ShiftReport.FlagsOf(rows.Tickets, thresholds, closed ? session.Variance : null), .. ShiftReport.NoSaleFlagsOf(noSales, thresholds.NoSaleCount)],
             thresholds,
             rows.Tickets.Where(ticket => ticket.Kind == TicketKind.Cancel).ToDictionary(ticket => ticket.TicketId, ticket => ticket.At, StringComparer.Ordinal),
             cashiers,
             ShiftReport.SharesReconcile(
-                cashiers, takings, activity, reductions, new CashierCash(movements.PaidIn, movements.PaidOut, movements.TabRepayments)));
+                cashiers, takings, activity, reductions, new CashierCash(movements.PaidIn, movements.PaidOut, movements.TabRepayments), noSales.Count),
+            noSales);
     }
 }
