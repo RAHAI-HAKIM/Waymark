@@ -82,7 +82,14 @@ public sealed record ReportSection(
 }
 
 /// <param name="Tone">A flag's line: its label in its tone, critical or warning. Null for a plain line.</param>
-public sealed record ReportLine(string Label, string? Count, string Value, bool Strong = false, Tone? Tone = null);
+public sealed record ReportLine(string Label, string? Count, string Value, bool Strong = false, Tone? Tone = null)
+{
+    /// <summary>
+    /// Words, not figures (block D review): the label, then the value wrapped under it. A no-sale's
+    /// reason and who allowed it were cut to fit the columns built for counts and amounts.
+    /// </summary>
+    public bool Stacked { get; init; }
+}
 
 /// <summary>
 /// The report's screen rules (C2, D-112), apart from the window so they are tested without one. Every
@@ -289,9 +296,12 @@ public static class ReportScreen
         {
             lines.AddRange(openings.Select(opening => new ReportLine(
                 $"{clock(opening.At)} · {opening.StaffName ?? "?"}",
-                opening.AuthorisedBy ?? "—",
-                (text.RightToLeft ? opening.ReasonAr : opening.ReasonFr) + (opening.Note is { } note ? $" · « {note} »" : string.Empty))));
-            return new ReportSection(text.NoSaleTitle, text.OwnerOnly, [text.NoSaleAuthorisedBy, text.NoSaleReason], lines);
+                null,
+                text.NoSaleDetail(text.RightToLeft ? opening.ReasonAr : opening.ReasonFr, opening.Note, opening.AuthorisedBy))
+            {
+                Stacked = true,
+            }));
+            return new ReportSection(text.NoSaleTitle, text.OwnerOnly, [], lines);
         }
 
         return new ReportSection(text.NoSaleTitle, null, [], lines, Note: count > 0 ? text.NoSaleDetailReserved : null);

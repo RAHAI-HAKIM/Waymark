@@ -1384,9 +1384,10 @@ public sealed record TillScreen(
         // What refunds brought back of it (board 8): a refund's own ticket brings back nothing of itself.
         if (past.OriginalInvoiceNumber is null)
         {
-            var units = past.Lines.Sum(line => Decimal(line.Returned ?? "0") is { } back && decimal.TryParse(back.Replace(',', '.'),
-                System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var amount) && amount > 0
-                    ? (line.Weighed ? 1 : (int)Math.Ceiling(amount))
+            // The wire's quantities are invariant text, "1.5". A weighed line comes back whole: one article.
+            var units = past.Lines.Sum(line => decimal.TryParse(line.Returned, System.Globalization.NumberStyles.AllowDecimalPoint,
+                System.Globalization.CultureInfo.InvariantCulture, out var back) && back > 0
+                    ? (line.Weighed ? 1 : (int)Math.Ceiling(back))
                     : 0);
             figures.Add(new Figure(text.ReturnsOnTicket, units == 0 ? text.ReturnsNone : text.ReturnsCount(units)));
         }
@@ -1410,7 +1411,7 @@ public sealed record TillScreen(
                 RefundScreen.Refundable(past) ? new OperationKey(Operation.Refund, text.RefundKey, null, true) : null,
                 paper,
                 // A paper never printed is printed as the original first (D-126): one F7 at a time.
-                state.Printing is { Available: true } && paper?.Print is null ? new OperationKey(Operation.Reprint, text.ReprintKey, "F7", true) : null,
+                state.Printing is { Available: true } printing && paper?.Print is null ? PrintScreen.ReprintKey(text, printing) : null,
                 past.ReprintCount > 0 ? text.Reprinted(past.ReprintCount) : null);
 
         var bottom = new BottomBar(
@@ -1796,6 +1797,12 @@ public abstract record Rail
         string Label, string Title, string Detail, IReadOnlyList<DiscountFormChoice> Forms, string? Preview, string ReasonTitle,
         IReadOnlyList<ReasonRow> Reasons, string? Message, bool Refused, bool MayContinue, string Continue, string Back, string? Remove) : Rail
     {
+        /// <summary>
+        /// The preview is words, "1 article rendu" or a note typed, not an amount (block D review): drawn
+        /// smaller and wrapped, where a figure's single line ran past the panel.
+        /// </summary>
+        public bool PreviewWords { get; init; }
+
         /// <summary>
         /// The message warns without refusing: a price below cost, a cancel after "Encaisser". It
         /// reads in the warning tone, its own words first (label before colour); it was drawn as

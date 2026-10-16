@@ -17,6 +17,12 @@ public enum PaperOutcome
 
     /// <summary>Sent, and the printer did not take it: the operation is written, the paper is missing.</summary>
     Failed,
+
+    /// <summary>
+    /// The receipt could not be read back from the server (block D review): nothing reached the
+    /// printer, which is not at fault. The operation is written; the paper is printed again from F7.
+    /// </summary>
+    Unread,
 }
 
 /// <summary>Which paper: the words differ, the rule does not (board 4).</summary>
@@ -39,8 +45,10 @@ public sealed record Paper(PaperOutcome Outcome, bool DrawerOpened);
 /// <param name="Refund">The refund whose ticket is open's paper; null otherwise.</param>
 /// <param name="Repayment">The repayment just recorded's slip; null otherwise.</param>
 /// <param name="NoSaleOpen">The no-sale panel is open: scans are ignored, and the slot says so.</param>
+/// <param name="Reprinting">A reprint is on its way (block D review): its key says so and takes no second press.</param>
 public sealed record PrintingState(
-    bool Available, bool On, PrinterFault? Fault, Paper? Sale = null, Paper? Refund = null, Paper? Repayment = null, bool NoSaleOpen = false);
+    bool Available, bool On, PrinterFault? Fault, Paper? Sale = null, Paper? Refund = null, Paper? Repayment = null, bool NoSaleOpen = false,
+    bool Reprinting = false);
 
 /// <summary>
 /// The paper's lines in the panel where an operation ended (boards 3 and 4): "Ticket imprimé", or
@@ -57,6 +65,17 @@ public sealed record PrinterChip(string Label, Tone Tone);
 /// <summary>The printing rules of the screen (D-126), apart from the window so they are tested without one.</summary>
 public static class PrintScreen
 {
+    /// <summary>
+    /// "Réimprimer", F7 (D-127). While a reprint is on its way it reads "Impression…" and is not
+    /// available: the press shows, and a second press counts no second copy (block D review).
+    /// </summary>
+    public static OperationKey ReprintKey(TillText text, PrintingState printing)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(printing);
+        return new OperationKey(Operation.Reprint, printing.Reprinting ? text.ReprintingKey : text.ReprintKey, "F7", !printing.Reprinting);
+    }
+
     /// <summary>
     /// The bar's chip: a failure first, even with printing switched off (the cashier learns it before a
     /// customer asks for a ticket); then printing switched off; else none.
@@ -80,13 +99,14 @@ public static class PrintScreen
         }
 
         var drawer = !paper.DrawerOpened ? null : kind == PaperKind.Repayment ? text.DrawerOpenedStash : text.DrawerOpenedLine;
+        var reprint = ReprintKey(text, printing);
         var print = new OperationKey(Operation.PrintTicket, kind == PaperKind.Repayment ? text.PrintReceiptKey : text.PrintTicketKey, "F7", true);
         return paper.Outcome switch
         {
             // Printed: on the paid rail the key becomes "Réimprimer" (D-127); a refund's ticket has the rail's own.
-            PaperOutcome.Printed => new PaperBlock(text.Printed(kind), drawer, null,
-                kind == PaperKind.Sale ? new OperationKey(Operation.Reprint, text.ReprintKey, "F7", true) : null),
+            PaperOutcome.Printed => new PaperBlock(text.Printed(kind), drawer, null, kind == PaperKind.Sale ? reprint : null),
             PaperOutcome.SwitchedOff => new PaperBlock(text.TicketNotPrintedOff, drawer, null, print),
+            PaperOutcome.Unread => new PaperBlock(null, drawer, new PanelMessage(text.NotPrintedTitle(kind), text.NotReadBody(kind), Tone.Warning), print),
             _ => new PaperBlock(null, drawer, new PanelMessage(text.NotPrintedTitle(kind), text.NotPrintedBody(kind, printing.Fault ?? PrinterFault.NotResponding), Tone.Warning), print),
         };
     }

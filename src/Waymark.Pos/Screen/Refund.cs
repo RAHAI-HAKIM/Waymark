@@ -171,7 +171,10 @@ public static class RefundScreen
             return new Rail.Discount(
                 text.RefundLabel, number, text.RefundChosen(refund.Chosen), [], typed.Length == 0 ? null : $"« {typed} »", text.ReasonTitle,
                 [new ReasonRow(chosen.Code, reason, true)], text.NotePrompt(reason), discounting.Problem == DiscountProblem.NoteMissing,
-                typed.Length > 0, text.ContinueKey, text.BackToTicket, null);
+                typed.Length > 0, text.ContinueKey, text.BackToTicket, null)
+            {
+                PreviewWords = true,
+            };
         }
 
         var detail = refund.Selected is { } index
@@ -211,7 +214,10 @@ public static class RefundScreen
             refund.Chosen > 0 && discounting.ReasonCode is not null && !discounting.Offline && reasons.Count > 0,
             text.ContinueKey,
             text.BackToTicket,
-            null);
+            null)
+        {
+            PreviewWords = true,
+        };
     }
 
     /// <summary>

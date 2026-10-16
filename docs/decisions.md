@@ -19,6 +19,7 @@ Open questions (`O-nn`) are at the end.
 | Post-Phase 0 revision and close (done, titles only) | D-055–D-062 |
 | Phase 0.5, the walking skeleton (done, titles only) | D-063–D-074 |
 | Phase 1, Blocks A, B and C (done, titles only) | D-075–D-118 |
+| Phase 1, Block C's review and Block D (done, titles only) | D-119–D-128 |
 
 # **Phase 0 (Already done)**
 
@@ -475,7 +476,7 @@ the card's move to `decided` commit together, and accepting applies nothing.
 
 Reasoning, rejected alternatives and what the Block B review found: `recaps/phase-1.md`
 (Block C is its §6, the DPIA's decisions of 10/10 its §7).
-Phase 1 is not closed; a decision taken from Block D on is written here in full until it is.
+Phase 1 is not closed; a decision taken from Block E on is written here in full until its block is reviewed.
 
 ### D-075 — A product whose categories conflict, or state no rate, takes the standard TVA rate
 `TvaRate.Resolve`: categories that agree give their rate; none, a null among them, or a
@@ -640,229 +641,55 @@ is `read_shift_flags`.
 
 ---
 
-# **Phase 1, Block C's review and Block D on (in full until the block is reviewed)**
+# **Phase 1, Block C's review and Block D (done, titles only; reasoning in `recaps/phase-1.md` §9–§11)**
 
-### D-119 — A blind count is kept by the server, and stands until cash moves (block C review, 12/10; closes O-37)
-The close answered "a note is asked" or "a manager is asked" for any count and wrote nothing, so
-the threshold's two edges gave the drawer's figure to whoever tried a dozen counts; the till's
-freeze was lifted by changing cashier, and was not lifted by a sale made after it, which the close
-then recorded as a shortage (F-37).
+### D-119 — A blind count is kept by the server, and stands until cash moves (block C review; closes O-37)
+`pending_count` and `pending_count_moves` on the session, `KeepBlindCount` before the close,
+`Drawer.StandingCount`; the till confirms `standing_count`.
 
-- **The first count sent by somebody who is not shown the figures is written on the session**:
-  `cash_sessions.pending_count`, with `pending_count_moves`, how many times cash had moved in the
-  session at that moment (the cash parts of its tickets and its cash movements, counted).
-- **It stands while that number has not changed** (`Drawer.StandingCount`). While it stands, the
-  close is asked with it, whatever figure is sent next: another cashier, a till started again or a
-  caller that is not the till gets the same answer the first count got.
-- **Once cash has moved, the drawer is counted again**: a cash sale, a cash refund, cash in or out.
-  A card sale and a cancel move none. So each new try costs a recorded movement of cash, where it
-  cost nothing.
-- **Kept in a command of its own** (`KeepBlindCount`), run by the host before the close: a close
-  refused for its note or its PIN stages nothing (D-050), and the count has to outlive it.
-- **The till shows the count that stands** (`standing_count` in the session's state, sent only to
-  who counts blind) to be confirmed, with no field to type another. It is the server's to say,
-  no longer the till's memory.
-- Somebody who is shown the figures (the close is not blind, or they close alone) keeps no count
-  and is held to none.
+### D-120 — A close is whole, and a till has one drawer that is not closed (block C review; F-50)
+A closed row carries all of its close; one session not closed per till. Migration
+`BlindCountAndClosedSession`. The after-close triggers are not built (F-50).
 
-**Left as it is:** a paid-out or a cash refund the drawer cannot cover is still refused as
-`drawer_short`, which bounds the figure from above (F-37, now Low). **Rejected:** no freeze at
-all; the freeze kept in the till alone; an hour instead of a number of movements, which a sale in
-the same second defeats.
+### D-121 — What else the block C review settled
+A blind close with the reports below the close is refused; `clock_behind`; a note is 500
+characters (`note_too_long`); printing a Z and older Zs are H3's.
 
-### D-120 — A close is whole, and a till has one drawer that is not closed (block C review, 12/10; F-50)
-"A closed session is final" (D-111) held for its row only.
+### D-122 — A store says whether it charges TVA; one that does not records none (D)
+`stores.tax_regime`, `not_subject` by default; `TvaRate.For` gives zero, D-033 unchanged; a ticket
+with no TVA says nothing of it. To confirm with an accountant before a pilot.
 
-- **A closed row carries all of its close**: `ck_cash_sessions_status_2` asks for the count, the
-  expected cash, the variance, the Z number, the hour and who counted. It asked for the count only.
-- **A till's one drawer is "not closed"**, not "open": `ux_cash_sessions_one_open` now covers a
-  `suspended` session, a status nothing writes yet.
+### D-123 — Block D's decisions before its design
+`no_sale_openings`, append-only; `transactions.reprint_count`; the drawer only when cash moves; no
+debt on a receipt; Code 128; a no-sale is rank 2. Migration `TaxRegimeNoSaleAndReprints`.
 
-Migration `BlindCountAndClosedSession` (with D-119's two columns): rebuilds `cash_sessions`.
+### D-124 — What needs a real device is block K; the flow builds everything around it
+The real printer, the drawer's pulse, Arabic receipts (`receipt_language`), the scale. No QR in the
+first release; the consumer's facture is H3's.
 
-**Not done: the guards on what hangs from a closed session.** Two triggers refusing a cash
-movement or a ticket added after a close were written and taken out the same day: a trigger on one
-table that reads another makes SQLite refuse to rebuild the table it reads ("no such table" at the
-rename), so every later migration of `cash_sessions`, and three rollback tests, failed. Open as F-50.
+### D-125 — D1: the receipt is the board's, less what our rules or the rows do not hold
+No cash handed over, no card digits, no percent, no TVA letters, no "Non assujetti", no RC/NIS/Art.;
+the store's text (`stores.receipt_footer`); the refund window (`refund_window_days`, the owner past
+it, `RefundPastWindow`). Migration `ReceiptFooter`.
 
-### D-121 — What else the block C review settled (12/10)
-- **A blind close with the reports handed below the close is refused** (F-46):
-  `SetTenantSettingsHandler` judges the three keys as they would stand, the ladder's rank where a
-  key is off, and refuses `blind_close` on with `x_report_min_rank` below `close_session_min_rank`,
-  whichever key completes the pair. So under a blind close whoever reads an X also closes alone,
-  and is shown the figures anyway. **Side effects:** the keys must be changed in an order that
-  never passes through the pair, or together in one command; and a store already holding the pair
-  keeps it until one of the three is next set (none exists).
-- **A clock set back** (F-47): a close stamped before its session's opening is refused as
-  `clock_behind`, in words, where the table's CHECK used to surface as a server out of reach. The
-  close only: a sale is not refused for the hour.
-- **A note is 500 characters at most** (F-48): `SaleLimits.MaxNoteLength`, refused as
-  `note_too_long` on a close, cash in or out, a discount and a refund. 500 until the consent
-  screens say better (Hakim, 12/10). The till's own fields stop at 200.
-- **Left as they are** (Hakim, 12/10): a Z names who validated its close, not who counted (F-49);
-  a PIN typed to read a report stands at the server for the day (F-54, open with O-33).
-- **Admin's** (Hakim, 12/10): printing a Z, reading one older than the till's last 30, and a
-  store's day across tills are H3 in the plan (F-51).
+### D-126 — D2: printing and the drawer at the till
+Row, pulse, paper; the drawer to count too; the print switch for sale tickets, on at each sign-in;
+F7 for a paper missing; the no-sale and its count, detail and flag on the X and Z
+(`no_sale_alert_count`, frozen at the close). Migration `NoSaleAlertCount`.
 
-### D-122 — A store says whether it charges TVA; one that does not records none (block D, 13/10)
-Hakim's inspection of shops: a small retailer's ticket shows no TVA. Law 04-02 (read in full,
-JO n° 41 of 27/06/2004) asks a sale to a consumer for "un ticket de caisse ou un bon justifiant la
-transaction" (art. 10) and lists no mention it must carry; the mentions of art. 12 and 34 are the
-facture's, owed to a consumer only on request. Whether a shop collects TVA is tax law, not this
-one: most small retailers are under the flat tax (IFU) and collect none. **To confirm with an
-accountant before a pilot: the IFU's ceiling, and the facture's mentions (decree 05-468, unread).**
+### D-127 — D3: a reprint is a counted duplicate; who reprints is who may open the ticket
+The past ticket's Réimprimer beside Rembourser; the opening approval cited again; a scanned ticket
+number opens its ticket, or F3 during a sale.
 
-- **`stores.tax_regime`**, `not_subject` or `subject`, **`not_subject` by default** and asked when
-  a store is commissioned (H2; `--tax-regime=` until then).
-- **A store that is not subject sells everything at a rate of zero** (`TvaRate.For`, source
-  `not_subject`): the tax extracted is nothing and the price before tax is the price, by D-033's
-  own arithmetic, with no second path. The categories keep their rates, so a shop that passes
-  the ceiling changes one setting.
-- **It changes what is sold from then on.** A ticket already written keeps what its rows say.
-- **A ticket with no TVA in it says nothing of TVA**: the till hides "Total HT" and "Dont TVA"
-  when the tax is zero, and the receipt will follow the same rule.
-- The synthetic store is `subject` on purpose: its year of sales is what exercises D-033.
+### D-128 — What the block D review settled
+The close's PIN opens its Z (`ClosersRead`); "Plus…" takes the rail; a reprint shows its press and
+takes no second; F7 and F9 wait for floating panels; `PaperOutcome.Unread`.
 
-**Rejected:** dropping TVA from Phase 1 (supérettes above the ceiling charge it); a mention
-"TVA non applicable" on the ticket, which the law read does not ask for, until an accountant says.
-**Open:** the facture a consumer may ask for (art. 10) is produced by nothing in Phase 1.
+---
 
-### D-123 — Block D's decisions before its design (Hakim, 13/10)
-- **A no-sale is a row of its own**: `no_sale_openings`, append-only with its three guards: the
-  session, the till, who opened, whose PIN allowed it, the reason, a note, the hour. Never a
-  cash movement of nothing.
-- **A reprint is a count**, `transactions.reprint_count`: the same paper again, marked a
-  duplicate. No table, and no CHECK, which would rebuild `transactions` for a counter.
-- **A receipt is printed for every sale.** A till may be told to stop asking the printer (the
-  key's shape waits for the board).
-- **The drawer opens only when cash moves.** A card sale opens nothing; opening it otherwise is
-  a no-sale.
-- **No debt on a receipt**: neither a tab's balance nor the customer's name. Telling a customer
-  what they owe is for a message, later.
-- **The scannable code is Code 128.** A QR code needs a printer that has one, ESC/POS has no
-  dependable way to ask a printer what it can do, and the retailer is not asked to find out.
-- **Who reprints**: anyone for today's tickets at their till; a manager's PIN for older ones, as
-  for reading them (D-109). **Who opens a no-sale**: rank 2, as the ladder has it.
+# **Phase 1, Block E on (in full until the block is reviewed)**
 
-Migration `TaxRegimeNoSaleAndReprints` (with D-122): two added columns, one new table, and
-`stores` rebuilt for its CHECK.
-
-### D-124 — What needs a real device is a block of its own, K; the flow builds everything around it (Hakim, 13/10)
-Blocks A to J are built and tested against the fakes, each to the point where plugging the
-device in is all that is left. **Block K holds every feature that cannot be called done without
-hardware on the desk**, so no session in the flow waits for a printer, and the hardware work is
-done in one go when the devices are there: the real printer sink (USB, serial or network), the
-drawer's pulse, both paper widths, the cutter, **Arabic receipts**, the scale, and the
-real-hardware run the Build Plan asks for.
-
-- **The receipt's language is a tenant key now**, `receipt_language`, `fr` or `ar`, French until
-  set (`--receipt-language=`). French prints as text. **Arabic is K's**: a printer's Arabic code
-  pages neither join letters nor run right to left, so the till will draw the receipt with its
-  own font and send it as a picture, which has to be proven on a real printer. Until then a
-  tenant set to Arabic is printed in French.
-- **Printing can be switched off at a till**, under "Plus…": it shows on the bar while off, the
-  paid screen then offers the one print a customer asks for, and it is on again at each sign-in.
-- **What prints**: a sale, a refund, a tab's repayment (the customer's proof). **What does
-  not**: a cancelled ticket, cash in or out.
-- **No QR code in the first release** (D-123's Code 128 stands).
-- **The facture a consumer may ask for** (Law 04-02 art. 10) is Admin's: H3 in the plan.
-
-### D-125 — The receipt is the board's, less what our rules or the rows do not hold (Hakim, 14/10)
-The board (a sale not subject, a sale subject, a refund, a duplicate, each at 32 and 42 columns)
-is the layout: the store, a refund's original ticket and reason, the lines, the count of articles,
-the total, the discounts, the tax, the tenders, the ticket's number, day, hour, till and cashier,
-its Code 128, the store's legal line, the store's text, our signature. **Changed from the board:**
-
-- **No "Espèces reçues", no "Rendu"**: nothing records what is handed over, and nothing will.
-- **No card digits**: a payment reference is never a card number (D-095), so there are none to print.
-- **No discount percent**: a row keeps the amount taken off, not how it was typed; "Remise -42,00".
-- **No TVA letters, no table by rate** (Hakim, 14/10): a ticket owes no such mention (D-122), and a
-  sale row keeps its tax, not its rate. A ticket that carries TVA prints "TOTAL TTC", "Total HT"
-  and "dont TVA" from its own row. **No "Non assujetti à la TVA"**: D-122 rejected the mention; a
-  ticket with no TVA says "TOTAL" and nothing of tax.
-- **No RC, NIS or Art.** (Hakim, 14/10): the law asks no mention of a ticket; they are the facture's
-  (H3). The NIF prints when the store has one (`tax_registration_number`).
-- **Our number**, `{store}-{year}-{000001}`, shared with refunds, not the board's per-till one.
-- **The day and hour are the store's** (`stores.timezone`), from the row's instant. **The cashier is
-  a first name** (Hakim): the first word of `staff_name`.
-- **ASCII until K1**: accents folded, "N°" printed "No", until a code page is proven on paper.
-
-**Added:**
-
-- **The store's own text**, `stores.receipt_footer`, nullable, 200 characters at most, printed bold
-  and centred above our signature; `--receipt-footer=` until H2's store screen.
-- **Our signature**: "Échange ou remboursement sous N jours avec ce ticket." when the tenant has
-  a window, then "Facture sur demande." (the consumer's right, art. 10; H3 produces it).
-- **The refund window** (Hakim, 14/10): `refund_window_days`, a tenant key, 1 to 30, a month; absent, there
-  is no window and no line. **Past it** (the sale's day against today, in the store), a refund is
-  refused as `refund_window_passed` **unless the seller is the owner or an owner's PIN is cited**:
-  `Capability.RefundPastWindow`, rank 3, no tenant key. A manager is held to it: under D-109 a
-  manager already handles every earlier day, so a manager's PIN would have bound nobody. A quote
-  writes nothing and is not refused.
-- **A tab repayment's slip** (D-124; not on the board): the store, "VERSEMENT", what was paid, the
-  cash rounding, the day, hour, till and cashier, the store's text. No name, no balance (D-123), no
-  code: nothing scans it.
-
-**Kept from the board:** the count of articles (the units of counted lines, one per weighed line);
-an article on one line when it is one unit and fits; a refund's "Signature client"; the duplicate's
-DUPLICATA reversed and tall, twice, and its "Réimprimé le … par …", which is the reprint's own
-moment and person (D3), stored no further than the count (D-123). **Tall text keeps the full
-width**: `GS ! 1` is double height only, and the Phase 0 encoder wrapped it at half; proven on paper
-in K1.
-
-Migration `ReceiptFooter`: one added column.
-
-### D-126 — Printing and the drawer at the till, from the D2 boards (Hakim, 14/10)
-- **The drawer opens when cash moves, and to count it**: a sale with a cash part, a cash refund,
-  cash in or out, a tab repaid in cash; and the count at the session's opening and at its close.
-  The server writes the row first; the pulse follows, then the paper, so the change goes out
-  before the receipt. A card or tab sale, a refund to the tab or to store credit, open nothing.
-- **Printing can be switched off under "Plus…"** (section IMPRIMANTE, one switch, "Activée" or
-  "Coupée"), for sale tickets only: a refund's ticket, a repayment's slip and a duplicate always
-  print, being the shop's proof. **No record of the switch** (Hakim): it moves no money, and the
-  paid screen says "Ticket non imprimé — impression coupée". **On again at each sign-in**, as
-  D-124 has it, not at the session's opening as the board drew it.
-- **The bar says so**: a neutral chip "IMPRESSION COUPÉE"; a printer that fails, a warning chip
-  that stays until a print goes through. **Its cause** (no paper, cover open) is read from the
-  printer, which needs the device: K1. Until then the fake sink can only say it did not answer.
-- **A paper that did not come out is printed from where the operation ended**: "Imprimer le
-  ticket" (F7) on the paid rail, the refund's ticket and the repayment's panel, which prints the
-  original, not a duplicate, while no paper of it has come out; once printed, the key becomes
-  "Réimprimer" (D3). One copy of everything, a refund included (Hakim).
-- **Removed from the boards**: "Espèces reçues … rendues …" and "rendez 180,00": nothing records
-  what was handed over or given back. The drawer's line says "Tiroir ouvert — refermez-le".
-- **A no-sale**: "Ouvrir le tiroir" under "Plus…" and F9 on the rail, the same panel: a
-  `no_sale` reason, a note when the reason asks for one, an approval for a cashier (rank 2, as
-  D-123); the ticket in progress is left as it is, and scans are ignored while the panel is open.
-  The row is written before the pulse. No paper.
-- **On the X and Z** (Hakim, after first saying no): the count to whoever reads the report; the
-  detail (hour, who, reason, who authorised) and a TROP D'OUVERTURES SANS VENTE flag to the owner
-  alone, as D-112 and D-118 have them; the count on the by-cashier tab. The flag's threshold is a
-  tenant key, `no_sale_alert_count`, until Admin sets it, **frozen at the close** like the other
-  three (D-112): `cash_sessions.no_sale_alert_count` (Hakim, 14/10). **No amount column**: a no-sale
-  moves none by definition; an amount would make it a cash movement.
-- **Not drawn, decided with the build**: "Plus…" keeps petty cash and "Changer d'utilisateur"
-  where they are (the board listed them in the menu); F9 is the keyboard's, not a new tile; no
-  padlock on the menu's rows, since the till does not know which steps will ask for a PIN.
-
-Migration `NoSaleAlertCount`: one added column.
-
-### D-127 — A reprint, from the D3 board (Hakim, 15/10)
-- **A reprint is a duplicate**, printed from the past ticket (Réimprimer, F7, beside Rembourser) or
-  from the paid rail once its ticket has printed. Only a paper that never came out prints as the
-  original, from where its operation ended (D-126).
-- **Still a count, as D-123** (Hakim): the board asked for each reprint to be logged with its hour
-  and person; the ticket says "Réimprimé 2 fois", the paper itself says when and by whom. No table.
-- **Who reprints is who may open the ticket** (Hakim): their own till today, else rank 2, or the
-  manager's approval that opened it for a cashier (D-109), cited again. No second PIN, so the
-  board's padlock and its reprint PIN step (9) are not built: a cashier never holds another day's
-  ticket without that approval.
-- **A scanned ticket number** (its dash, which no product code has, D-088's rule for a typed one):
-  an empty ticket opens it; a sale in progress gets no line and the slot offers F3, which puts the
-  sale on hold and opens it; an unknown number is TICKET INCONNU.
-- **No "Réimpression" key on the rail** (Hakim): the last ticket is one touch away in "Tickets".
-- The past ticket also says its till, "aujourd'hui" for today, a card's reference, and what was
-  brought back of it ("Retours sur ce ticket").
+Nothing yet.
 
 ---
 

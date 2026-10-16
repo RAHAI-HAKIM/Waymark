@@ -89,6 +89,14 @@ public static class ShiftReportEndpoints
         var approver = sessions.AuthorisedBy(token, authorisation, Capability.ReadXReport);
         var owner = sessions.AuthorisedBy(token, authorisation, Capability.ReadShiftFlags);
         var settings = await configuration.CurrentAsync(cancellationToken);
+
+        // The PIN that just let a close through opens its Z too (block D review), when its giver's rank
+        // reads reports as the shop set it: the same manager, asked twice in a breath, was asked once too many.
+        if (approver is null && sessions.AuthorisedBy(token, authorisation, Capability.CloseSession) is { } closer
+            && ClosersRead(await RankOf(closer), settings.XReportMinRank))
+        {
+            approver = closer;
+        }
         var (reads, readsFlags, reader) = WhoReads(
             session.StaffId, await RankOf(session.StaffId), settings.XReportMinRank, approver, await RankOf(approver), owner, await RankOf(owner));
         return reads ? new Reader(ShiftReportOutcomes.Ok, readsFlags, reader) : new Reader(ShiftReportOutcomes.PinRequired);
@@ -118,6 +126,11 @@ public static class ShiftReportEndpoints
         var rank = ReaderRank(sellerRank, xReportMinRank, approverId is null ? null : approverRank, out var reads);
         return reads ? (true, StaffPermissions.May(rank, Capability.ReadShiftFlags), approverId) : (false, false, null);
     }
+
+    /// <summary>Whether whoever approved a close may read reports, as the shop set it (block D review).</summary>
+    public static bool ClosersRead(long? rank, long? xReportMinRank) => xReportMinRank is { } setTo
+        ? StaffPermissions.May(rank, Capability.ReadXReport, setTo)
+        : StaffPermissions.May(rank, Capability.ReadXReport);
 
     /// <summary>
     /// The rank a report is read with: the seller's when it reaches <c>ReadXReport</c> as the shop set it,

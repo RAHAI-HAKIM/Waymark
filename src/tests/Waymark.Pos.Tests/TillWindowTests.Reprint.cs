@@ -109,9 +109,17 @@ public sealed partial class TillWindowTests
         /// <summary>Every reprint asked for, as sent.</summary>
         public List<ReprintRequest> Reprints { get; } = [];
 
+        /// <summary>Set: a reprint waits until it is released, as a slow server would.</summary>
+        public TaskCompletionSource? HoldReprints { get; set; }
+
         public async Task<ReceiptAnswer?> ReprintAsync(ReprintRequest request, string sessionToken, CancellationToken cancellationToken = default)
         {
             Reprints.Add(request);
+            if (HoldReprints is { } hold)
+            {
+                await hold.Task;
+            }
+
             var receipt = (await ReceiptAsync(request.Ticket, sessionToken, request.Authorisation, cancellationToken))!.Receipt!;
             return new ReceiptAnswer(TicketOutcomes.Found, receipt with
             {

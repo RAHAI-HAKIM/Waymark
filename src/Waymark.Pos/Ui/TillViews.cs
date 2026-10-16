@@ -681,8 +681,11 @@ public static partial class TillViews
 
         if (rest.Sections is { } sections)
         {
-            // "Plus…" (D-126): a list in sections, the way back below it.
+            // "Plus…" (D-126): a list in sections, the way back below it. It takes the rail while open:
+            // with the Almanac card under it the list pushed the card past the bar (block D review).
             dock.Children.Add(Docked(MoreList(sections, rest.Operations, theme, actions), Dock.Top));
+            dock.Children.Add(new Border());
+            return dock;
         }
         else
         {
@@ -696,7 +699,9 @@ public static partial class TillViews
         }
         if (rest.Almanac is { } slot)
         {
-            dock.Children.Add(Docked(Almanac(slot, theme, actions), Dock.Bottom));
+            var almanac = Almanac(slot, theme, actions);
+            almanac.Tag = slot;
+            dock.Children.Add(Docked(almanac, Dock.Bottom));
         }
 
         dock.Children.Add(new Border());
@@ -775,7 +780,7 @@ public static partial class TillViews
         });
 
         var operation = key.Operation;
-        return new TillKey(theme, row.On == false ? KeyLook.Chosen : KeyLook.Secondary, face, () => actions.Operate(operation), key.Enabled, height: 44)
+        return new TillKey(theme, row.On == false ? KeyLook.Chosen : KeyLook.Secondary, face, () => actions.Operate(operation), key.Enabled, height: 40)
         {
             Tag = key,
         };
@@ -943,7 +948,9 @@ public static partial class TillViews
         body.Children.Add(forms);
         if (panel.Preview is { } preview)
         {
-            body.Children.Add(TillTheme.Figure(preview, 24, theme.Text, FontWeight.SemiBold));
+            body.Children.Add(panel.PreviewWords
+                ? Wrapped(Words(preview, 16, FontWeight.SemiBold, theme.Text, theme))
+                : TillTheme.Figure(preview, 24, theme.Text, FontWeight.SemiBold));
         }
 
         body.Children.Add(new Border { Margin = new Thickness(0, 8, 0, 0), Child = theme.Label(panel.ReasonTitle, theme.TextSecondary) });

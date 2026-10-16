@@ -451,6 +451,23 @@ public static partial class TillViews
                 continue;
             }
 
+            if (line.Stacked)
+            {
+                stack.Children.Add(new Border
+                {
+                    BorderBrush = theme.BorderSubtle,
+                    BorderThickness = new Thickness(0, 0, 0, 1),
+                    Padding = new Thickness(0, 5),
+                    Tag = line,
+                    Child = new StackPanel
+                    {
+                        Spacing = 2,
+                        Children = { Words(line.Label, 14, FontWeight.SemiBold, theme.Text, theme), Wrapped(theme.BodySmall(line.Value, theme.TextSecondary)) },
+                    },
+                });
+                continue;
+            }
+
             var weight = line.Strong ? FontWeight.SemiBold : FontWeight.Normal;
             var row = ReportRow(
                 theme,

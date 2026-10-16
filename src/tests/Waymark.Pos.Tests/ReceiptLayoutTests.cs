@@ -285,6 +285,18 @@ public sealed class ReceiptLayoutTests
         Assert.DoesNotContain(paper, line => line.Contains("remboursement", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Theory]
+    [InlineData(32)]
+    [InlineData(42)]
+    public void A_weighed_line_brought_back_prints_its_weight_unsigned_and_its_figure_below_zero(int columns)
+    {
+        // Block D review: a refund's quantity is below zero on the wire; the paper says the weight, never "-0,742 kg".
+        var paper = Paper(ReceiptLayout.For(Refund() with { Lines = [new("Tomates", "-0.742", "kg", "180.00", "0.00", "-133.56", true)], Total = "-133.56" }, columns), columns);
+
+        Assert.EndsWith("-133,56", Line(paper, "  0,742 kg x 180,00/kg"), StringComparison.Ordinal);
+        Assert.Contains("1 article", paper);
+    }
+
     private static Domain.Values.Money Dzd(decimal amount) =>
         Domain.Values.Money.FromMinorUnits((long)(amount * 100), Domain.Values.Currency.Dzd);
 }

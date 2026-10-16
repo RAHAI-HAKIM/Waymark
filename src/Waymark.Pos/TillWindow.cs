@@ -70,8 +70,11 @@ public sealed class TillWindow : Window, IDisposable
     /// <summary>The store's lines for a slip, read once a sign-in.</summary>
     private ReceiptStoreWire? _receiptStore;
 
-    /// <summary>A ticket's number scanned during a sale (D-127), opened by F3 once the sale is on hold.</summary>
-    private string? _scannedTicket;
+    /// <summary>A reprint on its way (block D review): its key says so, and a second press counts nothing.</summary>
+    private bool _reprinting;
+
+    /// <summary>The manager's approval that let the last close through, for its Z (block D review).</summary>
+    private string? _closeApproval;
     private readonly ITillServer _server;
     private readonly TillIdentity _till;
     private readonly TillText _text;
@@ -218,7 +221,6 @@ public sealed class TillWindow : Window, IDisposable
                 }
                 else
                 {
-                    _scannedTicket = null;
                     Submit(scan.Code);
                 }
             }
@@ -2217,7 +2219,7 @@ public sealed class TillWindow : Window, IDisposable
                 break;
             case DrawerScreen.ZReportKey when panel is { Kind: CustomerPanelKind.DrawerClosed, Closed: { } closed }:
                 // "Voir le rapport Z" (C2): the report opens over the result, which is there again when it closes.
-                _ = OpenReportAsync(closed.ZReportNumber, null);
+                _ = OpenReportAsync(closed.ZReportNumber, _closeApproval);
                 break;
             case DrawerScreen.RecountKey when panel is { Kind: CustomerPanelKind.DrawerConfirm, Frozen: false }:
                 _customerPanel = panel with { Kind = CustomerPanelKind.DrawerCount, Name = string.Empty, OnName = false, Refused = null };
@@ -2726,7 +2728,8 @@ public sealed class TillWindow : Window, IDisposable
             _printer.Fault,
             _salePaper is { } sale && _session.Paid?.Outcome.InvoiceNumber == sale.Invoice ? sale.Paper : null,
             _refundPaper is { } refund && _session.Viewing?.TransactionId == refund.TransactionId ? refund.Paper : null,
-            _customerPanel is { Kind: CustomerPanelKind.Repaid } ? _repaidPaper : null);
+            _customerPanel is { Kind: CustomerPanelKind.Repaid } ? _repaidPaper : null,
+            Reprinting: _reprinting);
 
     /// <summary>A pulse for its reason, when the till has a printer; a failure is the bar's to say.</summary>
     private async Task<bool> KickAsync(DrawerOpenReason reason)
@@ -2760,7 +2763,7 @@ public sealed class TillWindow : Window, IDisposable
             return;
         }
 
-        _salePaper = (number, new Paper(await PrintTicketAsync(number) ? PaperOutcome.Printed : PaperOutcome.Failed, opened));
+        _salePaper = (number, new Paper(await PrintTicketAsync(number), opened));
         Render();
     }
 
@@ -2773,7 +2776,7 @@ public sealed class TillWindow : Window, IDisposable
         }
 
         var opened = DrawerKicks.AfterRefund(answer) && await _printer.OpenDrawerAsync(DrawerOpenReason.Refund);
-        _refundPaper = (id, number, new Paper(await PrintTicketAsync(number) ? PaperOutcome.Printed : PaperOutcome.Failed, opened));
+        _refundPaper = (id, number, new Paper(await PrintTicketAsync(number), opened));
         Render();
     }
 
@@ -2786,7 +2789,7 @@ public sealed class TillWindow : Window, IDisposable
         }
 
         var opened = DrawerKicks.AfterRepayment(answer) && await _printer.OpenDrawerAsync(DrawerOpenReason.PaidIn);
-        _repaidPaper = new Paper(await PrintSlipAsync(answer, at) ? PaperOutcome.Printed : PaperOutcome.Failed, opened);
+        _repaidPaper = new Paper(await PrintSlipAsync(answer, at), opened);
         Render();
     }
 
@@ -2800,15 +2803,15 @@ public sealed class TillWindow : Window, IDisposable
 
         if (_session.Paid?.Outcome.InvoiceNumber is { } number && _salePaper is { } sale && sale.Invoice == number && sale.Paper.Outcome != PaperOutcome.Printed)
         {
-            _salePaper = (number, sale.Paper with { Outcome = await PrintTicketAsync(number) ? PaperOutcome.Printed : PaperOutcome.Failed });
+            _salePaper = (number, sale.Paper with { Outcome = await PrintTicketAsync(number) });
         }
         else if (_refundPaper is { } refund && _session.Viewing?.TransactionId == refund.TransactionId && refund.Paper.Outcome != PaperOutcome.Printed)
         {
-            _refundPaper = refund with { Paper = refund.Paper with { Outcome = await PrintTicketAsync(refund.Invoice) ? PaperOutcome.Printed : PaperOutcome.Failed } };
+            _refundPaper = refund with { Paper = refund.Paper with { Outcome = await PrintTicketAsync(refund.Invoice) } };
         }
         else if (_customerPanel is { Kind: CustomerPanelKind.Repaid, After: { } after, At: { } at } && _repaidPaper is { Outcome: not PaperOutcome.Printed } slip)
         {
-            _repaidPaper = slip with { Outcome = await PrintSlipAsync(after, at) ? PaperOutcome.Printed : PaperOutcome.Failed };
+            _repaidPaper = slip with { Outcome = await PrintSlipAsync(after, at) };
         }
 
         Render();
@@ -2816,7 +2819,16 @@ public sealed class TillWindow : Window, IDisposable
 
     /// <summary>Whether F7 is "Imprimer le ticket": an operation just ended whose paper did not come out (D-126).</summary>
     private bool PaperMissing() => PrintingOf() is { } printing
-        && ((printing.Sale ?? printing.Refund ?? printing.Repayment) is { Outcome: not PaperOutcome.Printed });
+        && new[] { printing.Sale, printing.Refund, printing.Repayment }.Any(paper => paper is { Outcome: not PaperOutcome.Printed });
+
+    /// <summary>
+    /// Something floats over the ticket and freezes it (D-094): a payment, a counter panel or its PIN
+    /// step, a report, the carnet, a customer's panel. F7 and F9 wait for it to close (block D review);
+    /// the repayment's own panel keeps "Imprimer le reçu".
+    /// </summary>
+    private bool Frozen(bool forSlip = false) =>
+        _payment is not null || _discount is not null || _refund is not null || _report is not null || _carnet is not null
+        || (_customerPanel is not null && !(forSlip && _customerPanel.Kind == CustomerPanelKind.Repaid));
 
     /// <summary>
     /// "Réimprimer" (D-127): the server counts it and answers the duplicate, which the till prints. Who
@@ -2825,19 +2837,34 @@ public sealed class TillWindow : Window, IDisposable
     /// </summary>
     private async Task ReprintAsync(string number)
     {
-        if (_printer is null || _session.SignedIn is not { } person)
+        if (_printer is null || _session.SignedIn is not { } person || _reprinting)
         {
             return;
         }
 
+        _reprinting = true;
+        Render();
+        try
+        {
+            await ReprintNowAsync(number, person.Token);
+        }
+        finally
+        {
+            _reprinting = false;
+            Render();
+        }
+    }
+
+    private async Task ReprintNowAsync(string number, string token)
+    {
         var viewing = _session.Viewing;
         var approval = viewing is not null ? TicketApprovalFor(viewing) : null;
-        var answer = await _server.ReprintAsync(new ReprintRequest(number, approval), person.Token);
+        var answer = await _server.ReprintAsync(new ReprintRequest(number, approval), token);
         switch (answer)
         {
             case { Outcome: TicketOutcomes.Found, Receipt: { } receipt }:
                 var mark = receipt.Reprint is { } reprint ? new ReprintMark(reprint.Day, reprint.Time, reprint.By) : null;
-                await _printer.PrintAsync(ReceiptLayout.For(receipt, _printer.Columns, mark));
+                await _printer!.PrintAsync(ReceiptLayout.For(receipt, _printer.Columns, mark));
 
                 // The past ticket says how many copies are about (board 8B).
                 if (_session.Viewing is { } open && open.TransactionId == viewing?.TransactionId)
@@ -2852,12 +2879,13 @@ public sealed class TillWindow : Window, IDisposable
             case { Outcome: TicketOutcomes.Unknown }:
                 _session.Tell(TillNoticeKind.TicketUnknown, number, string.Empty);
                 break;
+            case { Outcome: TicketOutcomes.NotSignedIn }:
+                _session.Tell(TillNoticeKind.NotSignedIn, "-", string.Empty);
+                break;
             case null:
                 _session.ReportHealth(reachable: false);
                 break;
         }
-
-        Render();
     }
 
     /// <summary>
@@ -2868,41 +2896,40 @@ public sealed class TillWindow : Window, IDisposable
     {
         if (_session.Paid is null && _session.Viewing is null && _session.Cart.ActiveLines.Count > 0)
         {
-            _scannedTicket = number;
             _session.Tell(TillNoticeKind.TicketScanned, number, string.Empty);
             return;
         }
 
-        _scannedTicket = null;
         _ = OpenTicketAsync(number);
     }
 
     /// <summary>A sale's or a refund's receipt, as the server reads it off the ticket's rows (D1), to the printer.</summary>
-    private async Task<bool> PrintTicketAsync(string number)
+    private async Task<PaperOutcome> PrintTicketAsync(string number)
     {
         if (_printer is null || _session.SignedIn is not { } person)
         {
-            return false;
+            return PaperOutcome.Unread;
         }
 
-        var answer = await _server.ReceiptAsync(number, person.Token, null);
-        return answer is { Outcome: TicketOutcomes.Found, Receipt: { } receipt }
-            && await _printer.PrintAsync(ReceiptLayout.For(receipt, _printer.Columns));
+        // Not read back is not the printer's fault (block D review): it is said as such, never as "ne répond pas".
+        return await _server.ReceiptAsync(number, person.Token, null) is { Outcome: TicketOutcomes.Found, Receipt: { } receipt }
+            ? await _printer.PrintAsync(ReceiptLayout.For(receipt, _printer.Columns)) ? PaperOutcome.Printed : PaperOutcome.Failed
+            : PaperOutcome.Unread;
     }
 
     /// <summary>A repayment's slip (D-125): what came off the tab and the cash step, from the server's answer.</summary>
-    private async Task<bool> PrintSlipAsync(TabAnswer answer, DateTimeOffset at)
+    private async Task<PaperOutcome> PrintSlipAsync(TabAnswer answer, DateTimeOffset at)
     {
         if (_printer is null || _session.SignedIn is not { } person || answer.Currency is not { } currency
             || (answer.Cleared ?? answer.CashCollected) is not { } clearedText)
         {
-            return false;
+            return PaperOutcome.Unread;
         }
 
         _receiptStore ??= (await _server.ReceiptStoreAsync(person.Token))?.Store;
         if (_receiptStore is null)
         {
-            return false;
+            return PaperOutcome.Unread;
         }
 
         var cleared = WireFigures.Money(clearedText, currency);
@@ -2915,7 +2942,7 @@ public sealed class TillWindow : Window, IDisposable
             _context?.StaffName?.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var first, ..] ? first : null,
             cleared,
             cash == cleared ? null : cash - cleared);
-        return await _printer.PrintAsync(ReceiptLayout.Repayment(_receiptStore, slip));
+        return await _printer.PrintAsync(ReceiptLayout.Repayment(_receiptStore, slip)) ? PaperOutcome.Printed : PaperOutcome.Failed;
     }
 
     // =================================================================== D2: the no-sale (D-123, D-126)
@@ -3158,6 +3185,8 @@ public sealed class TillWindow : Window, IDisposable
         switch (answer?.Outcome)
         {
             case CashSessionOutcomes.Closed when answer.Closed is { } closed:
+                // The PIN that let the close through reads its Z too, its giver's rank allowing (block D review).
+                _closeApproval = authorisation;
                 _frozenCount = null;
                 _customerPanel = now with { Kind = CustomerPanelKind.DrawerClosed, Closed = closed, Sending = false, OnName = false };
                 _drawer = _drawer is { } before
@@ -3592,13 +3621,13 @@ public sealed class TillWindow : Window, IDisposable
         switch (operation)
         {
             case Operation.Park:
+                // F3 after a ticket's number was scanned mid-sale (board 11A): on hold, then that ticket.
+                // Only while the slot still offers it: once anything else happened, F3 is "Attente" alone.
+                var scanned = _session.Notice is { Kind: TillNoticeKind.TicketScanned } offered ? offered.Code : null;
                 _selected = null;
                 _session.Park();
-
-                // F3 after a ticket's number was scanned mid-sale (board 11A): on hold, then that ticket.
-                if (_scannedTicket is { } scanned && _session.Cart.ActiveLines.Count == 0)
+                if (scanned is not null && _session.Cart.ActiveLines.Count == 0)
                 {
-                    _scannedTicket = null;
                     _ = OpenTicketAsync(scanned);
                 }
 
@@ -3637,12 +3666,16 @@ public sealed class TillWindow : Window, IDisposable
 
             case Operation.PrintTicket:
                 // "Imprimer le ticket", F7 (D-126): the paper that did not come out, the original.
-                _ = PrintAgainAsync();
+                if (!Frozen(forSlip: true))
+                {
+                    _ = PrintAgainAsync();
+                }
+
                 break;
 
             case Operation.NoSale:
                 // "Ouvrir le tiroir" (D-126): from "Plus…" or F9, the same panel. Not with the drawer shut.
-                if (_drawer?.Open is null || _session.Unconfirmed is not null || _customerPanel is not null || _payment is not null)
+                if (_drawer?.Open is null || _session.Unconfirmed is not null || Frozen())
                 {
                     break;
                 }
@@ -3654,7 +3687,7 @@ public sealed class TillWindow : Window, IDisposable
 
             case Operation.Reprint:
                 // "Réimprimer" (D-127): the past ticket open, else the paid one.
-                if ((_session.Viewing?.InvoiceNumber ?? _session.Paid?.Outcome.InvoiceNumber) is { } toReprint)
+                if (!Frozen() && (_session.Viewing?.InvoiceNumber ?? _session.Paid?.Outcome.InvoiceNumber) is { } toReprint)
                 {
                     _ = ReprintAsync(toReprint);
                 }

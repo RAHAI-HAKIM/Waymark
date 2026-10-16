@@ -37,8 +37,8 @@ sequenceDiagram
     end
 
     S-->>P: sale complete
-    P->>P: ESC/POS receipt, then drawer pulse (a print failure never fails the sale)
-    P-->>C: receipt printed, drawer opens
+    P->>P: drawer pulse when cash moved, then the ESC/POS receipt (D-126; a print failure never fails the sale)
+    P-->>C: drawer opens, receipt printed
 
     note over S,API: separately, asynchronously
     S->>API: POST outbox batch, plus last_received_seq

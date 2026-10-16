@@ -265,6 +265,11 @@ public sealed partial class TillWindowTests
         till.WaitFor(() => FormOf(till)?.Title == TillText.French.DrawerClosedTitle);
 
         Assert.Equal([null, "auth-samia"], till.Server.DrawerCloses.Select(close => close.Authorisation));
+
+        // Its Z, straight after: the PIN that let the close through is cited again, not asked again (block D review).
+        till.Tap(Keyed<FormKey>(till, key => key.Id == DrawerScreen.ZReportKey), new Point(10, 10));
+        till.WaitFor(() => till.Server.ReportsRead.Count > 0);
+        Assert.Equal("auth-samia", till.Server.ReportsRead[^1].Authorisation);
     });
 
     // ================================================================== closing blind

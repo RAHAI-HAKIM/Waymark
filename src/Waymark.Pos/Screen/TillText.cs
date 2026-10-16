@@ -1425,6 +1425,12 @@ public abstract class TillText
 
     public abstract string ReprintKey { get; }
 
+    public abstract string ReprintingKey { get; }
+
+    public abstract string NotReadBody(PaperKind kind);
+
+    public abstract string NoSaleDetail(string reason, string? note, string? authorisedBy);
+
     public abstract string Reprinted(long count);
 
     public abstract string ReturnsOnTicket { get; }
@@ -1500,6 +1506,15 @@ public abstract class TillText
             $"{name} · {count} ouvertures{(threshold is null ? string.Empty : $", seuil {threshold} par session")}";
         public override string NoSalesRow => "Ouvertures sans vente";
         public override string ReprintKey => "Réimprimer";
+        public override string ReprintingKey => "Impression…";
+        public override string NotReadBody(PaperKind kind) => (kind switch
+        {
+            PaperKind.Refund => "Le retour est enregistré.",
+            PaperKind.Repayment => "Le remboursement est enregistré.",
+            _ => "La vente est enregistrée.",
+        }) + " Le serveur n'a pas renvoyé le ticket : imprimez-le à nouveau.";
+        public override string NoSaleDetail(string reason, string? note, string? authorisedBy) =>
+            reason + (note is null ? string.Empty : $" · « {note} »") + (authorisedBy is null ? string.Empty : $" · autorisé par {authorisedBy}");
         public override string Reprinted(long count) => $"Réimprimé {count} fois";
         public override string ReturnsOnTicket => "Retours sur ce ticket";
         public override string ReturnsNone => "aucun";
@@ -2251,6 +2266,15 @@ public abstract class TillText
             $"{name} · {DisplayFigures.Count(count)} فتحات{(threshold is null ? string.Empty : $"، الحد {threshold} في الحصة")}";
         public override string NoSalesRow => "فتحات دون بيع"; // ar: à relire
         public override string ReprintKey => "إعادة الطباعة"; // ar: à relire
+        public override string ReprintingKey => "جارٍ الطبع…"; // ar: à relire
+        public override string NotReadBody(PaperKind kind) => (kind switch // ar: à relire
+        {
+            PaperKind.Refund => "سُجّل الإرجاع.",
+            PaperKind.Repayment => "سُجّل التسديد.",
+            _ => "سُجّل البيع.",
+        }) + " لم يُرجع الخادم التذكرة: اطبعها من جديد.";
+        public override string NoSaleDetail(string reason, string? note, string? authorisedBy) => // ar: à relire
+            reason + (note is null ? string.Empty : $" · « {note} »") + (authorisedBy is null ? string.Empty : $" · بإذن {authorisedBy}");
         public override string Reprinted(long count) => $"أعيدت طباعتها للمرة {DisplayFigures.Count(checked((int)count))}"; // ar: à relire
         public override string ReturnsOnTicket => "عمليات الإرجاع المتعلقة بهذه التذكرة"; // ar: à relire
         public override string ReturnsNone => "لا شيء"; // ar: à relire

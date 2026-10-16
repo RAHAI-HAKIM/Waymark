@@ -79,7 +79,7 @@ sales have no customer, and the boundary comes alive with the customer period re
 Phase 2 (D-064).
 
 **Closed 21/09/2026.** The whole path runs and every hop can be explained: twelve decisions,
-a reading guide per session (`status.md` §7), 995 tests, and seven defects the thin cut found
+a reading guide per session (`recaps/phase-0.5.md` §9), 995 tests, and seven defects the thin cut found
 that nothing else would have (`recaps/phase-0.5.md` §5). Actual length: hop 1 took two long
 sessions, A–D one each — three days against the three-to-five estimated.
 

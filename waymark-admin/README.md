@@ -34,7 +34,7 @@ cross-origin calls so that a dev server can be convenient.
 
 Then type a staff id into the box. Seed-42's owner is
 `01JCWEQNC0W9W3YV7F0CPNDDCB`'s colleague — read the ids out of the store, or
-use the ones in `docs/status.md` §6.2. A cashier sees the count of cards held
+use the ones in `docs/status.md` §6 ("Running it"). A cashier sees the count of cards held
 back; the rung above sees the cards.
 
 ## What is on the page (Phase 0.5, hop 8)

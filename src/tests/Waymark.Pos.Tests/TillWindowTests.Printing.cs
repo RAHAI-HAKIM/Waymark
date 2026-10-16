@@ -203,8 +203,10 @@ public sealed partial class TillWindowTests
 
         var owner = Section(new NoSalesWire(2, openings));
         Assert.Equal((TillText.French.OwnerOnly, 3, "2"), (owner.Aside, owner.Lines.Count, owner.Lines[0].Value));
-        Assert.Equal(("09:14 · Nabil B.", "Karim M.", "Faire de la monnaie"), (owner.Lines[1].Label, owner.Lines[1].Count, owner.Lines[1].Value));
-        Assert.Contains("« Billet tombé »", owner.Lines[2].Value, StringComparison.Ordinal);
+        // Words, not figures (block D review): who allowed it is said in full under the hour and the person.
+        Assert.Equal(("09:14 · Nabil B.", (string?)null, "Faire de la monnaie · autorisé par Karim M.", true),
+            (owner.Lines[1].Label, owner.Lines[1].Count, owner.Lines[1].Value, owner.Lines[1].Stacked));
+        Assert.Equal("Autre · « Billet tombé » · autorisé par Karim M.", owner.Lines[2].Value);
 
         var manager = Section(new NoSalesWire(2, null));
         Assert.Equal((1, "2", TillText.French.NoSaleDetailReserved), (manager.Lines.Count, manager.Lines[0].Value, manager.Note));
@@ -245,10 +247,13 @@ public sealed partial class TillWindowTests
         /// <summary>The seller reaches rank 2: a no-sale needs nobody's PIN.</summary>
         public bool SellerMayNoSale { get; set; }
 
+        /// <summary>The server cannot read a receipt back: it answers nothing.</summary>
+        public bool ReceiptsUnread { get; set; }
+
         public Task<ReceiptAnswer?> ReceiptAsync(string idOrNumber, string sessionToken, string? authorisation, CancellationToken cancellationToken = default)
         {
             Receipts.Add(idOrNumber);
-            return Task.FromResult<ReceiptAnswer?>(new ReceiptAnswer(TicketOutcomes.Found, new ReceiptWire(
+            return Task.FromResult<ReceiptAnswer?>(ReceiptsUnread ? null : new ReceiptAnswer(TicketOutcomes.Found, new ReceiptWire(
                 ReceiptKinds.Sale, new ReceiptStoreWire("EL AMEL", [], null, null, null), idOrNumber, "25/09/2026", "10:05", "Caisse 1", "Nabil",
                 [new ReceiptLineWire("Lait UHT Candia Brique 1L", "1", "pc", "143.00", "0.00", "143.00", false)],
                 "143.00", "0.00", "143.00", "0.00", "DZD", [new PastPaymentWire("cash", "143.00")], "2.00", null, null, null, 0, "fr")));

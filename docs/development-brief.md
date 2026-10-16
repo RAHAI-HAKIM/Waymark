@@ -26,11 +26,11 @@ till in the shop; the cloud receives only pseudonymised data.
 | :---- | :---- |
 | Started | 01/09/2026, after 8 weeks of learning and 3 of design |
 | Done | **Phase 0** (foundation, 17/09), **Phase 0.5** (one thin path from a scanned barcode to a decided recommendation, 21/09) |
-| Under way | **Phase 1, "the till runs a shop"**: blocks A, B and C of ten are done and reviewed |
+| Under way | **Phase 1, "the till runs a shop"**: blocks A to D are done and reviewed (the till sells, closes its shift and prints) |
 | The till today | Sells by scan, name or weight; discounts and price overrides behind a manager's PIN; split payment; customers and a credit book (le carnet); cancels and refunds; opens and closes its drawer on a count; reads its X and Z reports |
-| Still to come in Phase 1 | Receipts and the printer, the catalogue and Admin, stock, customer rights tooling, staff, offline and backup |
+| Still to come in Phase 1 | The catalogue and Admin, stock, customer rights tooling, staff, offline and backup; the real printer and scale when the hardware is there (block K) |
 | Not built yet | The cloud (a stub), the engine beyond one expiry rule, most of Admin |
-| Size | 62 tables, 15 migrations, **2 609 automated tests**, all passing |
+| Size | 63 tables, 19 migrations, **2 764 automated tests**, all passing |
 | Next milestone | The February demo is Phase 2: the engine speaks |
 
 ## 3. How it is built
@@ -53,13 +53,14 @@ In this order. About an hour in all; the first three are enough for a first meet
 | # | Document | Read | Why |
 | :-- | :---- | :---- | :---- |
 | 1 | `diagrams/02-container.md` | All (one drawing) | The shop/cloud split and the pieces |
-| 2 | `status.md` | The opening paragraph, §1 and §6 | Where the work stands and what is next |
+| 2 | `status.md` | The opening paragraph, §1 and §5 | Where the work stands and what is next |
 | 3 | `Waymark_Build_Plan.md` | The head, then each phase's first lines | What each phase delivers and when it counts as done |
 | 4 | `../CLAUDE.md` | §2 to §4 | The rules the code obeys: architecture, money, privacy |
 | 5 | `Waymark_Implementation.md` | §2, §3 and §7 | The stack, the data stores, the solution's layout |
 | 6 | `recaps/phase-1.md` | §1, then two or three decisions of §3 or §6 | What a block produces, and how a decision is argued |
 | 7 | `decisions.md` | Skim the titles; never front to back | The index of every choice. Search it for a *why* |
 | 8 | `diagrams/04-data-flow.md` and `06-sequence-sale.md` | Both | Where personal data stops; what one sale does |
+| 9 | `recaps/implementation-workflow.md` | §1 to §3 | How the code is laid out, and how one feature crosses the projects |
 
 Not needed for a first reading: `phase-1-plan.md` (how the sessions are ordered),
 `schema-changes.md` (a procedure), `sync-design.md` (Phase 4's design), the Phase 0 recaps.
@@ -79,9 +80,10 @@ beats an older design document, and is written down the same day.
 
 ## 6. What is uncertain
 
-- **Pace.** Phase 1 is the largest phase: about 18 of 47 sessions are done. The blocks on
+- **Pace.** Phase 1 is the largest phase: about 21 of 48 sessions are done. The blocks on
   customers and compliance are the ones most likely to grow.
-- **Hardware.** Receipt printers, drawers and scales are simulated so far; the real ones
-  start in the next block.
+- **Hardware.** Receipt printers, drawers and scales are simulated so far: the till prints to a
+  file in the exact bytes a printer takes. The real devices are a block of their own (K), taken
+  when they are on the desk.
 - **Open questions** are listed, not hidden: nine wait for a decision (`decisions.md`, last
   section), among them how much of supplier management belongs in Phase 1.
