@@ -125,7 +125,22 @@ store database, locked down the keys directory and gave on-account debt its own 
 final test then attacked everything Phase 0 built; its findings are fixed or decided
 (`docs/decisions.md` D-055–D-062). Next is Phase 0.5, the walking skeleton. The phase recap
 is `docs/recaps/phase-0.md`.
-Phase definitions are in `docs/Waymark_Build_Plan.md`.
+
+**Phase 0.5 — The walking skeleton: complete** (20/09/2026). One thin cut through every layer,
+to find out whether the architecture Phase 0 laid down holds when something real passes through it.
+The Build Plan's words: *one product, one store,
+one department, ugly UI*. No breadth and no polish — only the question **does the path exist
+end to end**, and the defects that answer it.
+The cut: **scan → cart → complete sale → transaction and stock movement → outbox → a stub
+cloud reads it → expiry evaluator flags a batch → envelope → Integration Layer role check →
+card in Local Admin → accept → decision written and the card closed**.
+is `docs/recaps/phase-0.5.md`.
+
+**Phase 1 recap (till Block D)**: the till runs a counter, a shift and its paper
+**Blocks A and B, built 22/09–02/10/2026, Block B reviewed 03/10/2026; Block C built
+05/10–11/10 and reviewed 12/10/2026; Block D built 13/10–15/10 and reviewed 16/10/2026.** Phase 1
+is not closed: Blocks E to J (and K, the hardware) are still to come, planned in
+`../phase-1-plan.md`.
 
 The synthetic store generator makes a deterministic year of a fake épicerie for
 development, testing and the engine; see `src/Waymark.Generator/README.md`.
