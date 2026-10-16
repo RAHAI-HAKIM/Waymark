@@ -51,7 +51,11 @@ public sealed class PrintingTests
         var printing = new PrintingState(true, true, null);
 
         var printed = PrintScreen.Block(text, printing, new Paper(PaperOutcome.Printed, DrawerOpened: true), PaperKind.Sale)!;
-        Assert.Equal((text.Printed(PaperKind.Sale), text.DrawerOpenedLine, (PanelMessage?)null, (OperationKey?)null), (printed.Status, printed.Drawer, printed.Warning, printed.Print));
+        Assert.Equal((text.Printed(PaperKind.Sale), text.DrawerOpenedLine, (PanelMessage?)null), (printed.Status, printed.Drawer, printed.Warning));
+
+        // Printed, a sale's key becomes "Réimprimer" (D-127); a refund's ticket has the rail's own.
+        Assert.Equal(new OperationKey(Operation.Reprint, text.ReprintKey, "F7", true), printed.Print);
+        Assert.Null(PrintScreen.Block(text, printing, new Paper(PaperOutcome.Printed, DrawerOpened: false), PaperKind.Refund)!.Print);
 
         var off = PrintScreen.Block(text, printing, new Paper(PaperOutcome.SwitchedOff, DrawerOpened: false), PaperKind.Sale)!;
         Assert.Equal((text.TicketNotPrintedOff, (string?)null, Operation.PrintTicket), (off.Status, off.Drawer, off.Print!.Operation));

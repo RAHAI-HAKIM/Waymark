@@ -57,6 +57,8 @@ public sealed record PastTicketSummary(
 /// <param name="OriginalTransactionId">For a refund (B9), the sale it refunds; null for a sale.</param>
 /// <param name="OriginalInvoiceNumber">That sale's number, for the ticket view to say so.</param>
 /// <param name="HasCustomer">The sale is recorded against a customer, who is not named here (D-088): what store credit needs (D-098).</param>
+/// <param name="TerminalName">The till as the shop named it (D-127).</param>
+/// <param name="ReprintCount">How many times it was printed again (D-123, D-127).</param>
 public sealed record PastTicket(
     string TransactionId,
     string? InvoiceNumber,
@@ -72,7 +74,9 @@ public sealed record PastTicket(
     IReadOnlyList<PastPayment> Payments,
     string? OriginalTransactionId = null,
     string? OriginalInvoiceNumber = null,
-    bool HasCustomer = false);
+    bool HasCustomer = false,
+    string? TerminalName = null,
+    long ReprintCount = 0);
 
 /// <summary>A line of a past ticket. The names are the catalogue's today: a sale's rows keep no name (D-088).</summary>
 /// <param name="Quantity">In the line's selling unit.</param>
@@ -91,4 +95,5 @@ public sealed record PastTicketLine(
     bool Weighed = false);
 
 /// <summary>One payment the sale took.</summary>
-public sealed record PastPayment(PaymentMethod Method, Money Amount);
+/// <param name="Reference">A card's or a wallet's reference, never a card number (D-095); null for cash.</param>
+public sealed record PastPayment(PaymentMethod Method, Money Amount, string? Reference = null);

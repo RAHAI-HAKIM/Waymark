@@ -1421,6 +1421,26 @@ public abstract class TillText
 
     public abstract string NoSalesRow { get; }
 
+    // ------------------------------------------------------------ D3 (D-127): the reprint, the scanned ticket
+
+    public abstract string ReprintKey { get; }
+
+    public abstract string Reprinted(long count);
+
+    public abstract string ReturnsOnTicket { get; }
+
+    public abstract string ReturnsNone { get; }
+
+    public abstract string ReturnsCount(int units);
+
+    public abstract string TodayWord { get; }
+
+    public abstract string TillWord(string terminal);
+
+    public abstract string TicketScanned { get; }
+
+    public abstract string TicketScannedDetail(string number);
+
     // ================================================================== French
 
     private sealed class FrenchText : TillText
@@ -1479,6 +1499,15 @@ public abstract class TillText
         public override string TooManyNoSalesDetail(string name, int count, string? threshold) =>
             $"{name} · {count} ouvertures{(threshold is null ? string.Empty : $", seuil {threshold} par session")}";
         public override string NoSalesRow => "Ouvertures sans vente";
+        public override string ReprintKey => "Réimprimer";
+        public override string Reprinted(long count) => $"Réimprimé {count} fois";
+        public override string ReturnsOnTicket => "Retours sur ce ticket";
+        public override string ReturnsNone => "aucun";
+        public override string ReturnsCount(int units) => units == 1 ? "1 article" : $"{DisplayFigures.Count(units)} articles";
+        public override string TodayWord => "Aujourd'hui";
+        public override string TillWord(string terminal) => terminal.ToLowerInvariant();
+        public override string TicketScanned => "TICKET SCANNÉ";
+        public override string TicketScannedDetail(string number) => $"N° {number} · F3 met la vente en attente et ouvre ce ticket.";
 
         // D-113: a customer's age
         public override string AgeAdultKey => "18 ans ou plus";
@@ -2221,6 +2250,15 @@ public abstract class TillText
         public override string TooManyNoSalesDetail(string name, int count, string? threshold) => // ar: à relire
             $"{name} · {DisplayFigures.Count(count)} فتحات{(threshold is null ? string.Empty : $"، الحد {threshold} في الحصة")}";
         public override string NoSalesRow => "فتحات دون بيع"; // ar: à relire
+        public override string ReprintKey => "إعادة الطباعة"; // ar: à relire
+        public override string Reprinted(long count) => $"أعيدت طباعتها للمرة {DisplayFigures.Count(checked((int)count))}"; // ar: à relire
+        public override string ReturnsOnTicket => "عمليات الإرجاع المتعلقة بهذه التذكرة"; // ar: à relire
+        public override string ReturnsNone => "لا شيء"; // ar: à relire
+        public override string ReturnsCount(int units) => $"عدد السلع  {DisplayFigures.Count(units)}"; // ar: à relire
+        public override string TodayWord => "اليوم"; // ar: à relire
+        public override string TillWord(string terminal) => terminal; // ar: à relire
+        public override string TicketScanned => "تذكرة ممسوحة"; // ar: à relire
+        public override string TicketScannedDetail(string number) => $"رقم {number} · F3 يضيف البيع الى قائمة الانتظار ويفتح هذه التذكرة."; // ar: à relire
 
         // D-113: a customer's age
         public override string AgeAdultKey => "18 سنة أو أكثر"; // ar: à relire

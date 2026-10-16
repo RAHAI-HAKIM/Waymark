@@ -847,6 +847,23 @@ Migration `ReceiptFooter`: one added column.
 
 Migration `NoSaleAlertCount`: one added column.
 
+### D-127 — A reprint, from the D3 board (Hakim, 15/10)
+- **A reprint is a duplicate**, printed from the past ticket (Réimprimer, F7, beside Rembourser) or
+  from the paid rail once its ticket has printed. Only a paper that never came out prints as the
+  original, from where its operation ended (D-126).
+- **Still a count, as D-123** (Hakim): the board asked for each reprint to be logged with its hour
+  and person; the ticket says "Réimprimé 2 fois", the paper itself says when and by whom. No table.
+- **Who reprints is who may open the ticket** (Hakim): their own till today, else rank 2, or the
+  manager's approval that opened it for a cashier (D-109), cited again. No second PIN, so the
+  board's padlock and its reprint PIN step (9) are not built: a cashier never holds another day's
+  ticket without that approval.
+- **A scanned ticket number** (its dash, which no product code has, D-088's rule for a typed one):
+  an empty ticket opens it; a sale in progress gets no line and the slot offers F3, which puts the
+  sale on hold and opens it; an unknown number is TICKET INCONNU.
+- **No "Réimpression" key on the rail** (Hakim): the last ticket is one touch away in "Tickets".
+- The past ticket also says its till, "aujourd'hui" for today, a card's reference, and what was
+  brought back of it ("Retours sur ce ticket").
+
 ---
 
 ## Open — waiting on Hakim

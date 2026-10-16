@@ -916,6 +916,9 @@ public enum TillNoticeKind
 
     /// <summary>The drawer opened with nothing sold (D-126): the detail is when, who, and who authorised it.</summary>
     NoSaleOpened,
+
+    /// <summary>A ticket's number scanned while a sale is on the ticket (D-127): the code is the number; F3 parks and opens it.</summary>
+    TicketScanned,
 }
 
 /// <summary>A product sold by weight waiting for its weight (B3, D-090).</summary>

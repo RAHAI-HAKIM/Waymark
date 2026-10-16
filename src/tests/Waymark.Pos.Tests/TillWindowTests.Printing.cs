@@ -50,8 +50,8 @@ public sealed partial class TillWindowTests
         Assert.Equal("0142", till.Server.Receipts.Single());
 
         till.WaitFor(() => PaperShown(till) is not null);
-        Assert.Equal((TillText.French.Printed(PaperKind.Sale), TillText.French.DrawerOpenedLine, (OperationKey?)null),
-            (PaperShown(till)!.Status, PaperShown(till)!.Drawer, PaperShown(till)!.Print));
+        Assert.Equal((TillText.French.Printed(PaperKind.Sale), TillText.French.DrawerOpenedLine, (Screen.Operation?)Screen.Operation.Reprint),
+            (PaperShown(till)!.Status, PaperShown(till)!.Drawer, PaperShown(till)!.Print?.Operation));
     });
 
     [Fact]

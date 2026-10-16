@@ -139,7 +139,7 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
         var payments = await _context.TransactionPayments
             .Where(payment => payment.TransactionId == sale.TransactionId)
             .OrderBy(payment => payment.Sequence)
-            .Select(payment => new PastPayment(payment.PaymentMethod, payment.Amount))
+            .Select(payment => new PastPayment(payment.PaymentMethod, payment.Amount, payment.Reference))
             .ToListAsync(cancellationToken);
 
         // A refund (B9) says which sale it refunds; the sale's number is read through the same filter.
@@ -147,9 +147,12 @@ public sealed class PastTickets(WaymarkDbContext context) : IPastTickets
             ? await _context.Transactions.Where(t => t.TransactionId == original).Select(t => t.InvoiceNumber).FirstOrDefaultAsync(cancellationToken)
             : null;
 
+        var terminalName = await _context.Terminals.Where(till => till.TerminalId == sale.TerminalId).Select(till => till.TerminalName).FirstOrDefaultAsync(cancellationToken);
+
         // The figures are the row's, never summed again from the lines (D-053).
         return new PastTicket(
             sale.TransactionId, sale.InvoiceNumber, sale.OccurredAt, sale.TerminalId, sale.StaffId, staffName, sale.Status,
-            lines, sale.Subtotal, sale.TaxTotal, sale.TotalAmount, payments, sale.OriginalTransactionId, originalNumber, sale.CustomerId is not null);
+            lines, sale.Subtotal, sale.TaxTotal, sale.TotalAmount, payments, sale.OriginalTransactionId, originalNumber, sale.CustomerId is not null,
+            terminalName, sale.ReprintCount);
     }
 }

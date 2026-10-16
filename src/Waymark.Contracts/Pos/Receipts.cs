@@ -46,7 +46,19 @@ public sealed record ReceiptWire(
     [property: JsonPropertyName("reason")] string? Reason,
     [property: JsonPropertyName("refund_window_days")] int? RefundWindowDays,
     [property: JsonPropertyName("reprint_count")] long ReprintCount,
-    [property: JsonPropertyName("language")] string Language);
+    [property: JsonPropertyName("language")] string Language,
+    [property: JsonPropertyName("reprint")] ReprintWire? Reprint = null);
+
+/// <summary>The reprint this paper is (D3, D-127): the store's day and hour, and the first name of who asked. Null for the first paper.</summary>
+public sealed record ReprintWire(
+    [property: JsonPropertyName("day")] string Day,
+    [property: JsonPropertyName("time")] string Time,
+    [property: JsonPropertyName("by")] string? By);
+
+/// <summary>A ticket printed again (D3): its number, and the manager's approval that opened it, when one did (D-109).</summary>
+public sealed record ReprintRequest(
+    [property: JsonPropertyName("ticket")] string Ticket,
+    [property: JsonPropertyName("authorisation")] string? Authorisation = null);
 
 /// <summary>The store as its receipts name it.</summary>
 /// <param name="AddressLines">The address, a line each, as the store wrote it.</param>

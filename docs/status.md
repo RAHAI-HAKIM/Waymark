@@ -7,7 +7,7 @@ lands; it is the only document that is allowed to go stale in a week. Last pass:
 The till searches, holds and cancels tickets, sells by weight, discounts, overrides a price, splits
 a payment, keeps customers and a tab, refunds, spends store credit, moves cash and clocks people in.
 **It now sells only with its drawer open**: a float counted at opening, a count at close, a Z number.
-**Its X and Z reports are read at the till, whole and by cashier.** **Block D is open** (receipts and hardware): its ground is laid (D-122: a store that charges no TVA; D-123: its decisions and schema), and what needs a real device is block K (D-124). D1, the receipt, is done (D-125); D2, printing and the drawer on the fake, is built (D-126). Phase 1's decisions so far
+**Its X and Z reports are read at the till, whole and by cashier.** **Block D is open** (receipts and hardware): its ground is laid (D-122: a store that charges no TVA; D-123: its decisions and schema), and what needs a real device is block K (D-124). D1, the receipt, is done (D-125); D2, printing and the drawer on the fake, is built (D-126); D3, the reprint and the scanned ticket, too (D-127): **block D is done**, awaiting its UI pass. Phase 1's decisions so far
 are in `recaps/phase-1.md` (till Block C); Phase 0.5's recap is `recaps/phase-0.5.md`. The plan is
 `phase-1-plan.md`.
 
@@ -19,7 +19,7 @@ are in `recaps/phase-1.md` (till Block C); Phase 0.5's recap is `recaps/phase-0.
 | :---- | :---- |
 | Phase | **1, the till runs a shop: opening 22/09/2026.** Phase 0.5 closed 21/09/2026; Phase 0 closed 17/09/2026 |
 | Build | `dotnet build src/Waymark.sln`, 16 projects, **0 warnings**. No vulnerable package. On a machine short of memory build and test one node at a time (`-m:1`): MSBuild's child nodes die with `MSB4166` otherwise. **Stop StoreServer before building**: a running host holds `src/Waymark.StoreServer/bin` and the copy fails with `MSB3021`, which reads like a code error and is not one |
-| Tests | **2740**, all green (Integration 890 · Pos 767 · Domain 712 · Generator 238 · Hardware 83 · Application 50); the last full run, 14/10, was in Release. **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
+| Tests | **2750**, all green (Integration 893 · Pos 774 · Domain 712 · Generator 238 · Hardware 83 · Application 50); the last full run, 15/10, was in Release. **Pos includes the till's window**, headless (D-086). **Off Windows**, 5 `StoreCalendarTests` fail by design (D-067) and the StoreServer, keys-directory and DPAPI tests return without running |
 | Schema | 63 tables (all STRICT), 92 indexes, 38 triggers, **19 migrations**: `NoSaleAlertCount` (D-126: `cash_sessions.no_sale_alert_count`, frozen at the close; one added column), `ReceiptFooter` (D-125: `stores.receipt_footer`, one added column, no rebuild), `TaxRegimeNoSaleAndReprints` (D-122, D-123: `stores.tax_regime` and its CHECK, which rebuilds `stores`; `no_sale_openings`, append-only; `transactions.reprint_count`), `BlindCountAndClosedSession` (D-119, D-120: `cash_sessions.pending_count` and `pending_count_moves`; a closed row carries all of its close; one drawer that is "not closed"; rebuilds `cash_sessions`), `LogbookOperations` (D-115: art. 41 bis 3's operations, the `processor` actor, `supplier` subjects, four retention entities, `processing_log.subject_count`; rebuilds `processing_log`, `erasure_ledger` and `retention_policies`), `ConsentGivenBy` (D-113: `consent_events.given_by` and its CHECK; rebuilds `consent_events`), `CashSessionThresholds` (C2: the three thresholds frozen on `cash_sessions` at a close; three added columns, no rebuild), `CashSessionClose` (C1: `cash_sessions.closed_authorised_by` and its CHECK, one open session and one Z number per till as unique indexes; rebuilds `cash_sessions`; three triggers make a closed session final), `LinesStrikesAndTabRounding` (block B review: `transaction_items.line_number` and `removed_authorised_by` with their CHECKs; `rounding_variance` may name a tab's movement; rebuilds both tables), `SalesVoid` (B8: a cancel's `payment_opened_at` and `void_authorised_by` on `transactions`; a struck line's `removed_at`, `removed_by` on `transaction_items`; their CHECKs), `CustomersAndTab` (B7: `credit_limit_events`, append-only; the charge's override, the tab's freeze and the customer's collection notice; the `information` notice type), `WeighedGoods` (B3, `quantity_source`, `scale_label_format`) and `OverridesAndDiscountReasons` (B5: `list_price` and the override's reason and authoriser on `transaction_items`; the ticket discount's reason, authoriser and note on `transactions`; a discount note on `transaction_items`) |
 | Encryption | `waymark-store.db` is SQLCipher-encrypted by StoreServer, which refuses a plaintext store and imports one instead (D-056). The generator's output is plaintext by design |
 | Admin | `waymark-admin`: Node 24.19.0 LTS, 82 packages, 0 vulnerabilities. `tsc --noEmit` and `vite build` both clean |
@@ -316,6 +316,15 @@ the bar.
 | D1 | The receipt from its board: a sale, a refund, a duplicate, a repayment slip, at 32 and 42 columns; the store's text; the refund window | D-125 | `Persistence/Sales/Receipts.cs`, `StoreServer/Sales/ReceiptsWire.cs`, `Pos/Receipts/ReceiptLayout.cs`, `Hardware/EscPosEncoder.cs`, `Refunds.WithinWindow`, `RefundWire.AsksOwner` |
 
 | D2 | Printing and the drawer on the fake: after a sale, a refund, a repayment; the print switch; the no-sale and its line on the X and Z | D-126 | `Pos/Receipts/TillPrinter.cs` (`DrawerKicks`), `Pos/Screen/Printing.cs`, `RecordNoSaleHandler` in `CashMovements.cs`, `ShiftReport.NoSaleFlagsOf` |
+
+| D3 | A reprint, a counted duplicate; the past ticket's two keys; a receipt's number scanned | D-127 | `ReprintTicketHandler`, `Persistence/Sales/Reprints.cs`, `/api/receipts/reprint`, `TillWindow.ReprintAsync` and `ScannedTicket` |
+
+**D3 (15/10), how to read it.** F7 on a past ticket, or on the paid rail once printed, posts
+`/api/receipts/reprint` with the approval that opened the ticket (D-109); the server asks the same
+rule as for reading it, stages `reprint_count + 1` (`Reprints`), and answers the receipt with its
+`reprint` (the store's hour, a first name), which `ReceiptLayout` prints as the duplicate. A scan that
+`FieldInput` reads as a ticket's number never reaches the product lookup: `ScannedTicket` opens it, or
+keeps it for F3 while a sale is on the ticket.
 
 **D2 (14/10), how to read it.** After the server writes an operation, `TillWindow` asks
 `DrawerKicks` whether cash moved and pulses through `TillPrinter`, then prints: the receipt read

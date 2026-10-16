@@ -83,7 +83,9 @@ public static class PrintScreen
         var print = new OperationKey(Operation.PrintTicket, kind == PaperKind.Repayment ? text.PrintReceiptKey : text.PrintTicketKey, "F7", true);
         return paper.Outcome switch
         {
-            PaperOutcome.Printed => new PaperBlock(text.Printed(kind), drawer, null, null),
+            // Printed: on the paid rail the key becomes "Réimprimer" (D-127); a refund's ticket has the rail's own.
+            PaperOutcome.Printed => new PaperBlock(text.Printed(kind), drawer, null,
+                kind == PaperKind.Sale ? new OperationKey(Operation.Reprint, text.ReprintKey, "F7", true) : null),
             PaperOutcome.SwitchedOff => new PaperBlock(text.TicketNotPrintedOff, drawer, null, print),
             _ => new PaperBlock(null, drawer, new PanelMessage(text.NotPrintedTitle(kind), text.NotPrintedBody(kind, printing.Fault ?? PrinterFault.NotResponding), Tone.Warning), print),
         };

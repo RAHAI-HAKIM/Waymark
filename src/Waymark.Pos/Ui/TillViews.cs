@@ -810,6 +810,7 @@ public static partial class TillViews
             Operation.CancelTicket => LucideIcons.Ban,
             Operation.Tickets => LucideIcons.History,
             Operation.Refund => LucideIcons.Undo2,
+            Operation.Reprint or Operation.PrintTicket => LucideIcons.Printer,
             Operation.PettyCash => LucideIcons.Coins,
             Operation.More => LucideIcons.Ellipsis,
             Operation.Clock => LucideIcons.User,
@@ -1238,10 +1239,28 @@ public static partial class TillViews
     /// </summary>
     private static Border PastPanel(Rail.Past past, TillTheme theme, TillActions actions) =>
         PaidPanel(
-            new Rail.Paid(past.Label, past.Title, past.Subtitle, past.Figures, past.Footer, past.Paper),
+            new Rail.Paid(past.Label, past.Title, past.Subtitle, past.Figures, past.Footer, past.Paper, past.Reprinted),
             theme,
-            past.Refund is { } refund ? new Border { Margin = new Thickness(-2, 0, -2, 12), Child = OperationTile(refund, theme, actions) } : null,
+            PastKeys(past, theme, actions),
             actions);
+
+    /// <summary>The past ticket's keys, side by side at the foot (board 8): Réimprimer, then Rembourser.</summary>
+    private static UniformGrid? PastKeys(Rail.Past past, TillTheme theme, TillActions actions)
+    {
+        var keys = new[] { past.Reprint, past.Refund }.OfType<OperationKey>().ToList();
+        if (keys.Count == 0)
+        {
+            return null;
+        }
+
+        var row = new UniformGrid { Columns = keys.Count, Margin = new Thickness(-2, 0, -2, 12) };
+        foreach (var key in keys)
+        {
+            row.Children.Add(OperationTile(key, theme, actions));
+        }
+
+        return row;
+    }
 
     private static Border PaidPanel(Rail.Paid paid, TillTheme theme, Control? action = null, TillActions? actions = null)
     {
@@ -1268,6 +1287,9 @@ public static partial class TillViews
                         theme.Prose(paid.Subtitle, 14, theme.TextSecondary),
                         new Border { Margin = new Thickness(0, 12, 0, 0), Child = figures },
                         paid.Paper is { } paper ? PaperView(paper, theme) : new Border(),
+                        paid.Reprinted is { } reprinted
+                            ? new Border { Margin = new Thickness(0, 12, 0, 0), Child = PaperLine(LucideIcons.Printer, reprinted, theme), Tag = reprinted }
+                            : new Border(),
                     },
                 }, Dock.Top),
                 Docked(theme.BodySmall(paid.Footer), Dock.Bottom),

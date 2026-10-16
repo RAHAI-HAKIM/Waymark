@@ -50,7 +50,9 @@ public sealed record PastTicketDetail(
     [property: JsonPropertyName("currency")] string Currency,
     [property: JsonPropertyName("payments")] IReadOnlyList<PastPaymentWire> Payments,
     [property: JsonPropertyName("original_invoice_number")] string? OriginalInvoiceNumber = null,
-    [property: JsonPropertyName("may_store_credit")] bool MayStoreCredit = false);
+    [property: JsonPropertyName("may_store_credit")] bool MayStoreCredit = false,
+    [property: JsonPropertyName("terminal_name")] string? TerminalName = null,
+    [property: JsonPropertyName("reprint_count")] long ReprintCount = 0);
 
 /// <summary>A line of a past ticket, with today's catalogue names.</summary>
 /// <param name="Quantity">Exact decimal text in the line's unit.</param>
@@ -69,9 +71,11 @@ public sealed record PastTicketLineWire(
     [property: JsonPropertyName("weighed")] bool Weighed = false);
 
 /// <summary>A payment the sale took: "cash", "card", "mobile_wallet"...</summary>
+/// <param name="Reference">A card's or a wallet's reference (D-095); null for cash.</param>
 public sealed record PastPaymentWire(
     [property: JsonPropertyName("method")] string Method,
-    [property: JsonPropertyName("amount")] string Amount);
+    [property: JsonPropertyName("amount")] string Amount,
+    [property: JsonPropertyName("reference")] string? Reference = null);
 
 /// <summary>The values of <see cref="TicketList.Outcome"/> and <see cref="TicketAnswer.Outcome"/>.</summary>
 public static class TicketOutcomes

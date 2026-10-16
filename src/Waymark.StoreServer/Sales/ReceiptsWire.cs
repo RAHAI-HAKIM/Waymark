@@ -12,7 +12,10 @@ public static class ReceiptsWire
     /// <param name="zone">The store's zone: the paper's day and hour are the store's.</param>
     /// <param name="refundWindowDays">The tenant's window (D-125), printed in the signature.</param>
     /// <param name="language">The tenant's receipt language (D-124).</param>
-    public static ReceiptAnswer Found(ReceiptFacts receipt, TimeZoneInfo zone, int? refundWindowDays, Language language)
+    /// <param name="reprintedAt">For a reprint (D3), when it was asked; null for the first paper.</param>
+    /// <param name="reprintedBy">Who asked for it, their full name: the paper prints the first.</param>
+    public static ReceiptAnswer Found(
+        ReceiptFacts receipt, TimeZoneInfo zone, int? refundWindowDays, Language language, DateTimeOffset? reprintedAt = null, string? reprintedBy = null)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         ArgumentNullException.ThrowIfNull(zone);
@@ -46,10 +49,17 @@ public static class ReceiptsWire
                 receipt.Reason,
                 refundWindowDays,
                 receipt.ReprintCount,
-                language == Language.Ar ? "ar" : "fr"));
+                language == Language.Ar ? "ar" : "fr",
+                reprintedAt is { } at ? Reprint(at, zone, reprintedBy) : null));
     }
 
     public static ReceiptAnswer Refused(string outcome) => new(outcome, null);
+
+    private static ReprintWire Reprint(DateTimeOffset at, TimeZoneInfo zone, string? by)
+    {
+        var (day, time) = DayAndTime(at, zone);
+        return new ReprintWire(day, time, FirstName(by));
+    }
 
     public static ReceiptStoreWire Store(ReceiptStore store)
     {

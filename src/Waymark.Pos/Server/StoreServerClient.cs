@@ -233,6 +233,14 @@ public sealed class StoreServerClient(HttpClient http, HttpClient? patient = nul
         return answer?.Outcome is null ? null : answer;
     }
 
+    /// <summary>A ticket printed again (D3, D-127): counted by the server, answered as its duplicate. Null when the server could not say.</summary>
+    public async Task<ReceiptAnswer?> ReprintAsync(ReprintRequest request, string sessionToken, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var answer = await SendAsync<ReceiptAnswer>(HttpMethod.Post, "api/receipts/reprint", request, sessionToken, cancellationToken);
+        return answer?.Outcome is null || (answer.Outcome == TicketOutcomes.Found && answer.Receipt is null) ? null : answer;
+    }
+
     /// <summary>The store's lines alone, for a tab repayment's slip (D-125). Null when the server could not say.</summary>
     public async Task<ReceiptStoreAnswer?> ReceiptStoreAsync(string sessionToken, CancellationToken cancellationToken = default)
     {
@@ -623,6 +631,10 @@ public interface ITillServer
 
     /// <summary>What a receipt prints (D1, D-125). A server that knows none answers nothing, and nothing prints.</summary>
     Task<ReceiptAnswer?> ReceiptAsync(string idOrNumber, string sessionToken, string? authorisation, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ReceiptAnswer?>(null);
+
+    /// <summary>A reprint (D-127). A server that knows none answers nothing, and nothing prints or is counted.</summary>
+    Task<ReceiptAnswer?> ReprintAsync(ReprintRequest request, string sessionToken, CancellationToken cancellationToken = default) =>
         Task.FromResult<ReceiptAnswer?>(null);
 
     /// <summary>The store's lines for a slip with no ticket (D-125). A server that knows none answers nothing.</summary>

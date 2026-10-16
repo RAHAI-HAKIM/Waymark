@@ -62,4 +62,13 @@ public sealed class ReceiptsWireTests
         Assert.Equal(new ReceiptLineWire("Tomates", "0.742", "kg", "180.00", "0.00", "133.56", true), line);
         Assert.Equal(new PastPaymentWire("mobile_wallet", "133.56"), Assert.Single(sale.Payments));
     }
+
+    [Fact]
+    public void A_reprint_says_when_in_the_stores_hour_and_who_by_first_name_and_the_first_paper_says_nothing()
+    {
+        var reprint = ReceiptsWire.Found(Sale(), Algiers, null, Language.Fr, new DateTimeOffset(2026, 10, 14, 16, 31, 0, TimeSpan.Zero), "Karim Benali").Receipt!;
+
+        Assert.Equal(new ReprintWire("14/10/2026", "17:31", "Karim"), reprint.Reprint);
+        Assert.Null(ReceiptsWire.Found(Sale(), Algiers, null, Language.Fr).Receipt!.Reprint);
+    }
 }

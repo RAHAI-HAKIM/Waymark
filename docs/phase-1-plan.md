@@ -150,7 +150,7 @@ Discounts, overrides and voids all need PIN and permissions; checkout needs the 
 | :-- | :---- | :---- | :--: | :--: |
 | D1 | Receipt content from the board (D-125): a sale, a refund, a duplicate, a tab repayment's slip, at 32 and 42 columns, French ASCII, read from the ticket's own rows; Code 128; the store's text (`stores.receipt_footer`); the refund window (`refund_window_days`, the owner past it) | `Transaction.RoundingPolicy` (D-053) | C | M |
 | D2 | Printing and the drawer **wired on the fake** (the real device is K's, D-124), from its boards (D-126): the receipt after a sale, a refund, a repayment; the drawer's pulse when cash moves and to count; the print switch, its chip, "Imprimer le ticket"; the audited no-sale (B8 left it here), its count on the X and Z and its owner's detail and flag | the fake printer (Phase 0, D-059) | C drafts, **H verifies** the bytes against the command reference | M |
-| D3 | Reprint, audited. A receipt's printed number, scanned, opens its ticket (B1 reads a scan as a product code only) | D1 | C | S |
+| D3 | Reprint, a counted duplicate, from the past ticket and the paid rail (D-127); a receipt's printed number, scanned, opens its ticket (B1 read a scan as a product code only) | D1 | C | S |
 
 ### Block E — Catalogue, first Admin batch (4 sessions) — **G2 first**
 

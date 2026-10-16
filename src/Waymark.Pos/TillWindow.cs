@@ -69,6 +69,9 @@ public sealed class TillWindow : Window, IDisposable
 
     /// <summary>The store's lines for a slip, read once a sign-in.</summary>
     private ReceiptStoreWire? _receiptStore;
+
+    /// <summary>A ticket's number scanned during a sale (D-127), opened by F3 once the sale is on hold.</summary>
+    private string? _scannedTicket;
     private readonly ITillServer _server;
     private readonly TillIdentity _till;
     private readonly TillText _text;
@@ -208,7 +211,16 @@ public sealed class TillWindow : Window, IDisposable
             if (_session.SignedIn is not null && _payment is null && _discount is not { Authorising: true } && _refund is null
                 && _customerPanel is null && _carnet is null && _report is null)
             {
-                Submit(scan.Code);
+                // A receipt's number, by its dash (D-127): a ticket to open, never a product.
+                if (FieldInput.Read(scan.Code).Kind == FieldKind.Ticket)
+                {
+                    ScannedTicket(scan.Code.Trim());
+                }
+                else
+                {
+                    _scannedTicket = null;
+                    Submit(scan.Code);
+                }
             }
         };
         _scanner.Typed += (_, text) =>
@@ -1169,8 +1181,8 @@ public sealed class TillWindow : Window, IDisposable
                 break;
 
             case Key.F7:
-                // "Imprimer le ticket" (D-126), where an operation ended without its paper.
-                Operate(Operation.PrintTicket);
+                // The paper that did not come out, the original (D-126); else a duplicate (D-127).
+                Operate(PaperMissing() ? Operation.PrintTicket : Operation.Reprint);
                 e.Handled = true;
                 break;
 
@@ -2802,6 +2814,69 @@ public sealed class TillWindow : Window, IDisposable
         Render();
     }
 
+    /// <summary>Whether F7 is "Imprimer le ticket": an operation just ended whose paper did not come out (D-126).</summary>
+    private bool PaperMissing() => PrintingOf() is { } printing
+        && ((printing.Sale ?? printing.Refund ?? printing.Repayment) is { Outcome: not PaperOutcome.Printed });
+
+    /// <summary>
+    /// "Réimprimer" (D-127): the server counts it and answers the duplicate, which the till prints. Who
+    /// may is who may open the ticket: the approval that opened it, cited again (D-109). No printer, no
+    /// reprint, and nothing counted.
+    /// </summary>
+    private async Task ReprintAsync(string number)
+    {
+        if (_printer is null || _session.SignedIn is not { } person)
+        {
+            return;
+        }
+
+        var viewing = _session.Viewing;
+        var approval = viewing is not null ? TicketApprovalFor(viewing) : null;
+        var answer = await _server.ReprintAsync(new ReprintRequest(number, approval), person.Token);
+        switch (answer)
+        {
+            case { Outcome: TicketOutcomes.Found, Receipt: { } receipt }:
+                var mark = receipt.Reprint is { } reprint ? new ReprintMark(reprint.Day, reprint.Time, reprint.By) : null;
+                await _printer.PrintAsync(ReceiptLayout.For(receipt, _printer.Columns, mark));
+
+                // The past ticket says how many copies are about (board 8B).
+                if (_session.Viewing is { } open && open.TransactionId == viewing?.TransactionId)
+                {
+                    _session.View(open with { ReprintCount = receipt.ReprintCount });
+                }
+
+                break;
+            case { Outcome: TicketOutcomes.PinRequired or TicketOutcomes.NotAllowed }:
+                _session.Tell(TillNoticeKind.TicketNotAllowed, number, string.Empty);
+                break;
+            case { Outcome: TicketOutcomes.Unknown }:
+                _session.Tell(TillNoticeKind.TicketUnknown, number, string.Empty);
+                break;
+            case null:
+                _session.ReportHealth(reachable: false);
+                break;
+        }
+
+        Render();
+    }
+
+    /// <summary>
+    /// A receipt's number scanned (board 11): with nothing on the ticket, it opens; with a sale under
+    /// way, nothing is added and the slot offers F3, which puts the sale on hold and opens it.
+    /// </summary>
+    private void ScannedTicket(string number)
+    {
+        if (_session.Paid is null && _session.Viewing is null && _session.Cart.ActiveLines.Count > 0)
+        {
+            _scannedTicket = number;
+            _session.Tell(TillNoticeKind.TicketScanned, number, string.Empty);
+            return;
+        }
+
+        _scannedTicket = null;
+        _ = OpenTicketAsync(number);
+    }
+
     /// <summary>A sale's or a refund's receipt, as the server reads it off the ticket's rows (D1), to the printer.</summary>
     private async Task<bool> PrintTicketAsync(string number)
     {
@@ -3519,6 +3594,14 @@ public sealed class TillWindow : Window, IDisposable
             case Operation.Park:
                 _selected = null;
                 _session.Park();
+
+                // F3 after a ticket's number was scanned mid-sale (board 11A): on hold, then that ticket.
+                if (_scannedTicket is { } scanned && _session.Cart.ActiveLines.Count == 0)
+                {
+                    _scannedTicket = null;
+                    _ = OpenTicketAsync(scanned);
+                }
+
                 break;
 
             case Operation.CancelTicket:
@@ -3567,6 +3650,15 @@ public sealed class TillWindow : Window, IDisposable
                 _moreOpen = false;
                 OpenCustomerPanel(new CustomerPanelState(CustomerPanelKind.NoSale));
                 _ = LoadNoSaleReasonsAsync();
+                break;
+
+            case Operation.Reprint:
+                // "Réimprimer" (D-127): the past ticket open, else the paid one.
+                if ((_session.Viewing?.InvoiceNumber ?? _session.Paid?.Outcome.InvoiceNumber) is { } toReprint)
+                {
+                    _ = ReprintAsync(toReprint);
+                }
+
                 break;
 
             case Operation.Printing:

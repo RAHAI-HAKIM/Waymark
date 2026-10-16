@@ -81,9 +81,11 @@ public static class TicketsWire
                 WireText.Figure(ticket.TaxTotal),
                 WireText.Figure(ticket.Total),
                 ticket.Total.Currency.Code,
-                [.. ticket.Payments.Select(payment => new PastPaymentWire(Snake(payment.Method.ToString()), WireText.Figure(payment.Amount)))],
+                [.. ticket.Payments.Select(payment => new PastPaymentWire(Snake(payment.Method.ToString()), WireText.Figure(payment.Amount), payment.Reference))],
                 ticket.OriginalInvoiceNumber,
-                customerModule && ticket.HasCustomer));
+                customerModule && ticket.HasCustomer,
+                ticket.TerminalName,
+                ticket.ReprintCount));
     }
 
     public static TicketAnswer Refused(string outcome) => new(outcome, null);

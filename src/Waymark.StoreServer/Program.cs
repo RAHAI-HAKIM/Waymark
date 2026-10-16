@@ -103,6 +103,8 @@ builder.Services.AddScoped<IProductLookup, Waymark.Persistence.Catalogue.Product
 builder.Services.AddScoped<IProductSearch, Waymark.Persistence.Catalogue.ProductLookup>();
 builder.Services.AddScoped<IPastTickets, Waymark.Persistence.Sales.PastTickets>();
 builder.Services.AddScoped<IReceipts, Waymark.Persistence.Sales.Receipts>();
+builder.Services.AddScoped<IReprints, Waymark.Persistence.Sales.Reprints>();
+builder.Services.AddScoped<ReprintTicketHandler>();
 builder.Services.AddScoped<IRefundLedger, Waymark.Persistence.Sales.RefundLedger>();
 
 // The reasons the shop accepts for a discount, a void, a cash movement (A3). A read, like
@@ -671,6 +673,49 @@ app.MapPost("/api/sales/void", async (
     catch (SaleRefusedException refusal)
     {
         return Results.Ok(SaleWire.VoidRefused(refusal));
+    }
+    finally
+    {
+        oneSaleAtATime.Release();
+    }
+});
+
+// D3 (D-127): a ticket printed again, a duplicate, its count one more. Who may is who may open it
+// (D-088): their own till today, else rank 2, or the manager's approval that opened it (D-109).
+app.MapPost("/api/receipts/reprint", async (
+    ReprintRequest request, HttpRequest http, TillSessions sessions, IRecommendationBoard staff, IReceipts receipts,
+    IStoreCalendar calendar, ITenantConfiguration configuration, CommandExecutor executor, ReprintTicketHandler handler,
+    TimeProvider clock, CancellationToken cancellationToken) =>
+{
+    var token = http.Headers[TillSessionHeader.Name].ToString();
+    if (sessions.Resolve(token) is not { } session)
+    {
+        return Results.Ok(ReceiptsWire.Refused(TicketOutcomes.NotSignedIn));
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Ticket) || await receipts.FindAsync(request.Ticket.Trim(), cancellationToken) is not { } found)
+    {
+        return Results.Ok(ReceiptsWire.Refused(TicketOutcomes.Unknown));
+    }
+
+    var person = await staff.StaffAsync(session.StaffId, cancellationToken);
+    if (!TicketsWire.MaySee(session, person?.Rank, calendar.Today, calendar.DayOf(found.OccurredAt), found.TerminalId)
+        && sessions.AuthorisedBy(token, request.Authorisation, Capability.ViewOtherTickets) is null)
+    {
+        return Results.Ok(ReceiptsWire.Refused(TicketOutcomes.PinRequired));
+    }
+
+    await oneSaleAtATime.WaitAsync(cancellationToken);
+    try
+    {
+        var count = await executor.ExecuteAsync(handler, new ReprintTicket(found.TransactionId), cancellationToken);
+        var settings = await configuration.CurrentAsync(cancellationToken);
+        return Results.Ok(ReceiptsWire.Found(
+            found with { ReprintCount = count }, storeZone!, settings.RefundWindowDays, settings.ReceiptLanguage, clock.GetUtcNow(), person?.StaffName));
+    }
+    catch (ReprintRefusedException)
+    {
+        return Results.Ok(ReceiptsWire.Refused(TicketOutcomes.Unknown));
     }
     finally
     {

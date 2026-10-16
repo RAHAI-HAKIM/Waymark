@@ -545,6 +545,10 @@ public sealed record TillScreen(
             case { Kind: TillNoticeKind.WeighedTakesNoCount }:
                 return new NoticeLine(Tone.Warning, text.CountIgnored, text.CountIgnoredDetail);
 
+            case { Kind: TillNoticeKind.TicketScanned } scanned:
+                // A ticket's number scanned during a sale (board 11A): nothing added, the way out offered.
+                return new NoticeLine(Tone.Neutral, text.TicketScanned, text.TicketScannedDetail(scanned.Code));
+
             case { Kind: TillNoticeKind.NoSaleOpened } opened:
                 // Neutral: nothing is wrong; it stays until the next scan (board 5D).
                 return new NoticeLine(Tone.Neutral, text.NoSaleOpened, opened.Detail);
@@ -1373,18 +1377,41 @@ public sealed record TillScreen(
         }
 
         figures.Add(new(text.TicketTotal, Figure(past.Total, past.Currency)));
-        figures.AddRange(past.Payments.Select(payment => new Figure(text.PaymentMethod(payment.Method), Figure(payment.Amount, past.Currency))));
+        figures.AddRange(past.Payments.Select(payment => new Figure(
+            payment.Reference is null ? text.PaymentMethod(payment.Method) : $"{text.PaymentMethod(payment.Method)} · {text.PartReference(payment.Reference)}",
+            Figure(payment.Amount, past.Currency))));
+
+        // What refunds brought back of it (board 8): a refund's own ticket brings back nothing of itself.
+        if (past.OriginalInvoiceNumber is null)
+        {
+            var units = past.Lines.Sum(line => Decimal(line.Returned ?? "0") is { } back && decimal.TryParse(back.Replace(',', '.'),
+                System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var amount) && amount > 0
+                    ? (line.Weighed ? 1 : (int)Math.Ceiling(amount))
+                    : 0);
+            figures.Add(new Figure(text.ReturnsOnTicket, units == 0 ? text.ReturnsNone : text.ReturnsCount(units)));
+        }
+
+        // "Aujourd'hui 14:33 · Nabil B. · caisse 1" (board 8).
+        var today = DateOnly.FromDateTime(Local(state, state.Now).DateTime) == DateOnly.FromDateTime(when.DateTime);
+        var subtitle = string.Join(" · ", new[]
+        {
+            $"{(today ? text.TodayWord : date)} {clock}", past.StaffName, past.TerminalName is { } till ? text.TillWord(till) : null,
+        }.Where(part => part is not null));
+        var paper = PrintScreen.Block(text, state.Printing, state.Printing?.Refund, PaperKind.Refund);
 
         Rail rail = refund is not null && state.Discounting is { Kind: CounterKind.Refund } discounting
             ? RefundScreen.RailPanel(state, discounting, past, refund)
             : new Rail.Past(
                 text.PastTicket,
                 number,
-                past.StaffName is null ? $"{date} {clock}" : $"{date} {clock} · {past.StaffName}",
+                subtitle,
                 figures,
                 text.PastTicketFooter,
                 RefundScreen.Refundable(past) ? new OperationKey(Operation.Refund, text.RefundKey, null, true) : null,
-                PrintScreen.Block(text, state.Printing, state.Printing?.Refund, PaperKind.Refund));
+                paper,
+                // A paper never printed is printed as the original first (D-126): one F7 at a time.
+                state.Printing is { Available: true } && paper?.Print is null ? new OperationKey(Operation.Reprint, text.ReprintKey, "F7", true) : null,
+                past.ReprintCount > 0 ? text.Reprinted(past.ReprintCount) : null);
 
         var bottom = new BottomBar(
             taxed ? [new Figure(text.TotalBeforeTax, Figure(past.Subtotal, past.Currency)), new Figure(text.TaxIncluded, Figure(past.TaxTotal, past.Currency))] : [],
@@ -1746,15 +1773,19 @@ public abstract record Rail
 
     /// <summary>A past ticket's figures and payments, beside it in the ticket view (B1).</summary>
     /// <param name="Refund">"Rembourser" (B9), when the ticket may be refunded; null otherwise.</param>
+    /// <param name="Reprint">"Réimprimer", F7 (D-127); null with no printer, or while the paper block offers the original.</param>
+    /// <param name="Reprinted">"Réimprimé 2 fois", from the first reprint on; null before.</param>
     public sealed record Past(
-        string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, OperationKey? Refund = null, PaperBlock? Paper = null) : Rail;
+        string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, OperationKey? Refund = null, PaperBlock? Paper = null,
+        OperationKey? Reprint = null, string? Reprinted = null) : Rail;
 
     /// <summary>The tickets cancelled today (D-087).</summary>
     /// <param name="Empty">What to say when there are none; null when there are.</param>
     public sealed record Drafts(string Label, string Hint, IReadOnlyList<DraftRow> Rows, string? Empty, string Close) : Rail;
 
     /// <summary>A sale just recorded: what it came to and what the drawer takes.</summary>
-    public sealed record Paid(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, PaperBlock? Paper = null) : Rail;
+    /// <param name="Reprinted">A past ticket's "Réimprimé 2 fois" (D-127), drawn through this panel; null on the paid one.</param>
+    public sealed record Paid(string Label, string Title, string Subtitle, IReadOnlyList<Figure> Figures, string Footer, PaperBlock? Paper = null, string? Reprinted = null) : Rail;
 
     /// <summary>The discount panel (B4): what it is on, percent or amount, what it takes off, the reasons.</summary>
     /// <param name="Detail">What it is taken off: the line's, or the ticket's, total before it.</param>
@@ -1818,6 +1849,9 @@ public enum Operation
 
     /// <summary>"Impression" under "Plus…" (D-126): switches printing off or on again, for sale tickets.</summary>
     Printing,
+
+    /// <summary>"Réimprimer", F7 (D-127): a duplicate of the past ticket, or of the paid one once printed; counted.</summary>
+    Reprint,
 }
 
 /// <summary>A section of "Plus…" (D-126): its title, its rows.</summary>
